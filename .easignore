@@ -1,12 +1,6 @@
-# Ignore everything by default
-/*
-
-# Whitelist specific directories and files needed for the build
-!/apps/
-/apps/*
-!/apps/mobile/
-!/packages/
-!package.json
-!package-lock.json
-!turbo.json
-!eas.json
+node_modules/
+.git/
+.expo/
+npm-debug.log
+yarn-error.log
+*.log
