@@ -1,6 +1,9 @@
-node_modules/
-.git/
-.expo/
+**/node_modules
+**/.git
+**/.expo
+**/*.log
 npm-debug.log
 yarn-error.log
-*.log
+dist/
+web-build/
+.next/
