@@ -18,8 +18,8 @@
     "node": ">=18"
   },
   "overrides": {
-    "react": "19.2.3",
-    "react-dom": "19.2.3"
+    "react": "19.1.0",
+    "react-dom": "19.1.0"
   },
   "packageManager": "npm@11.3.0",
   "workspaces": [
