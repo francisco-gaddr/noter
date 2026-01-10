@@ -1,0 +1,19 @@
+// Mock expo-modules-core to avoid winter runtime errors
+jest.mock('expo-modules-core', () => {
+  const actual = jest.requireActual('expo-modules-core');
+  return {
+    ...actual,
+    requireNativeModule: jest.fn(),
+  };
+});
+
+// Fix ReferenceError: __ExpoImportMetaRegistry
+global.__ExpoImportMetaRegistry = {};
+
+// Fix ReferenceError: structuredClone
+global.structuredClone = (val) => JSON.parse(JSON.stringify(val));
+
+// Mock other native modules if needed
+jest.mock('@react-native-async-storage/async-storage', () =>
+  require('@react-native-async-storage/async-storage/jest/async-storage-mock')
+);

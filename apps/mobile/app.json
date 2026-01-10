@@ -1,0 +1,66 @@
+{
+  "expo": {
+    "name": "Noter",
+    "slug": "noter",
+    "version": "1.0.1",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "noter",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.noter.app",
+      "buildNumber": "2",
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "Noter uses FaceID to unlock your secure notes.",
+        "NSPhotoLibraryUsageDescription": "Noter behöver åtkomst till dina bilder för att bifoga dem till anteckningar.",
+        "NSCameraUsageDescription": "Noter behöver åtkomst till kameran för att ta bilder till anteckningar."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.noter.app",
+      "versionCode": 3,
+      "permissions": [
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.WAKE_LOCK"
+      ],
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-sqlite",
+      "expo-local-authentication",
+      "expo-notifications",
+      "expo-background-fetch",
+      "expo-task-manager",
+      "@react-native-community/datetimepicker"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "78d433b3-18a7-4537-a4dd-2ab8a070e09c"
+      }
+    }
+  }
+}

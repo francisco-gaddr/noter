@@ -1,0 +1,11 @@
+# Ignore everything by default
+/*
+
+# Whitelist specific directories and files needed for the build
+!apps/mobile/
+!packages/
+!package.json
+!package-lock.json
+!turbo.json
+!yarn.lock
+!pnpm-lock.yaml
