@@ -62,6 +62,7 @@ import { useStore } from '@/stores/useStore';
 
 import { initApiUrl } from '@/services/api';
 import { Alert, View } from 'react-native';
+import { useRouter, useSegments } from 'expo-router';
 
 function RootLayoutNav() {
   const { actualTheme } = useThemeContext();
@@ -75,6 +76,23 @@ function RootLayoutNav() {
     bootstrap();
   }, []);
 
+  const router = useRouter();
+  const segments = useSegments();
+  const token = useStore((s) => s.token);
+  const isInitialized = useStore((s) => s.isInitialized);
+  const inAuth = segments[0] === 'auth';
+
+  useEffect(() => {
+    if (!isInitialized) return;
+    if (!token && !inAuth) {
+      router.replace('/auth/login');
+      return;
+    }
+    if (token && inAuth) {
+      router.replace('/(tabs)');
+    }
+  }, [token, inAuth, isInitialized, router]);
+
   const paperTheme = colorScheme === 'dark' ? MD3DarkTheme : MD3LightTheme;
 
   return (
@@ -87,6 +105,7 @@ function RootLayoutNav() {
               <ErrorToaster />
               <Stack>
                 <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                <Stack.Screen name="auth/login" options={{ headerShown: false }} />
                 <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
               </Stack>
             </AppLock>

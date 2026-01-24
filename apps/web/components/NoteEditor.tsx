@@ -952,8 +952,14 @@ const withHtml = (editor: Editor) => {
       const fragment = htmlToSlateValue(html);
       
       // Avoid inserting empty paragraphs if parsing failed or result is empty
-      const isDefault = fragment.length === 1 && fragment[0].type === 'paragraph' && 
-                        fragment[0].children.length === 1 && (fragment[0].children[0] as any).text === '';
+      const isDefault =
+        fragment.length === 1 &&
+        SlateElement.isElement(fragment[0]) &&
+        (fragment[0] as any).type === 'paragraph' &&
+        Array.isArray((fragment[0] as any).children) &&
+        (fragment[0] as any).children.length === 1 &&
+        Text.isText((fragment[0] as any).children[0]) &&
+        ((fragment[0] as any).children[0] as any).text === '';
       
       if (!isDefault) {
         Transforms.insertFragment(editor, fragment);

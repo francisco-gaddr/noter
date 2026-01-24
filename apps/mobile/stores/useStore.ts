@@ -1,10 +1,10 @@
 import { create } from 'zustand';
 import 'react-native-get-random-values';
-import { v4 as uuidv4 } from 'uuid';
+import * as Crypto from 'expo-crypto';
 import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, encrypt, decrypt } from '@repo/shared';
-import { fetchWithAuth, login as apiLogin, setAuthToken, initApiUrl } from '../services/api';
+import { fetchWithAuth, login as apiLogin, setAuthToken, initApiUrl, setUnauthorizedHandler } from '../services/api';
 import * as Database from '../services/database';
-import { initSocket } from '../services/socket';
+import { initSocket, disconnectSocket } from '../services/socket';
 import NetInfo from '@react-native-community/netinfo';
 import * as SecureStore from 'expo-secure-store';
 
@@ -17,12 +17,17 @@ interface AppState {
   isOffline: boolean;
   isSyncingOffline: boolean;
   activeProjectId: string | null;
+  token: string | null;
+  isInitialized: boolean;
   
   // UI Actions
   setActiveProject: (id: string | null) => void;
   setViewMode: (mode: 'list' | 'tree') => void;
   init: () => Promise<void>;
   
+  // Socket Actions
+  connectSocket: () => void;
+
   // Note Actions
   fetchNotes: () => Promise<void>;
   createNote: (data: CreateNoteDto) => Promise<Note>;
@@ -45,16 +50,30 @@ interface AppState {
   
   // Auth
   login: (username: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
+  setToken: (token: string | null) => void;
 }
 
 const processLocalNote = (note: Note): Note => ({
   ...note,
 });
 
+const tryDecryptString = (value: unknown): any => {
+  if (typeof value !== 'string') return value;
+  try {
+    return decrypt(value);
+  } catch {
+    return value;
+  }
+};
+
 const processApiNote = (note: Note): Note => ({
   ...note,
   title: decrypt(note.title),
   content: decrypt(note.content),
+  tags: Array.isArray((note as any).tags) ? ((note as any).tags as any[]).map((t) => tryDecryptString(t)) : [],
+  icon: (note as any).icon ? tryDecryptString((note as any).icon) : (note as any).icon,
+  type: (note as any).type ? tryDecryptString((note as any).type) : (note as any).type,
 });
 
 const parseTaskCompleted = (value: unknown): boolean => {
@@ -96,7 +115,7 @@ const processApiTask = (task: any): Task => ({
   description: decrypt(task.description),
   completed: parseTaskCompleted(task.completed),
   priority: parseTaskPriority(task.priority),
-  dueDate: task.dueDate ? new Date(decrypt(task.dueDate)) : null,
+  dueDate: task.dueDate ? (typeof task.dueDate === 'string' ? decrypt(task.dueDate) : task.dueDate) : null,
 });
 
 const processLocalTask = (task: Task): Task => ({
@@ -130,9 +149,23 @@ export const useStore = create<AppState>((set, get) => ({
   isOffline: false,
   isSyncingOffline: false,
   activeProjectId: null,
+  token: null,
   isInitialized: false,
 
   setActiveProject: (id) => set({ activeProjectId: id }),
+  setToken: (token) => {
+    set({ token });
+    // Also update socket auth
+    const socket = getSocket();
+    if (socket) {
+        (socket as any).auth = token ? { token } : undefined;
+        if (socket.connected) {
+            socket.disconnect().connect();
+        } else if (token) {
+            socket.connect();
+        }
+    }
+  },
   setViewMode: (mode) => set({ viewMode: mode }),
 
   init: async () => {
@@ -141,6 +174,16 @@ export const useStore = create<AppState>((set, get) => ({
 
     await initApiUrl();
     await Database.initDatabase();
+
+    const storedToken = await SecureStore.getItemAsync('token');
+    if (storedToken) {
+      setAuthToken(storedToken);
+      set({ token: storedToken });
+    }
+
+    setUnauthorizedHandler(async () => {
+      await get().logout();
+    });
     
     // Load local data immediately
     const localNotes = await Database.getNotesLocal();
@@ -159,15 +202,50 @@ export const useStore = create<AppState>((set, get) => ({
       }
     });
 
-    // Initialize Socket.io listeners
-    const socket = initSocket();
+    get().connectSocket();
+  },
+
+  connectSocket: () => {
+    const token = get().token;
+    const socket = initSocket(token);
+
+    if (!socket) return;
+
+    // Clear existing listeners to avoid duplicates if reconnecting
+    socket.off('note:created');
+    socket.off('note:updated');
+    socket.off('note:deleted');
+    socket.off('notes:reordered');
+    socket.off('task:created');
+    socket.off('task:updated');
+    socket.off('task:deleted');
+    socket.off('tasks:reordered');
 
     socket.on('note:created', (note: Note) => {
       const parsed = processApiNote(note);
       set(state => {
         if (state.notes.find(n => n._id === parsed._id)) return state;
+
+        const parsedClientId = (parsed as any).clientId as string | undefined;
+        const existingIdxByClientId =
+          parsedClientId
+            ? state.notes.findIndex(n => (n as any).clientId && (n as any).clientId === parsedClientId)
+            : -1;
+
+        if (existingIdxByClientId !== -1) {
+          const existing = state.notes[existingIdxByClientId];
+          if (existing && existing._id !== parsed._id) {
+            Database.deleteNoteLocal(existing._id);
+          }
+          const replaced = state.notes.map((n, idx) => (idx === existingIdxByClientId ? parsed : n));
+          const deduped = replaced.filter((n, idx, arr) => arr.findIndex(x => x._id === n._id) === idx);
+          Database.saveNoteLocal(parsed, true);
+          return { notes: deduped };
+        }
+
         Database.saveNoteLocal(parsed, true);
-        return { notes: [parsed, ...state.notes] };
+        const deduped = [parsed, ...state.notes].filter((n, idx, arr) => arr.findIndex(x => x._id === n._id) === idx);
+        return { notes: deduped };
       });
     });
 
@@ -257,6 +335,11 @@ export const useStore = create<AppState>((set, get) => ({
       if (token) {
         await SecureStore.setItemAsync('token', token);
         setAuthToken(token);
+        set({ token });
+        
+        // Re-init socket with new token and attach listeners
+        get().connectSocket();
+
         // Refresh data after login
         await get().fetchNotes();
         await get().fetchTasks();
@@ -266,6 +349,15 @@ export const useStore = create<AppState>((set, get) => ({
       set({ error: error.message, isLoading: false });
       throw error;
     }
+  },
+
+  logout: async () => {
+    try {
+      await SecureStore.deleteItemAsync('token');
+    } catch {}
+    setAuthToken(null);
+    disconnectSocket();
+    set({ token: null, notes: [], tasks: [], activeProjectId: null, error: null });
   },
 
   fetchNotes: async () => {
@@ -300,7 +392,7 @@ export const useStore = create<AppState>((set, get) => ({
     set({ isLoading: true, error: null });
     
     const tempId = `local_${Date.now()}`;
-    const clientId = uuidv4(); // Generate clientId for potential backend dedupe if supported, or just local consistency
+    const clientId = Crypto.randomUUID(); // Generate clientId for potential backend dedupe if supported, or just local consistency
 
     const optimisticNote: Note = {
       _id: tempId,
@@ -316,7 +408,6 @@ export const useStore = create<AppState>((set, get) => ({
       type: data.type || 'note',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      // @ts-ignore: clientId might not be in Note interface yet, but we store it locally
       clientId, 
     };
 
@@ -335,6 +426,7 @@ export const useStore = create<AppState>((set, get) => ({
         ...data,
         title: encrypt(data.title),
         content: encrypt(data.content),
+        type: data.type || 'note',
         clientId, // Send it anyway
       };
 
@@ -546,7 +638,7 @@ export const useStore = create<AppState>((set, get) => ({
   createTask: async (data) => {
     // Optimistic Update Pattern
     set({ isLoading: true, error: null });
-    const clientId = uuidv4();
+    const clientId = Crypto.randomUUID();
     const tempId = `local_task_${Date.now()}`;
     
     // 1. Prepare optimistic task
@@ -668,11 +760,19 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       // 3. Encrypt Data
       const encryptedData = { ...data } as any;
-      if (data.title) encryptedData.title = encrypt(data.title);
-      if (data.description) encryptedData.description = encrypt(data.description);
-      // Do not encrypt completed/priority as backend expects specific types/values
-      if (data.completed !== undefined) encryptedData.completed = data.completed;
-      if (data.priority) encryptedData.priority = data.priority;
+      const toIso = (value: unknown) => {
+        if (value instanceof Date) return value.toISOString();
+        if (typeof value === 'string') return value;
+        return String(value ?? '');
+      };
+
+      if (data.title !== undefined) encryptedData.title = encrypt(data.title);
+      if (data.description !== undefined) encryptedData.description = encrypt(data.description || '');
+      if (data.completed !== undefined) encryptedData.completed = encrypt(String(data.completed));
+      if (data.priority !== undefined) encryptedData.priority = encrypt(data.priority);
+      if (data.dueDate !== undefined) {
+        encryptedData.dueDate = data.dueDate ? encrypt(toIso(data.dueDate)) : '';
+      }
 
       // 4. Save Local (mark as unsynced initially)
       await Database.saveTaskLocal(optimisticTask, false);

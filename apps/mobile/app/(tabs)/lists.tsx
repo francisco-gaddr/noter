@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { List, IconButton, TextInput, FAB, useTheme, Divider, Text } from 'react-native-paper';
 import { useStore } from '@/stores/useStore';
 import { Note } from '@repo/shared';
@@ -65,7 +65,8 @@ export default function ListsScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <List.Section title="Lists">
+      <ScrollView>
+        <List.Section title="Lists">
         {lists.length === 0 && (
           <View style={styles.empty}>
             <Text variant="bodySmall">Skapa din första lista</Text>
@@ -117,6 +118,7 @@ export default function ListsScreen() {
           </View>
         ))}
       </List.Section>
+      </ScrollView>
 
       <FAB
         icon="plus"

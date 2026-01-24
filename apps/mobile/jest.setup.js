@@ -7,8 +7,15 @@ jest.mock('expo-modules-core', () => {
   };
 });
 
+// Mock react-native-reanimated
+jest.mock('react-native-reanimated', () => require('react-native-reanimated/mock'));
+
+// Mock react-native-gesture-handler
+require('react-native-gesture-handler/jestSetup');
+
 // Fix ReferenceError: __ExpoImportMetaRegistry
 global.__ExpoImportMetaRegistry = {};
+
 
 // Fix ReferenceError: structuredClone
 global.structuredClone = (val) => JSON.parse(JSON.stringify(val));

@@ -70,10 +70,22 @@ Applikationen är under aktiv utveckling. Nedan listas nuvarande status för oli
     *   Appen kommer automatiskt försöka ansluta till backenden via din dators lokala IP-adress.
 
 
-Bygga APK från appen:
+## Bygga APK (EAS)
 
+1. Installera EAS CLI (om du inte redan har):
+   ```bash
+   npm i -g eas-cli
+   ```
+2. Logga in:
+   ```bash
+   eas login
+   ```
+3. Bygg en APK (profil `preview`):
+   ```bash
+   eas build -p android --profile preview
+   ```
 
-eas build -p android --profile preview
+Profilen `preview` är konfigurerad för att bygga en APK i [eas.json](file:///f:/Tech/Projekt/Noter/noter-app/apps/mobile/eas.json).
 
 
 ### Felsökning av Anslutning

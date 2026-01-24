@@ -396,7 +396,7 @@ export default function SidebarTree() {
   const handleEditConfirm = async (title: string, icon: string) => {
     if (editModal.note) {
         try {
-            await updateNote(editModal.note._id, title, undefined, undefined, undefined, icon);
+            await updateNote(editModal.note._id, title, undefined, undefined, undefined, icon, (editModal.note as any).type);
             setEditModal({ isOpen: false, note: null });
         } catch (e) {
             console.error(e);

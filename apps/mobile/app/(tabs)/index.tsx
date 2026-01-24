@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
-import { StyleSheet, View, TouchableOpacity } from 'react-native';
+import { StyleSheet, View, TouchableOpacity, Alert } from 'react-native';
 import { FAB, ActivityIndicator, IconButton, Menu, Divider, Text, Button, Avatar, useTheme } from 'react-native-paper';
 import { useRouter, useNavigation, useFocusEffect } from 'expo-router';
 import { useStore } from '@/stores/useStore';
@@ -42,7 +42,7 @@ export default function NotesScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const theme = useTheme();
-  const { notes, isLoading, error, fetchNotes, viewMode, setViewMode, activeProjectId, updateNote, reorderNotes } = useStore();
+  const { notes, isLoading, error, fetchNotes, viewMode, setViewMode, activeProjectId, updateNote, reorderNotes, deleteNote } = useStore();
   
   const [sortMenuVisible, setSortMenuVisible] = useState(false);
   const [projectSelectorVisible, setProjectSelectorVisible] = useState(false);
@@ -230,6 +230,16 @@ export default function NotesScreen() {
         onReorder={handleReorder}
         sortBy={sortBy}
         sortOrder={sortOrder}
+        onDelete={(note) => {
+            Alert.alert(
+                "Delete Note",
+                "Are you sure you want to delete this note?",
+                [
+                    { text: "Cancel", style: "cancel" },
+                    { text: "Delete", style: "destructive", onPress: () => deleteNote(note._id) }
+                ]
+            );
+        }}
       />
       
       <FAB

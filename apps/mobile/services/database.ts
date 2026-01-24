@@ -307,14 +307,14 @@ export const getTasksLocal = async (): Promise<Task[]> => {
         priority = row.priority || 'medium';
     }
 
-    let dueDate: Date | null = null;
+    let dueDate: string | null = null;
     if (row.dueDate) {
         try {
             const decryptedDate = decrypt(row.dueDate);
-            dueDate = new Date(decryptedDate);
+            dueDate = decryptedDate;
         } catch {
             // Fallback for legacy
-            dueDate = new Date(row.dueDate);
+            dueDate = row.dueDate;
         }
     }
 
@@ -328,8 +328,11 @@ export const getTasksLocal = async (): Promise<Task[]> => {
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
         userId: row.userId,
-        parentNoteId: row.parentNoteId
-    };
+        parentNoteId: row.parentNoteId,
+        clientId: row.clientId,
+        parentId: row.parentId,
+        position: row.position
+    } as unknown as Task;
   });
 };
 

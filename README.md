@@ -1,52 +1,69 @@
-# Noter App
+# Noter
 
-En säker och effektiv anteckningsapp med hierarkiska listor och realtidsstöd.
+A comprehensive note-taking and task management application with cross-platform support (Web & Mobile).
 
-## Kom igång
+## Features
 
-### Förutsättningar
+- **Cross-Platform:** Available on Web (Next.js) and Mobile (React Native/Expo).
+- **Real-time Sync:** Seamless synchronization between devices using WebSockets.
+- **Offline Support:** Full offline capability with local database storage.
+- **Rich Text Editor:** Advanced note editing with formatting support.
+- **Task Management:** Kanban board, list view, and calendar view for tasks.
+- **Project Organization:** Organize notes and tasks into projects and folders.
+- **Security:** Password protection for sensitive notes.
 
-*   Node.js (v18+)
-*   Docker & Docker Compose (för databaser)
+## Project Structure
 
-### Starta Databaser (MongoDB & Redis)
+This is a monorepo managed with TurboRepo:
 
-För att starta nödvändiga databaser, kör följande kommando i roten av projektet:
+- `apps/web`: Next.js web application
+- `apps/mobile`: Expo React Native mobile application
+- `apps/backend`: Node.js/Express backend server
+- `packages/shared`: Shared types and utilities
+- `packages/ui`: Shared UI components
 
+## Getting Started
+
+### Prerequisites
+
+- Node.js (LTS)
+- npm or yarn
+- MongoDB (for backend)
+
+### Installation
+
+1. Clone the repository
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+### Running the App
+
+**Backend:**
 ```bash
-docker-compose up -d
-```
-
-Detta startar:
-*   MongoDB på port 27017
-*   Redis på port 6379
-
-### Starta Applikationen
-
-Installera beroenden:
-
-```bash
-npm install
-```
-
-Starta utvecklingsmiljön (både backend och frontend):
-
-```bash
+cd apps/backend
 npm run dev
 ```
 
-### Projektstruktur
+**Web:**
+```bash
+cd apps/web
+npm run dev
+```
 
-*   `apps/web`: Frontend (Next.js)
-*   `apps/backend`: Backend API (Express, Socket.io)
-*   `apps/mobile`: Mobilapp (React Native/Expo)
+**Mobile:**
+```bash
+cd apps/mobile
+npm run start
+```
 
-### Felsökning
+## Git Workflow
 
-*   **CORS Fel:** Om du ser CORS-fel i konsolen, se till att backend körs och att `docker-compose up` har startat databaserna korrekt.
-*   **Redis Error:** Om backend loggar `ECONNREFUSED` mot Redis, kontrollera att Redis-containern är igång (`docker ps`).
+- `main`: Stable production code
+- `dev`: Active development branch
+- Feature branches: Created from `dev` (e.g., `feature/new-feature`)
 
----
+## License
 
-# Turborepo starter
-... (resten av filen)
+[MIT](LICENSE)

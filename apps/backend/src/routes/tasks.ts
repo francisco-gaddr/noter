@@ -72,7 +72,7 @@ router.post('/', validate(taskSchema), async (req: Request, res: Response, next:
     const createdTask = await task.save();
     
     const io = req.app.get('io');
-    io.emit('task:created', createdTask);
+    io.to(`user:${userId}`).emit('task:created', createdTask);
 
     res.status(201).json(createdTask);
   } catch (error: any) {
@@ -120,11 +120,16 @@ router.put('/assign-to-list', validate(assignSchema), async (req: Request, res: 
 router.put('/reorder', validate(reorderSchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { tasks } = req.body; // Array of { _id, position }
+    const userId = (req as AuthRequest).user!.userId;
 
-    const updates = tasks.map((t: any) => ({
+    const validTasks = (tasks as Array<{ _id: string; position: number }>).filter((t) =>
+      mongoose.Types.ObjectId.isValid(t._id),
+    );
+
+    const updates = validTasks.map((t) => ({
       updateOne: {
-        filter: { _id: t._id, userId: (req as AuthRequest).user!.userId },
-        update: { position: t.position }
+        filter: { _id: new mongoose.Types.ObjectId(t._id), userId },
+        update: { $set: { position: t.position } }
       }
     }));
 
@@ -133,7 +138,7 @@ router.put('/reorder', validate(reorderSchema), async (req: Request, res: Respon
     }
     
     const io = req.app.get('io');
-    io.emit('tasks:reordered', tasks);
+    io.to(`user:${userId}`).emit('tasks:reordered', validTasks);
 
     res.json({ message: 'Tasks reordered' });
   } catch (error) {
@@ -161,7 +166,7 @@ router.put('/:id', validate(updateTaskSchema), async (req: Request, res: Respons
         const updatedTask = await task.save();
         
         const io = req.app.get('io');
-        io.emit('task:updated', updatedTask);
+        io.to(`user:${task.userId}`).emit('task:updated', updatedTask);
         
         res.json(updatedTask);
     } else {
@@ -185,7 +190,7 @@ router.delete('/:id', async (req: Request, res: Response, next: NextFunction) =>
       await task.deleteOne();
       
       const io = req.app.get('io');
-      io.emit('task:deleted', req.params.id);
+      io.to(`user:${task.userId}`).emit('task:deleted', req.params.id);
       
       res.json({ message: 'Task removed' });
     } else {

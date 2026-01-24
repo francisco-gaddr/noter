@@ -45,13 +45,22 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
+      "./plugins/withKotlinGradle.js",
       "expo-router",
       "expo-sqlite",
       "expo-local-authentication",
       "expo-notifications",
       "expo-background-fetch",
       "expo-task-manager",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "kotlinVersion": "2.1.20"
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

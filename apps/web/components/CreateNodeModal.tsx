@@ -33,7 +33,7 @@ export const CreateNodeModal: React.FC<CreateNodeModalProps> = ({
             setTitle(initialTitle);
             setIcon(initialIcon);
         }
-    }, [isOpen, initialTitle, initialIcon]);
+    }, [isOpen]);
 
     if (!isOpen) return null;
 
@@ -52,8 +52,8 @@ export const CreateNodeModal: React.FC<CreateNodeModalProps> = ({
             <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-xl w-96 z-50">
                 <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-gray-100">
                     {mode === 'edit' 
-                        ? (type === 'task_list' ? t('actions.editList') : t('actions.editNote'))
-                        : (type === 'task_list' ? t('actions.newList') : t('actions.newNote'))
+                        ? (type === 'project' ? (t('project.rename') || 'Edit Project') : type === 'task_list' ? t('actions.editList') : t('actions.editNote'))
+                        : (type === 'project' ? (t('project.create') || 'New Project') : type === 'task_list' ? t('actions.newList') : t('actions.newNote'))
                     }
                 </h3>
                 <form onSubmit={handleSubmit} className="space-y-4">

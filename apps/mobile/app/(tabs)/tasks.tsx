@@ -43,7 +43,7 @@ export default function TasksScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const theme = useTheme();
-  const { tasks, notes, isLoading, fetchTasks, fetchNotes, updateTask, reorderTasks, createNote, updateNote, deleteNote } = useStore();
+  const { tasks, notes, isLoading, fetchTasks, fetchNotes, updateTask, reorderTasks, createNote, updateNote, deleteNote, deleteTask } = useStore();
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'board' | 'calendar'>('list');
 
@@ -423,6 +423,16 @@ export default function TasksScreen() {
           onReorder={sortBy === 'custom' ? handleReorder : undefined}
           showViewToggle={false}
           onCreateTask={handleCreateTaskWithDate}
+          onDelete={(task) => {
+            Alert.alert(
+              "Delete Task",
+              "Are you sure you want to delete this task?",
+              [
+                { text: "Cancel", style: "cancel" },
+                { text: "Delete", style: "destructive", onPress: () => deleteTask(task._id) }
+              ]
+            );
+          }}
         />
       ) : viewMode === 'board' ? (
         <TaskBoard

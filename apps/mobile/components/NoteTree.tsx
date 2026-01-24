@@ -7,6 +7,8 @@ import { FlashList } from '@shopify/flash-list';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import DraggableFlatList, { RenderItemParams, ScaleDecorator } from 'react-native-draggable-flatlist';
 import { noteContentToPlainText } from '@/utils/tiptap';
+import * as Haptics from 'expo-haptics';
+import { NoteItem } from './NoteItem';
 
 interface NoteTreeProps {
   notes: Note[];
@@ -16,6 +18,8 @@ interface NoteTreeProps {
   variant?: 'compact' | 'cards';
   sortBy?: 'createdAt' | 'updatedAt' | 'title' | 'custom';
   sortOrder?: 'asc' | 'desc';
+  onDelete?: (note: Note) => void;
+  scrollEnabled?: boolean;
 }
 
 interface TreeItem extends Note {
@@ -32,6 +36,7 @@ export default function NoteTree({
   variant = 'compact',
   sortBy = 'custom',
   sortOrder = 'asc',
+  scrollEnabled = true,
 }: NoteTreeProps) {
   const router = useRouter();
   const theme = useTheme();
@@ -135,53 +140,23 @@ export default function NoteTree({
 
   const renderCompactRow = useCallback(
     (item: TreeItem, drag?: () => void, isActive?: boolean) => (
-      <TouchableOpacity
-        style={[
-          styles.row,
-          {
-            paddingLeft: item.level * 20 + 10,
-            backgroundColor: isActive ? theme.colors.elevation.level3 : theme.colors.surface,
-          },
-        ]}
-        onPress={() => router.push(`/note/${item._id}`)}
-        onLongPress={drag}
-        disabled={isActive}
-      >
-        <View style={styles.iconContainer}>
-          {item.hasChildren && (
-            <IconButton
-              icon={item.isExpanded ? 'chevron-down' : 'chevron-right'}
-              size={20}
-              onPress={() => toggleExpand(item._id)}
-              style={{ margin: 0 }}
-            />
-          )}
-        </View>
-
-        <View style={{ width: 24, alignItems: 'center', marginRight: 8 }}>
-          {(() => {
-            const iconKey = (item as any).icon as string | undefined;
-
-            if (iconKey) {
-              return <FontAwesome5 name={toFa5(iconKey) as any} size={16} color={theme.colors.onSurface} />;
+      <NoteItem
+        note={item}
+        level={item.level}
+        hasChildren={item.hasChildren}
+        isExpanded={item.isExpanded}
+        onToggleExpand={toggleExpand}
+        onPress={(note) => router.push(`/note/${note._id}`)}
+        onLongPress={() => {
+            if (drag) {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                drag();
             }
-
-            if ((item as any).type === 'project') {
-              return <IconButton icon="folder-outline" size={20} style={{ margin: 0 }} iconColor={theme.colors.onSurface} />;
-            }
-
-            return <IconButton icon="file-document-outline" size={20} style={{ margin: 0 }} iconColor={theme.colors.onSurface} />;
-          })()}
-        </View>
-
-        <Text style={[styles.title, { color: theme.colors.onSurface }]} numberOfLines={1}>
-          {item.title}
-        </Text>
-
-        {item.locked && <IconButton icon="lock" size={16} style={{ margin: 0 }} />}
-      </TouchableOpacity>
+        }}
+        isActive={isActive}
+      />
     ),
-    [router, theme.colors.elevation.level3, theme.colors.onSurface, theme.colors.surface, toggleExpand, toFa5]
+    [router, toggleExpand]
   );
 
   const renderCardRow = useCallback(
@@ -307,14 +282,23 @@ export default function NoteTree({
 
   return (
     <View style={styles.container}>
-      {onReorder ? (
-        <DraggableFlatList
+      {!scrollEnabled ? (
+        <View style={variant === 'cards' ? styles.listContent : undefined}>
+          {treeData.map((item, index) => (
+             <React.Fragment key={item._id}>
+                {variant === 'cards' ? renderCardRow(item) : renderCompactRow(item)}
+             </React.Fragment>
+          ))}
+        </View>
+      ) : onReorder ? (
+        <DraggableFlatList<TreeItem>
           data={treeData}
           renderItem={renderItem}
           keyExtractor={(item) => item._id}
           onDragEnd={handleDragEnd}
-          onDragBegin={(params) => {
-            draggedItemRef.current = params.item;
+          onDragBegin={(index) => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            draggedItemRef.current = treeData[index];
           }}
           refreshing={refreshing}
           onRefresh={onRefresh}

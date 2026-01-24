@@ -160,6 +160,8 @@ const resources = {
       },
       tasks: {
         header: 'Tasks',
+        todo: 'To Do',
+        completed: 'Completed',
         placeholder: 'Add a task...',
         noTasks: 'No tasks yet.',
         selectList: 'Select a list',
@@ -338,6 +340,8 @@ const resources = {
       },
       tasks: {
         header: 'Uppgifter',
+        todo: 'Att göra',
+        completed: 'Avslutade',
         placeholder: 'Lägg till en uppgift...',
         noTasks: 'Inga uppgifter ännu.',
         selectList: 'Välj en lista',
@@ -361,16 +365,14 @@ const resources = {
           high: 'Hög'
         },
         filter: {
-          label: 'Filtrera',
-          dateRange: 'Datumintervall',
-          startDate: 'Startdatum',
-          endDate: 'Slutdatum',
-          quick: 'Snabbval',
+          all: 'Alla',
+          active: 'Aktiva',
+          completed: 'Avslutade',
           today: 'Idag',
           tomorrow: 'Imorgon',
           thisWeek: 'Denna vecka',
           thisMonth: 'Denna månad',
-          clear: 'Rensa filter'
+          dateRange: 'Datumintervall'
         }
       }
     }

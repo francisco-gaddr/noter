@@ -10,34 +10,38 @@ interface NoteListProps {
   onReorder?: (data: Note[]) => void;
   sortBy?: 'createdAt' | 'updatedAt' | 'title' | 'custom';
   sortOrder?: 'asc' | 'desc';
+  onDelete?: (note: Note) => void;
+  scrollEnabled?: boolean;
 }
 
-export default function NoteList({ notes, onRefresh, refreshing, viewMode = 'list', onReorder, sortBy, sortOrder }: NoteListProps) {
-  const visibleNotes = notes.filter((n) => (n as any).type !== 'task_list');
-
+export default function NoteList({ notes, onRefresh, refreshing, viewMode = 'list', onReorder, sortBy, sortOrder, onDelete, scrollEnabled = true }: NoteListProps) {
   if (viewMode === 'tree') {
     return (
       <NoteTree
-        notes={visibleNotes}
+        notes={notes}
         onRefresh={onRefresh}
         refreshing={refreshing}
         onReorder={onReorder}
         variant="compact"
         sortBy={sortBy}
         sortOrder={sortOrder}
+        onDelete={onDelete}
+        scrollEnabled={scrollEnabled}
       />
     );
   }
 
   return (
     <NoteTree
-      notes={visibleNotes}
+      notes={notes}
       onRefresh={onRefresh}
       refreshing={refreshing}
       onReorder={onReorder}
       variant="cards"
       sortBy={sortBy}
       sortOrder={sortOrder}
+      onDelete={onDelete}
+      scrollEnabled={scrollEnabled}
     />
   );
 }

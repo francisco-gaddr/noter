@@ -7,7 +7,6 @@ import { AuthResponse } from '@repo/shared';
 import { validate } from '../middleware/validate';
 
 const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
 
 const registerSchema = Joi.object({
   username: Joi.string().alphanum().min(3).max(30).required(),
@@ -34,6 +33,7 @@ router.post('/register', validate(registerSchema), async (req, res) => {
     const newUser = new User({ username, passwordHash });
     await newUser.save();
 
+    const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
     const token = jwt.sign({ userId: newUser._id }, JWT_SECRET, { expiresIn: '7d' });
     
     const response: AuthResponse = {
@@ -67,6 +67,7 @@ router.post('/login', validate(loginSchema), async (req, res) => {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
+    const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
     const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '7d' });
 
     const response: AuthResponse = {

@@ -11,8 +11,13 @@ export default function AppLock() {
     const { isAppLocked, setAppLocked, user, login } = useStore();
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
+    const [mounted, setMounted] = useState(false);
     const timerRef = useRef<NodeJS.Timeout | null>(null);
     const { t } = useTranslation();
+
+    useEffect(() => {
+        setMounted(true);
+    }, []);
 
     const resetTimer = useCallback(() => {
         if (isAppLocked || !user) return;
@@ -52,7 +57,7 @@ export default function AppLock() {
         }
     };
 
-    if (!isAppLocked) return null;
+    if (!isAppLocked || !mounted) return null;
 
     return (
         <div className="fixed inset-0 z-[100] bg-gray-900 flex flex-col items-center justify-center text-white">

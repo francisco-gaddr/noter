@@ -223,7 +223,7 @@ router.post('/', validate(noteSchema), async (req: Request, res: Response, next:
     await cache.del(`notes:list:${userId}`);
 
     const io = req.app.get('io');
-    io.emit('note:created', createdNote);
+    io.to(`user:${userId}`).emit('note:created', createdNote);
 
     res.status(201).json(createdNote);
   } catch (error) {
@@ -259,7 +259,7 @@ router.put('/reorder', validate(reorderSchema), async (req: Request, res: Respon
     await cache.del(`notes:list:${userId}`);
 
     const io = req.app.get('io');
-    io.emit('notes:reordered', notes);
+    io.to(`user:${userId}`).emit('notes:reordered', notes);
 
     res.json({ message: 'Notes reordered' });
   } catch (error) {
@@ -306,7 +306,7 @@ router.put('/:id', validate(updateSchema), async (req: Request, res: Response, n
       }
       
       const io = req.app.get('io');
-      io.emit('note:updated', noteObj);
+      io.to(`user:${userId}`).emit('note:updated', noteObj);
 
       res.json(noteObj);
     } else {
@@ -341,9 +341,9 @@ router.delete('/:id', async (req: Request, res: Response, next: NextFunction) =>
       await cache.del(`notes:list:${userId}`);
       await cache.del(`notes:item:${userId}:${req.params.id}`);
       const io = req.app.get('io');
-      io.emit('note:deleted', req.params.id);
+      io.to(`user:${userId}`).emit('note:deleted', req.params.id);
       for (const taskId of deletedTaskIds) {
-        io.emit('task:deleted', taskId);
+        io.to(`user:${userId}`).emit('task:deleted', taskId);
       }
 
       res.json({ message: 'Note removed' });

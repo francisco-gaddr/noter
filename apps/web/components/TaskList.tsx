@@ -364,6 +364,13 @@ export default function TaskList() {
         setNewTaskTitle('');
     };
 
+    const handleCreateTaskWithDate = useCallback(async (date: Date) => {
+        const parentId = selectedTaskListId || undefined;
+        if (!parentId) return;
+        const title = t('tasks.newTask') || 'Ny uppgift';
+        await createTask(title, parentId, date.toISOString());
+    }, [createTask, selectedTaskListId, t]);
+
     const toggleComplete = async (task: Task) => {
         await updateTask(task._id, { completed: !task.completed });
     };
@@ -559,19 +566,20 @@ export default function TaskList() {
                 </form>
 
                  {viewMode === 'list' && (
-                    <button
-                        onClick={() => setSortBy(prev => {
-                            if (prev === 'custom') return 'createdAt';
-                            if (prev === 'createdAt') return 'dueDate';
-                            if (prev === 'dueDate') return 'priority';
-                            return 'custom';
-                        })}
-                        className="text-xs flex items-center gap-1 text-gray-600 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
-                        title={t('tasks.sortToggle')}
-                    >
-                        <FaSort aria-hidden="true" />
-                        {sortBy === 'custom' ? t('tasks.sortCustom') : sortBy === 'createdAt' ? t('tasks.sortNewest') : sortBy === 'dueDate' ? t('tasks.sortDueDate') : t('tasks.sortPriority')}
-                    </button>
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm text-gray-500 dark:text-gray-400">{t('tasks.sort.label')}:</span>
+                        <select
+                            value={sortBy}
+                            onChange={(e) => setSortBy(e.target.value as any)}
+                            className="p-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-gray-100 outline-none focus:ring-1 focus:ring-blue-500"
+                            aria-label={t('tasks.sort.label')}
+                        >
+                            <option value="custom">{t('tasks.sortCustom')}</option>
+                            <option value="createdAt">{t('tasks.sortNewest')}</option>
+                            <option value="dueDate">{t('tasks.sortDueDate')}</option>
+                            <option value="priority">{t('tasks.sortPriority')}</option>
+                        </select>
+                    </div>
                 )}
             </div>
             

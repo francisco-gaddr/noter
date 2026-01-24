@@ -27,6 +27,8 @@ jest.mock('../services/socket', () => ({
     connect: jest.fn(),
     connected: true,
   },
+  connectSocket: jest.fn(),
+  disconnectSocket: jest.fn(),
 }));
 
 jest.mock('../services/db', () => ({

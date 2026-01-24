@@ -1,10 +1,12 @@
 import React, { useCallback, useState } from 'react';
-import { StyleSheet, View, RefreshControl, TouchableOpacity } from 'react-native';
+import { StyleSheet, View, RefreshControl, TouchableOpacity, Animated } from 'react-native';
 import DraggableFlatList, { ScaleDecorator, RenderItemParams, ShadowDecorator, OpacityDecorator } from 'react-native-draggable-flatlist';
 import { Text, Checkbox, TouchableRipple, useTheme, Chip, IconButton, SegmentedButtons, Menu, Divider } from 'react-native-paper';
 import { Task } from '@repo/shared';
 import { useRouter } from 'expo-router';
 import { orderBy } from 'lodash';
+import * as Haptics from 'expo-haptics';
+import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { TaskBoard } from './TaskBoard';
 import { TaskTimeline } from './TaskTimeline';
 
@@ -16,9 +18,13 @@ interface TaskListProps {
   onReorder?: (tasks: Task[]) => void;
   showViewToggle?: boolean;
   onCreateTask?: (date: Date) => void;
+  onDelete?: (task: Task) => void;
+  scrollEnabled?: boolean;
 }
 
-export default function TaskList({ tasks, onRefresh, refreshing, onToggleComplete, onReorder, showViewToggle = true, onCreateTask }: TaskListProps) {
+import { TaskItem } from './TaskItem';
+
+export default function TaskList({ tasks, onRefresh, refreshing, onToggleComplete, onReorder, showViewToggle = true, onCreateTask, onDelete, scrollEnabled = true }: TaskListProps) {
   const theme = useTheme();
   const router = useRouter();
   const [viewMode, setViewMode] = useState<string>('list');
@@ -54,87 +60,65 @@ export default function TaskList({ tasks, onRefresh, refreshing, onToggleComplet
   };
 
   const renderItem = useCallback(({ item, drag, isActive }: RenderItemParams<Task>) => {
-    const priorityColor = 
-      item.priority === 'high' ? theme.colors.error :
-      item.priority === 'medium' ? theme.colors.primary :
-      theme.colors.primary;
-
     return (
       <ScaleDecorator>
         <OpacityDecorator>
           <ShadowDecorator>
-            <TouchableRipple 
-              key={item._id} // Ensure explicit key is set
-              onPress={() => handlePress(item)} 
-              onLongPress={drag} 
-              disabled={isActive}
-              style={[
-                styles.itemContainer, 
-                { backgroundColor: isActive ? theme.colors.elevation.level3 : theme.colors.elevation.level1 }
-              ]}
-            >
-              <View style={styles.itemRow}>
-                <Checkbox
-                  status={item.completed ? 'checked' : 'unchecked'}
-                  onPress={() => onToggleComplete(item)}
-                />
-                <View style={styles.contentContainer}>
-                  <Text 
-                    variant="bodyLarge" 
-                    style={[
-                      styles.title, 
-                      item.completed && { textDecorationLine: 'line-through', color: theme.colors.onSurfaceDisabled }
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {item.title}
-                  </Text>
-                  {item.description ? (
-                     <Text 
-                      variant="bodySmall" 
-                      style={[
-                        styles.description,
-                        item.completed && { color: theme.colors.onSurfaceDisabled }
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {item.description}
-                    </Text>
-                  ) : null}
-                  <View style={styles.metaContainer}>
-                    <Chip 
-                      textStyle={{ fontSize: 10, lineHeight: 10, marginVertical: 2, marginHorizontal: 4 }} 
-                      style={[styles.chip, { borderColor: priorityColor }]} 
-                      mode="outlined"
-                      compact
-                    >
-                      {item.priority}
-                    </Chip>
-                    {item.dueDate && (
-                      <Text variant="labelSmall" style={styles.date}>
-                        {(() => {
-                          const d = new Date(item.dueDate as any);
-                          const hasTime = d.getHours() !== 0 || d.getMinutes() !== 0;
-                          return hasTime
-                            ? `${d.toLocaleDateString()} ${d.toLocaleTimeString()}`
-                            : d.toLocaleDateString();
-                        })()}
-                      </Text>
-                    )}
-                  </View>
-                </View>
-                {onReorder && isCustomSort && (
-                  <TouchableOpacity onPressIn={drag} style={styles.dragHandle}>
-                    <IconButton icon="drag-vertical" size={20} />
-                  </TouchableOpacity>
-                )}
-              </View>
-            </TouchableRipple>
+            <TaskItem 
+                task={item}
+                onToggleComplete={onToggleComplete}
+                onDelete={onDelete}
+                onPress={handlePress}
+                onLongPress={() => {
+                   if (isCustomSort) {
+                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                       drag();
+                   }
+                }}
+                disabled={isActive}
+                isActive={isActive}
+                showDragHandle={!!onReorder && isCustomSort}
+                onDragStart={drag}
+            />
           </ShadowDecorator>
         </OpacityDecorator>
       </ScaleDecorator>
     );
-  }, [theme, onToggleComplete, onReorder, isCustomSort]);
+  }, [theme, onToggleComplete, onReorder, isCustomSort, onDelete]);
+
+  if (!scrollEnabled && viewMode === 'list') {
+      return (
+        <View style={{ flex: 1 }}>
+            <View style={styles.headerContainer}>
+                {showViewToggle && (
+                    <SegmentedButtons
+                        value={viewMode}
+                        onValueChange={setViewMode}
+                        buttons={[
+                            { value: 'list', label: 'List', icon: 'format-list-bulleted' },
+                            { value: 'board', label: 'Board', icon: 'view-column' },
+                            { value: 'calendar', label: 'Calendar', icon: 'calendar' },
+                        ]}
+                        style={{ flex: 1 }}
+                    />
+                )}
+            </View>
+            <View>
+                {sortedTasks.map((item) => (
+                    <View key={item._id}>
+                        <TaskItem 
+                            task={item}
+                            onToggleComplete={onToggleComplete}
+                            onDelete={onDelete}
+                            onPress={handlePress}
+                            showDragHandle={false}
+                        />
+                    </View>
+                ))}
+            </View>
+        </View>
+      );
+  }
 
   return (
     <View style={{ flex: 1 }}>
@@ -156,20 +140,38 @@ export default function TaskList({ tasks, onRefresh, refreshing, onToggleComplet
         </View>
 
         {viewMode === 'list' && (
-            <DraggableFlatList
-                data={sortedTasks}
-                onDragEnd={({ data }) => {
-                    if (isCustomSort) {
-                        onReorder?.(data);
+            !scrollEnabled ? (
+                <View style={{ paddingTop: 12, paddingBottom: 100 }}>
+                    {sortedTasks.map(task => (
+                        <View key={task._id}>
+                             <TaskItem 
+                                task={task}
+                                onToggleComplete={onToggleComplete}
+                                onDelete={onDelete}
+                                onPress={handlePress}
+                                disabled={false}
+                                isActive={false}
+                                showDragHandle={false}
+                            />
+                        </View>
+                    ))}
+                </View>
+            ) : (
+                <DraggableFlatList
+                    data={sortedTasks}
+                    onDragEnd={({ data }) => {
+                        if (isCustomSort) {
+                            onReorder?.(data);
+                        }
+                    }}
+                    keyExtractor={(item) => item._id}
+                    renderItem={renderItem}
+                    contentContainerStyle={{ paddingTop: 12, paddingBottom: 100 }}
+                    refreshControl={
+                        <RefreshControl refreshing={refreshing || false} onRefresh={onRefresh} />
                     }
-                }}
-                keyExtractor={(item) => item._id}
-                renderItem={renderItem}
-                contentContainerStyle={{ paddingTop: 12, paddingBottom: 100 }}
-                refreshControl={
-                    <RefreshControl refreshing={refreshing || false} onRefresh={onRefresh} />
-                }
-            />
+                />
+            )
         )}
 
         {viewMode === 'board' && (
@@ -249,5 +251,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 32,
     opacity: 0.5,
+  },
+  deleteAction: {
+    backgroundColor: '#dd2c00',
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+    marginBottom: 12,
+    marginTop: 1,
+    marginRight: 16, // Match itemContainer margin
+    borderTopRightRadius: 8,
+    borderBottomRightRadius: 8,
+    width: 80,
+  },
+  deleteActionContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 80,
   },
 });

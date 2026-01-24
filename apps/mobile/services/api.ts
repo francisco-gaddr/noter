@@ -74,12 +74,17 @@ export const initApiUrl = async () => {
 console.log('API_URL configured as:', API_URL);
 
 let authToken: string | null = null;
+let unauthorizedHandler: null | (() => void | Promise<void>) = null;
 
 export const setAuthToken = (token: string | null) => {
   authToken = token;
 };
 
 export const getAuthToken = () => authToken;
+
+export const setUnauthorizedHandler = (handler: null | (() => void | Promise<void>)) => {
+  unauthorizedHandler = handler;
+};
 
 export async function login(username: string, password: string) {
   const response = await fetch(`${API_URL}/auth/login`, {
@@ -135,6 +140,9 @@ export async function fetchWithAuth(endpoint: string, options: RequestInit = {})
         if (response.status === 401) {
           await SecureStore.deleteItemAsync('token');
           authToken = null;
+          try {
+            await unauthorizedHandler?.();
+          } catch {}
           throw new Error('Unauthorized: Session expired or invalid credentials');
         }
 

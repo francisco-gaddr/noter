@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { Note, Task, UpdateTaskDto, User, decrypt } from '@repo/shared';
 import { api } from '../services/api';
-import { socket } from '../services/socket';
+import { socket, connectSocket, disconnectSocket } from '../services/socket';
 import { db } from '../services/db';
 import deepmerge from 'deepmerge';
 import { uniqBy } from 'lodash';
@@ -75,12 +75,12 @@ interface StoreState {
   fetchTasks: (parentNoteId?: string) => Promise<void>;
   selectNote: (id: string | null) => void;
   createNote: (title: string, parentId?: string | null, type?: 'note' | 'task_list' | 'project', order?: number, icon?: string) => Promise<void>;
-  updateNote: (id: string, title?: string, content?: string, locked?: boolean, password?: string, icon?: string) => Promise<void>;
+  updateNote: (id: string, title?: string, content?: string, locked?: boolean, password?: string, icon?: string, type?: string) => Promise<void>;
   moveNote: (id: string, parentId: string | null, order: number) => Promise<void>;
   unlockNote: (id: string, password: string) => Promise<boolean>;
   deleteNote: (id: string) => Promise<void>;
   
-  createTask: (title: string, parentNoteId?: string) => Promise<void>;
+  createTask: (title: string, parentNoteId?: string, dueDate?: string | null) => Promise<void>;
   updateTask: (id: string, data: UpdateTaskDto) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
   reorderTasks: (tasks: Task[]) => Promise<void>;
@@ -162,6 +162,7 @@ export const useStore = create<StoreState>((set, get) => ({
   logout: () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    disconnectSocket();
     set({ user: null, token: null, notes: [], tasks: [], selectedNoteId: null, selectedTaskListId: null, isAppLocked: false });
   },
 
@@ -203,12 +204,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
   initSocket: () => {
     if (!get().token) return;
-
-    if (socket.connected) {
-        // console.log('Socket already connected');
-    } else {
-        socket.connect();
-    }
+    connectSocket();
     
     socket.off('connect');
     socket.on('connect', () => {
@@ -644,7 +640,7 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
 
-  updateNote: async (id, title, content, locked, password, icon) => {
+  updateNote: async (id, title, content, locked, password, icon, type) => {
     // Optimistic update
     set((state) => ({
       notes: state.notes.map((n) => {
@@ -656,6 +652,7 @@ export const useStore = create<StoreState>((set, get) => ({
                 ...(locked !== undefined ? { locked } : {}),
                 ...(password !== undefined ? { password } : {}),
                 ...(icon !== undefined ? { icon } : {}),
+                ...(type !== undefined ? { type: type as any } : {}),
                 updatedAt: new Date().toISOString()
             };
         }
@@ -680,6 +677,7 @@ export const useStore = create<StoreState>((set, get) => ({
       if (locked !== undefined) payload.locked = locked;
       if (password !== undefined) payload.password = password;
       if (icon !== undefined) payload.icon = icon;
+      if (type !== undefined) payload.type = type;
 
       const updatedNote = await api.updateNote(id, payload);
       set((state) => ({
@@ -768,10 +766,10 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
 
-  createTask: async (title, parentNoteId) => {
+  createTask: async (title, parentNoteId, dueDate) => {
       const clientId = crypto.randomUUID();
       try {
-          const newTask = await api.createTask({ title, parentNoteId, priority: 'medium', clientId });
+          const newTask = await api.createTask({ title, parentNoteId, priority: 'medium', clientId, dueDate: dueDate || null });
           set(state => ({ 
               tasks: uniqBy([newTask, ...state.tasks], '_id'),
               pendingCreated: { 
@@ -796,7 +794,7 @@ export const useStore = create<StoreState>((set, get) => ({
               clientId,
               title,
               description: '',
-              dueDate: null,
+              dueDate: dueDate || null,
               parentNoteId,
               completed: false,
               priority: 'medium',

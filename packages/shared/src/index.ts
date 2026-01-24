@@ -10,11 +10,13 @@ export interface Note {
   icon?: string;
   order?: number;
   type?: 'note' | 'task_list' | 'project';
+  clientId?: string;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface CreateNoteDto {
+  clientId?: string;
   title: string;
   content: string;
   tags?: string[];

@@ -107,7 +107,7 @@ export const db = {
         content: encrypt(note.content),
         tags: note.tags?.map(t => encrypt(t)) ?? [],
         icon: note.icon ? encrypt(note.icon) : undefined,
-        type: note.type ? encrypt(note.type) : undefined,
+        type: note.type,
         pendingSync
     };
     await db.put('notes', encrypted);

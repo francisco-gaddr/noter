@@ -6,15 +6,78 @@ import { PanGestureHandler, PanGestureHandlerGestureEvent, ScrollView } from 're
 import { useStore } from '@/stores/useStore';
 import { Calendar } from 'react-native-calendars';
 
+// --- Utils ---
+
+const SLOT_HEIGHT = 48; // px per hour
+const HOURS = Array.from({ length: 24 }, (_, i) => i);
+const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+function getWeekStart(d: Date) {
+  const date = new Date(d);
+  const day = (date.getDay() + 6) % 7; // Monday=0
+  date.setDate(date.getDate() - day);
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function addDays(d: Date, days: number) {
+  const date = new Date(d);
+  date.setDate(date.getDate() + days);
+  return date;
+}
+
+function dateKey(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function isToday(d: Date) {
+  const today = new Date();
+  return d.getDate() === today.getDate() &&
+    d.getMonth() === today.getMonth() &&
+    d.getFullYear() === today.getFullYear();
+}
+
+function getCurrentTimePosition() {
+  const now = new Date();
+  const hours = now.getHours();
+  const minutes = now.getMinutes();
+  return (hours + minutes / 60) * SLOT_HEIGHT;
+}
+
+function formatWeekRange(start: Date) {
+  const end = addDays(start, 6);
+  return `${start.toLocaleDateString()} – ${end.toLocaleDateString()}`;
+}
+
+function formatAgendaHeader(key: string) {
+  const d = new Date(key);
+  const today = new Date();
+  const isToday = d.getDate() === today.getDate() &&
+    d.getMonth() === today.getMonth() &&
+    d.getFullYear() === today.getFullYear();
+    
+  if (isToday) return 'Idag';
+  
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const isTomorrow = d.getDate() === tomorrow.getDate() &&
+    d.getMonth() === tomorrow.getMonth() &&
+    d.getFullYear() === tomorrow.getFullYear();
+    
+  if (isTomorrow) return 'Imorgon';
+  
+  return d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+}
+
+function clamp(val: number, min: number, max: number) {
+  return Math.min(Math.max(val, min), max);
+}
+
 interface TaskTimelineProps {
   tasks: Task[];
   onTaskPress: (task: Task) => void;
   onCreateTask?: (date: Date) => void;
 }
-
-const HOURS = Array.from({ length: 24 }, (_, i) => i);
-const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const SLOT_HEIGHT = 48; // px per hour
 
 type ViewMode = 'day' | 'week' | 'month' | 'agenda';
 
@@ -29,6 +92,13 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const dragStartRef = useRef<{ taskId: string; dayIndex: number; hourIndex: number } | null>(null);
   const [dragPreview, setDragPreview] = useState<{ dayIndex: number; hourIndex: number } | null>(null);
+  
+  // Update current time line every minute
+  const [now, setNow] = useState(new Date());
+  React.useEffect(() => {
+    const interval = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Memoized styles/theme for Calendar
   const calendarTheme = useMemo(() => ({
@@ -294,6 +364,34 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
                     />
                   ))}
 
+                  {/* Current Time Line */}
+                  {isToday(d) && (
+                    <View
+                      style={{
+                        position: 'absolute',
+                        top: getCurrentTimePosition(),
+                        left: 0,
+                        right: 0,
+                        height: 2,
+                        backgroundColor: 'red',
+                        zIndex: 999,
+                      }}
+                    >
+                      <View
+                        style={{
+                          position: 'absolute',
+                          left: -6,
+                          top: -4,
+                          width: 10,
+                          height: 10,
+                          borderRadius: 5,
+                          backgroundColor: 'red',
+                          zIndex: 1000,
+                        }}
+                      />
+                    </View>
+                  )}
+
                   {dragPreview && dragPreview.dayIndex === idx && (
                     <View
                       pointerEvents="none"
@@ -452,68 +550,6 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
     </View>
   );
 };
-
-// --- Utils ---
-
-function getWeekStart(d: Date) {
-  const date = new Date(d);
-  const day = (date.getDay() + 6) % 7; // Monday=0
-  date.setDate(date.getDate() - day);
-  date.setHours(0, 0, 0, 0);
-  return date;
-}
-
-function addDays(d: Date, days: number) {
-  const date = new Date(d);
-  date.setDate(date.getDate() + days);
-  return date;
-}
-
-function dateKey(d: Date) {
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${yyyy}-${mm}-${dd}`;
-}
-
-function formatWeekRange(start: Date) {
-  const end = addDays(start, 6);
-  return `${start.toLocaleDateString()} – ${end.toLocaleDateString()}`;
-}
-
-function formatAgendaHeader(key: string) {
-  const [y, m, d] = key.split('-').map((v) => Number(v));
-  if (!y || !m || !d) return key;
-  const date = new Date(y, m - 1, d);
-  return date.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
-}
-
-function clamp(n: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, n));
-}
-
-function withAlpha(color: string, alpha: number) {
-  if (typeof color !== 'string') return color as any;
-  if (color.startsWith('rgba(') || color.startsWith('rgb(')) return color;
-  if (!color.startsWith('#')) return color;
-
-  const hex = color.slice(1);
-  if (hex.length === 3) {
-    const r = parseInt(hex[0] + hex[0], 16);
-    const g = parseInt(hex[1] + hex[1], 16);
-    const b = parseInt(hex[2] + hex[2], 16);
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-  }
-
-  if (hex.length === 6) {
-    const r = parseInt(hex.slice(0, 2), 16);
-    const g = parseInt(hex.slice(2, 4), 16);
-    const b = parseInt(hex.slice(4, 6), 16);
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-  }
-
-  return color;
-}
 
 const styles = StyleSheet.create({
   container: { flex: 1 },

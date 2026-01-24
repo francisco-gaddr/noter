@@ -34,9 +34,15 @@ export default function TaskCalendar({ tasks, onTaskClick, onCreateTask }: TaskC
     const { updateTask } = useStore();
     const DnDCalendar = withDragAndDrop(Calendar as any);
     const [isMounted, setIsMounted] = React.useState(false);
+    const [currentTime, setCurrentTime] = React.useState(new Date());
 
     React.useEffect(() => {
         setIsMounted(true);
+        // Update current time every minute
+        const interval = setInterval(() => {
+            setCurrentTime(new Date());
+        }, 60000);
+        return () => clearInterval(interval);
     }, []);
 
     const events = tasks
@@ -55,6 +61,42 @@ export default function TaskCalendar({ tasks, onTaskClick, onCreateTask }: TaskC
 
     const [view, setView] = React.useState<View>('month');
     const [date, setDate] = React.useState(new Date());
+
+    const components = React.useMemo(() => ({
+      timeSlotWrapper: ({ children, value }: any) => {
+        const now = currentTime;
+        const isToday = value.getDate() === now.getDate() && 
+                       value.getMonth() === now.getMonth() && 
+                       value.getFullYear() === now.getFullYear();
+        
+        // Assuming 30 minute slots (default)
+        const slotDuration = 30; 
+        const slotStart = value.getHours() * 60 + value.getMinutes();
+        const nowMinutes = now.getHours() * 60 + now.getMinutes();
+        const diff = nowMinutes - slotStart;
+
+        const showLine = isToday && diff >= 0 && diff < slotDuration;
+        const topPercent = (diff / slotDuration) * 100;
+
+        return (
+          <div className="rbc-time-slot" style={{ position: 'relative' }}>
+            {children}
+            {showLine && (
+               <div 
+                 className="absolute w-full h-0.5 bg-red-500 dark:bg-red-400 z-50 pointer-events-none"
+                 style={{ 
+                   top: `${topPercent}%`,
+                   left: 0,
+                   right: 0
+                 }}
+               >
+                 <div className="absolute -left-1 -top-1 w-2 h-2 rounded-full bg-red-500 dark:bg-red-400" />
+               </div>
+            )}
+          </div>
+        );
+      }
+    }), [currentTime]);
 
     const handleSelectEvent = (event: any) => {
         onTaskClick(event.resource);
@@ -104,6 +146,15 @@ export default function TaskCalendar({ tasks, onTaskClick, onCreateTask }: TaskC
                 .dark .rbc-day-bg + .rbc-day-bg { border-left-color: #374151; }
                 .dark .rbc-month-row + .rbc-month-row { border-top-color: #374151; }
                 .dark .rbc-off-range-bg { background-color: #1f2937; }
+                
+                /* Dark mode grid lines adjustment */
+                .dark .rbc-time-content > * + * > * { border-left-color: rgba(107, 114, 128, 0.4); }
+                .dark .rbc-time-view { border-color: rgba(107, 114, 128, 0.5); }
+                .dark .rbc-timeslot-group { border-bottom-color: rgba(107, 114, 128, 0.4); } /* Half-hour lines */
+                .dark .rbc-day-slot .rbc-time-slot { border-top-color: rgba(107, 114, 128, 0.2); }
+                
+                /* Stronger hour lines */
+                .dark .rbc-timeslot-group { border-bottom: 1px solid rgba(107, 114, 128, 0.5); } 
             `}</style>
             <div className="flex-1">
             <DnDCalendar
@@ -122,6 +173,7 @@ export default function TaskCalendar({ tasks, onTaskClick, onCreateTask }: TaskC
                 onEventResize={handleEventResize}
                 selectable
                 onSelectSlot={handleSelectSlot}
+                components={components}
                 eventPropGetter={(event) => {
                     const task = event.resource as Task;
                     return {

@@ -60,7 +60,7 @@ export default function SearchScreen() {
           {filteredNotes.length > 0 && (
             <View>
               <Text variant="titleMedium" style={styles.sectionTitle}>Notes ({filteredNotes.length})</Text>
-              <NoteList notes={filteredNotes} />
+              <NoteList notes={filteredNotes} scrollEnabled={false} />
             </View>
           )}
 
@@ -69,7 +69,7 @@ export default function SearchScreen() {
           {filteredTasks.length > 0 && (
             <View>
               <Text variant="titleMedium" style={styles.sectionTitle}>Tasks ({filteredTasks.length})</Text>
-              <TaskList tasks={filteredTasks} onToggleComplete={handleToggleTask} showViewToggle={false} />
+              <TaskList tasks={filteredTasks} onToggleComplete={handleToggleTask} showViewToggle={false} scrollEnabled={false} />
             </View>
           )}
 

@@ -14,12 +14,81 @@ interface ProjectSelectorProps {
   selectedProjectId?: string | null;
 }
 
+const styles = StyleSheet.create({
+  modal: {
+    margin: 20,
+    padding: 20,
+    borderRadius: 10,
+    maxHeight: '80%',
+    alignSelf: 'center',
+    width: '90%',
+    maxWidth: 500,
+  },
+  title: {
+    marginBottom: 10,
+    textAlign: 'center'
+  },
+  list: {
+    maxHeight: 300
+  },
+  item: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 5
+  },
+  createBtn: {
+    marginTop: 10
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10
+  }
+});
+
+// Extracted component to prevent re-renders losing focus
+const CreateProjectInput = React.memo(({ 
+  visible, 
+  onCancel, 
+  onCreate, 
+  theme 
+}: { 
+  visible: boolean, 
+  onCancel: () => void, 
+  onCreate: (name: string) => void, 
+  theme: any 
+}) => {
+  const [name, setName] = useState('');
+
+  const handleCreate = () => {
+    onCreate(name);
+    setName('');
+  };
+
+  if (!visible) return null;
+
+  return (
+    <View style={styles.inputContainer}>
+      <TextInput
+        label="Project Name"
+        value={name}
+        onChangeText={setName}
+        style={{ flex: 1 }}
+        autoFocus
+      />
+      <IconButton icon="check" onPress={handleCreate} />
+      <IconButton icon="close" onPress={onCancel} />
+    </View>
+  );
+});
+
 export default function ProjectSelector({ visible, onDismiss, onSelect, selectedProjectId }: ProjectSelectorProps) {
   const { notes, activeProjectId, setActiveProject, createNote, updateNote, deleteNote } = useStore();
   const theme = useTheme();
   
   const [isCreating, setIsCreating] = useState(false);
-  const [newProjectName, setNewProjectName] = useState('');
   const [editingProject, setEditingProject] = useState<Note | null>(null);
   const [editName, setEditName] = useState('');
   
@@ -61,16 +130,15 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
     onDismiss();
   };
 
-  const handleCreate = async () => {
-    if (!newProjectName.trim()) return;
+  const handleCreateProject = async (name: string) => {
+    if (!name.trim()) return;
     try {
       await createNote({
-        title: newProjectName,
+        title: name,
         content: '',
         type: 'project',
         parentId: null
       } as any);
-      setNewProjectName('');
       setIsCreating(false);
     } catch (e) {
       console.error(e);
@@ -81,7 +149,7 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
   const handleUpdate = async () => {
     if (!editingProject || !editName.trim()) return;
     try {
-      await updateNote(editingProject._id, { title: editName });
+      await updateNote(editingProject._id, { title: editName, type: 'project' });
       setEditingProject(null);
       setEditName('');
     } catch (e) {
@@ -120,7 +188,15 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
 
   return (
     <Portal>
-      <Modal visible={visible} onDismiss={onDismiss} contentContainerStyle={[styles.modal, { backgroundColor: theme.colors.surface }]}>
+      <Modal 
+        visible={visible} 
+        onDismiss={onDismiss} 
+        contentContainerStyle={[
+            styles.modal, 
+            { backgroundColor: theme.colors.surface, alignSelf: 'center' }
+        ]}
+        style={{ justifyContent: 'center', alignItems: 'center' }}
+      >
         <Text variant="headlineSmall" style={styles.title}>Projects</Text>
         
         <ScrollView style={styles.list}>
@@ -156,17 +232,12 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
         </ScrollView>
 
         {isCreating ? (
-          <View style={styles.inputContainer}>
-            <TextInput
-              label="Project Name"
-              value={newProjectName}
-              onChangeText={setNewProjectName}
-              style={{ flex: 1 }}
-              autoFocus
-            />
-            <IconButton icon="check" onPress={handleCreate} />
-            <IconButton icon="close" onPress={() => setIsCreating(false)} />
-          </View>
+          <CreateProjectInput 
+            visible={isCreating} 
+            onCancel={() => setIsCreating(false)} 
+            onCreate={handleCreateProject}
+            theme={theme}
+          />
         ) : (
           <Button mode="outlined" onPress={() => setIsCreating(true)} icon="plus" style={styles.createBtn}>
             New Project
@@ -191,6 +262,7 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
             </Dialog>
         </Portal>
 
+
         {/* Context Menu */}
         <Menu
             visible={menuVisible}
@@ -204,12 +276,8 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
                 onPress={() => {
                     setMenuVisible(false);
                     setMenuAnchor(null);
-                    // We need to trigger Icon Picker.
-                    // But Icon Picker is not part of this component structure easily without state.
-                    // We can add state for it.
                     if (selectedProjectForMenu) {
                         setIconPickerOpen(true);
-                        // We keep selectedProjectForMenu as the target
                     }
                 }} 
                 title="Change Icon" 
@@ -255,34 +323,3 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
     </Portal>
   );
 }
-
-const styles = StyleSheet.create({
-  modal: {
-    margin: 20,
-    padding: 20,
-    borderRadius: 10,
-    maxHeight: '80%'
-  },
-  title: {
-    marginBottom: 10,
-    textAlign: 'center'
-  },
-  list: {
-    maxHeight: 300
-  },
-  item: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 5,
-    paddingHorizontal: 10,
-    borderRadius: 5
-  },
-  createBtn: {
-    marginTop: 10
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 10
-  }
-});

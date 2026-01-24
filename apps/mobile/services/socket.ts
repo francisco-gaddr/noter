@@ -3,8 +3,20 @@ import { API_URL } from './api';
 
 let socket: Socket | null = null;
 
-export const initSocket = () => {
-  if (socket) return socket;
+export const initSocket = (token?: string | null) => {
+  if (socket) {
+    if (token) {
+      // Update auth token if provided and reconnect
+      (socket as any).auth = { token };
+      if (!socket.connected) {
+        socket.connect();
+      } else {
+        // Force reconnection to apply new auth
+        socket.disconnect().connect();
+      }
+    }
+    return socket;
+  }
   
   // Remove /api from the end of API_URL to get the root URL
   const baseUrl = API_URL.replace('/api', '');
@@ -17,7 +29,10 @@ export const initSocket = () => {
     reconnection: true,
     reconnectionAttempts: 5,
     reconnectionDelay: 1000,
+    auth: token ? { token } : undefined
   });
+
+  if (token) socket.connect();
 
   socket.on('connect', () => {
     console.log('Socket connected');

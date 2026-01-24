@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { StyleSheet, View, TextInput, Alert, KeyboardAvoidingView, Platform, Modal, ScrollView } from 'react-native';
+import { StyleSheet, View, TextInput, Alert, KeyboardAvoidingView, Platform, Modal, ScrollView, Keyboard, Pressable } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Appbar, useTheme, Text, Menu, Button } from 'react-native-paper';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
@@ -50,7 +50,22 @@ export default function NoteEditorScreen() {
 
   const isDeletedRef = useRef(false);
   const isSavingRef = useRef(false);
+  const hasSavedRef = useRef(false);
   
+  const titleInputRef = useRef<TextInput>(null);
+  const hasFocusedRef = useRef(false);
+  
+  useEffect(() => {
+    if (isNew && !hasFocusedRef.current) {
+      // Use a small timeout to ensure layout is done
+      const timer = setTimeout(() => {
+        titleInputRef.current?.focus();
+        hasFocusedRef.current = true;
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isNew]);
+
   // Keep refs updated
   const titleRef = useRef(title);
   const iconRef = useRef(icon);
@@ -64,8 +79,8 @@ export default function NoteEditorScreen() {
   // Auto-save on unmount
   useEffect(() => {
     return () => {
-      // If manually deleted or explicitly saving (via done button), skip
-      if (isDeletedRef.current || isSavingRef.current) return;
+      // If manually deleted, explicitly saving, or already successfully saved manually, skip
+      if (isDeletedRef.current || isSavingRef.current || hasSavedRef.current) return;
       
       const currentContent = contentRef.current;
       const currentTitle = titleRef.current;
@@ -87,14 +102,15 @@ export default function NoteEditorScreen() {
             if (!titleToSave && !currentContent) return;
 
             if (isNew) {
-               // Create
-               await createNote({
-                 title: titleToSave,
-                 content: currentContent,
-                 parentId: currentParentId,
-                 icon: currentIcon
-               });
-            } else {
+           // Create
+           await createNote({
+             title: titleToSave,
+             content: currentContent,
+             parentId: currentParentId,
+             icon: currentIcon,
+             type: 'note'
+           });
+        } else {
                // Update
                await updateNote(id!, {
                  title: titleToSave,
@@ -191,11 +207,18 @@ export default function NoteEditorScreen() {
         await updateNote(id!, dto);
       }
       setLastSaved(new Date());
+      hasSavedRef.current = true;
       router.back();
     } catch (error: any) {
       Alert.alert('Error', error.message);
-    } finally {
+      // If error occurred, allow retry and allow auto-save (although auto-save might also fail if validation error)
       setIsSaving(false);
+      isSavingRef.current = false;
+    } finally {
+      // Don't reset isSaving if successful, to prevent race condition with cleanup
+      if (!hasSavedRef.current) {
+        setIsSaving(false);
+      }
     }
   };
 
@@ -376,22 +399,33 @@ export default function NoteEditorScreen() {
         <ScrollView
           style={styles.contentContainer}
           contentContainerStyle={styles.contentContainerInner}
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
           nestedScrollEnabled
         >
           <TextInput
-            style={[styles.titleInput, { color: theme.colors.onBackground }]}
-            placeholder="Title"
-            placeholderTextColor={theme.colors.onSurfaceDisabled}
-            value={title}
-            onChangeText={handleTitleChange}
-          />
-          <RichEditor
+          ref={titleInputRef}
+          style={[styles.titleInput, { color: theme.colors.onSurface }]}
+          placeholder="Title"
+          placeholderTextColor={theme.colors.onSurfaceDisabled}
+          value={title}
+          onChangeText={handleTitleChange}
+          returnKeyType="next"
+          onSubmitEditing={() => {
+            // Small delay to ensure TextInput blur completes and keyboard stays up/transitions
+            setTimeout(() => {
+                richText.current?.focusContent();
+            }, 50);
+          }}
+          blurOnSubmit={false}
+          // autoFocus handled by useEffect to avoid re-focus loops
+        />
+        <RichEditor
             key={editorKey}
             ref={richText}
             initialContentHTML={initialHtml}
             onChange={handleContentChange}
             placeholder="Start typing..."
+            scrollEnabled={false}
             editorStyle={{
               backgroundColor: theme.colors.background,
               color: theme.colors.onBackground,
@@ -399,7 +433,8 @@ export default function NoteEditorScreen() {
               contentCSSText: `font-size: 16px; color: ${theme.colors.onBackground};`,
             }}
             style={styles.editor}
-          />
+            useContainer={false}
+        />
         </ScrollView>
         <RichToolbar
           editor={richText}

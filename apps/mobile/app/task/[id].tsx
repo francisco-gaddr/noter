@@ -30,11 +30,37 @@ export default function TaskEditorScreen() {
   
   const isNew = id === 'new';
   const existingTask = tasks.find(t => t._id === id);
+  const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const endOfWeek = (d: Date) => {
+    const day = d.getDay(); // 0=Sun
+    const daysUntilSunday = (7 - day) % 7;
+    const base = startOfDay(d);
+    const end = new Date(base);
+    end.setDate(base.getDate() + (daysUntilSunday === 0 ? 7 : daysUntilSunday));
+    return end;
+  };
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  
+  const titleInputRef = React.useRef<any>(null); // TextInput from react-native-paper
+  const hasFocusedRef = React.useRef(false);
+
+  useEffect(() => {
+    if (isNew && !hasFocusedRef.current) {
+      const timer = setTimeout(() => {
+        // React Native Paper TextInput exposes methods via ref?
+        // Actually, it usually forwards ref to native TextInput or has .focus()
+        if (titleInputRef.current && typeof titleInputRef.current.focus === 'function') {
+            titleInputRef.current.focus();
+            hasFocusedRef.current = true;
+        }
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isNew]);
 
   const { control, handleSubmit, setValue, watch, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: yupResolver(schema) as any,
@@ -198,6 +224,7 @@ export default function TaskEditorScreen() {
           name="title"
           render={({ field: { onChange, onBlur, value } }) => (
             <TextInput
+              ref={titleInputRef}
               label="Title"
               onBlur={onBlur}
               onChangeText={onChange}
@@ -205,6 +232,10 @@ export default function TaskEditorScreen() {
               error={!!errors.title}
               mode="outlined"
               style={styles.input}
+              autoCorrect={false}
+              autoComplete="off"
+              autoCapitalize="none"
+              // autoFocus={isNew} // Handled by useEffect
             />
           )}
         />
@@ -223,6 +254,9 @@ export default function TaskEditorScreen() {
               numberOfLines={3}
               mode="outlined"
               style={styles.input}
+              autoCorrect={false}
+              autoComplete="off"
+              autoCapitalize="none"
             />
           )}
         />
@@ -234,6 +268,35 @@ export default function TaskEditorScreen() {
             name="dueDate"
             render={({ field: { onChange, value } }) => (
               <View>
+                {isNew && (
+                  <View style={styles.quickDateRow}>
+                    <Button
+                      mode="outlined"
+                      compact
+                      onPress={() => onChange(startOfDay(new Date()))}
+                    >
+                      Idag
+                    </Button>
+                    <Button
+                      mode="outlined"
+                      compact
+                      onPress={() => {
+                        const t = startOfDay(new Date());
+                        t.setDate(t.getDate() + 1);
+                        onChange(t);
+                      }}
+                    >
+                      Imorgon
+                    </Button>
+                    <Button
+                      mode="outlined"
+                      compact
+                      onPress={() => onChange(endOfWeek(new Date()))}
+                    >
+                      Slutet av veckan
+                    </Button>
+                  </View>
+                )}
                 <Button 
                   mode="outlined" 
                   onPress={() => setShowDatePicker(true)}
@@ -375,5 +438,11 @@ const styles = StyleSheet.create({
   checkboxRow: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  quickDateRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 8,
   },
 });

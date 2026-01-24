@@ -8,6 +8,7 @@ import compression from 'compression';
 import rateLimit from 'express-rate-limit';
 import mongoSanitize from 'express-mongo-sanitize';
 import { Server } from 'socket.io';
+import jwt from 'jsonwebtoken';
 import logger from './utils/logger';
 import noteRoutes from './routes/notes';
 import taskRoutes from './routes/tasks';
@@ -46,14 +47,41 @@ const io = new Server(server, {
   }
 });
 
+const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
+
 // Track users in rooms
 // socketId -> User info
 const socketUsers = new Map<string, any>();
 
+io.use((socket, next) => {
+  const token = (socket.handshake.auth as any)?.token as string | undefined;
+  if (!token) {
+    next(new Error('Unauthorized'));
+    return;
+  }
+  if (token === 'demo-token') {
+    (socket.data as any).userId = 'demo-user-id';
+    next();
+    return;
+  }
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
+    (socket.data as any).userId = decoded.userId;
+    next();
+  } catch {
+    next(new Error('Unauthorized'));
+  }
+});
+
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
+  const userId = (socket.data as any).userId as string | undefined;
+  if (userId) {
+    socket.join(`user:${userId}`);
+  }
 
   socket.on('note:join', ({ noteId, user }) => {
+    if (userId && user?._id && user._id !== userId) return;
     socket.join(noteId);
     socketUsers.set(socket.id, user);
     

@@ -1,19 +1,30 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View, Alert, Platform } from 'react-native';
-import { List, Switch, Text, Divider, useTheme, Menu, TouchableRipple } from 'react-native-paper';
+import { StyleSheet, View, Alert, Platform, useWindowDimensions, ScrollView } from 'react-native';
+import { List, Switch, Text, Divider, useTheme, Menu, Dialog, Portal, Button, TextInput, RadioButton } from 'react-native-paper';
 import { useThemeContext } from '@/context/ThemeContext';
 import { useRouter } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
+import { useStore } from '@/stores/useStore';
+import { API_URL, setApiUrl, getAuthToken } from '@/services/api';
+import { disconnectSocket, initSocket } from '@/services/socket';
+import { BackendUrlDialog } from '@/components/BackendUrlDialog';
 
 export default function SettingsScreen() {
   const { theme, setTheme } = useThemeContext();
+  const setToken = useStore((s) => s.setToken);
   const paperTheme = useTheme();
   const router = useRouter();
+  const { width } = useWindowDimensions();
   const [language, setLanguage] = useState<'sv' | 'en'>('sv');
   const [lockTiming, setLockTiming] = useState<'immediate' | '5min' | '15min' | '30min' | '1h'>('immediate');
-  const [lockTimingMenuVisible, setLockTimingMenuVisible] = useState(false);
+  const [lockTimingDialogVisible, setLockTimingDialogVisible] = useState(false);
   
+  // Backend URL state
+  const [backendUrl, setBackendUrl] = useState(API_URL);
+  const [tempBackendUrl, setTempBackendUrl] = useState('');
+  const [backendUrlDialogVisible, setBackendUrlDialogVisible] = useState(false);
+
   const appVersion =
     (Constants as any).nativeAppVersion ||
     Constants.expoConfig?.version ||
@@ -42,6 +53,9 @@ export default function SettingsScreen() {
       ) {
         setLockTiming(savedLockTiming);
       }
+      
+      // Update local state with current API_URL
+      setBackendUrl(API_URL);
     })();
   }, []);
 
@@ -69,6 +83,20 @@ export default function SettingsScreen() {
     } catch {}
   };
 
+  const handleSaveBackendUrl = async () => {
+    if (tempBackendUrl) {
+      await setApiUrl(tempBackendUrl);
+      setBackendUrl(tempBackendUrl);
+      setBackendUrlDialogVisible(false);
+      
+      // Reconnect socket with new URL
+      disconnectSocket();
+      initSocket(getAuthToken());
+      
+      Alert.alert('Inställning sparad', 'Backend-adress har uppdaterats och anslutningen startas om.');
+    }
+  };
+
   const handleLogout = async () => {
     Alert.alert(
       'Logout',
@@ -79,9 +107,10 @@ export default function SettingsScreen() {
           text: 'Logout',
           style: 'destructive',
           onPress: async () => {
-             await SecureStore.deleteItemAsync('token');
-             router.replace('/auth/login'); 
-          }
+               await SecureStore.deleteItemAsync('token');
+               setToken(null);
+               router.replace('/auth/login'); 
+            }
         }
       ]
     );
@@ -94,7 +123,7 @@ export default function SettingsScreen() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: paperTheme.colors.background }]}>
+    <ScrollView style={[styles.container, { backgroundColor: paperTheme.colors.background }]}>
       <List.Section title="Appearance">
         <List.Item
           title="Theme"
@@ -144,28 +173,33 @@ export default function SettingsScreen() {
       <Divider />
 
       <List.Section title="Security">
-        <Menu
-          visible={lockTimingMenuVisible}
-          onDismiss={() => setLockTimingMenuVisible(false)}
-          contentStyle={{ width: width - 32 }}
-          anchor={
-              <List.Item
-                title="App-lås"
-                description={`Lås: ${lockTimingLabel(lockTiming)}`}
-                left={props => <List.Icon {...props} icon="lock" />}
-                onPress={() => setLockTimingMenuVisible(true)}
-              />
-          }
-        >
-          <Menu.Item onPress={() => { setLockTiming('immediate'); saveLockTiming('immediate'); setLockTimingMenuVisible(false); }} title="Direkt" />
-          <Menu.Item onPress={() => { setLockTiming('5min'); saveLockTiming('5min'); setLockTimingMenuVisible(false); }} title="Efter 5 min" />
-          <Menu.Item onPress={() => { setLockTiming('15min'); saveLockTiming('15min'); setLockTimingMenuVisible(false); }} title="Efter 15 min" />
-          <Menu.Item onPress={() => { setLockTiming('30min'); saveLockTiming('30min'); setLockTimingMenuVisible(false); }} title="Efter 30 min" />
-          <Menu.Item onPress={() => { setLockTiming('1h'); saveLockTiming('1h'); setLockTimingMenuVisible(false); }} title="Efter 1 h" />
-        </Menu>
+        <List.Item
+          title="App-lås"
+          description={`Lås: ${lockTimingLabel(lockTiming)}`}
+          left={props => <List.Icon {...props} icon="lock" />}
+          onPress={() => setLockTimingDialogVisible(true)}
+        />
         <View style={styles.hint}>
           <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
             Välj hur snabbt appen ska låsas vid inaktivitet
+          </Text>
+        </View>
+      </List.Section>
+
+      <Divider />
+
+      <List.Section title="Developer">
+        <List.Item
+          title="Backend URL"
+          description={backendUrl}
+          left={props => <List.Icon {...props} icon="server" />}
+          onPress={() => {
+            setBackendUrlDialogVisible(true);
+          }}
+        />
+        <View style={styles.hint}>
+          <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
+            Ställ in adress till backend API
           </Text>
         </View>
       </List.Section>
@@ -185,7 +219,37 @@ export default function SettingsScreen() {
             Version {String(appVersion)} ({String(buildNumber)})
          </Text>
       </View>
-    </View>
+
+      <Portal>
+        {/* App Lock Dialog */}
+        <Dialog visible={lockTimingDialogVisible} onDismiss={() => setLockTimingDialogVisible(false)}>
+          <Dialog.Title>Välj tid för autolås</Dialog.Title>
+          <Dialog.Content>
+            <RadioButton.Group onValueChange={value => {
+              saveLockTiming(value as any);
+              setLockTimingDialogVisible(false);
+            }} value={lockTiming}>
+              <RadioButton.Item label="Direkt" value="immediate" />
+              <RadioButton.Item label="Efter 5 min" value="5min" />
+              <RadioButton.Item label="Efter 15 min" value="15min" />
+              <RadioButton.Item label="Efter 30 min" value="30min" />
+              <RadioButton.Item label="Efter 1 h" value="1h" />
+            </RadioButton.Group>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setLockTimingDialogVisible(false)}>Avbryt</Button>
+          </Dialog.Actions>
+        </Dialog>
+
+        {/* Backend URL Dialog */}
+        <BackendUrlDialog
+          visible={backendUrlDialogVisible}
+          onDismiss={() => setBackendUrlDialogVisible(false)}
+          currentUrl={backendUrl}
+          onSave={handleSaveBackendUrl}
+        />
+      </Portal>
+    </ScrollView>
   );
 }
 
