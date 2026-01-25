@@ -70,16 +70,18 @@ const CreateProjectInput = React.memo(({
   if (!visible) return null;
 
   return (
-    <View style={styles.inputContainer}>
+    <View style={{ gap: 15 }}>
       <TextInput
         label="Project Name"
         value={name}
         onChangeText={setName}
-        style={{ flex: 1 }}
+        mode="outlined"
         autoFocus
       />
-      <IconButton icon="check" onPress={handleCreate} />
-      <IconButton icon="close" onPress={onCancel} />
+      <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10 }}>
+        <Button onPress={onCancel}>Cancel</Button>
+        <Button mode="contained" onPress={handleCreate}>Create</Button>
+      </View>
     </View>
   );
 });
