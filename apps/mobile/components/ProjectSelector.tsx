@@ -199,51 +199,56 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
         ]}
         style={{ justifyContent: 'center', alignItems: 'center' }}
       >
-        <Text variant="headlineSmall" style={styles.title}>Projects</Text>
-        
-        <ScrollView style={styles.list}>
-          <TouchableOpacity
-            style={[
-              styles.item,
-              currentSelected === null && { backgroundColor: theme.colors.secondaryContainer }
-            ]}
-            onPress={() => handleSelect(null)}
-          >
-            <IconButton icon="folder-multiple-outline" size={24} />
-            <Text variant="bodyLarge">All Notes</Text>
-            {currentSelected === null && <IconButton icon="check" size={20} />}
-          </TouchableOpacity>
-          
-          <Divider style={{ marginVertical: 5 }} />
-
-          {projects.map(project => (
-            <TouchableOpacity
-              key={project._id}
-              style={[
-                styles.item,
-                currentSelected === project._id && { backgroundColor: theme.colors.secondaryContainer }
-              ]}
-              onPress={() => handleSelect(project._id)}
-              onLongPress={(e) => openMenu(e, project)}
-            >
-              {renderProjectIcon((project as any).icon)}
-              <Text variant="bodyLarge" style={{ flex: 1 }}>{project.title}</Text>
-              {currentSelected === project._id && <IconButton icon="check" size={20} />}
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-
         {isCreating ? (
-          <CreateProjectInput 
-            visible={isCreating} 
-            onCancel={() => setIsCreating(false)} 
-            onCreate={handleCreateProject}
-            theme={theme}
-          />
+           <View>
+              <Text variant="headlineSmall" style={styles.title}>Create Project</Text>
+              <CreateProjectInput 
+                visible={isCreating} 
+                onCancel={() => setIsCreating(false)} 
+                onCreate={handleCreateProject}
+                theme={theme}
+              />
+           </View>
         ) : (
-          <Button mode="outlined" onPress={() => setIsCreating(true)} icon="plus" style={styles.createBtn}>
-            New Project
-          </Button>
+          <>
+            <Text variant="headlineSmall" style={styles.title}>Projects</Text>
+            
+            <ScrollView style={styles.list}>
+              <TouchableOpacity
+                style={[
+                  styles.item,
+                  currentSelected === null && { backgroundColor: theme.colors.secondaryContainer }
+                ]}
+                onPress={() => handleSelect(null)}
+              >
+                <IconButton icon="folder-multiple-outline" size={24} />
+                <Text variant="bodyLarge">All Notes</Text>
+                {currentSelected === null && <IconButton icon="check" size={20} />}
+              </TouchableOpacity>
+              
+              <Divider style={{ marginVertical: 5 }} />
+
+              {projects.map(project => (
+                <TouchableOpacity
+                  key={project._id}
+                  style={[
+                    styles.item,
+                    currentSelected === project._id && { backgroundColor: theme.colors.secondaryContainer }
+                  ]}
+                  onPress={() => handleSelect(project._id)}
+                  onLongPress={(e) => openMenu(e, project)}
+                >
+                  {renderProjectIcon((project as any).icon)}
+                  <Text variant="bodyLarge" style={{ flex: 1 }}>{project.title}</Text>
+                  {currentSelected === project._id && <IconButton icon="check" size={20} />}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <Button mode="outlined" onPress={() => setIsCreating(true)} icon="plus" style={styles.createBtn}>
+              New Project
+            </Button>
+          </>
         )}
 
         {/* Rename Dialog */}

@@ -351,6 +351,9 @@ const resources = {
         viewBoard: 'Tavla',
         viewCalendar: 'Kalender',
         sortToggle: 'Växla sortering',
+        sort: {
+          label: 'Sortering'
+        },
         sortCustom: 'Egen',
         sortNewest: 'Nyast',
         sortDueDate: 'Förfallodatum',
