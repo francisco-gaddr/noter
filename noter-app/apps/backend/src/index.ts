@@ -198,9 +198,9 @@ const startServer = async () => {
     logger.info('MONGO_URI not set, running without database connection');
   }
 
-  server.listen(port, () => {
-    console.log(`Server running at http://localhost:${port}`);
-    logger.info(`Server running at http://localhost:${port}`);
+  server.listen(port, '0.0.0.0', () => {
+    console.log(`Server running at http://0.0.0.0:${port}`);
+    logger.info(`Server running at http://0.0.0.0:${port}`);
   });
 };
 

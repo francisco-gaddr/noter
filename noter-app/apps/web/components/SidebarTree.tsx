@@ -10,6 +10,7 @@ import { orderBy } from 'lodash';
 import { Note } from '@repo/shared';
 import { IconPicker } from './IconPicker';
 import { CreateNodeModal } from './CreateNodeModal';
+import { ConfirmationModal } from './ConfirmationModal';
 import { useTranslation } from 'react-i18next';
 
 interface TreeNodeProps {
@@ -222,6 +223,7 @@ export default function SidebarTree() {
   const [iconPickerNote, setIconPickerNote] = useState<Note | null>(null);
   const [createModal, setCreateModal] = useState<{ isOpen: boolean; type: 'note' | 'task_list' | 'project'; parentId: string | null }>({ isOpen: false, type: 'note', parentId: null });
   const [editModal, setEditModal] = useState<{ isOpen: boolean; note: Note | null }>({ isOpen: false, note: null });
+  const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; id: string | null; type: 'project' | 'note' | 'task_list' }>({ isOpen: false, id: null, type: 'note' });
   const containerRef = useRef<HTMLDivElement>(null);
   const { t } = useTranslation();
 
@@ -408,10 +410,12 @@ export default function SidebarTree() {
     e.stopPropagation();
     const noteType = (notes.find(n => n._id === id) as any)?.type;
     const isTaskList = noteType === 'task_list' || activeTab === 'tasks';
-    const message = isTaskList ? t('confirm.deleteTaskList') : t('confirm.deleteNote');
-    if (confirm(message)) {
-      await deleteNote(id);
-    }
+    
+    setDeleteModal({
+        isOpen: true,
+        id,
+        type: isTaskList ? 'task_list' : 'note'
+    });
   };
 
   const handleIconClick = (e: React.MouseEvent, note: Note) => {
