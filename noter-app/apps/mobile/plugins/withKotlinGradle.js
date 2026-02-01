@@ -15,7 +15,7 @@ function setKotlinVersion(buildGradle) {
   // We want to force it to 2.1.20
   
   const kotlinVersionRegex = /kotlinVersion\s*=\s*.*$/m;
-  const newKotlinVersion = `kotlinVersion = "2.1.20"`;
+  const newKotlinVersion = `kotlinVersion = "1.9.24"`;
 
   if (kotlinVersionRegex.test(buildGradle)) {
     return buildGradle.replace(kotlinVersionRegex, newKotlinVersion);
@@ -26,7 +26,7 @@ function setKotlinVersion(buildGradle) {
   // Let's try to inject it at the start of buildscript { ext {
   
   if (buildGradle.includes('buildscript {')) {
-      return buildGradle.replace('buildscript {', `buildscript {\n    ext {\n        kotlinVersion = "2.1.20"\n    }`);
+      return buildGradle.replace('buildscript {', `buildscript {\n    ext {\n        kotlinVersion = "1.9.24"\n    }`);
   }
   
   return buildGradle;
