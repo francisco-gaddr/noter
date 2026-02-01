@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+
 # Noter - Säker och Modern Anteckningsapplikation
 
 "Noter" är en webbapplikation designad för enkelhet, modern design och maximal säkerhet genom full end-to-end (E2E) kryptering. Applikationen syftar till att erbjuda en trygg plats för dina tankar, idéer och projekt, med stöd för rich-text, media-embedding och hierarkisk organisering.
@@ -139,7 +139,4 @@ npm run start
 - `dev`: Active development branch
 - Feature branches: Created from `dev` (e.g., `feature/new-feature`)
 
-## License
 
-[MIT](LICENSE)
->>>>>>> cca7f97b791ca174d46ded037e215557a88dd09b
