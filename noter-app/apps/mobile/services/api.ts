@@ -7,8 +7,15 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 
 // Function to get the API URL dynamically
 const getApiUrl = () => {
+  // NOTE: We intentionally ignore EXPO_PUBLIC_API_URL on Android if it's localhost
+  // to avoid issues on physical devices/emulators where localhost refers to the device itself.
   if (process.env.EXPO_PUBLIC_API_URL) {
-    return process.env.EXPO_PUBLIC_API_URL;
+    const envUrl = process.env.EXPO_PUBLIC_API_URL;
+    if (Platform.OS === 'android' && (envUrl.includes('localhost') || envUrl.includes('127.0.0.1'))) {
+       console.log('Ignoring EXPO_PUBLIC_API_URL (localhost) on Android to detect correct LAN IP');
+    } else {
+       return envUrl;
+    }
   }
 
   // Try multiple Expo host hints
@@ -27,8 +34,16 @@ const getApiUrl = () => {
         let host = candidate.split(':')[0];
         host = host.replace(/^\[|\]$/g, '');
         
-        // If on Android and host is localhost, force 10.0.2.2
+        // If on Android and host is localhost, force 10.0.2.2 (Emulator) or keep searching if we want LAN
+        // For physical devices, we really need the LAN IP. 
+        // If 'host' comes from debuggerHost, it SHOULD be the LAN IP.
+        // If it is 'localhost', it means the bundler thinks it is on localhost.
+        
         if (Platform.OS === 'android' && (host === 'localhost' || host === '127.0.0.1')) {
+            // If we are on Android and the candidate says localhost, it's likely wrong for a physical device.
+            // But for an emulator, 10.0.2.2 is correct.
+            // We'll return 10.0.2.2 as a safe default for emulators, but for physical devices this won't work.
+            // There is no perfect way to guess the LAN IP if the bundler doesn't tell us.
             return 'http://10.0.2.2:3001/api';
         }
         

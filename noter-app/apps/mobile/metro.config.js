@@ -23,4 +23,24 @@ config.resolver.disableHierarchicalLookup = true;
 config.resolver.assetExts.push('wasm');
 config.resolver.sourceExts = config.resolver.sourceExts.filter(ext => ext !== 'wasm');
 
+// Workaround for expo-sqlite/wa-sqlite resolution in monorepo/metro
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (moduleName.endsWith('wa-sqlite.wasm')) {
+    const fs = require('fs');
+    const path = require('path');
+    // Try to find the file in the expected location relative to the module requesting it
+    // or fallback to searching in node_modules
+    
+    // Direct path check in project node_modules
+    const explicitPath = path.resolve(projectRoot, 'node_modules/expo-sqlite/web/wa-sqlite/wa-sqlite.wasm');
+    if (fs.existsSync(explicitPath)) {
+      return {
+        filePath: explicitPath,
+        type: 'asset',
+      };
+    }
+  }
+  return context.resolveRequest(context, moduleName, platform);
+};
+
 module.exports = config;
