@@ -82,6 +82,7 @@ export const CreateNodeModal: React.FC<CreateNodeModalProps> = ({
                             <button
                                 type="button"
                                 onClick={() => setShowIconPicker(true)}
+                                aria-label={t('iconPicker.title')}
                                 className="p-2 border rounded dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"
                             >
                                 <Icon size={24} />
