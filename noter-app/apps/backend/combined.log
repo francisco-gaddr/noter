@@ -135,3 +135,5 @@
 {"level":"info","message":"Server running at http://localhost:3001","service":"backend-service","timestamp":"2026-01-27T19:58:32.955Z"}
 {"level":"info","message":"Connected to MongoDB","service":"backend-service","timestamp":"2026-02-01T12:07:01.955Z"}
 {"level":"info","message":"Server running at http://localhost:3001","service":"backend-service","timestamp":"2026-02-01T12:07:01.960Z"}
+{"level":"info","message":"Connected to MongoDB","service":"backend-service","timestamp":"2026-02-01T13:20:32.373Z"}
+{"level":"info","message":"Server running at http://0.0.0.0:3001","service":"backend-service","timestamp":"2026-02-01T13:20:32.379Z"}

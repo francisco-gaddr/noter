@@ -20,7 +20,7 @@ dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
-const port = process.env.PORT || 3001;
+const port = parseInt(process.env.PORT || '3001', 10);
 
 // Security & Performance Middleware
 app.use(helmet());

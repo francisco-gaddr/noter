@@ -18,6 +18,8 @@ const getApiUrl = () => {
     (Constants as any).manifest?.debuggerHost, // e.g. 192.168.x.x:19000
   ];
 
+  console.log('Host candidates:', hostCandidates);
+
   for (const candidate of hostCandidates) {
     if (candidate && typeof candidate === 'string') {
       try {
@@ -69,9 +71,9 @@ export const initApiUrl = async () => {
     try {
         const stored = await SecureStore.getItemAsync('custom_api_url');
     if (stored) {
-      // Sanity check: If stored is localhost but we are on Android, ignore it to allow smart default
-      if (Platform.OS === 'android' && stored.includes('localhost')) {
-        console.log('Ignoring stored localhost API URL on Android, reverting to smart default');
+      // Sanity check: If stored is localhost/127.0.0.1 but we are on Android, ignore it to allow smart default
+      if (Platform.OS === 'android' && (stored.includes('localhost') || stored.includes('127.0.0.1'))) {
+        console.log('Ignoring stored localhost/127.0.0.1 API URL on Android, reverting to smart default');
         await SecureStore.deleteItemAsync('custom_api_url');
       } else {
         API_URL = stored;
