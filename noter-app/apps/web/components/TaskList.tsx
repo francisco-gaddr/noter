@@ -536,6 +536,7 @@ export default function TaskList() {
                                     setQuickFilter(null);
                                 }}
                                 className="p-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700"
+                                aria-label={t('tasks.filter.startDate')}
                             />
                             <span>-</span>
                             <input
@@ -546,6 +547,7 @@ export default function TaskList() {
                                     setQuickFilter(null);
                                 }}
                                 className="p-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700"
+                                aria-label={t('tasks.filter.endDate')}
                             />
                         </div>
                     </div>

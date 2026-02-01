@@ -68,6 +68,7 @@ export const CreateNodeModal: React.FC<CreateNodeModalProps> = ({
                             value={title}
                             onChange={(e) => setTitle(e.target.value)}
                             placeholder={t('common.untitled')}
+                            aria-label={t('common.title')}
                             className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
                             autoFocus
                         />

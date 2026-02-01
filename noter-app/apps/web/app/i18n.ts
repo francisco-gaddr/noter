@@ -183,6 +183,21 @@ const resources = {
           low: 'Low',
           medium: 'Medium',
           high: 'High'
+        },
+        filter: {
+          label: 'Filter',
+          status: 'Status',
+          all: 'All',
+          active: 'Active',
+          completed: 'Completed',
+          today: 'Today',
+          tomorrow: 'Tomorrow',
+          thisWeek: 'This Week',
+          thisMonth: 'This Month',
+          clear: 'Clear',
+          dateRange: 'Date Range',
+          startDate: 'Start Date',
+          endDate: 'End Date'
         }
       }
     }
@@ -214,7 +229,8 @@ const resources = {
         newList: 'Ny lista',
         createTask: 'Skapa uppgift',
         addChild: 'Lägg till underanteckning',
-        deleteNote: 'Ta bort anteckning'
+        deleteNote: 'Ta bort anteckning',
+        delete: 'Ta bort'
       },
       project: {
         label: 'Projektmapp',
@@ -368,6 +384,8 @@ const resources = {
           high: 'Hög'
         },
         filter: {
+          label: 'Filter',
+          status: 'Status',
           all: 'Alla',
           active: 'Aktiva',
           completed: 'Avslutade',
@@ -375,7 +393,10 @@ const resources = {
           tomorrow: 'Imorgon',
           thisWeek: 'Denna vecka',
           thisMonth: 'Denna månad',
-          dateRange: 'Datumintervall'
+          clear: 'Rensa',
+          dateRange: 'Datumintervall',
+          startDate: 'Startdatum',
+          endDate: 'Slutdatum'
         }
       }
     }
