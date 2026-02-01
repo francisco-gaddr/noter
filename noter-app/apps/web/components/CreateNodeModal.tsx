@@ -8,6 +8,7 @@ interface CreateNodeModalProps {
     isOpen: boolean;
     onClose: () => void;
     onConfirm: (title: string, icon: string) => void;
+    onDelete?: () => void;
     type: 'note' | 'task_list' | 'project';
     mode?: 'create' | 'edit';
     initialTitle?: string;
@@ -18,6 +19,7 @@ export const CreateNodeModal: React.FC<CreateNodeModalProps> = ({
     isOpen, 
     onClose, 
     onConfirm, 
+    onDelete,
     type, 
     mode = 'create',
     initialTitle = '',
@@ -95,20 +97,31 @@ export const CreateNodeModal: React.FC<CreateNodeModalProps> = ({
                         </div>
                     </div>
 
-                    <div className="flex justify-end gap-2 mt-6">
-                        <button
-                            type="button"
-                            onClick={onClose}
-                            className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
-                        >
-                            {t('common.cancel')}
-                        </button>
-                        <button
-                            type="submit"
-                            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                        >
-                            {t('common.save')}
-                        </button>
+                    <div className="flex justify-between items-center mt-6">
+                        {mode === 'edit' && onDelete && (
+                            <button
+                                type="button"
+                                onClick={onDelete}
+                                className="px-4 py-2 text-white bg-red-500 rounded hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500"
+                            >
+                                {t('actions.delete') || 'Delete'}
+                            </button>
+                        )}
+                        <div className="flex gap-2 ml-auto">
+                            <button
+                                type="button"
+                                onClick={onClose}
+                                className="px-4 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+                            >
+                                {t('common.cancel')}
+                            </button>
+                            <button
+                                type="submit"
+                                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                            >
+                                {t('common.save')}
+                            </button>
+                        </div>
                     </div>
                 </form>
             </div>

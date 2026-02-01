@@ -25,7 +25,7 @@ Applikationen är under aktiv utveckling. Nedan listas nuvarande status för oli
     *   **Biometri:** App-låsning via FaceID/Fingerprint.
 *   **Backend Integration:**
     *   Kopplad till Noter Backend API.
-    *   Stöd för dynamisk IP-adress för testning på fysisk enhet via Expo Go (samma WiFi).
+    *   **Smart API URL-detektering:** Appen försöker automatiskt hitta backenden på ditt nätverk (LAN) om den körs på en fysisk enhet, eller använder `10.0.2.2` för Android Emulator och `localhost` för iOS Simulator.
 
 ### Kommande Funktioner (Prioriterade)
 *   **Offline-stöd:** Fullständig offline-funktionalitet med lokal databas (SQLite) och synkronisering.
@@ -69,6 +69,17 @@ Applikationen är under aktiv utveckling. Nedan listas nuvarande status för oli
     *   Skanna QR-koden som visas i terminalen.
     *   Appen kommer automatiskt försöka ansluta till backenden via din dators lokala IP-adress.
 
+### Backend-anslutning & Felsökning
+
+För att appen ska fungera på en fysisk enhet måste den kunna nå din dator där backenden körs.
+
+*   **Automatisk Konfiguration:** Appen är programmerad (`services/api.ts`) att ignorera `localhost`-inställningar på Android-enheter och istället försöka hitta din dators LAN-IP (via Expos konfiguration).
+*   **Om det inte fungerar:**
+    1.  Kontrollera att backend körs (port 3001).
+    2.  Kontrollera brandvägg (Windows Firewall kan blockera inkommande trafik till Node.js).
+    3.  Gå till **Inställningar (Settings)** i mobilappen.
+    4.  Kontrollera vad som står under "API URL".
+    5.  Om det står `http://localhost:3001/api` och du är på en fysisk Android-enhet, ändra detta manuellt till din dators IP-adress, t.ex. `http://192.168.1.50:3001/api`.
 
 ## Bygga APK (EAS)
 
@@ -87,21 +98,9 @@ Applikationen är under aktiv utveckling. Nedan listas nuvarande status för oli
 
 Profilen `preview` är konfigurerad för att bygga en APK i [eas.json](file:///f:/Tech/Projekt/Noter/noter-app/apps/mobile/eas.json).
 
-
-### Felsökning av Anslutning
-
-Om appen inte kan nå backenden (Network Error):
-1.  Kontrollera att backend körs (vanligtvis port 3001).
-2.  Kontrollera att datorns brandvägg tillåter inkommande trafik på port 3001 (Node.js).
-3.  Verifiera att telefonen och datorn är på samma nätverk.
-4.  IP-adressen loggas i terminalen/konsolen i appen ("API_URL configured as...").
-
 ## Teknisk Stack
-
 *   **Ramverk:** React Native (Expo)
-*   **Språk:** TypeScript
+*   **Navigering:** Expo Router
 *   **State Management:** Zustand
-*   **UI:** React Native Paper, @shopify/flash-list
-*   **Navigation:** Expo Router
-*   **Formulär:** React Hook Form + Yup
-*   **Nätverk:** Fetch API
+*   **Databas (Lokal):** Expo SQLite
+*   **API:** Fetch & Socket.io

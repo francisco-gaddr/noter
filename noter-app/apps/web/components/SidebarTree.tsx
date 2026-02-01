@@ -462,6 +462,17 @@ export default function SidebarTree() {
         isOpen={editModal.isOpen}
         onClose={() => setEditModal({ ...editModal, isOpen: false })}
         onConfirm={handleEditConfirm}
+        onDelete={() => {
+            // If editing a project, allow deletion from the edit modal
+            if ((editModal.note as any)?.type === 'project') {
+                setEditModal({ ...editModal, isOpen: false }); // Close edit modal
+                setDeleteModal({
+                    isOpen: true,
+                    id: editModal.note?._id || null,
+                    type: 'project'
+                });
+            }
+        }}
         type={(editModal.note as any)?.type || 'note'}
         initialTitle={editModal.note?.title}
         initialIcon={(editModal.note as any)?.icon}
