@@ -106,7 +106,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   };
 
   const handleDelete = async () => {
-    if (confirm(t('confirm.deleteTask'))) {
+    if (task && confirm(t('confirm.deleteTask'))) {
         await onDelete(task._id);
         onClose();
     }
