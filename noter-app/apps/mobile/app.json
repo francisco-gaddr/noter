@@ -45,7 +45,6 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
-      "./plugins/withKotlinGradle.js",
       "expo-router",
       "expo-sqlite",
       "expo-local-authentication",
@@ -53,11 +52,13 @@
       "expo-background-fetch",
       "expo-task-manager",
       "@react-native-community/datetimepicker",
+      "./plugins/withCustomEntryPoint",
+      "./plugins/withCustomBuildGradle",
       [
         "expo-build-properties",
         {
           "android": {
-            "kotlinVersion": "1.9.24"
+            "kotlinVersion": "2.1.0"
           }
         }
       ]
