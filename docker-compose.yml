@@ -5,7 +5,7 @@ services:
     image: mongo:latest
     container_name: noter-mongodb
     ports:
-      - "27017:27017"
+      - "27018:27017" # Mapped to 27018 to avoid host conflicts
     volumes:
       - mongodb_data:/data/db
     restart: always
@@ -14,7 +14,7 @@ services:
     image: redis:alpine
     container_name: noter-redis
     ports:
-      - "6379:6379"
+      - "6380:6379" # Mapped to 6380 to avoid host conflicts
     volumes:
       - redis_data:/data
     restart: always
