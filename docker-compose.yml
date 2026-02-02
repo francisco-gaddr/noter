@@ -21,7 +21,7 @@ services:
 
   backend:
     build:
-      context: .
+      context: ./noter-app
       dockerfile: apps/backend/Dockerfile
     container_name: noter-backend
     ports:
@@ -39,7 +39,7 @@ services:
 
   web:
     build:
-      context: .
+      context: ./noter-app
       dockerfile: apps/web/Dockerfile
       args:
         NEXT_PUBLIC_API_URL: http://192.168.50.16:3001
