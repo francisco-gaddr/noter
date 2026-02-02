@@ -7,6 +7,13 @@ WG_PORT="51820"
 WG_ADDRESS="10.8.0.1/24"
 PI_PEER_IP="10.8.0.2"
 
+# Detect public interface
+PUB_INTERFACE=$(ip route | grep default | awk '{print $5}' | head -n1)
+if [ -z "$PUB_INTERFACE" ]; then
+    PUB_INTERFACE="eth0"
+fi
+echo "Detected public interface: $PUB_INTERFACE"
+
 # Ensure script is run as root
 if [ "$EUID" -ne 0 ]; then 
   echo "Please run as root"
@@ -46,10 +53,10 @@ SaveConfig = true
 ListenPort = $WG_PORT
 PrivateKey = $PRIVATE_KEY
 # Allow forwarding
-PostUp = ufw route allow in on $WG_INTERFACE out on eth0
-PostUp = iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-PostDown = ufw route delete allow in on $WG_INTERFACE out on eth0
-PostDown = iptables -t nat -D POSTROUTING -o eth0 -j MASQUERADE
+PostUp = ufw route allow in on $WG_INTERFACE out on $PUB_INTERFACE
+PostUp = iptables -t nat -A POSTROUTING -o $PUB_INTERFACE -j MASQUERADE
+PostDown = ufw route delete allow in on $WG_INTERFACE out on $PUB_INTERFACE
+PostDown = iptables -t nat -D POSTROUTING -o $PUB_INTERFACE -j MASQUERADE
 
 [Peer]
 PublicKey = $PI_PUBLIC_KEY
@@ -61,9 +68,11 @@ ufw allow ssh
 ufw allow 80/tcp
 ufw allow 443/tcp
 ufw allow $WG_PORT/udp
-# Explicitly allow forwarding for WireGuard
-ufw route allow in on wg0 out on $PUB_INTERFACE
-ufw route allow in on $PUB_INTERFACE out on wg0
+
+# Explicitly allow forwarding for WireGuard (using quotes and explicit ANY to avoid parsing errors)
+echo "Adding UFW route rules..."
+ufw route allow in on "$WG_INTERFACE" out on "$PUB_INTERFACE"
+ufw route allow in on "$PUB_INTERFACE" out on "$WG_INTERFACE"
 echo "y" | ufw enable
 
 echo "Starting WireGuard..."
