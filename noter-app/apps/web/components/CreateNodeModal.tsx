@@ -37,6 +37,17 @@ export const CreateNodeModal: React.FC<CreateNodeModalProps> = ({
         }
     }, [isOpen]);
 
+    // Close on Escape key
+    React.useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') onClose();
+        };
+        if (isOpen) {
+            window.addEventListener('keydown', handleKeyDown);
+        }
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isOpen, onClose]);
+
     if (!isOpen) return null;
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -50,8 +61,14 @@ export const CreateNodeModal: React.FC<CreateNodeModalProps> = ({
     const Icon = icon && (FaIcons as any)[icon] ? (FaIcons as any)[icon] : FaFolder;
 
     return (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-xl w-96 z-50">
+        <div 
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+            onClick={onClose}
+        >
+            <div 
+                className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow-xl w-96 z-50" 
+                onClick={e => e.stopPropagation()}
+            >
                 <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-gray-100">
                     {mode === 'edit' 
                         ? (type === 'project' ? (t('project.rename') || 'Edit Project') : type === 'task_list' ? t('actions.editList') : t('actions.editNote'))

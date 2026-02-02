@@ -187,6 +187,7 @@ export default function TaskList() {
     const [selectedTask, setSelectedTask] = useState<Task | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [newTaskDefaults, setNewTaskDefaults] = useState<{ dueDate: Date | null }>({ dueDate: null });
+    const [initialDate, setInitialDate] = useState<Date | null>(null);
     const [sortBy, setSortBy] = useState<'createdAt' | 'custom' | 'dueDate' | 'title' | 'priority'>('custom'); // Default to custom
     const [viewMode, setViewMode] = useState<'list' | 'board' | 'calendar'>('list');
     const [filterDateRange, setFilterDateRange] = useState<{ start: string | null; end: string | null }>({ start: null, end: null });
@@ -560,7 +561,7 @@ export default function TaskList() {
                         onChange={(e) => setNewTaskTitle(e.target.value)}
                         placeholder={t('tasks.placeholder')}
                         aria-label={t('tasks.placeholder')}
-                        className="flex-1 p-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-500"
+                        className="flex-1 p-1 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-gray-100 placeholder-gray-600 dark:placeholder-gray-400"
                     />
                     <button type="submit" aria-label={t('actions.createTask')} className="p-1 bg-blue-600 text-white rounded hover:bg-blue-700">
                         <FaPlus aria-hidden="true" />
@@ -627,7 +628,7 @@ export default function TaskList() {
 
                 {viewMode === 'calendar' && (
                     <TaskCalendar 
-                        tasks={tasks.filter(t => !selectedTaskListId || t.parentNoteId === selectedTaskListId)} 
+                        tasks={tasks.filter(t => !selectedTaskListId ? true : t.parentNoteId === selectedTaskListId)} 
                         onTaskClick={openTaskDetail} 
                         onCreateTask={handleCreateTaskWithDate}
                     />

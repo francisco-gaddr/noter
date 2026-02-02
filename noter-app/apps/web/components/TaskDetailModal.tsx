@@ -8,16 +8,20 @@ interface TaskDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   task: Task | null;
+  initialDate?: Date | null;
   onUpdate: (id: string, updates: Partial<Task>) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  onCreate?: (task: Omit<Task, '_id' | 'createdAt' | 'updatedAt' | 'userId'>) => Promise<void>;
 }
 
 export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   isOpen,
   onClose,
   task,
+  initialDate,
   onUpdate,
-  onDelete
+  onDelete,
+  onCreate
 }) => {
   const { t } = useTranslation();
   const { notes } = useStore();
@@ -30,32 +34,69 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    if (task) {
-      setTitle(task.title);
-      setDescription(task.description || '');
-      setPriority(task.priority);
-      // Format date for input type="date" (YYYY-MM-DD)
-      const formattedDate = task.dueDate ? new Date(task.dueDate).toISOString().split('T')[0] : '';
-      setDueDate(formattedDate || '');
-      setCompleted(task.completed);
-      setSelectedListId(task.parentNoteId || '');
+    if (isOpen) {
+        if (task) {
+            setTitle(task.title);
+            setDescription(task.description || '');
+            setPriority(task.priority);
+            const formattedDate = task.dueDate ? new Date(task.dueDate).toISOString().slice(0, 16) : '';
+            setDueDate(formattedDate || '');
+            setCompleted(task.completed);
+            setSelectedListId(task.parentNoteId || '');
+        } else {
+            // Reset for new task
+            setTitle('');
+            setDescription('');
+            setPriority('low');
+            // Use initialDate if provided, otherwise empty
+            if (initialDate) {
+                // Format for datetime-local input: YYYY-MM-DDTHH:mm
+                const formattedInitial = new Date(initialDate).toISOString().slice(0, 16);
+                setDueDate(formattedInitial);
+            } else {
+                setDueDate('');
+            }
+            setCompleted(false);
+            setSelectedListId('');
+        }
     }
-  }, [task, isOpen]);
+  }, [task, isOpen, initialDate]);
 
-  if (!isOpen || !task) return null;
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') onClose();
+    };
+    if (isOpen) {
+        window.addEventListener('keydown', handleKeyDown);
+    }
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
+  if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
     try {
-      await onUpdate(task._id, {
-        title,
-        description,
-        priority,
-        completed,
-        dueDate: dueDate ? new Date(dueDate).toISOString() : undefined,
-        parentNoteId: selectedListId || null
-      });
+      if (task) {
+        await onUpdate(task._id, {
+            title,
+            description,
+            priority,
+            completed,
+            dueDate: dueDate ? new Date(dueDate).toISOString() : undefined,
+            parentNoteId: selectedListId || null
+        });
+      } else if (onCreate) {
+         await onCreate({
+            title,
+            description,
+            priority,
+            completed,
+            dueDate: dueDate ? new Date(dueDate).toISOString() : undefined,
+            parentNoteId: selectedListId || null
+         });
+      }
       onClose();
     } catch (error) {
       console.error('Failed to update task', error);
@@ -104,7 +145,8 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              autoFocus
+              className="w-full bg-transparent text-xl font-bold border-none focus:ring-0 p-0 text-gray-900 dark:text-gray-100 placeholder-gray-400"
               required
             />
           </div>
@@ -137,7 +179,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" htmlFor="due-date-input">{t('common.dueDate')}</label>
                 <input
                   id="due-date-input"
-                  type="date"
+                  type="datetime-local"
                   value={dueDate}
                   onChange={(e) => setDueDate(e.target.value)}
                   className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"

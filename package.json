@@ -1,11 +1,4 @@
 {
-<<<<<<< HEAD
-  "dependencies": {
-    "expo-build-properties": "^1.0.10",
-    "react-dnd": "^16.0.1",
-    "react-dnd-html5-backend": "^16.0.1"
-  }
-=======
   "name": "noter-app",
   "private": true,
   "scripts": {
@@ -40,5 +33,4 @@
     "apps/*",
     "packages/*"
   ]
->>>>>>> cca7f97b791ca174d46ded037e215557a88dd09b
 }

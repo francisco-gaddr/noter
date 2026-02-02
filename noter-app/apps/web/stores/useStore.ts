@@ -80,7 +80,7 @@ interface StoreState {
   unlockNote: (id: string, password: string) => Promise<boolean>;
   deleteNote: (id: string) => Promise<void>;
   
-  createTask: (title: string, parentNoteId?: string, dueDate?: string | null) => Promise<void>;
+  createTask: (title: string, parentNoteId?: string, dueDate?: string | null, options?: { description?: string; priority?: 'low' | 'medium' | 'high' }) => Promise<void>;
   updateTask: (id: string, data: UpdateTaskDto) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
   reorderTasks: (tasks: Task[]) => Promise<void>;

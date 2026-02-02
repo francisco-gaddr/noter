@@ -22,6 +22,14 @@ const resources = {
         toggleTheme: 'Toggle theme',
         logout: 'Logout'
       },
+
+      iconPicker: {
+        title: 'Välj ikon',
+        removeIcon: 'Ta bort ikon'
+      },
+      confirm: {
+        deleteTask: 'Är du säker på att du vill ta bort denna uppgift?'
+      },
       settings: {
         title: 'Settings',
         close: 'Close'

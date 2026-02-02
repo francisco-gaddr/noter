@@ -1,0 +1,95 @@
+diff --git a/node_modules/expo-dev-menu/android/build.gradle b/node_modules/expo-dev-menu/android/build.gradle
+index a715f0d..482a1bd 100644
+--- a/node_modules/expo-dev-menu/android/build.gradle
++++ b/node_modules/expo-dev-menu/android/build.gradle
+@@ -73,8 +73,14 @@ task copyAssets(type: Copy) {
+ }
+ 
+ project.afterEvaluate {
+-  packageDebugAssets.dependsOn copyAssets
+-  packageReleaseWithDevMenuAssets.dependsOn copyAssets
++  def debugAssetsTask = tasks.findByName("packageDebugAssets")
++  if (debugAssetsTask) {
++    debugAssetsTask.dependsOn copyAssets
++  }
++  def releaseAssetsTask = tasks.findByName("packageReleaseWithDevMenuAssets")
++  if (releaseAssetsTask) {
++    releaseAssetsTask.dependsOn copyAssets
++  }
+ }
+ 
+ repositories {
+diff --git a/node_modules/expo-dev-menu/android/src/main/java/com/facebook/react/devsupport/DevMenuReactSettings.kt b/node_modules/expo-dev-menu/android/src/main/java/com/facebook/react/devsupport/DevMenuReactSettings.kt
+index 3fc1500..7101b70 100644
+--- a/node_modules/expo-dev-menu/android/src/main/java/com/facebook/react/devsupport/DevMenuReactSettings.kt
++++ b/node_modules/expo-dev-menu/android/src/main/java/com/facebook/react/devsupport/DevMenuReactSettings.kt
+@@ -37,9 +37,9 @@ internal class DevMenuInternalSettingsWrapper(private val devSettings: Developer
+     }
+ 
+   var isRemoteJSDebugEnabled: Boolean
+-    get() = devSettings.isRemoteJSDebugEnabled
++    get() = false
+     set(value) {
+-      devSettings.isRemoteJSDebugEnabled = value
++      // no-op
+     }
+ 
+   var isJSDevModeEnabled: Boolean
+diff --git a/node_modules/expo-dev-menu/android/src/main/java/com/facebook/react/devsupport/DevMenuSettingsBase.kt b/node_modules/expo-dev-menu/android/src/main/java/com/facebook/react/devsupport/DevMenuSettingsBase.kt
+index d9f6244..19fc549 100644
+--- a/node_modules/expo-dev-menu/android/src/main/java/com/facebook/react/devsupport/DevMenuSettingsBase.kt
++++ b/node_modules/expo-dev-menu/android/src/main/java/com/facebook/react/devsupport/DevMenuSettingsBase.kt
+@@ -47,13 +47,13 @@ abstract class DevMenuSettingsBase(
+ 
+   override var isDeviceDebugEnabled: Boolean = ReactBuildConfig.DEBUG
+ 
+-  override var isRemoteJSDebugEnabled: Boolean
++  var isRemoteJSDebugEnabled: Boolean
+     get() = mPreferences.getBoolean("remote_js_debug", false)
+     set(remoteJSDebugEnabled) {
+       mPreferences.edit().putBoolean("remote_js_debug", remoteJSDebugEnabled).apply()
+     }
+ 
+-  override var isStartSamplingProfilerOnInit: Boolean =
++  var isStartSamplingProfilerOnInit: Boolean =
+     mPreferences.getBoolean("start_sampling_profiler_on_init", false)
+ 
+   override fun addMenuItem(title: String) {
+diff --git a/node_modules/expo-dev-menu/android/src/main/java/expo/modules/devmenu/devtools/DevMenuDevToolsDelegate.kt b/node_modules/expo-dev-menu/android/src/main/java/expo/modules/devmenu/devtools/DevMenuDevToolsDelegate.kt
+index f755d90..6a8d0c3 100644
+--- a/node_modules/expo-dev-menu/android/src/main/java/expo/modules/devmenu/devtools/DevMenuDevToolsDelegate.kt
++++ b/node_modules/expo-dev-menu/android/src/main/java/expo/modules/devmenu/devtools/DevMenuDevToolsDelegate.kt
+@@ -54,12 +54,8 @@ class DevMenuDevToolsDelegate(
+ 
+   fun toggleRemoteDebugging() = runWithDevSupportEnabled {
+     val reactDevManager = reactDevManager ?: return
+-    val devSettings = devSettings ?: return
+     manager.closeMenu()
+-    UiThreadUtil.runOnUiThread {
+-      devSettings.isRemoteJSDebugEnabled = !devSettings.isRemoteJSDebugEnabled
+-      reactDevManager.handleReloadJS()
+-    }
++    // Remote JS Debugging is not supported in this version
+   }
+ 
+   fun togglePerformanceMonitor(context: Context) {
+diff --git a/node_modules/expo-dev-menu/android/src/main/java/expo/modules/devmenu/react/DevMenuHostHelper.kt b/node_modules/expo-dev-menu/android/src/main/java/expo/modules/devmenu/react/DevMenuHostHelper.kt
+index f8a960e..bb700fa 100644
+--- a/node_modules/expo-dev-menu/android/src/main/java/expo/modules/devmenu/react/DevMenuHostHelper.kt
++++ b/node_modules/expo-dev-menu/android/src/main/java/expo/modules/devmenu/react/DevMenuHostHelper.kt
+@@ -3,15 +3,11 @@ package expo.modules.devmenu.react
+ import android.app.Application
+ import com.facebook.hermes.reactexecutor.HermesExecutorFactory
+ import com.facebook.react.bridge.JavaScriptExecutorFactory
+-import com.facebook.react.jscexecutor.JSCExecutorFactory
+ import com.facebook.react.modules.systeminfo.AndroidInfoHelpers
+ import com.facebook.soloader.SoLoader
+ 
+ fun createNonDebuggableJavaScriptExecutorFactory(application: Application): JavaScriptExecutorFactory {
+   SoLoader.init(application.applicationContext, /* native exopackage */ false)
+-  if (SoLoader.getLibraryPath("libjsc.so") != null) {
+-    return JSCExecutorFactory(application.packageName, AndroidInfoHelpers.getFriendlyDeviceName())
+-  }
+   return HermesExecutorFactory().also {
+     try {
+       HermesExecutorFactory::class.java
