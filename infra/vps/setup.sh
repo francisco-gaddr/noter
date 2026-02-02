@@ -54,9 +54,7 @@ SaveConfig = true
 ListenPort = $WG_PORT
 PrivateKey = $PRIVATE_KEY
 # Allow forwarding
-PostUp = ufw route allow in on $WG_INTERFACE out on $PUB_INTERFACE
 PostUp = iptables -t nat -A POSTROUTING -o $PUB_INTERFACE -j MASQUERADE
-PostDown = ufw route delete allow in on $WG_INTERFACE out on $PUB_INTERFACE
 PostDown = iptables -t nat -D POSTROUTING -o $PUB_INTERFACE -j MASQUERADE
 
 [Peer]
