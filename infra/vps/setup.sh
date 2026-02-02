@@ -93,7 +93,7 @@ server {
 
     # Frontend
     location /app {
-        proxy_pass http://$PI_PEER_IP:80/app;
+        proxy_pass http://$PI_PEER_IP:8080/app;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -111,7 +111,7 @@ server {
 
     # Backend
     location /api {
-        proxy_pass http://$PI_PEER_IP:80/api;
+        proxy_pass http://$PI_PEER_IP:8080/api;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
