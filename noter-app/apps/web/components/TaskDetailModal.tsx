@@ -84,7 +84,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
             description,
             priority,
             completed,
-            dueDate: dueDate ? new Date(dueDate).toISOString() : undefined,
+            dueDate: dueDate ? new Date(dueDate).toISOString() : null,
             parentNoteId: selectedListId || null
         });
       } else if (onCreate) {
@@ -93,7 +93,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
             description,
             priority,
             completed,
-            dueDate: dueDate ? new Date(dueDate).toISOString() : undefined,
+            dueDate: dueDate ? new Date(dueDate).toISOString() : null,
             parentNoteId: selectedListId || null
          });
       }
