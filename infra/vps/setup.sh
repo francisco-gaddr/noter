@@ -17,7 +17,7 @@ echo "Updating system..."
 apt-get update && apt-get upgrade -y
 
 echo "Installing WireGuard, Nginx, Certbot..."
-apt-get install -y wireguard nginx certbot python3-certbot-nginx ufw
+apt-get install -y wireguard nginx certbot python3-certbot-nginx ufw net-tools
 
 echo "Enabling IP Forwarding..."
 sed -i 's/#net.ipv4.ip_forward=1/net.ipv4.ip_forward=1/' /etc/sysctl.conf
@@ -26,7 +26,9 @@ sysctl -p
 echo "Generating WireGuard Keys..."
 umask 077
 mkdir -p /etc/wireguard
-wg genkey | tee /etc/wireguard/privatekey | wg pubkey > /etc/wireguard/publickey
+if [ ! -f /etc/wireguard/privatekey ]; then
+    wg genkey | tee /etc/wireguard/privatekey | wg pubkey > /etc/wireguard/publickey
+fi
 PRIVATE_KEY=$(cat /etc/wireguard/privatekey)
 PUBLIC_KEY=$(cat /etc/wireguard/publickey)
 
@@ -59,11 +61,14 @@ ufw allow ssh
 ufw allow 80/tcp
 ufw allow 443/tcp
 ufw allow $WG_PORT/udp
-ufw --force enable
+# Explicitly allow forwarding for WireGuard
+ufw route allow in on wg0 out on eth0
+ufw route allow in on eth0 out on wg0
+echo "y" | ufw enable
 
 echo "Starting WireGuard..."
 systemctl enable wg-quick@$WG_INTERFACE
-systemctl start wg-quick@$WG_INTERFACE
+systemctl restart wg-quick@$WG_INTERFACE
 
 echo "Configuring Nginx..."
 # Remove default if exists
@@ -72,7 +77,7 @@ rm -f /etc/nginx/sites-enabled/default
 cat > /etc/nginx/sites-available/noter <<EOF
 server {
     listen 80;
-    server_name _; # Will be updated by Certbot or user can set domain
+    server_name _; 
 
     # Frontend
     location /app {
@@ -85,6 +90,11 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
+        
+        # Timeout settings for debugging
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
     }
 
     # Backend
@@ -100,7 +110,6 @@ server {
         proxy_set_header X-Forwarded-Proto \$scheme;
     }
     
-    # Root redirect to app (optional)
     location = / {
         return 301 /app;
     }
@@ -112,7 +121,15 @@ systemctl restart nginx
 
 echo "------------------------------------------------"
 echo "Setup Complete!"
-echo "1. Run setup on Raspberry Pi if not done."
-echo "2. If you have a domain, point it to 217.154.2.108 and run:"
-echo "   certbot --nginx -d yourdomain.com"
 echo "------------------------------------------------"
+echo "DIAGNOSTICS:"
+echo "1. WireGuard Status:"
+wg show
+echo ""
+echo "2. Nginx Status:"
+systemctl is-active nginx
+echo ""
+echo "3. Firewall Status:"
+ufw status verbose
+echo ""
+echo "IMPORTANT: Ensure your Cloud Provider Firewall allows UDP port $WG_PORT and TCP 80/443!"
