@@ -3,6 +3,7 @@ version: '3.8'
 services:
   mongodb:
     image: mongo:latest
+    container_name: noter-mongodb
     ports:
       - "27017:27017"
     volumes:
@@ -11,10 +12,46 @@ services:
 
   redis:
     image: redis:alpine
+    container_name: noter-redis
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
+    restart: always
+
+  backend:
+    build:
+      context: .
+      dockerfile: apps/backend/Dockerfile
+    container_name: noter-backend
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - MONGO_URI=mongodb://mongodb:27017/noter
+      - REDIS_URL=redis://redis:6379
+      - PORT=3001
+      # Add other env vars here or use env_file
+    depends_on:
+      - mongodb
+      - redis
+    restart: always
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: http://192.168.50.16:3001
+    container_name: noter-web
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=http://192.168.50.16:3001
+      # Adjust API URL as needed for client-side access
+    depends_on:
+      - backend
     restart: always
 
 volumes:

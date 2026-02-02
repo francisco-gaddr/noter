@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import 'react-native-get-random-values';
 import * as Crypto from 'expo-crypto';
 import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, encrypt, decrypt } from '@repo/shared';
-import { fetchWithAuth, login as apiLogin, setAuthToken, initApiUrl, setUnauthorizedHandler } from '../services/api';
+import { fetchWithAuth, login as apiLogin, register as apiRegister, setAuthToken, initApiUrl, setUnauthorizedHandler } from '../services/api';
 import * as Database from '../services/database';
 import { initSocket, disconnectSocket } from '../services/socket';
 import NetInfo from '@react-native-community/netinfo';
