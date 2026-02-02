@@ -130,6 +130,21 @@ export async function login(username: string, password: string) {
   return response.json();
 }
 
+export async function register(username: string, password: string) {
+  const response = await fetch(`${API_URL}/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ message: 'Registration failed' }));
+    throw new Error(error.message || `Registration failed with status ${response.status}`);
+  }
+
+  return response.json();
+}
+
 export async function fetchWithAuth(endpoint: string, options: RequestInit = {}) {
   const url = `${API_URL}${endpoint}`;
   

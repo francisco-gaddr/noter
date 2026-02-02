@@ -38,6 +38,9 @@ export const BackendUrlDialog: React.FC<BackendUrlDialogProps> = ({
           value={tempUrl}
           onChangeText={setTempUrl}
           autoCapitalize="none"
+          autoCorrect={false}
+          spellCheck={false}
+          textContentType="URL"
           keyboardType="url"
           style={{ backgroundColor: 'transparent' }}
         />

@@ -351,6 +351,18 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
+  register: async (username, password) => {
+    set({ isLoading: true, error: null });
+    try {
+      await apiRegister(username, password);
+      // Automatically login after register
+      await get().login(username, password);
+    } catch (error: any) {
+      set({ error: error.message, isLoading: false });
+      throw error;
+    }
+  },
+
   logout: async () => {
     try {
       await SecureStore.deleteItemAsync('token');

@@ -83,10 +83,10 @@ export default function SettingsScreen() {
     } catch {}
   };
 
-  const handleSaveBackendUrl = async () => {
-    if (tempBackendUrl) {
-      await setApiUrl(tempBackendUrl);
-      setBackendUrl(tempBackendUrl);
+  const handleSaveBackendUrl = async (url: string) => {
+    if (url) {
+      await setApiUrl(url);
+      setBackendUrl(url);
       setBackendUrlDialogVisible(false);
       
       // Reconnect socket with new URL

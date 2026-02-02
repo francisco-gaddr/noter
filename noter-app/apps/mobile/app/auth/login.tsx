@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, Image } from 'react-native';
-import { Text, TextInput, Button, Surface, useTheme, Portal, Dialog, IconButton } from 'react-native-paper';
+import { StyleSheet, View } from 'react-native';
+import { Text, TextInput, Button, Surface, useTheme, IconButton, Portal } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/stores/useStore';
 import { API_URL, setApiUrl } from '@/services/api';
+import { BackendUrlDialog } from '@/components/BackendUrlDialog';
 
 export default function LoginScreen() {
   const [username, setUsername] = useState('');
@@ -15,10 +16,10 @@ export default function LoginScreen() {
 
   // Settings state
   const [showSettings, setShowSettings] = useState(false);
-  const [tempApiUrl, setTempApiUrl] = useState(API_URL);
+  const [currentApiUrl, setCurrentApiUrl] = useState(API_URL);
 
   useEffect(() => {
-    setTempApiUrl(API_URL);
+    setCurrentApiUrl(API_URL);
   }, [showSettings]);
 
   const handleLogin = async () => {
@@ -35,8 +36,9 @@ export default function LoginScreen() {
     }
   };
 
-  const handleSaveSettings = async () => {
-      await setApiUrl(tempApiUrl);
+  const handleSaveSettings = async (url: string) => {
+      await setApiUrl(url);
+      setCurrentApiUrl(url);
       setShowSettings(false);
       alert('Server URL updated. You may need to restart the app if issues persist.');
   };
@@ -87,26 +89,12 @@ export default function LoginScreen() {
       </Surface>
 
       <Portal>
-        <Dialog visible={showSettings} onDismiss={() => setShowSettings(false)}>
-            <Dialog.Title>Server Settings</Dialog.Title>
-            <Dialog.Content>
-                <Text variant="bodyMedium" style={{marginBottom: 10}}>
-                    Enter the backend API URL. 
-                    For physical device, use your computer's local IP (e.g. http://192.168.1.5:3001/api).
-                </Text>
-                <TextInput
-                    label="API URL"
-                    value={tempApiUrl}
-                    onChangeText={setTempApiUrl}
-                    autoCapitalize="none"
-                    keyboardType="url"
-                />
-            </Dialog.Content>
-            <Dialog.Actions>
-                <Button onPress={() => setShowSettings(false)}>Cancel</Button>
-                <Button onPress={handleSaveSettings}>Save</Button>
-            </Dialog.Actions>
-        </Dialog>
+        <BackendUrlDialog 
+            visible={showSettings}
+            onDismiss={() => setShowSettings(false)}
+            currentUrl={currentApiUrl}
+            onSave={handleSaveSettings}
+        />
       </Portal>
     </View>
   );
@@ -117,12 +105,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     padding: 20,
-  },
-  header: {
-      position: 'absolute',
-      top: 40,
-      right: 20,
-      zIndex: 10
   },
   card: {
     padding: 20,
