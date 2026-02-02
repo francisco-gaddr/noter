@@ -1,4 +1,5 @@
 #!/bin/bash
+# Updated setup script
 set -e
 
 # Configuration
@@ -76,8 +77,12 @@ ufw route allow in on "$PUB_INTERFACE" out on "$WG_INTERFACE"
 echo "y" | ufw enable
 
 echo "Starting WireGuard..."
+# Ensure clean state
+systemctl stop wg-quick@$WG_INTERFACE 2>/dev/null || true
+ip link delete $WG_INTERFACE 2>/dev/null || true
+
 systemctl enable wg-quick@$WG_INTERFACE
-systemctl restart wg-quick@$WG_INTERFACE
+systemctl start wg-quick@$WG_INTERFACE
 
 echo "Configuring Nginx..."
 # Remove default if exists
