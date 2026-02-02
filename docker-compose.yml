@@ -55,8 +55,8 @@ services:
 
   nginx:
     build:
-      context: ./noter-app
-      dockerfile: apps/nginx/Dockerfile
+      context: ./noter-app/apps/nginx
+      dockerfile: Dockerfile
     container_name: noter-nginx
     ports:
       - "80:80"

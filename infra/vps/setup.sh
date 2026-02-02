@@ -62,8 +62,8 @@ ufw allow 80/tcp
 ufw allow 443/tcp
 ufw allow $WG_PORT/udp
 # Explicitly allow forwarding for WireGuard
-ufw route allow in on wg0 out on eth0
-ufw route allow in on eth0 out on wg0
+ufw route allow in on wg0 out on $PUB_INTERFACE
+ufw route allow in on $PUB_INTERFACE out on wg0
 echo "y" | ufw enable
 
 echo "Starting WireGuard..."
