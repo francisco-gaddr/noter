@@ -45,7 +45,7 @@ services:
         NEXT_PUBLIC_API_URL: /api
     container_name: noter-web
     ports:
-      - "3000:3000"
+      - "3005:3000" # Mapped to 3005 to avoid host conflicts
     environment:
       - NODE_ENV=production
       - NEXT_PUBLIC_API_URL=/api
