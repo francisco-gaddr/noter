@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View } from 'react-native';
-import { Dialog, Portal, TextInput, Text, Button, useTheme } from 'react-native-paper';
+import { View, TextInput as RNTextInput, StyleSheet } from 'react-native';
+import { Dialog, Portal, Button, useTheme, Text } from 'react-native-paper';
 
 interface BackendUrlDialogProps {
   visible: boolean;
@@ -33,17 +33,20 @@ export const BackendUrlDialog: React.FC<BackendUrlDialogProps> = ({
     <Dialog visible={visible} onDismiss={onDismiss}>
       <Dialog.Title>Backend URL</Dialog.Title>
       <Dialog.Content>
-        <TextInput
-          label="URL"
-          value={tempUrl}
-          onChangeText={setTempUrl}
-          autoCapitalize="none"
-          autoCorrect={false}
-          spellCheck={false}
-          textContentType="URL"
-          keyboardType="url"
-          style={{ backgroundColor: 'transparent' }}
-        />
+        <View style={[styles.inputContainer, { backgroundColor: theme.colors.surfaceVariant }]}>
+          <RNTextInput
+            value={tempUrl}
+            onChangeText={setTempUrl}
+            autoCapitalize="none"
+            autoCorrect={false}
+            spellCheck={false}
+            textContentType="URL"
+            keyboardType="url"
+            style={[styles.input, { color: theme.colors.onSurface }]}
+            placeholder="http://..."
+            placeholderTextColor={theme.colors.onSurfaceVariant}
+          />
+        </View>
         <Text variant="bodySmall" style={{ marginTop: 10, color: theme.colors.onSurfaceVariant }}>
           Exempel: http://192.168.1.100:3001/api
         </Text>
@@ -55,3 +58,18 @@ export const BackendUrlDialog: React.FC<BackendUrlDialogProps> = ({
     </Dialog>
   );
 };
+
+const styles = StyleSheet.create({
+  inputContainer: {
+    borderRadius: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#ccc',
+  },
+  input: {
+    fontSize: 16,
+    height: 24, // Min height
+    padding: 0,
+  }
+});

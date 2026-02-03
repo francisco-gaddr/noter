@@ -84,16 +84,25 @@ export default function SettingsScreen() {
   };
 
   const handleSaveBackendUrl = async (url: string) => {
+    console.log('SettingsScreen: handleSaveBackendUrl called with:', url);
     if (url) {
-      await setApiUrl(url);
-      setBackendUrl(url);
-      setBackendUrlDialogVisible(false);
-      
-      // Reconnect socket with new URL
-      disconnectSocket();
-      initSocket(getAuthToken());
-      
-      Alert.alert('Inställning sparad', 'Backend-adress har uppdaterats och anslutningen startas om.');
+      try {
+        await setApiUrl(url);
+        setBackendUrl(url);
+        setBackendUrlDialogVisible(false);
+        
+        // Reconnect socket with new URL
+        console.log('SettingsScreen: Reconnecting socket...');
+        disconnectSocket();
+        initSocket(getAuthToken());
+        
+        Alert.alert('Inställning sparad', 'Backend-adress har uppdaterats och anslutningen startas om.');
+      } catch (error) {
+        console.error('SettingsScreen: Error saving backend URL:', error);
+        Alert.alert('Fel', 'Kunde inte spara inställningar.');
+      }
+    } else {
+        console.log('SettingsScreen: URL is empty, ignoring.');
     }
   };
 

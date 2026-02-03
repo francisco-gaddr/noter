@@ -83,15 +83,24 @@ function RootLayoutNav() {
   const inAuth = segments[0] === 'auth';
 
   useEffect(() => {
+    console.log('RootLayoutNav: Auth State Change', { 
+        isInitialized, 
+        token: !!token, 
+        segments, 
+        inAuth 
+    });
+
     if (!isInitialized) return;
     if (!token && !inAuth) {
+      console.log('RootLayoutNav: Redirecting to login');
       router.replace('/auth/login');
       return;
     }
     if (token && inAuth) {
+      console.log('RootLayoutNav: Redirecting to tabs');
       router.replace('/(tabs)');
     }
-  }, [token, inAuth, isInitialized, router]);
+  }, [token, inAuth, isInitialized, router, segments]);
 
   const paperTheme = colorScheme === 'dark' ? MD3DarkTheme : MD3LightTheme;
 

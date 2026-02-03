@@ -5,6 +5,7 @@ import { useRouter } from 'expo-router';
 import { useStore } from '@/stores/useStore';
 
 export default function RegisterScreen() {
+  console.log('RegisterScreen: Mounted');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
