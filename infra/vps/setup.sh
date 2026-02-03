@@ -89,7 +89,7 @@ rm -f /etc/nginx/sites-enabled/default
 cat > /etc/nginx/sites-available/noter <<EOF
 server {
     listen 80;
-    server_name _; 
+    server_name $SERVER_NAME; 
 
     # Frontend
     location /app {
@@ -130,6 +130,12 @@ EOF
 
 ln -sf /etc/nginx/sites-available/noter /etc/nginx/sites-enabled/
 systemctl restart nginx
+
+# SSL Setup if domain provided
+if [ ! -z "$DOMAIN_NAME" ]; then
+    echo "Setting up SSL with Certbot..."
+    certbot --nginx -d $DOMAIN_NAME --non-interactive --agree-tos --email admin@$DOMAIN_NAME --redirect
+fi
 
 echo "------------------------------------------------"
 echo "Setup Complete!"
