@@ -1,7 +1,7 @@
 ## Build Info
 
 - Version: 1.0.1
-- Build: 3/4
+- Build: 4/5
 
 # Noter Mobile App
 

@@ -16,10 +16,12 @@ export default function LoginScreen() {
 
   // Settings state
   const [showSettings, setShowSettings] = useState(false);
-  const [currentApiUrl, setCurrentApiUrl] = useState(API_URL);
+  const [tempApiUrl, setTempApiUrl] = useState(API_URL);
+  const [activeApiUrl, setActiveApiUrl] = useState(API_URL);
 
   useEffect(() => {
-    setCurrentApiUrl(API_URL);
+    setTempApiUrl(API_URL);
+    setActiveApiUrl(API_URL);
   }, [showSettings]);
 
   const handleLogin = async () => {
@@ -30,17 +32,18 @@ export default function LoginScreen() {
       router.replace('/(tabs)');
     } catch (error: any) {
       console.error(error);
-      alert(error.message || 'Login failed');
+      setErrorMessage(error.message || 'Login failed');
+      setErrorVisible(true);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSaveSettings = async (url: string) => {
-      await setApiUrl(url);
-      setCurrentApiUrl(url);
+  const handleSaveSettings = async () => {
+      await setApiUrl(tempApiUrl);
+      setActiveApiUrl(tempApiUrl);
       setShowSettings(false);
-      alert('Server URL updated. You may need to restart the app if issues persist.');
+      // alert('Server URL updated. You may need to restart the app if issues persist.');
   };
 
   return (
@@ -73,20 +76,23 @@ export default function LoginScreen() {
           Login
         </Button>
 
-        <Link href="/auth/register" asChild>
-          <Button 
-            mode="text" 
-            style={styles.textButton}
-          >
-            Don't have an account? Sign up
-          </Button>
-        </Link>
+        <Button 
+          mode="text" 
+          onPress={() => router.push('/auth/register' as any)} 
+          style={styles.textButton}
+        >
+          Don't have an account? Sign up
+        </Button>
 
         <IconButton 
             icon="cog" 
             onPress={() => setShowSettings(true)} 
             style={{ marginTop: 20 }}
         />
+        
+        <Text variant="bodySmall" style={{ marginTop: 10, color: theme.colors.outline, textAlign: 'center' }}>
+          Server: {activeApiUrl}
+        </Text>
       </Surface>
 
       <Portal>

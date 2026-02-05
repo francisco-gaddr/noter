@@ -115,9 +115,27 @@ export const setUnauthorizedHandler = (handler: null | (() => void | Promise<voi
   unauthorizedHandler = handler;
 };
 
+const handleApiError = (error: any, url: string) => {
+    console.error(`[API Error] Request to ${url} failed:`, error);
+    
+    let message = error.message || 'Unknown error';
+    
+    // Check for Network request failed
+    if (message === 'Network request failed' || message.includes('Network request failed')) {
+         const hint = url.includes('localhost') || url.includes('127.0.0.1')
+        ? '\n\nTips: "localhost" fungerar inte på fysisk enhet. Byt till din dators lokala IP (t.ex. 192.168.x.x) i inställningarna.'
+        : '\n\nTips: Kontrollera att enheten är på samma Wi-Fi som servern och att servern körs.';
+      
+         throw new Error(`Kunde inte nå servern på ${url}.\nFel: ${message}${hint}`);
+    }
+    
+    throw new Error(`Anrop till ${url} misslyckades: ${message}`);
+};
+
 export async function login(username: string, password: string) {
+  const url = `${API_URL}/auth/login`;
   try {
-    const response = await fetch(`${API_URL}/auth/login`, {
+    const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
@@ -139,51 +157,35 @@ export async function login(username: string, password: string) {
     }
     return data;
   } catch (error: any) {
-    console.error('Login error:', error);
-    
-    // Detailed error logging for debugging
-    if (error.message && (error.message.includes('Network request failed') || error.message.includes('fetch'))) {
-        console.log('Network Error detected. Checking API_URL:', API_URL);
-        if (API_URL.includes('localhost') || API_URL.includes('127.0.0.1')) {
-             throw new Error(`Connection failed to ${API_URL}. \n\nOn Android, 'localhost' refers to the device itself, not your computer.\n\nUse your computer's LAN IP (e.g. 192.168.1.x) instead.`);
-        }
-        if (!API_URL.startsWith('http')) {
-             throw new Error(`Invalid API URL: ${API_URL}. Must start with http:// or https://`);
-        }
-        // Check for cleartext traffic issues (though we added the flag)
-        if (API_URL.startsWith('http://') && Platform.OS === 'android') {
-             // We can't easily detect if cleartext is blocked, but we can hint it
-             throw new Error(`Network request failed to ${API_URL}.\n\nEnsure:\n1. Server is running\n2. Phone is on same Wi-Fi\n3. URL is correct (no typos)`);
-        }
-    }
-    
-    throw error;
+    handleApiError(error, url);
   }
 }
 
 export async function register(username: string, password: string) {
+  const url = `${API_URL}/auth/register`;
   try {
-    const response = await fetch(`${API_URL}/auth/register`, {
+    console.log(`[API] Registering user: ${username} to ${url}`);
+    const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ message: 'Registration failed' }));
-      throw new Error(error.message || `Registration failed with status ${response.status}`);
+      const errorText = await response.text();
+      let errorMessage = 'Registration failed';
+      try {
+        const errorJson = JSON.parse(errorText);
+        errorMessage = errorJson.message || errorMessage;
+      } catch {
+        errorMessage = `Registration failed: ${response.status} ${response.statusText}`;
+      }
+      throw new Error(errorMessage);
     }
 
     return response.json();
   } catch (error: any) {
-    console.error('Register error:', error);
-    if (error.message && (error.message.includes('Network request failed') || error.message.includes('fetch'))) {
-        if (API_URL.includes('localhost') || API_URL.includes('127.0.0.1')) {
-             throw new Error(`Connection failed to ${API_URL}. \n\nOn Android, 'localhost' refers to the device itself. Use LAN IP.`);
-        }
-        throw new Error(`Network request failed to ${API_URL}. Check server and Wi-Fi.`);
-    }
-    throw error;
+    handleApiError(error, url);
   }
 }
 

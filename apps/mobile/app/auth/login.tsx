@@ -19,9 +19,11 @@ export default function LoginScreen() {
   // Settings state
   const [showSettings, setShowSettings] = useState(false);
   const [tempApiUrl, setTempApiUrl] = useState(API_URL);
+  const [activeApiUrl, setActiveApiUrl] = useState(API_URL);
 
   useEffect(() => {
     setTempApiUrl(API_URL);
+    setActiveApiUrl(API_URL);
   }, [showSettings]);
 
   const handleLogin = async () => {
@@ -41,8 +43,9 @@ export default function LoginScreen() {
 
   const handleSaveSettings = async () => {
       await setApiUrl(tempApiUrl);
+      setActiveApiUrl(tempApiUrl);
       setShowSettings(false);
-      alert('Server URL updated. You may need to restart the app if issues persist.');
+      // alert('Server URL updated. You may need to restart the app if issues persist.');
   };
 
   return (
@@ -88,6 +91,10 @@ export default function LoginScreen() {
             onPress={() => setShowSettings(true)} 
             style={{ marginTop: 20 }}
         />
+        
+        <Text variant="bodySmall" style={{ marginTop: 10, color: theme.colors.outline, textAlign: 'center' }}>
+          Server: {activeApiUrl}
+        </Text>
       </Surface>
 
       <Portal>
