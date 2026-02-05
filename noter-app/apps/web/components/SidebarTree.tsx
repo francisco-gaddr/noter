@@ -442,8 +442,25 @@ export default function SidebarTree() {
       moveNote(dragId, targetId, maxOrder + 1);
   };
 
+  const handleDeleteConfirm = async () => {
+      if (deleteModal.id) {
+          await deleteNote(deleteModal.id);
+          setDeleteModal({ ...deleteModal, isOpen: false });
+      }
+  };
+
   return (
     <div ref={(el) => { containerRef.current = el; drop(el); }} className={`flex flex-col h-full border-r border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 relative ${isOver ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}>
+      <ConfirmationModal
+        isOpen={deleteModal.isOpen}
+        onClose={() => setDeleteModal({ ...deleteModal, isOpen: false })}
+        onConfirm={handleDeleteConfirm}
+        title={deleteModal.type === 'project' ? (t('confirm.deleteProjectTitle') || 'Delete Project') : (deleteModal.type === 'task_list' ? (t('confirm.deleteTaskListTitle') || 'Delete Task List') : (t('confirm.deleteNoteTitle') || 'Delete Note'))}
+        message={deleteModal.type === 'project' ? (t('confirm.deleteProjectMessage') || 'Are you sure you want to delete this project and all its contents?') : (deleteModal.type === 'task_list' ? (t('confirm.deleteTaskListMessage') || 'Are you sure you want to delete this task list?') : (t('confirm.deleteNoteMessage') || 'Are you sure you want to delete this note?'))}
+        isDangerous={true}
+        confirmLabel={t('actions.delete') || 'Delete'}
+      />
+
       {iconPickerNote && (
           <IconPicker 
               onSelect={handleIconSelect} 

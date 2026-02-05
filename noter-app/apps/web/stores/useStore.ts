@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { Note, Task, UpdateTaskDto, User, decrypt } from '@repo/shared';
-import { api } from '../services/api';
+import { api, getUUID } from '../services/api';
 import { socket, connectSocket, disconnectSocket } from '../services/socket';
 import { db } from '../services/db';
 import deepmerge from 'deepmerge';
@@ -70,6 +70,8 @@ interface StoreState {
 
   isAppLocked: boolean;
   setAppLocked: (locked: boolean) => void;
+  autoLockTimeout: number; // in minutes
+  setAutoLockTimeout: (minutes: number) => void;
   
   fetchNotes: () => Promise<void>;
   fetchTasks: (parentNoteId?: string) => Promise<void>;
@@ -121,8 +123,10 @@ export const useStore = create<StoreState>((set, get) => ({
         const selectedNoteId = localStorage.getItem('lastSelectedNoteId') || localStorage.getItem('selectedNoteId') || null;
         const selectedTaskListId = localStorage.getItem('lastSelectedTaskListId') || null;
         const activeProjectId = localStorage.getItem('activeProjectId') || null;
+        const isAppLocked = localStorage.getItem('isAppLocked') === 'true';
+        const autoLockTimeout = parseInt(localStorage.getItem('autoLockTimeout') || '15', 10);
 
-        set({ user, token, language, activeTab, selectedNoteId, selectedTaskListId, activeProjectId, isHydrated: true });
+        set({ user, token, language, activeTab, selectedNoteId, selectedTaskListId, activeProjectId, isAppLocked, autoLockTimeout, isHydrated: true });
     } catch (e) {
         console.error('Failed to hydrate store', e);
         set({ isHydrated: true });
@@ -185,8 +189,22 @@ export const useStore = create<StoreState>((set, get) => ({
   
   activeUsers: {},
   isAppLocked: false,
+  autoLockTimeout: 15,
 
-  setAppLocked: (locked) => set({ isAppLocked: locked }),
+  setAppLocked: (locked) => {
+    if (typeof window !== 'undefined') {
+        if (locked) localStorage.setItem('isAppLocked', 'true');
+        else localStorage.removeItem('isAppLocked');
+    }
+    set({ isAppLocked: locked });
+  },
+
+  setAutoLockTimeout: (minutes) => {
+      if (typeof window !== 'undefined') {
+          localStorage.setItem('autoLockTimeout', minutes.toString());
+      }
+      set({ autoLockTimeout: minutes });
+  },
 
   joinNote: (noteId) => {
       const { user } = get();
@@ -583,7 +601,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
   createNote: async (title, parentId = null, type: 'note' | 'task_list' | 'project' = 'note', order?: number, icon?: string) => {
     set({ isLoading: true, error: null });
-    const clientId = crypto.randomUUID();
+    const clientId = getUUID();
     try {
       const initialContent = JSON.stringify([
         {
@@ -767,7 +785,7 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   createTask: async (title, parentNoteId, dueDate) => {
-      const clientId = crypto.randomUUID();
+      const clientId = getUUID();
       try {
           const newTask = await api.createTask({ title, parentNoteId, priority: 'medium', clientId, dueDate: dueDate || null });
           set(state => ({ 

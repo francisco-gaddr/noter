@@ -328,38 +328,32 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   login: async (username, password) => {
-    set({ isLoading: true, error: null });
     try {
+      set({ isLoading: true, error: null });
       const response = await apiLogin(username, password);
-      const token = response.token; // Assuming backend returns { token: '...' }
-      if (token) {
-        await SecureStore.setItemAsync('token', token);
-        setAuthToken(token);
-        set({ token });
-        
-        // Re-init socket with new token and attach listeners
-        get().connectSocket();
-
-        // Refresh data after login
-        await get().fetchNotes();
-        await get().fetchTasks();
-      }
-      set({ isLoading: false });
+      setAuthToken(response.token);
+      await SecureStore.setItemAsync('token', response.token);
+      get().setToken(response.token);
+      await get().init();
     } catch (error: any) {
-      set({ error: error.message, isLoading: false });
+      set({ error: error.message || 'Login failed' });
       throw error;
+    } finally {
+      set({ isLoading: false });
     }
   },
 
   register: async (username, password) => {
-    set({ isLoading: true, error: null });
     try {
+      set({ isLoading: true, error: null });
       await apiRegister(username, password);
       // Automatically login after register
       await get().login(username, password);
     } catch (error: any) {
-      set({ error: error.message, isLoading: false });
+      set({ error: error.message || 'Registration failed' });
       throw error;
+    } finally {
+      set({ isLoading: false });
     }
   },
 

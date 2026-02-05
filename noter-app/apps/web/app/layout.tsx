@@ -24,7 +24,9 @@ export default function RootLayout({
         <Providers>
             <StoreHydrator />
             <SWRegister />
-            {children}
+            <div id="root-app">
+              {children}
+            </div>
         </Providers>
       </body>
     </html>

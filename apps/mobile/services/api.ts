@@ -87,18 +87,47 @@ export const setUnauthorizedHandler = (handler: null | (() => void | Promise<voi
 };
 
 export async function login(username: string, password: string) {
-  const response = await fetch(`${API_URL}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password }),
-  });
+  try {
+    const response = await fetch(`${API_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: 'Login failed' }));
-    throw new Error(error.message || `Login failed with status ${response.status}`);
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: 'Login failed' }));
+      throw new Error(error.message || `Login failed with status ${response.status}`);
+    }
+
+    return response.json();
+  } catch (error: any) {
+    if (error.message === 'Network request failed' || error.message.includes('Network request failed')) {
+      throw new Error(`Kunde inte nå servern på ${API_URL}. \n\nTips:\n1. Kontrollera att du använder rätt IP-adress (inte localhost på fysisk enhet).\n2. Se till att servern är igång.\n3. Kontrollera att mobil och server är på samma nätverk.`);
+    }
+    throw error;
   }
+}
 
-  return response.json();
+export async function register(username: string, password: string) {
+  try {
+    const response = await fetch(`${API_URL}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: 'Registration failed' }));
+      throw new Error(error.message || `Registration failed with status ${response.status}`);
+    }
+
+    return response.json();
+  } catch (error: any) {
+    if (error.message === 'Network request failed' || error.message.includes('Network request failed')) {
+      throw new Error(`Kunde inte nå servern på ${API_URL}. \n\nTips:\n1. Kontrollera att du använder rätt IP-adress (inte localhost på fysisk enhet).\n2. Se till att servern är igång.\n3. Kontrollera att mobil och server är på samma nätverk.`);
+    }
+    throw error;
+  }
 }
 
 export async function fetchWithAuth(endpoint: string, options: RequestInit = {}) {

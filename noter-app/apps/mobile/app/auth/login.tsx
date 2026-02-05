@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Text, TextInput, Button, Surface, useTheme, IconButton, Portal } from 'react-native-paper';
-import { useRouter } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 import { useStore } from '@/stores/useStore';
 import { API_URL, setApiUrl } from '@/services/api';
 import { BackendUrlDialog } from '@/components/BackendUrlDialog';
@@ -73,13 +73,14 @@ export default function LoginScreen() {
           Login
         </Button>
 
-        <Button 
-          mode="text" 
-          onPress={() => router.push('/auth/register' as any)} 
-          style={styles.textButton}
-        >
-          Don't have an account? Sign up
-        </Button>
+        <Link href="/auth/register" asChild>
+          <Button 
+            mode="text" 
+            style={styles.textButton}
+          >
+            Don't have an account? Sign up
+          </Button>
+        </Link>
 
         <IconButton 
             icon="cog" 

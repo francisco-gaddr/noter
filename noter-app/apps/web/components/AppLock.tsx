@@ -5,10 +5,8 @@ import { useStore } from '../stores/useStore';
 import { FaLock } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
 
-const TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
-
 export default function AppLock() {
-    const { isAppLocked, setAppLocked, user, login } = useStore();
+    const { isAppLocked, setAppLocked, user, login, autoLockTimeout } = useStore();
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [mounted, setMounted] = useState(false);
@@ -22,10 +20,11 @@ export default function AppLock() {
     const resetTimer = useCallback(() => {
         if (isAppLocked || !user) return;
         if (timerRef.current) clearTimeout(timerRef.current);
+        const timeoutMs = (autoLockTimeout || 15) * 60 * 1000;
         timerRef.current = setTimeout(() => {
             setAppLocked(true);
-        }, TIMEOUT_MS);
-    }, [isAppLocked, setAppLocked, user]);
+        }, timeoutMs);
+    }, [isAppLocked, setAppLocked, user, autoLockTimeout]);
 
     useEffect(() => {
         const events = ['mousedown', 'keydown', 'scroll', 'touchstart'];
@@ -52,15 +51,20 @@ export default function AppLock() {
             setPassword('');
             setError('');
             resetTimer();
-        } catch (err) {
-            setError(t('appLock.incorrectPassword'));
+        } catch (err: any) {
+            console.error('Unlock failed:', err);
+            if (err.message === 'Unauthorized' || err.message === 'Invalid password') {
+                setError(t('appLock.incorrectPassword'));
+            } else {
+                setError(err.message || t('errors.generic'));
+            }
         }
     };
 
     if (!isAppLocked || !mounted) return null;
 
     return (
-        <div className="fixed inset-0 z-[100] bg-gray-900 flex flex-col items-center justify-center text-white">
+        <div role="main" aria-label="App Lock" className="fixed inset-0 z-[100] bg-gray-900 flex flex-col items-center justify-center text-white">
             <div className="bg-gray-800 p-8 rounded-lg shadow-2xl w-full max-w-md text-center">
                 <div className="mb-6 flex justify-center">
                     <div className="p-4 bg-blue-600 rounded-full">

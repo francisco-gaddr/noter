@@ -1,17 +1,30 @@
 import { Note, CreateNoteDto, UpdateNoteDto, Task, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, AuthResponse } from '@repo/shared';
 
-// Polyfill for crypto.randomUUID in non-secure contexts (HTTP)
-if (typeof crypto !== 'undefined' && !crypto.randomUUID) {
-  crypto.randomUUID = () => {
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-      const r = Math.random() * 16 | 0;
-      const v = c === 'x' ? r : (r & 0x3 | 0x8);
-      return v.toString(16);
-    }) as `${string}-${string}-${string}-${string}-${string}`;
-  };
-}
+export const getUUID = (): string => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
+const getBaseUrl = () => {
+  if (typeof window === 'undefined') return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
+  
+  const envUrl = process.env.NEXT_PUBLIC_API_URL;
+  // If envUrl is defined but contains localhost, and we are NOT on localhost, 
+  // assume we should use relative path to allow Nginx to proxy correctly.
+  if (envUrl && (envUrl.includes('localhost') || envUrl.includes('127.0.0.1')) && 
+      window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      return '/api';
+  }
+  return envUrl || '/api';
+};
+
+const API_URL = getBaseUrl();
 
 const getHeaders = () => {
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;

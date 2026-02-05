@@ -10,7 +10,7 @@ interface SettingsModalProps {
 }
 
 export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
-  const { language, setLanguage } = useStore();
+  const { language, setLanguage, autoLockTimeout, setAutoLockTimeout } = useStore();
   const { t } = useTranslation();
 
   React.useEffect(() => {
@@ -43,6 +43,25 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           >
             <option value="sv">Svenska</option>
             <option value="en">English</option>
+          </select>
+        </div>
+
+        <div className="mt-4">
+          <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
+            {t('settings.autoLockTimeout')}
+          </label>
+          <select
+            value={autoLockTimeout}
+            onChange={(e) => setAutoLockTimeout(Number(e.target.value))}
+            aria-label={t('settings.autoLockTimeout')}
+            className="w-full p-2 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+          >
+            <option value={1}>1 {t('common.minute')}</option>
+            <option value={5}>5 {t('common.minutes')}</option>
+            <option value={15}>15 {t('common.minutes')}</option>
+            <option value={50}>50 {t('common.minutes')}</option>
+            <option value={60}>1 {t('common.hour')}</option>
+            <option value={180}>3 {t('common.hours')}</option>
           </select>
         </div>
 

@@ -27,7 +27,8 @@ const resources = {
 
       settings: {
         title: 'Settings',
-        close: 'Close'
+        close: 'Close',
+        autoLockTimeout: 'Auto Lock Timeout'
       },
       project: {
         label: 'Project Folder',

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, TextInput as RNTextInput, StyleSheet } from 'react-native';
-import { Dialog, Portal, Button, useTheme, Text } from 'react-native-paper';
+import { StyleSheet, View } from 'react-native';
+import { Dialog, Button, useTheme, Text, TextInput } from 'react-native-paper';
 
 interface BackendUrlDialogProps {
   visible: boolean;
@@ -30,23 +30,20 @@ export const BackendUrlDialog: React.FC<BackendUrlDialogProps> = ({
   };
 
   return (
-    <Dialog visible={visible} onDismiss={onDismiss}>
+    <Dialog visible={visible} onDismiss={onDismiss} style={{ backgroundColor: theme.colors.elevation.level3 }}>
       <Dialog.Title>Backend URL</Dialog.Title>
       <Dialog.Content>
-        <View style={[styles.inputContainer, { backgroundColor: theme.colors.surfaceVariant }]}>
-          <RNTextInput
+        <TextInput
+            label="API URL"
             value={tempUrl}
             onChangeText={setTempUrl}
             autoCapitalize="none"
             autoCorrect={false}
-            spellCheck={false}
-            textContentType="URL"
             keyboardType="url"
-            style={[styles.input, { color: theme.colors.onSurface }]}
-            placeholder="http://..."
-            placeholderTextColor={theme.colors.onSurfaceVariant}
-          />
-        </View>
+            mode="outlined"
+            style={styles.input}
+            placeholder="http://192.168.x.x:3001/api"
+        />
         <Text variant="bodySmall" style={{ marginTop: 10, color: theme.colors.onSurfaceVariant }}>
           Exempel: http://192.168.1.100:3001/api
         </Text>
@@ -60,16 +57,7 @@ export const BackendUrlDialog: React.FC<BackendUrlDialogProps> = ({
 };
 
 const styles = StyleSheet.create({
-  inputContainer: {
-    borderRadius: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#ccc',
-  },
   input: {
-    fontSize: 16,
-    height: 24, // Min height
-    padding: 0,
+    backgroundColor: 'transparent',
   }
 });

@@ -50,6 +50,7 @@ interface AppState {
   
   // Auth
   login: (username: string, password: string) => Promise<void>;
+  register: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   setToken: (token: string | null) => void;
 }
@@ -343,6 +344,34 @@ export const useStore = create<AppState>((set, get) => ({
         // Refresh data after login
         await get().fetchNotes();
         await get().fetchTasks();
+      }
+      set({ isLoading: false });
+    } catch (error: any) {
+      set({ error: error.message, isLoading: false });
+      throw error;
+    }
+  },
+
+  register: async (username, password) => {
+    set({ isLoading: true, error: null });
+    try {
+      const response = await apiRegister(username, password);
+      // After register, we might get a token directly or need to login
+      // Assuming backend returns { token: '...' } like login, or we login manually.
+      // If the backend returns the same structure as login:
+      const token = response.token;
+      
+      if (token) {
+        await SecureStore.setItemAsync('token', token);
+        setAuthToken(token);
+        set({ token });
+        
+        get().connectSocket();
+        await get().fetchNotes();
+        await get().fetchTasks();
+      } else {
+        // Fallback: Login automatically if no token returned
+        await get().login(username, password);
       }
       set({ isLoading: false });
     } catch (error: any) {

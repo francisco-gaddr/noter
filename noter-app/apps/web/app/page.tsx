@@ -73,12 +73,15 @@ export default function Home() {
       <div
         className="flex flex-col h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-300"
       >
-        <Navbar />
+        <header role="banner">
+          <Navbar />
+        </header>
         <div className="flex flex-1 overflow-hidden">
-          <aside 
+          <nav 
               className="relative flex-shrink-0 overflow-hidden flex flex-col"
               style={{ width: sidebarWidth }}
-              aria-label="Sidopanel"
+              aria-label="Huvudnavigering"
+              role="navigation"
           >
             <SidebarTree />
             <div
@@ -92,10 +95,10 @@ export default function Home() {
               aria-valuemax={600}
               tabIndex={0}
             />
-          </aside>
+          </nav>
 
-          <main className="flex-1 overflow-hidden bg-white dark:bg-gray-900" role="main">
-            <h1 className="sr-only">Noter</h1>
+          <main className="flex-1 overflow-hidden bg-white dark:bg-gray-900" role="main" id="main-content">
+            <h1 className="sr-only">Noter Innehåll</h1>
             {activeTab === 'tasks' ? (
               <TaskList />
             ) : (
