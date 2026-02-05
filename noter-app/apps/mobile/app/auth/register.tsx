@@ -1,36 +1,42 @@
 import React, { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { Text, TextInput, Button, Surface, useTheme } from 'react-native-paper';
+import { Text, TextInput, Button, Surface, useTheme, Snackbar } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/stores/useStore';
 
 export default function RegisterScreen() {
-  console.log('RegisterScreen: Mounted');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [errorVisible, setErrorVisible] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  
   const router = useRouter();
   const { register } = useStore();
   const theme = useTheme();
 
   const handleRegister = async () => {
     if (!username || !password) {
-      alert('Please fill in all fields');
-      return;
+        setErrorMessage('Please fill in all fields');
+        setErrorVisible(true);
+        return;
     }
     if (password !== confirmPassword) {
-      alert('Passwords do not match');
-      return;
+        setErrorMessage('Passwords do not match');
+        setErrorVisible(true);
+        return;
     }
 
     setLoading(true);
     try {
       await register(username, password);
-      router.replace('/(tabs)');
+      // Register usually logs in automatically or returns token, handled in store.
+      // If successful, router should redirect via _layout auth guard.
     } catch (error: any) {
       console.error(error);
-      alert(error.message || 'Registration failed');
+      setErrorMessage(error.message || 'Registration failed');
+      setErrorVisible(true);
     } finally {
       setLoading(false);
     }
@@ -82,6 +88,17 @@ export default function RegisterScreen() {
           Already have an account? Login
         </Button>
       </Surface>
+
+      <Snackbar
+        visible={errorVisible}
+        onDismiss={() => setErrorVisible(false)}
+        action={{
+          label: 'OK',
+          onPress: () => setErrorVisible(false),
+        }}
+      >
+        {errorMessage}
+      </Snackbar>
     </View>
   );
 }
@@ -108,8 +125,9 @@ const styles = StyleSheet.create({
   button: {
     width: '100%',
     marginTop: 10,
+    paddingVertical: 5,
   },
   textButton: {
     marginTop: 10,
-  }
+  },
 });
