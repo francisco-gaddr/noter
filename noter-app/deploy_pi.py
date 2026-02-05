@@ -107,22 +107,45 @@ try:
             ssh.close()
             exit(1)
     else:
-        print(f"Directory {project_path} exists. Pulling changes...")
+        print(f"Directory {project_path} exists. Checking git status...")
         
-        # Check permissions? If owned by root, git pull might fail.
-        # Let's ensure ownership just in case
+        # Check permissions first
         chown_cmd = f"chown -R {user}:{user} {project_path}"
         execute_sudo_command(ssh, chown_cmd, password)
+
+        # Check if it is a valid git repo
+        check_git_cmd = f"cd {project_path} && test -d .git && echo 'is_git'"
+        stdin, stdout, stderr = ssh.exec_command(check_git_cmd)
         
-        pull_cmd = f"cd {project_path} && {git_env} git reset --hard && {git_env} git pull"
-        exit_code = execute_command(ssh, pull_cmd)
-        if exit_code != 0:
-            print("Pull failed.")
-            ssh.close()
-            exit(1)
+        if 'is_git' not in stdout.read().decode('utf-8'):
+            print(f"Directory {project_path} exists but is not a git repository. Re-cloning...")
+            # Remove directory
+            rm_cmd = f"rm -rf {project_path}"
+            execute_sudo_command(ssh, rm_cmd, password)
+            
+            # Re-clone
+            clone_cmd = f"cd {parent_dir} && {git_env} git clone {repo_url} noter"
+            exit_code = execute_command(ssh, clone_cmd)
+            if exit_code != 0:
+                print("Re-clone failed.")
+                ssh.close()
+                exit(1)
+        else:
+            print("Git repository valid. Pulling changes...")
+            pull_cmd = f"cd {project_path} && {git_env} git reset --hard && {git_env} git pull"
+            exit_code = execute_command(ssh, pull_cmd)
+            if exit_code != 0:
+                print("Pull failed.")
+                ssh.close()
+                exit(1)
 
     # Docker compose up
     docker_path = f"{project_path}/noter-app"
+    
+    print("Stopping existing containers...")
+    # Force stop and remove any existing noter containers to free up ports
+    stop_cmd = "docker ps -aq --filter 'name=noter' | xargs -r docker rm -f"
+    execute_sudo_command(ssh, stop_cmd, password)
     
     print("Building and starting containers...")
     

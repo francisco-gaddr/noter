@@ -116,33 +116,75 @@ export const setUnauthorizedHandler = (handler: null | (() => void | Promise<voi
 };
 
 export async function login(username: string, password: string) {
-  const response = await fetch(`${API_URL}/auth/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password }),
-  });
+  try {
+    const response = await fetch(`${API_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: 'Login failed' }));
-    throw new Error(error.message || `Login failed with status ${response.status}`);
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: 'Login failed' }));
+      throw new Error(error.message || `Login failed with status ${response.status}`);
+    }
+
+    const data = await response.json();
+    if (data.token) {
+      await SecureStore.setItemAsync('auth_token', data.token);
+      authToken = data.token;
+      
+      // Initialize socket with new token
+      // We need to dynamic import or access the socket service to avoid circular deps if possible
+      // But for now, let's assume the user will reload or we handle it in the store
+    }
+    return data;
+  } catch (error: any) {
+    console.error('Login error:', error);
+    
+    // Detailed error logging for debugging
+    if (error.message && (error.message.includes('Network request failed') || error.message.includes('fetch'))) {
+        console.log('Network Error detected. Checking API_URL:', API_URL);
+        if (API_URL.includes('localhost') || API_URL.includes('127.0.0.1')) {
+             throw new Error(`Connection failed to ${API_URL}. \n\nOn Android, 'localhost' refers to the device itself, not your computer.\n\nUse your computer's LAN IP (e.g. 192.168.1.x) instead.`);
+        }
+        if (!API_URL.startsWith('http')) {
+             throw new Error(`Invalid API URL: ${API_URL}. Must start with http:// or https://`);
+        }
+        // Check for cleartext traffic issues (though we added the flag)
+        if (API_URL.startsWith('http://') && Platform.OS === 'android') {
+             // We can't easily detect if cleartext is blocked, but we can hint it
+             throw new Error(`Network request failed to ${API_URL}.\n\nEnsure:\n1. Server is running\n2. Phone is on same Wi-Fi\n3. URL is correct (no typos)`);
+        }
+    }
+    
+    throw error;
   }
-
-  return response.json();
 }
 
 export async function register(username: string, password: string) {
-  const response = await fetch(`${API_URL}/auth/register`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password }),
-  });
+  try {
+    const response = await fetch(`${API_URL}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ message: 'Registration failed' }));
-    throw new Error(error.message || `Registration failed with status ${response.status}`);
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ message: 'Registration failed' }));
+      throw new Error(error.message || `Registration failed with status ${response.status}`);
+    }
+
+    return response.json();
+  } catch (error: any) {
+    console.error('Register error:', error);
+    if (error.message && (error.message.includes('Network request failed') || error.message.includes('fetch'))) {
+        if (API_URL.includes('localhost') || API_URL.includes('127.0.0.1')) {
+             throw new Error(`Connection failed to ${API_URL}. \n\nOn Android, 'localhost' refers to the device itself. Use LAN IP.`);
+        }
+        throw new Error(`Network request failed to ${API_URL}. Check server and Wi-Fi.`);
+    }
+    throw error;
   }
-
-  return response.json();
 }
 
 export async function fetchWithAuth(endpoint: string, options: RequestInit = {}) {
