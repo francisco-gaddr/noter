@@ -1,3 +1,8 @@
+## Build Info
+
+- Version: 1.0.1
+- Build: 3/4
+
 # Noter Mobile App
 
 Detta är mobilapplikationen för Noter-systemet, byggd med React Native och Expo. Appen är designad för att vara en förlängning av webbapplikationen med fokus på offline-first funktionalitet, snabbhet och säkerhet.

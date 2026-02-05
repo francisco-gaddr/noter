@@ -1,3 +1,8 @@
+## Build Info
+
+- Version: 1.0.1
+- Build: 3/4
+
 # Noter Web Application
 
 En säker, offline-först anteckningsapplikation byggd med Next.js. Appen fokuserar på dataintegritet, kryptering och sömlös synkronisering mellan enheter.
