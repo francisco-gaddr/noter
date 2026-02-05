@@ -1,18 +1,23 @@
-import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, Animated } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { StyleSheet, View, Animated, Platform, TouchableOpacity } from 'react-native';
 import { Text, useTheme } from 'react-native-paper';
-import NetInfo from '@react-native-community/netinfo';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import NetInfo from '@react-native-community/netinfo';
 
 export function NetworkStatus() {
-  const [isConnected, setIsConnected] = useState<boolean | null>(true);
   const theme = useTheme();
   const insets = useSafeAreaInsets();
-  const [heightAnim] = useState(new Animated.Value(0));
+  const [isConnected, setIsConnected] = useState<boolean | null>(true);
+  const [isVisible, setIsVisible] = useState(false);
+  const heightAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener(state => {
-      setIsConnected(state.isConnected);
+      const connected = state.isConnected;
+      setIsConnected(connected);
+      if (connected === false) {
+        setIsVisible(true);
+      }
     });
 
     return () => unsubscribe();
@@ -20,31 +25,37 @@ export function NetworkStatus() {
 
   useEffect(() => {
     Animated.timing(heightAnim, {
-      toValue: isConnected === false ? 40 + insets.top : 0,
+      toValue: isConnected === false && isVisible ? 40 + insets.top : 0,
       duration: 300,
       useNativeDriver: false,
     }).start();
-  }, [isConnected, insets.top]);
+  }, [isConnected, isVisible, insets.top]);
 
-  // Don't render anything if connected (or initial null state), but keep in tree for animation
-  if (isConnected === true) return null;
+  const handleDismiss = () => {
+    setIsVisible(false);
+  };
+
+  if (isConnected === true && !isVisible) return null;
 
   return (
     <Animated.View
-      pointerEvents="none"
       style={[
         styles.container,
         {
           height: heightAnim,
-          backgroundColor: withAlpha(theme.colors.error, 0.5), // More transparent
+          backgroundColor: withAlpha(theme.colors.error, 0.9),
         },
       ]}
     >
-      <View style={[styles.content, { paddingTop: insets.top }]}>
+      <TouchableOpacity 
+        activeOpacity={0.8} 
+        onPress={handleDismiss}
+        style={[styles.content, { paddingTop: insets.top }]}
+      >
         <Text variant="labelMedium" style={{ color: theme.colors.onError }}>
-          No Internet Connection
+          No Internet Connection - Tap to dismiss
         </Text>
-      </View>
+      </TouchableOpacity>
     </Animated.View>
   );
 }
@@ -53,10 +64,8 @@ const styles = StyleSheet.create({
   container: {
     position: 'absolute',
     top: 0,
-    alignSelf: 'center', // Center horizontally
-    width: '50%', // Much smaller width
-    borderBottomLeftRadius: 12,
-    borderBottomRightRadius: 12,
+    alignSelf: 'center',
+    width: '100%',
     zIndex: 9999,
     overflow: 'hidden',
   },

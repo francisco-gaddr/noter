@@ -24,7 +24,16 @@ const resources = {
       },
       settings: {
         title: 'Settings',
-        close: 'Close'
+        theme: 'Theme',
+        language: 'Language',
+        security: 'Security',
+        autoLock: 'Auto Lock',
+        autoLockTimeout: 'Auto-lock timeout',
+        biometrics: 'Biometrics',
+        changePassword: 'Change Password',
+        logout: 'Logout',
+        save: 'Save',
+        cancel: 'Cancel'
       },
       project: {
         label: 'Project Folder',
@@ -65,7 +74,11 @@ const resources = {
         priority: 'Priority',
         dueDate: 'Due date',
         completed: 'Completed',
-        processing: 'Processing...'
+        processing: 'Processing...',
+        loading: 'Loading...',
+        error: 'An error occurred',
+        minutes: 'minutes',
+        seconds: 'seconds'
       },
       noteEditor: {
         selectNote: 'Select a note to start editing',
@@ -155,7 +168,8 @@ const resources = {
         changePriority: 'Change Priority'
       },
       confirm: {
-        deleteNote: 'Are you sure you want to delete this note?',
+        deleteNoteTitle: 'Delete Note',
+        deleteNoteMessage: 'Are you sure you want to delete this note?',
         deleteTask: 'Are you sure you want to delete this task?'
       },
       tasks: {
@@ -207,7 +221,16 @@ const resources = {
       },
       settings: {
         title: 'Inställningar',
-        close: 'Stäng'
+        theme: 'Tema',
+        language: 'Språk',
+        security: 'Säkerhet',
+        autoLock: 'Automatiskt lås',
+        autoLockTimeout: 'Automatisk låsning efter',
+        biometrics: 'Biometri',
+        changePassword: 'Byt lösenord',
+        logout: 'Logga ut',
+        save: 'Spara',
+        cancel: 'Avbryt'
       },
       actions: {
         newNote: 'Ny anteckning',
@@ -245,7 +268,11 @@ const resources = {
         priority: 'Prioritet',
         dueDate: 'Förfallodatum',
         completed: 'Klar',
-        processing: 'Bearbetar...'
+        processing: 'Bearbetar...',
+        loading: 'Laddar...',
+        error: 'Ett fel uppstod',
+        minutes: 'minuter',
+        seconds: 'sekunder'
       },
       noteEditor: {
         selectNote: 'Välj en anteckning för att börja redigera',
@@ -335,7 +362,8 @@ const resources = {
         changePriority: 'Ändra prioritet'
       },
       confirm: {
-        deleteNote: 'Är du säker på att du vill ta bort anteckningen?',
+        deleteNoteTitle: 'Ta bort anteckning',
+        deleteNoteMessage: 'Är du säker på att du vill ta bort anteckningen?',
         deleteTask: 'Är du säker på att du vill ta bort uppgiften?'
       },
       tasks: {
