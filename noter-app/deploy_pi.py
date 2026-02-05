@@ -114,7 +114,7 @@ try:
         chown_cmd = f"chown -R {user}:{user} {project_path}"
         execute_sudo_command(ssh, chown_cmd, password)
         
-        pull_cmd = f"cd {project_path} && {git_env} git pull"
+        pull_cmd = f"cd {project_path} && {git_env} git reset --hard && {git_env} git pull"
         exit_code = execute_command(ssh, pull_cmd)
         if exit_code != 0:
             print("Pull failed.")

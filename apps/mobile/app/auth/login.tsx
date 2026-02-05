@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, Image } from 'react-native';
-import { Text, TextInput, Button, Surface, useTheme, Portal, Dialog, IconButton } from 'react-native-paper';
+import { Text, TextInput, Button, Surface, useTheme, Portal, Dialog, IconButton, Snackbar } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/stores/useStore';
 import { API_URL, setApiUrl } from '@/services/api';
@@ -9,6 +9,9 @@ export default function LoginScreen() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [errorVisible, setErrorVisible] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  
   const router = useRouter();
   const { login } = useStore();
   const theme = useTheme();
@@ -29,7 +32,8 @@ export default function LoginScreen() {
       router.replace('/(tabs)');
     } catch (error: any) {
       console.error(error);
-      alert(error.message || 'Login failed');
+      setErrorMessage(error.message || 'Login failed');
+      setErrorVisible(true);
     } finally {
       setLoading(false);
     }
@@ -108,6 +112,18 @@ export default function LoginScreen() {
             </Dialog.Actions>
         </Dialog>
       </Portal>
+
+      <Snackbar
+        visible={errorVisible}
+        onDismiss={() => setErrorVisible(false)}
+        action={{
+          label: 'OK',
+          onPress: () => setErrorVisible(false),
+        }}
+        duration={5000}
+      >
+        {errorMessage}
+      </Snackbar>
     </View>
   );
 }

@@ -102,7 +102,11 @@ export async function login(username: string, password: string) {
     return response.json();
   } catch (error: any) {
     if (error.message === 'Network request failed' || error.message.includes('Network request failed')) {
-      throw new Error(`Kunde inte nå servern på ${API_URL}. \n\nTips:\n1. Kontrollera att du använder rätt IP-adress (inte localhost på fysisk enhet).\n2. Se till att servern är igång.\n3. Kontrollera att mobil och server är på samma nätverk.`);
+      const hint = API_URL.includes('localhost') || API_URL.includes('127.0.0.1')
+        ? '\n\nTips: "localhost" fungerar inte på fysisk enhet. Byt till din dators lokala IP (t.ex. 192.168.x.x) i inställningarna.'
+        : '\n\nTips: Kontrollera att enheten är på samma Wi-Fi som servern.';
+      
+      throw new Error(`Kunde inte nå servern på ${API_URL}.${hint}`);
     }
     throw error;
   }
@@ -110,6 +114,7 @@ export async function login(username: string, password: string) {
 
 export async function register(username: string, password: string) {
   try {
+    console.log(`[API] Registering user: ${username} to ${API_URL}/auth/register`);
     const response = await fetch(`${API_URL}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -117,14 +122,26 @@ export async function register(username: string, password: string) {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ message: 'Registration failed' }));
-      throw new Error(error.message || `Registration failed with status ${response.status}`);
+      const errorText = await response.text();
+      let errorMessage = 'Registration failed';
+      try {
+        const errorJson = JSON.parse(errorText);
+        errorMessage = errorJson.message || errorMessage;
+      } catch {
+        errorMessage = `Registration failed: ${response.status} ${response.statusText}`;
+      }
+      throw new Error(errorMessage);
     }
 
     return response.json();
   } catch (error: any) {
+    console.error('[API] Register error:', error);
     if (error.message === 'Network request failed' || error.message.includes('Network request failed')) {
-      throw new Error(`Kunde inte nå servern på ${API_URL}. \n\nTips:\n1. Kontrollera att du använder rätt IP-adress (inte localhost på fysisk enhet).\n2. Se till att servern är igång.\n3. Kontrollera att mobil och server är på samma nätverk.`);
+      const hint = API_URL.includes('localhost') || API_URL.includes('127.0.0.1')
+        ? '\n\nTips: "localhost" fungerar inte på fysisk enhet. Byt till din dators lokala IP (t.ex. 192.168.x.x) i inställningarna.'
+        : '\n\nTips: Kontrollera att enheten är på samma Wi-Fi som servern.';
+      
+      throw new Error(`Kunde inte nå servern på ${API_URL}.${hint}`);
     }
     throw error;
   }
