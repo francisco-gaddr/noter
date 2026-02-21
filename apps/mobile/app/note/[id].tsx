@@ -413,7 +413,9 @@ export default function NoteEditorScreen() {
           onSubmitEditing={() => {
             // Small delay to ensure TextInput blur completes and keyboard stays up/transitions
             setTimeout(() => {
-                richText.current?.focusContent();
+                const editor = richText.current as any;
+                editor?.focusContent?.();
+                editor?.focusContentEditor?.();
             }, 50);
           }}
           blurOnSubmit={false}

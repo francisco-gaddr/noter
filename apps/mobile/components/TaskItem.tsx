@@ -13,6 +13,8 @@ interface TaskItemProps {
   onLongPress?: () => void;
   disabled?: boolean;
   isActive?: boolean;
+  showDragHandle?: boolean;
+  onDragStart?: () => void;
 }
 
 export const TaskItem: React.FC<TaskItemProps> = ({
@@ -23,6 +25,8 @@ export const TaskItem: React.FC<TaskItemProps> = ({
   onLongPress,
   disabled,
   isActive,
+  showDragHandle,
+  onDragStart,
 }) => {
   const theme = useTheme();
 
@@ -121,6 +125,15 @@ export const TaskItem: React.FC<TaskItemProps> = ({
               )}
             </View>
           </View>
+          {showDragHandle && (
+            <IconButton
+              icon="drag"
+              size={20}
+              onPressIn={onDragStart}
+              style={styles.dragHandle}
+              accessibilityLabel="Dra för att sortera"
+            />
+          )}
         </View>
       </TouchableRipple>
     </Swipeable>
