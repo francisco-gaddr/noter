@@ -5,9 +5,11 @@ export DEBIAN_FRONTEND=noninteractive
 
 PI_TAILSCALE_IP="${PI_TAILSCALE_IP:-}"
 APP_PORT="${APP_PORT:-80}"
+API_PORT="${API_PORT:-3001}"
 SERVER_NAME="${SERVER_NAME:-_}"
 NGINX_SITE_NAME="${NGINX_SITE_NAME:-pi-proxy}"
 ENABLE_SELF_SIGNED_HTTPS="${ENABLE_SELF_SIGNED_HTTPS:-1}"
+LE_CERT_DIR="${LE_CERT_DIR:-/etc/letsencrypt/live/${SERVER_NAME}}"
 
 if [[ -z "$PI_TAILSCALE_IP" ]]; then
   echo "Saknar PI_TAILSCALE_IP. Exempel:"
@@ -30,7 +32,7 @@ for f in /etc/nginx/sites-enabled/*; do
 done
 shopt -u nullglob
 
-if [[ "$ENABLE_SELF_SIGNED_HTTPS" == "1" ]]; then
+if [[ "$ENABLE_SELF_SIGNED_HTTPS" == "1" && ! -f "${LE_CERT_DIR}/fullchain.pem" ]]; then
   mkdir -p /etc/nginx/selfsigned
   if [[ ! -f /etc/nginx/selfsigned/${NGINX_SITE_NAME}.crt || ! -f /etc/nginx/selfsigned/${NGINX_SITE_NAME}.key ]]; then
     openssl req -x509 -nodes -newkey rsa:2048 \
@@ -41,10 +43,40 @@ if [[ "$ENABLE_SELF_SIGNED_HTTPS" == "1" ]]; then
   fi
 fi
 
+if [[ -f "${LE_CERT_DIR}/fullchain.pem" && -f "${LE_CERT_DIR}/privkey.pem" ]]; then
+  CERT_PATH="${LE_CERT_DIR}/fullchain.pem"
+  KEY_PATH="${LE_CERT_DIR}/privkey.pem"
+else
+  CERT_PATH="/etc/nginx/selfsigned/${NGINX_SITE_NAME}.crt"
+  KEY_PATH="/etc/nginx/selfsigned/${NGINX_SITE_NAME}.key"
+fi
+
 cat >/etc/nginx/sites-available/${NGINX_SITE_NAME}.conf <<EOF
 server {
   listen 80 default_server;
   server_name ${SERVER_NAME};
+
+  location /api/ {
+    proxy_pass http://${PI_TAILSCALE_IP}:${API_PORT}/api/;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+  }
+
+  location /socket.io/ {
+    proxy_pass http://${PI_TAILSCALE_IP}:${API_PORT}/socket.io/;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+  }
 
   location / {
     proxy_pass http://${PI_TAILSCALE_IP}:${APP_PORT};
@@ -59,15 +91,37 @@ server {
 }
 EOF
 
-if [[ "$ENABLE_SELF_SIGNED_HTTPS" == "1" ]]; then
+if [[ -f "${CERT_PATH}" && -f "${KEY_PATH}" ]]; then
   cat >>/etc/nginx/sites-available/${NGINX_SITE_NAME}.conf <<EOF
 
 server {
   listen 443 ssl http2 default_server;
   server_name ${SERVER_NAME};
 
-  ssl_certificate /etc/nginx/selfsigned/${NGINX_SITE_NAME}.crt;
-  ssl_certificate_key /etc/nginx/selfsigned/${NGINX_SITE_NAME}.key;
+  ssl_certificate ${CERT_PATH};
+  ssl_certificate_key ${KEY_PATH};
+
+  location /api/ {
+    proxy_pass http://${PI_TAILSCALE_IP}:${API_PORT}/api/;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+  }
+
+  location /socket.io/ {
+    proxy_pass http://${PI_TAILSCALE_IP}:${API_PORT}/socket.io/;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade \$http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host \$host;
+    proxy_set_header X-Real-IP \$remote_addr;
+    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto \$scheme;
+  }
 
   location / {
     proxy_pass http://${PI_TAILSCALE_IP}:${APP_PORT};

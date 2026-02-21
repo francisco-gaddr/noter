@@ -59,6 +59,21 @@ npm run dev
 
 Appen startar på `http://localhost:3000`.
 
+### Bygg om och starta om i Docker (Raspberry Pi)
+
+```bash
+# Från repo-roten på Pi
+git pull
+docker compose build --no-cache web
+docker compose up -d web
+```
+
+För att se loggar:
+
+```bash
+docker compose logs -f web
+```
+
 ## 🔐 Säkerhetsmodell
 
 1.  **Lokal Lagring:** Data sparas i webbläsarens IndexedDB. Känslig data bör rensas vid utloggning (implementerat via `clearStore`).
