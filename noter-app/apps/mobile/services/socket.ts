@@ -1,6 +1,20 @@
 import { io, Socket } from 'socket.io-client';
 import { API_URL } from './api';
 
+const stripApiSuffix = (url: string) => url.replace(/\/api\/?$/, '');
+
+const toSecureHttp = (url: string) => {
+  if (url.startsWith('https://')) return url;
+  if (url.startsWith('http://')) return `https://${url.slice('http://'.length)}`;
+  return url;
+};
+
+export const resolveSocketBaseUrl = (apiUrl?: string) => {
+  if (!apiUrl) return 'https://localhost:3001';
+  if (apiUrl.startsWith('http')) return toSecureHttp(stripApiSuffix(apiUrl));
+  return 'https://localhost:3001';
+};
+
 let socket: Socket | null = null;
 
 export const initSocket = (token?: string | null) => {
@@ -18,17 +32,19 @@ export const initSocket = (token?: string | null) => {
     return socket;
   }
   
-  // Remove /api from the end of API_URL to get the root URL
-  const baseUrl = API_URL.replace('/api', '');
-  
+  const baseUrl = resolveSocketBaseUrl(API_URL);
+
   console.log('Connecting socket to:', baseUrl);
 
   socket = io(baseUrl, {
-    transports: ['websocket'],
+    transports: ['websocket', 'polling'],
     autoConnect: true,
     reconnection: true,
-    reconnectionAttempts: 5,
+    reconnectionAttempts: Infinity,
     reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+    timeout: 10000,
+    secure: true,
     auth: token ? { token } : undefined
   });
 
@@ -44,7 +60,6 @@ export const initSocket = (token?: string | null) => {
   
   socket.on('connect_error', (err) => {
     console.log(`Socket connection error to ${baseUrl}:`, err.message);
-    // console.log('Full error:', JSON.stringify(err, Object.getOwnPropertyNames(err)));
   });
 
   return socket;

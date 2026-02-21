@@ -1,7 +1,7 @@
 const io = require('socket.io-client');
 
-const API_URL = 'http://localhost:3001/api';
-const SOCKET_URL = 'http://localhost:3001';
+const API_URL = process.env.API_URL || 'https://localhost:3001/api';
+const SOCKET_URL = process.env.SOCKET_URL || 'https://localhost:3001';
 
 async function run() {
   console.log('Starting sync verification...');
@@ -41,7 +41,8 @@ async function run() {
   // 2. Connect Socket
   const socket = io(SOCKET_URL, {
     auth: { token },
-    transports: ['websocket']
+    transports: ['websocket', 'polling'],
+    secure: true
   });
 
   socket.on('connect', () => {

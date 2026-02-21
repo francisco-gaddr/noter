@@ -4,7 +4,7 @@
     "slug": "noter",
     "version": "1.0.1",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/Visuals/appstore.png",
     "scheme": "noter",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -24,8 +24,9 @@
       }
     },
     "android": {
+      "icon": "./assets/images/Visuals/playstore.png",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "foregroundImage": "./assets/images/Visuals/playstore.png",
         "backgroundColor": "#ffffff"
       },
       "package": "com.noter.app",

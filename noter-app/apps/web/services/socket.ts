@@ -1,37 +1,46 @@
 import { io } from 'socket.io-client';
 
-// Use the configured API URL but remove the /api suffix for socket connection
-// This ensures it goes through the same Nginx proxy as the API calls
-const getSocketUrl = () => {
-  if (typeof window === 'undefined') return 'http://localhost:3001';
-  
-  const envUrl = process.env.NEXT_PUBLIC_API_URL;
-  
-  // Smart detection: If configured URL is localhost but we are not, use window.location.origin
-  if (envUrl && (envUrl.includes('localhost') || envUrl.includes('127.0.0.1')) && 
-      window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-      return window.location.origin;
-  }
+const stripApiSuffix = (url: string) => url.replace(/\/api\/?$/, '');
 
-  // If we have a configured API URL, use it (stripping /api)
-  if (envUrl) {
-    // Handle both absolute (http://...) and relative (/api) URLs
-    if (envUrl.startsWith('http')) {
-      return envUrl.replace('/api', '');
-    }
-    // If relative like '/api', construct full URL from window.location
-    return window.location.origin;
-  }
-  
-  // Fallback to current origin
-  return window.location.origin;
+const toSecureHttp = (url: string) => {
+  if (url.startsWith('https://')) return url;
+  if (url.startsWith('http://')) return `https://${url.slice('http://'.length)}`;
+  return url;
 };
 
-export const socket = io(getSocketUrl(), {
+export const resolveSocketBaseUrl = (options?: {
+  envUrl?: string;
+  origin?: string;
+  isServer?: boolean;
+}) => {
+  const envUrl = options?.envUrl ?? process.env.NEXT_PUBLIC_API_URL;
+  const isServer = options?.isServer ?? typeof window === 'undefined';
+
+  if (isServer) {
+    if (!envUrl) return 'https://localhost:3001';
+    if (envUrl.startsWith('http')) return toSecureHttp(stripApiSuffix(envUrl));
+    return 'https://localhost:3001';
+  }
+
+  const origin = options?.origin ?? window.location.origin;
+  if (envUrl) {
+    if (envUrl.startsWith('http')) return toSecureHttp(stripApiSuffix(envUrl));
+    return toSecureHttp(origin);
+  }
+
+  return toSecureHttp(origin);
+};
+
+export const socket = io(resolveSocketBaseUrl(), {
   autoConnect: false,
   reconnection: true,
-  path: '/socket.io/', // Explicitly set path to match Nginx config
-  transports: ['websocket', 'polling'], // Prefer websocket
+  reconnectionAttempts: Infinity,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000,
+  timeout: 10000,
+  path: '/socket.io/',
+  transports: ['websocket', 'polling'],
+  secure: true,
 });
 
 export const connectSocket = () => {
