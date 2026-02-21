@@ -123,6 +123,9 @@ export const useStore = create<StoreState>((set, get) => ({
         const activeProjectId = localStorage.getItem('activeProjectId') || null;
 
         set({ user, token, language, activeTab, selectedNoteId, selectedTaskListId, activeProjectId, isHydrated: true });
+        if (token) {
+            get().initSocket();
+        }
     } catch (e) {
         console.error('Failed to hydrate store', e);
         set({ isHydrated: true });
@@ -220,6 +223,16 @@ export const useStore = create<StoreState>((set, get) => ({
                 [noteId]: users
             }
         }));
+    });
+
+    socket.off('connect_error');
+    socket.on('connect_error', (err: any) => {
+        set({ error: err?.message || 'Socket connection error' });
+    });
+
+    socket.off('disconnect');
+    socket.on('disconnect', () => {
+        set({ error: 'Socket disconnected' });
     });
 
     socket.off('note:created');

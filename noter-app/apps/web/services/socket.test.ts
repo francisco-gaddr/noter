@@ -19,6 +19,7 @@ describe('resolveSocketBaseUrl', () => {
 
   it('falls back to window origin and enforces https', () => {
     expect(resolveSocketBaseUrl({
+      envUrl: '',
       origin: 'http://fallback.local',
       isServer: false
     })).toBe('https://fallback.local');

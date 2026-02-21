@@ -4,6 +4,7 @@ import { useStore } from '../stores/useStore';
 
 // Mocks
 jest.mock('../services/api', () => ({
+  getUUID: jest.fn(() => 'mock-uuid'),
   api: {
     login: jest.fn(),
     register: jest.fn(),
@@ -69,6 +70,19 @@ describe('Web Store', () => {
     const state = useStore.getState();
     expect(state.user).toEqual({ _id: '1', username: 'test' });
     expect(state.token).toBe('abc');
+  });
+
+  it('should init socket on hydrate when token exists', () => {
+    const { connectSocket } = require('../services/socket');
+    localStorage.setItem('user', JSON.stringify({ _id: '1', username: 'test' }));
+    localStorage.setItem('token', 'abc');
+
+    act(() => {
+      useStore.getState().hydrate();
+    });
+
+    expect(useStore.getState().token).toBe('abc');
+    expect(connectSocket).toHaveBeenCalled();
   });
 
   it('should create a note', async () => {

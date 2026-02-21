@@ -71,6 +71,19 @@ describe('Web Store', () => {
     expect(state.token).toBe('abc');
   });
 
+  it('should init socket on hydrate when token exists', () => {
+    const { connectSocket } = require('../services/socket');
+    localStorage.setItem('user', JSON.stringify({ _id: '1', username: 'test' }));
+    localStorage.setItem('token', 'abc');
+
+    act(() => {
+      useStore.getState().hydrate();
+    });
+
+    expect(useStore.getState().token).toBe('abc');
+    expect(connectSocket).toHaveBeenCalled();
+  });
+
   it('should create a note', async () => {
       const { api } = require('../services/api');
       const newNote = { _id: '123', title: 'New Note', content: '', type: 'note' };
