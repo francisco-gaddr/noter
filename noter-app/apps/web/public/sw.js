@@ -1,4 +1,4 @@
-const CACHE_NAME = 'noter-cache-v2';
+const CACHE_NAME = 'noter-cache-v3';
 const STATIC_ASSETS = [
   '/favicon.ico',
   '/manifest.json',

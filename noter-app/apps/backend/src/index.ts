@@ -22,6 +22,8 @@ const app = express();
 const server = http.createServer(app);
 const port = parseInt(process.env.PORT || '3001', 10);
 
+app.set('trust proxy', 1);
+
 // Security & Performance Middleware
 app.use(helmet());
 app.use(cors());
@@ -164,6 +166,10 @@ app.use(express.json());
 
 app.get('/', (req, res) => {
   res.send('Noter Backend Running');
+});
+
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', time: new Date().toISOString() });
 });
 
 // Routes
