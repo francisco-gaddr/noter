@@ -46,6 +46,7 @@ export const socket = io(resolveSocketBaseUrl(), {
 export const connectSocket = () => {
   if (typeof window !== 'undefined') {
     const token = localStorage.getItem('token');
+    if (!token) return;
     (socket as any).auth = { token };
   }
   if (!socket.connected) socket.connect();

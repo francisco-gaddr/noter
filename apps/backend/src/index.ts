@@ -56,6 +56,14 @@ const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
 const socketUsers = new Map<string, any>();
 
 io.use((socket, next) => {
+  const protoHeader = socket.request.headers['x-forwarded-proto'];
+  const proto = Array.isArray(protoHeader) ? protoHeader[0] : protoHeader;
+  const isSecure = proto === 'https' || (socket.request.connection as any)?.encrypted === true;
+  if (process.env.NODE_ENV === 'production' && !isSecure) {
+    next(new Error('WSS required'));
+    return;
+  }
+
   const token = (socket.handshake.auth as any)?.token as string | undefined;
   if (!token) {
     next(new Error('Unauthorized'));

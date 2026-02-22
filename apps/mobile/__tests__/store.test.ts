@@ -27,17 +27,27 @@ jest.mock('../services/database', () => ({
   saveTaskLocal: jest.fn(),
   deleteTaskLocal: jest.fn(),
   syncPendingChanges: jest.fn(),
+  getSyncQueue: jest.fn().mockResolvedValue([]),
+  removeFromSyncQueue: jest.fn(),
+  addToSyncQueue: jest.fn(),
 }));
 
-jest.mock('../services/socket', () => ({
-  socket: {
+jest.mock('../services/socket', () => {
+  const socket = {
     connect: jest.fn(),
     on: jest.fn(),
     off: jest.fn(),
     emit: jest.fn(),
     connected: false,
-  },
-}));
+  };
+
+  return {
+    socket,
+    initSocket: jest.fn(() => socket),
+    getSocket: jest.fn(() => socket),
+    disconnectSocket: jest.fn(),
+  };
+});
 
 describe('Mobile Store', () => {
   beforeEach(() => {
@@ -81,5 +91,26 @@ describe('Mobile Store', () => {
      const state = useStore.getState();
      expect(state.notes.length).toBe(1);
      expect(state.notes[0]._id).toBe('local_1');
+  });
+
+  it('should refresh data on socket connect', async () => {
+    const { fetchWithAuth } = require('../services/api');
+    const { socket } = require('../services/socket');
+
+    fetchWithAuth.mockResolvedValueOnce([]);
+    fetchWithAuth.mockResolvedValueOnce([]);
+
+    useStore.setState({
+      token: 'abc',
+    });
+
+    useStore.getState().connectSocket();
+
+    const connectHandler = socket.on.mock.calls.find((call: any[]) => call[0] === 'connect')?.[1];
+    connectHandler();
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(fetchWithAuth).toHaveBeenCalledWith('/notes');
+    expect(fetchWithAuth).toHaveBeenCalledWith('/tasks');
   });
 });

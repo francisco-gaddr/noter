@@ -34,8 +34,12 @@ jest.mock('../services/socket', () => ({
 jest.mock('../services/db', () => ({
   db: {
     saveNote: jest.fn(),
+    deleteNote: jest.fn(),
     getAllNotes: jest.fn().mockResolvedValue([]),
+    getPendingSyncNotes: jest.fn().mockResolvedValue([]),
+    getPendingSyncTasks: jest.fn().mockResolvedValue([]),
     saveTask: jest.fn(),
+    deleteTask: jest.fn(),
     getAllTasks: jest.fn().mockResolvedValue([]),
   },
 }));
@@ -82,6 +86,30 @@ describe('Web Store', () => {
 
     expect(useStore.getState().token).toBe('abc');
     expect(connectSocket).toHaveBeenCalled();
+  });
+
+  it('should refresh data on socket connect', async () => {
+    const { api } = require('../services/api');
+    const { socket } = require('../services/socket');
+    api.fetchNotes.mockResolvedValueOnce([]);
+    api.fetchTasks.mockResolvedValueOnce([]);
+
+    useStore.setState({
+      user: { _id: '1', username: 'test', createdAt: new Date().toISOString() },
+      token: 'abc',
+    });
+
+    act(() => {
+      useStore.getState().initSocket();
+    });
+
+    const connectHandler = socket.on.mock.calls.find((call: any[]) => call[0] === 'connect')?.[1];
+    await act(async () => {
+      await connectHandler();
+    });
+
+    expect(api.fetchNotes).toHaveBeenCalled();
+    expect(api.fetchTasks).toHaveBeenCalled();
   });
 
   it('should create a note', async () => {

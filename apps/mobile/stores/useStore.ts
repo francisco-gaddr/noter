@@ -8,6 +8,31 @@ import { initSocket, disconnectSocket, getSocket } from '../services/socket';
 import NetInfo from '@react-native-community/netinfo';
 import * as SecureStore from 'expo-secure-store';
 
+let realtimeFallbackTimer: ReturnType<typeof setInterval> | null = null;
+
+const runRealtimeFallbackSync = async (get: () => AppState) => {
+  try {
+    await get().fetchNotes();
+  } catch {}
+  try {
+    await get().fetchTasks();
+  } catch {}
+};
+
+const startRealtimeFallback = (get: () => AppState) => {
+  if (realtimeFallbackTimer) return;
+  void runRealtimeFallbackSync(get);
+  realtimeFallbackTimer = setInterval(() => {
+    void runRealtimeFallbackSync(get);
+  }, 15000);
+};
+
+const stopRealtimeFallback = () => {
+  if (!realtimeFallbackTimer) return;
+  clearInterval(realtimeFallbackTimer);
+  realtimeFallbackTimer = null;
+};
+
 interface AppState {
   notes: Note[];
   tasks: Task[];
@@ -213,6 +238,9 @@ export const useStore = create<AppState>((set, get) => ({
     if (!socket) return;
 
     // Clear existing listeners to avoid duplicates if reconnecting
+    socket.off('connect');
+    socket.off('disconnect');
+    socket.off('connect_error');
     socket.off('note:created');
     socket.off('note:updated');
     socket.off('note:deleted');
@@ -221,6 +249,23 @@ export const useStore = create<AppState>((set, get) => ({
     socket.off('task:updated');
     socket.off('task:deleted');
     socket.off('tasks:reordered');
+
+    socket.on('connect', () => {
+      set({ error: null });
+      stopRealtimeFallback();
+      void runRealtimeFallbackSync(get);
+      void get().syncOfflineChanges();
+    });
+
+    socket.on('disconnect', () => {
+      set({ error: 'Socket disconnected' });
+      startRealtimeFallback(get);
+    });
+
+    socket.on('connect_error', (err: any) => {
+      set({ error: err?.message || 'Socket connection error' });
+      startRealtimeFallback(get);
+    });
 
     socket.on('note:created', (note: Note) => {
       const parsed = processApiNote(note);
@@ -326,6 +371,11 @@ export const useStore = create<AppState>((set, get) => ({
         return { tasks: newTasks };
       });
     });
+
+    if (socket.connected) {
+      stopRealtimeFallback();
+      void runRealtimeFallbackSync(get);
+    }
   },
 
   login: async (username, password) => {

@@ -40,6 +40,31 @@ const parseTaskPriority = (value: unknown): 'low' | 'medium' | 'high' => {
   return 'medium';
 };
 
+let realtimeFallbackTimer: ReturnType<typeof setInterval> | null = null;
+
+const runRealtimeFallbackSync = async (get: () => StoreState) => {
+  try {
+    await get().fetchNotes();
+  } catch {}
+  try {
+    await get().fetchTasks();
+  } catch {}
+};
+
+const startRealtimeFallback = (get: () => StoreState) => {
+  if (realtimeFallbackTimer) return;
+  void runRealtimeFallbackSync(get);
+  realtimeFallbackTimer = setInterval(() => {
+    void runRealtimeFallbackSync(get);
+  }, 15000);
+};
+
+const stopRealtimeFallback = () => {
+  if (!realtimeFallbackTimer) return;
+  clearInterval(realtimeFallbackTimer);
+  realtimeFallbackTimer = null;
+};
+
 interface StoreState {
   user: User | null;
   token: string | null;
@@ -207,12 +232,13 @@ export const useStore = create<StoreState>((set, get) => ({
 
   initSocket: () => {
     if (!get().token) return;
-    connectSocket();
-    
     socket.off('connect');
     socket.on('connect', () => {
       console.log('Connected to socket server');
-      get().syncOfflineChanges(); // Try to sync when reconnected
+      set({ error: null });
+      stopRealtimeFallback();
+      void runRealtimeFallbackSync(get);
+      void get().syncOfflineChanges();
     });
 
     socket.off('note:active-users');
@@ -228,11 +254,13 @@ export const useStore = create<StoreState>((set, get) => ({
     socket.off('connect_error');
     socket.on('connect_error', (err: any) => {
         set({ error: err?.message || 'Socket connection error' });
+        startRealtimeFallback(get);
     });
 
     socket.off('disconnect');
     socket.on('disconnect', () => {
         set({ error: 'Socket disconnected' });
+        startRealtimeFallback(get);
     });
 
     socket.off('note:created');
@@ -378,6 +406,12 @@ export const useStore = create<StoreState>((set, get) => ({
             return { tasks: newTasks };
         });
     });
+
+    connectSocket();
+    if (socket.connected) {
+      stopRealtimeFallback();
+      void runRealtimeFallbackSync(get);
+    }
   },
 
   syncOfflineChanges: async () => {
