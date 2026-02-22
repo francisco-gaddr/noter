@@ -319,6 +319,105 @@ const CustomEditor = {
     } as any;
     Transforms.insertNodes(editor, table);
   },
+  getTableEntry(editor: Editor) {
+    try {
+      const { selection } = editor;
+      if (!selection) return null;
+      const cellEntry = Editor.above(editor, {
+        at: selection,
+        match: n => !Editor.isEditor(n) && SlateElement.isElement(n) && (n as any).type === 'table-cell',
+      });
+      if (!cellEntry) return null;
+      const [, cellPath] = cellEntry;
+      const rowEntry = Editor.above(editor, {
+        at: cellPath,
+        match: n => !Editor.isEditor(n) && SlateElement.isElement(n) && (n as any).type === 'table-row',
+      });
+      const tableEntry = Editor.above(editor, {
+        at: cellPath,
+        match: n => !Editor.isEditor(n) && SlateElement.isElement(n) && (n as any).type === 'table',
+      });
+      if (!rowEntry || !tableEntry) return null;
+      return { cellEntry, rowEntry, tableEntry };
+    } catch {
+      return null;
+    }
+  },
+  isSelectionInTable(editor: Editor) {
+    return !!CustomEditor.getTableEntry(editor);
+  },
+  addTableRow(editor: Editor) {
+    const entry = CustomEditor.getTableEntry(editor);
+    if (!entry) return;
+    const [, rowPath] = entry.rowEntry;
+    const [tableNode, tablePath] = entry.tableEntry as any;
+    const tableRows = Array.isArray(tableNode.children) ? tableNode.children : [];
+    const rawRowIndex = rowPath.length ? rowPath[rowPath.length - 1] : 0;
+    const rowIndex = typeof rawRowIndex === 'number' ? rawRowIndex : 0;
+    const refRow = tableRows[rowIndex] ?? tableRows[0];
+    const colCount = Math.max(
+      1,
+      Array.isArray(refRow?.children) ? refRow.children.length : 1
+    );
+    const newRow: SlateElement = {
+      type: 'table-row',
+      children: Array.from({ length: colCount }, () => ({
+        type: 'table-cell',
+        children: [{ text: '' }],
+      })),
+    } as any;
+    Transforms.insertNodes(editor, newRow, { at: tablePath.concat(rowIndex + 1) });
+  },
+  addTableColumn(editor: Editor) {
+    const entry = CustomEditor.getTableEntry(editor);
+    if (!entry) return;
+    const [, cellPath] = entry.cellEntry;
+    const [tableNode, tablePath] = entry.tableEntry as any;
+    const tableRows = Array.isArray(tableNode.children) ? tableNode.children : [];
+    const rawColIndex = cellPath.length ? cellPath[cellPath.length - 1] : 0;
+    const colIndex = typeof rawColIndex === 'number' ? rawColIndex : 0;
+    Editor.withoutNormalizing(editor, () => {
+      tableRows.forEach((row: any, rowIndex: number) => {
+        const rowPath = tablePath.concat(rowIndex);
+        const rowChildren = Array.isArray(row?.children) ? row.children : [];
+        const insertIndex = Math.min(colIndex + 1, rowChildren.length);
+        const newCell: SlateElement = { type: 'table-cell', children: [{ text: '' }] } as any;
+        Transforms.insertNodes(editor, newCell, { at: rowPath.concat(insertIndex) });
+      });
+    });
+  },
+  removeTableRow(editor: Editor) {
+    const entry = CustomEditor.getTableEntry(editor);
+    if (!entry) return;
+    const [, rowPath] = entry.rowEntry;
+    const [tableNode] = entry.tableEntry as any;
+    const tableRows = Array.isArray(tableNode.children) ? tableNode.children : [];
+    if (tableRows.length <= 1) return;
+    Transforms.removeNodes(editor, { at: rowPath });
+  },
+  removeTableColumn(editor: Editor) {
+    const entry = CustomEditor.getTableEntry(editor);
+    if (!entry) return;
+    const [, cellPath] = entry.cellEntry;
+    const [tableNode, tablePath] = entry.tableEntry as any;
+    const tableRows = Array.isArray(tableNode.children) ? tableNode.children : [];
+    const rawColIndex = cellPath.length ? cellPath[cellPath.length - 1] : 0;
+    const colIndex = typeof rawColIndex === 'number' ? rawColIndex : 0;
+    const colCount = Math.max(
+      1,
+      ...tableRows.map((row: any) => (Array.isArray(row?.children) ? row.children.length : 0))
+    );
+    if (colCount <= 1) return;
+    Editor.withoutNormalizing(editor, () => {
+      tableRows.forEach((row: any, rowIndex: number) => {
+        const rowChildren = Array.isArray(row?.children) ? row.children : [];
+        if (rowChildren.length <= 1) return;
+        const targetIndex = Math.min(colIndex, rowChildren.length - 1);
+        const rowPath = tablePath.concat(rowIndex);
+        Transforms.removeNodes(editor, { at: rowPath.concat(targetIndex) });
+      });
+    });
+  },
 };
 
 const withEmbeds = (editor: Editor) => {
@@ -780,6 +879,7 @@ const Toolbar = () => {
   const editor = useSlate();
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const { t } = useTranslation();
+  const isInTable = CustomEditor.isSelectionInTable(editor);
 
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -835,7 +935,7 @@ const Toolbar = () => {
       />
       
       <ToolbarButton
-        format="Tabell"
+        format={t('noteEditor.toolbar.table')}
         icon={<FaTable />}
         active={false}
         onMouseDown={(event: any) => {
@@ -843,6 +943,46 @@ const Toolbar = () => {
           CustomEditor.insertTable(editor);
         }}
       />
+      {isInTable && (
+        <>
+          <ToolbarButton
+            format={t('noteEditor.toolbar.tableAddRow')}
+            icon={<span className="font-bold text-xs">R+</span>}
+            active={false}
+            onMouseDown={(event: any) => {
+              event.preventDefault();
+              CustomEditor.addTableRow(editor);
+            }}
+          />
+          <ToolbarButton
+            format={t('noteEditor.toolbar.tableRemoveRow')}
+            icon={<span className="font-bold text-xs">R-</span>}
+            active={false}
+            onMouseDown={(event: any) => {
+              event.preventDefault();
+              CustomEditor.removeTableRow(editor);
+            }}
+          />
+          <ToolbarButton
+            format={t('noteEditor.toolbar.tableAddColumn')}
+            icon={<span className="font-bold text-xs">C+</span>}
+            active={false}
+            onMouseDown={(event: any) => {
+              event.preventDefault();
+              CustomEditor.addTableColumn(editor);
+            }}
+          />
+          <ToolbarButton
+            format={t('noteEditor.toolbar.tableRemoveColumn')}
+            icon={<span className="font-bold text-xs">C-</span>}
+            active={false}
+            onMouseDown={(event: any) => {
+              event.preventDefault();
+              CustomEditor.removeTableColumn(editor);
+            }}
+          />
+        </>
+      )}
 
       <div className="w-px h-6 bg-gray-300 dark:bg-gray-600 mx-2" />
 

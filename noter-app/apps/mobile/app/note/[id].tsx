@@ -307,6 +307,101 @@ export default function NoteEditorScreen() {
     setShowVideoModal(true);
   };
 
+  const tableCellStyle = 'border: 1px solid #ccc; padding: 8px;';
+
+  const updateTableHtml = async (mutate: (tableHtml: string) => string | null) => {
+    const editor = richText.current as any;
+    if (!editor?.getContentHtml || !editor?.setContentHTML) return;
+    const html = await editor.getContentHtml();
+    if (!html) return;
+    const match = html.match(/<table[\s\S]*?<\/table>/i);
+    if (!match) {
+      Alert.alert('No table found');
+      return;
+    }
+    const tableHtml = match[0];
+    const updated = mutate(tableHtml);
+    if (!updated) {
+      Alert.alert('Cannot update table');
+      return;
+    }
+    const nextHtml = html.replace(tableHtml, updated);
+    editor.setContentHTML(nextHtml);
+    contentRef.current = nextHtml;
+  };
+
+  const buildTableRow = (columns: number) => {
+    const cells = Array.from({ length: columns }, () => `<td style="${tableCellStyle}"><br></td>`).join('');
+    return `<tr>${cells}</tr>`;
+  };
+
+  const addTableRow = async () => {
+    await updateTableHtml((tableHtml) => {
+      const rows = tableHtml.match(/<tr[\s\S]*?<\/tr>/gi) ?? [];
+      const columns = Math.max(
+        1,
+        ...rows.map((row) => (row.match(/<t[dh][\s\S]*?<\/t[dh]>/gi) ?? []).length)
+      );
+      const newRow = buildTableRow(columns);
+      if (tableHtml.includes('</tbody>')) {
+        return tableHtml.replace('</tbody>', `${newRow}</tbody>`);
+      }
+      return tableHtml.replace('</table>', `${newRow}</table>`);
+    });
+  };
+
+  const removeTableRow = async () => {
+    await updateTableHtml((tableHtml) => {
+      const rows = tableHtml.match(/<tr[\s\S]*?<\/tr>/gi) ?? [];
+      if (rows.length <= 1) return null;
+      const lastRow = rows[rows.length - 1];
+      const lastIndex = tableHtml.lastIndexOf(lastRow);
+      if (lastIndex === -1) return null;
+      return tableHtml.slice(0, lastIndex) + tableHtml.slice(lastIndex + lastRow.length);
+    });
+  };
+
+  const addTableColumn = async () => {
+    await updateTableHtml((tableHtml) => {
+      const rows = tableHtml.match(/<tr[\s\S]*?<\/tr>/gi) ?? [];
+      if (!rows.length) return null;
+      const updatedRows = rows.map((row) => row.replace(/<\/tr>$/i, `<td style="${tableCellStyle}"><br></td></tr>`));
+      let rowIndex = 0;
+      return tableHtml.replace(/<tr[\s\S]*?<\/tr>/gi, () => updatedRows[rowIndex++] ?? '');
+    });
+  };
+
+  const removeTableColumn = async () => {
+    await updateTableHtml((tableHtml) => {
+      const rows = tableHtml.match(/<tr[\s\S]*?<\/tr>/gi) ?? [];
+      if (!rows.length) return null;
+      const updatedRows = rows.map((row) => {
+        const cells = row.match(/<t[dh][\s\S]*?<\/t[dh]>/gi) ?? [];
+        if (cells.length <= 1) return null;
+        const trOpen = row.match(/<tr[^>]*>/i)?.[0] ?? '<tr>';
+        return `${trOpen}${cells.slice(0, -1).join('')}</tr>`;
+      });
+      if (updatedRows.some((row) => row === null)) return null;
+      let rowIndex = 0;
+      return tableHtml.replace(/<tr[\s\S]*?<\/tr>/gi, () => updatedRows[rowIndex++] ?? '');
+    });
+  };
+
+  const insertTable = () => {
+    richText.current?.insertHTML(`
+      <table style="width:100%; border-collapse: collapse; border: 1px solid #ccc;">
+        <tr>
+          <td style="${tableCellStyle}">Cell 1</td>
+          <td style="${tableCellStyle}">Cell 2</td>
+        </tr>
+        <tr>
+          <td style="${tableCellStyle}">Cell 3</td>
+          <td style="${tableCellStyle}">Cell 4</td>
+        </tr>
+      </table>
+    `);
+  };
+
   const submitVideo = () => {
     if (videoUrl) {
       richText.current?.insertVideo(videoUrl);
@@ -452,27 +547,25 @@ export default function NoteEditorScreen() {
             actions.insertImage,
             actions.insertVideo,
             'insertTable',
+            'addTableRow',
+            'addTableColumn',
+            'removeTableRow',
+            'removeTableColumn',
           ]}
           onPressAddImage={handleInsertImage}
           onPressAddVideo={handleInsertVideo}
           iconMap={{
-              insertTable: ({ tintColor }: any) => <Text style={{ color: tintColor, fontWeight: 'bold' }}>Tbl</Text>
+              insertTable: ({ tintColor }: any) => <Text style={{ color: tintColor, fontWeight: 'bold' }}>Tbl</Text>,
+              addTableRow: ({ tintColor }: any) => <Text style={{ color: tintColor, fontWeight: 'bold' }}>R+</Text>,
+              addTableColumn: ({ tintColor }: any) => <Text style={{ color: tintColor, fontWeight: 'bold' }}>C+</Text>,
+              removeTableRow: ({ tintColor }: any) => <Text style={{ color: tintColor, fontWeight: 'bold' }}>R-</Text>,
+              removeTableColumn: ({ tintColor }: any) => <Text style={{ color: tintColor, fontWeight: 'bold' }}>C-</Text>
           }}
-          insertTable={() => {
-              richText.current?.insertHTML(`
-                  <table style="width:100%; border-collapse: collapse; border: 1px solid #ccc;">
-                      <tr>
-                          <td style="border: 1px solid #ccc; padding: 8px;">Cell 1</td>
-                          <td style="border: 1px solid #ccc; padding: 8px;">Cell 2</td>
-                      </tr>
-                      <tr>
-                          <td style="border: 1px solid #ccc; padding: 8px;">Cell 3</td>
-                          <td style="border: 1px solid #ccc; padding: 8px;">Cell 4</td>
-                      </tr>
-                  </table>
-                  <br/>
-              `);
-          }}
+          insertTable={insertTable}
+          addTableRow={addTableRow}
+          addTableColumn={addTableColumn}
+          removeTableRow={removeTableRow}
+          removeTableColumn={removeTableColumn}
           iconTint={theme.colors.onSurface}
           selectedIconTint={theme.colors.primary}
           style={[styles.toolbar, { backgroundColor: theme.colors.elevation.level2 }]}

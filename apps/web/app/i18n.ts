@@ -108,7 +108,12 @@ const resources = {
           checkList: 'Check List',
           link: 'Link',
           image: 'Image',
-          video: 'Video'
+          video: 'Video',
+          table: 'Table',
+          tableAddRow: 'Add row',
+          tableRemoveRow: 'Remove row',
+          tableAddColumn: 'Add column',
+          tableRemoveColumn: 'Remove column'
         },
         prompts: {
           linkUrl: 'Enter the URL of the link:',
@@ -302,7 +307,12 @@ const resources = {
           checkList: 'Checklista',
           link: 'Länk',
           image: 'Bild',
-          video: 'Video'
+          video: 'Video',
+          table: 'Tabell',
+          tableAddRow: 'Lägg till rad',
+          tableRemoveRow: 'Ta bort rad',
+          tableAddColumn: 'Lägg till kolumn',
+          tableRemoveColumn: 'Ta bort kolumn'
         },
         prompts: {
           linkUrl: 'Ange URL för länken:',
