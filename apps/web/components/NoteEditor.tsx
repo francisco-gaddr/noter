@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useMemo, useState, useEffect, useCallback, useRef, useLayoutEffect } from 'react';
+import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import { createEditor, Descendant, Editor, Transforms, Text, Element as SlateElement, Range, BaseEditor } from 'slate';
 import { Slate, Editable, withReact, useSlate, ReactEditor, useSlateStatic, useReadOnly } from 'slate-react';
 import { withHistory, HistoryEditor } from 'slate-history';
@@ -1159,44 +1159,6 @@ export default function NoteEditor() {
   const [isLocking, setIsLocking] = useState(false);
   const [isUnlockedLocally, setIsUnlockedLocally] = useState(false);
 
-  const loadedValue = useMemo((): Descendant[] => {
-    if (!selectedNoteId) return initialValue;
-    const note = notes.find(n => n._id === selectedNoteId);
-    if (!note) return initialValue;
-
-    const isLockedEffective = (() => {
-      if (note.locked) return true;
-      let pId = note.parentId;
-      let depth = 0;
-      while (pId && depth < 500) {
-        const p = notes.find(n => n._id === pId);
-        if (!p) break;
-        if (p.locked) return true;
-        pId = p.parentId;
-        depth += 1;
-      }
-      return false;
-    })();
-
-    if (isLockedEffective && !note.content && !isUnlockedLocally) return initialValue;
-
-    return contentToSlateValue(note.content || '');
-  }, [isUnlockedLocally, notes, selectedNoteId]);
-
-  useEffect(() => {
-    if (selectedNoteId) {
-      joinNote(selectedNoteId);
-      return () => {
-        leaveNote(selectedNoteId);
-      };
-    }
-  }, [selectedNoteId, joinNote, leaveNote]);
-
-  const currentActiveUsers = useMemo(() => {
-      if (!selectedNoteId || !activeUsers[selectedNoteId]) return [];
-      return activeUsers[selectedNoteId].filter(u => u._id !== user?._id);
-  }, [activeUsers, selectedNoteId, user]);
-
   const isEffectiveLocked = useMemo(() => {
     if (!selectedNote) return false;
     if (selectedNote.locked) return true;
@@ -1212,12 +1174,6 @@ export default function NoteEditor() {
     return false;
   }, [selectedNote, notes]);
 
-  const saveNote = useCallback(
-    debounce((id: string, title: string, content: string) => {
-      updateNote(id, title, content);
-    }, 1000),
-    []
-  );
   const saveTitle = useMemo(
     () =>
       debounce((id: string, title: string, content: string) => {
@@ -1250,14 +1206,37 @@ export default function NoteEditor() {
 
     if (!shouldLoad) return;
 
-    setValue(loadedValue);
-    lastSavedContentRef.current = slateValueToHtml(loadedValue);
+    let newValue = initialValue;
+    
+    // Check locked status for content loading
+    const isLocked = (() => {
+      if (note.locked) return true;
+      let pId = note.parentId;
+      let depth = 0;
+      while (pId && depth < 500) {
+        const p = notes.find(n => n._id === pId);
+        if (!p) break;
+        if (p.locked) return true;
+        pId = p.parentId;
+        depth += 1;
+      }
+      return false;
+    })();
+
+    if (isLocked && !note.content && !isUnlockedLocally) {
+        newValue = initialValue;
+    } else {
+        newValue = contentToSlateValue(note.content || '');
+    }
+
+    setValue(newValue);
+    lastSavedContentRef.current = slateValueToHtml(newValue);
     lastSavedTitleRef.current = note.title || '';
     currentTitleRef.current = note.title || '';
     setTitle(note.title || '');
     previousNoteIdRef.current = selectedNoteId;
     loadedAfterUnlockRef.current = isUnlockedLocally;
-  }, [loadedValue, notes, selectedNoteId, isUnlockedLocally]);
+  }, [notes, selectedNoteId, isUnlockedLocally]);
 
   useEffect(() => {
     if (!selectedNoteId) return;
@@ -1386,11 +1365,25 @@ export default function NoteEditor() {
 
   const onChange = (newValue: Descendant[]) => {
     setValue(newValue);
-    const serialized = slateValueToHtml(newValue);
-    if (serialized === lastSavedContentRef.current) return;
-    lastSavedContentRef.current = serialized;
-    saveNote(selectedNote._id, currentTitleRef.current, serialized);
   };
+
+  // Debounced save effect
+  useEffect(() => {
+    const handler = setTimeout(() => {
+        if (!selectedNote || !selectedNote._id) return;
+        
+        const serialized = slateValueToHtml(value);
+        if (serialized === lastSavedContentRef.current) return;
+        
+        lastSavedContentRef.current = serialized;
+        
+        // Use the direct updateNote function, not the debounced saveNote wrapper
+        // since we are already debouncing via setTimeout
+        updateNote(selectedNote._id, currentTitleRef.current, serialized);
+    }, 1000);
+
+    return () => clearTimeout(handler);
+  }, [value, selectedNote, updateNote]);
 
   const onTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const nextTitle = e.target.value;
