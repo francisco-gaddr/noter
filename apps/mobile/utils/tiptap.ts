@@ -9,6 +9,8 @@ const escapeHtml = (input: string) =>
 const escapeAttr = (input: string) => escapeHtml(input);
 
 const MAX_TIPTAP_DEPTH = 200;
+const MAX_SLATE_DEPTH = 200;
+const MAX_EXTRACT_DEPTH = 200;
 
 const stripHtml = (html: string) => {
   // Decode common entities first to avoid "div" showing up if it was &lt;div&gt;
@@ -44,13 +46,14 @@ const slateLeafToHtml = (leaf: any) => {
   return html;
 };
 
-const slateNodeToHtml = (node: any): string => {
+const slateNodeToHtml = (node: any, depth = 0): string => {
+  if (depth > MAX_SLATE_DEPTH) return '';
   if (!node) return '';
-  if (Array.isArray(node)) return node.map(slateNodeToHtml).join('');
+  if (Array.isArray(node)) return node.map((child) => slateNodeToHtml(child, depth + 1)).join('');
   if (isSlateText(node)) return slateLeafToHtml(node);
   if (!isSlateElement(node)) return '';
 
-  const childrenHtml = node.children.map(slateNodeToHtml).join('') || '';
+  const childrenHtml = node.children.map((child: any) => slateNodeToHtml(child, depth + 1)).join('') || '';
 
   switch (node.type) {
     case 'paragraph':
@@ -105,7 +108,7 @@ const slateValueToHtml = (value: any): string => {
 
   const flushCheckItems = () => {
     if (!checkItems.length) return;
-    const itemsHtml = checkItems.map(slateNodeToHtml).join('');
+    const itemsHtml = checkItems.map((node) => slateNodeToHtml(node, 0)).join('');
     html += `<ul>${itemsHtml}</ul>`;
     checkItems = [];
   };
@@ -116,20 +119,21 @@ const slateValueToHtml = (value: any): string => {
       continue;
     }
     flushCheckItems();
-    html += slateNodeToHtml(node);
+    html += slateNodeToHtml(node, 0);
   }
   flushCheckItems();
   return html;
 };
 
-const slateNodeToText = (node: any): string => {
+const slateNodeToText = (node: any, depth = 0): string => {
+  if (depth > MAX_SLATE_DEPTH) return '';
   if (!node) return '';
-  if (Array.isArray(node)) return node.map(slateNodeToText).join('\n');
+  if (Array.isArray(node)) return node.map((child) => slateNodeToText(child, depth + 1)).join('\n');
   if (typeof node === 'string') return node;
   if (isSlateText(node)) return node.text || '';
-  if (isSlateElement(node)) return node.children.map(slateNodeToText).join('');
+  if (isSlateElement(node)) return node.children.map((child: any) => slateNodeToText(child, depth + 1)).join('');
   if (node && typeof node === 'object' && Array.isArray((node as any).content)) {
-    return (node as any).content.map(slateNodeToText).join('');
+    return (node as any).content.map((child: any) => slateNodeToText(child, depth + 1)).join('');
   }
   return '';
 };
@@ -137,8 +141,8 @@ const slateNodeToText = (node: any): string => {
 const slateValueToText = (value: any): string => {
   if (!value) return '';
   const raw = Array.isArray(value)
-    ? value.map(slateNodeToText).join('\n')
-    : slateNodeToText(value);
+    ? value.map((node) => slateNodeToText(node, 0)).join('\n')
+    : slateNodeToText(value, 0);
   return raw
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
@@ -172,13 +176,14 @@ const parseJsonChain = (input: string, maxDepth = 3): any => {
   return current;
 };
 
-const extractUnknownText = (node: any, visited?: WeakSet<object>): string => {
+const extractUnknownText = (node: any, visited?: WeakSet<object>, depth = 0): string => {
+  if (depth > MAX_EXTRACT_DEPTH) return '';
   if (!node) return '';
   if (typeof node === 'string') return node;
   if (typeof node === 'number' || typeof node === 'boolean') return String(node);
   if (Array.isArray(node)) {
     const parts = node
-      .map((n) => extractUnknownText(n, visited))
+      .map((n) => extractUnknownText(n, visited, depth + 1))
       .map((s) => s.trim())
       .filter(Boolean);
     return parts.join(' ');
@@ -190,13 +195,13 @@ const extractUnknownText = (node: any, visited?: WeakSet<object>): string => {
 
   const asAny = node as any;
   if (typeof asAny.text === 'string') return asAny.text;
-  if (Array.isArray(asAny.content)) return extractUnknownText(asAny.content, set);
-  if (Array.isArray(asAny.children)) return extractUnknownText(asAny.children, set);
+  if (Array.isArray(asAny.content)) return extractUnknownText(asAny.content, set, depth + 1);
+  if (Array.isArray(asAny.children)) return extractUnknownText(asAny.children, set, depth + 1);
 
   const parts: string[] = [];
   for (const key of Object.keys(asAny)) {
     const val = asAny[key];
-    const text = extractUnknownText(val, set).trim();
+    const text = extractUnknownText(val, set, depth + 1).trim();
     if (text) parts.push(text);
   }
   return parts.join(' ');

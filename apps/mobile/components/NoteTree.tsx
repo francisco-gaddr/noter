@@ -43,10 +43,26 @@ export default function NoteTree({
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const lastOrderKeyRef = useRef<string>('');
   const draggedItemRef = useRef<TreeItem | null>(null);
-  const visibleNotes = useMemo(
-    () => notes.filter((n) => (n as any).type !== 'task_list' && (n as any).type !== 'project'),
-    [notes]
-  );
+  const visibleNotes = useMemo(() => {
+    const hasChildrenMap = new Map<string, boolean>();
+    for (const n of notes) {
+      if (n.parentId) hasChildrenMap.set(n.parentId, true);
+    }
+
+    const isProjectLike = (note: Note) => {
+      const noteType = (note as any).type;
+      if (noteType === 'project') return true;
+      if (noteType === 'task_list') return true;
+      if (noteType && noteType !== 'note') return true;
+      if (noteType === 'note') return false;
+      if (!hasChildrenMap.get(note._id)) return false;
+      const raw = typeof note.content === 'string' ? note.content : '';
+      const text = raw.replace(/<[^>]*>/g, '').trim();
+      return text.length === 0;
+    };
+
+    return notes.filter((n) => !isProjectLike(n));
+  }, [notes]);
   const noteById = useMemo(() => new Map(visibleNotes.map((note) => [note._id, note])), [visibleNotes]);
 
   const toggleExpand = (id: string) => {
@@ -60,13 +76,16 @@ export default function NoteTree({
   };
 
   const treeData = useMemo(() => {
-    const buildTree = (parentId: string | null = null, level = 0): TreeItem[] => {
+    const buildTree = (parentId: string | null = null, level = 0, ancestorIds: string[] = []): TreeItem[] => {
+      if (level > 200) return [];
       // Find items that match the parentId
       // For root (parentId === null), also include items whose parents are missing from the visible set (orphans)
       const isRoot = parentId === null;
+      const ancestorSet = new Set(ancestorIds);
       
       return visibleNotes
         .filter(n => {
+            if (ancestorSet.has(n._id)) return false;
             if (isRoot) {
                 // If it's a root item
                 if (!n.parentId) return true;
@@ -113,7 +132,7 @@ export default function NoteTree({
           };
 
           if (hasChildren && isExpanded) {
-            return [item, ...buildTree(note._id, level + 1)];
+            return [item, ...buildTree(note._id, level + 1, [...ancestorIds, note._id])];
           }
           return [item];
         });

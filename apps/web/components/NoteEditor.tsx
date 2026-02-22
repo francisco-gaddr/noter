@@ -454,15 +454,18 @@ const slateLeafToHtml = (leaf: any) => {
   return html;
 };
 
-const slateNodeToHtml = (node: any): string => {
+const MAX_SLATE_DEPTH = 200;
+
+const slateNodeToHtml = (node: any, depth = 0): string => {
+  if (depth > MAX_SLATE_DEPTH) return '';
   if (!node) return '';
-  if (Array.isArray(node)) return node.map(slateNodeToHtml).join('');
+  if (Array.isArray(node)) return node.map((child) => slateNodeToHtml(child, depth + 1)).join('');
   if (Text.isText(node)) return slateLeafToHtml(node);
   if (typeof node !== 'object') return '';
 
   const type = typeof node.type === 'string' ? node.type : 'paragraph';
   const children = Array.isArray(node.children) ? node.children : [];
-  const childrenHtml = children.map(slateNodeToHtml).join('') || '';
+  const childrenHtml = children.map((child: any) => slateNodeToHtml(child, depth + 1)).join('') || '';
 
   switch (type) {
     case 'paragraph':
@@ -512,14 +515,14 @@ const slateNodeToHtml = (node: any): string => {
 
 const slateValueToHtml = (value: any): string => {
   if (!value) return '';
-  if (!Array.isArray(value)) return slateNodeToHtml(value);
+  if (!Array.isArray(value)) return slateNodeToHtml(value, 0);
 
   let html = '';
   let checkItems: any[] = [];
 
   const flushCheckItems = () => {
     if (!checkItems.length) return;
-    const itemsHtml = checkItems.map(slateNodeToHtml).join('');
+    const itemsHtml = checkItems.map((node) => slateNodeToHtml(node, 0)).join('');
     html += `<ul>${itemsHtml}</ul>`;
     checkItems = [];
   };
@@ -530,7 +533,7 @@ const slateValueToHtml = (value: any): string => {
       continue;
     }
     flushCheckItems();
-    html += slateNodeToHtml(node);
+    html += slateNodeToHtml(node, 0);
   }
   flushCheckItems();
   return html;
@@ -792,13 +795,17 @@ const htmlToSlateValue = (html: string): Descendant[] => {
 const isRecord = (v: unknown): v is Record<string, any> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 
-const extractTextFromSlateLike = (v: unknown): string => {
+const extractTextFromSlateLike = (v: unknown, depth = 0, visited?: WeakSet<object>): string => {
+  if (depth > MAX_SLATE_DEPTH) return '';
   if (typeof v === 'string') return v;
-  if (Array.isArray(v)) return v.map(extractTextFromSlateLike).join('');
+  if (Array.isArray(v)) return v.map((n) => extractTextFromSlateLike(n, depth + 1, visited)).join('');
   if (!isRecord(v)) return '';
+  const set = visited ?? new WeakSet<object>();
+  if (set.has(v)) return '';
+  set.add(v);
   if (typeof v.text === 'string') return v.text;
   const children = (v.children ?? (v as any).childr33en) as unknown;
-  return extractTextFromSlateLike(children);
+  return extractTextFromSlateLike(children, depth + 1, set);
 };
 
 const normalizeSlateValue = (input: unknown, fallbackText?: string): Descendant[] => {
@@ -1137,11 +1144,13 @@ export default function NoteEditor() {
     const isLockedEffective = (() => {
       if (note.locked) return true;
       let pId = note.parentId;
-      while (pId) {
+      let depth = 0;
+      while (pId && depth < 500) {
         const p = notes.find(n => n._id === pId);
         if (!p) break;
         if (p.locked) return true;
         pId = p.parentId;
+        depth += 1;
       }
       return false;
     })();
@@ -1169,11 +1178,13 @@ export default function NoteEditor() {
     if (!selectedNote) return false;
     if (selectedNote.locked) return true;
     let parentId = selectedNote.parentId;
-    while (parentId) {
+    let depth = 0;
+    while (parentId && depth < 500) {
       const p = notes.find(n => n._id === parentId);
       if (!p) break;
       if (p.locked) return true;
       parentId = p.parentId;
+      depth += 1;
     }
     return false;
   }, [selectedNote, notes]);

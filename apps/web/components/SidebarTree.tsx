@@ -24,6 +24,7 @@ interface TreeNodeProps {
     onEdit: (e: React.MouseEvent, note: Note) => void;
     onIconClick: (e: React.MouseEvent, note: Note) => void;
     onMove: (dragId: string, parentId: string | null, order?: number) => void;
+    ancestorIds: string[];
 }
 
 type DragItem = { id: string; type: string };
@@ -39,10 +40,11 @@ const sortNotes = (nodes: Note[], order: string) => {
     }
 };
 
-const TreeNode = ({ note, allNotes, level, selectedNoteId, sortOrder, onSelect, onDelete, onCreateChild, onEdit, onIconClick, onMove }: TreeNodeProps) => {
+const TreeNode = ({ note, allNotes, level, selectedNoteId, sortOrder, onSelect, onDelete, onCreateChild, onEdit, onIconClick, onMove, ancestorIds }: TreeNodeProps) => {
     const { t } = useTranslation();
     const [isExpanded, setIsExpanded] = useState(true);
-    const children = sortNotes(allNotes.filter(n => n.parentId === note._id), sortOrder);
+    const ancestorSet = useMemo(() => new Set(ancestorIds), [ancestorIds]);
+    const children = sortNotes(allNotes.filter(n => n.parentId === note._id && !ancestorSet.has(n._id)), sortOrder);
     const hasChildren = children.length > 0;
     const ref = useRef<HTMLDivElement>(null);
 
@@ -57,11 +59,13 @@ const TreeNode = ({ note, allNotes, level, selectedNoteId, sortOrder, onSelect, 
         canDrop: (item: DragItem) => {
             if (item.id === note._id) return false;
             let currentId = note.parentId;
-            while (currentId) {
+            let depth = 0;
+            while (currentId && depth < 500) {
                 if (currentId === item.id) return false;
                 const p = allNotes.find(n => n._id === currentId);
                 if (!p) break;
                 currentId = p.parentId;
+                depth += 1;
             }
             return true;
         },
@@ -109,11 +113,13 @@ const TreeNode = ({ note, allNotes, level, selectedNoteId, sortOrder, onSelect, 
     const isLocked = useMemo(() => {
         if (note.locked) return true;
         let parentId = note.parentId;
-        while (parentId) {
+        let depth = 0;
+        while (parentId && depth < 500) {
             const p = allNotes.find(n => n._id === parentId);
             if (!p) break;
             if (p.locked) return true;
             parentId = p.parentId;
+            depth += 1;
         }
         return false;
     }, [note, allNotes]);
@@ -210,6 +216,7 @@ const TreeNode = ({ note, allNotes, level, selectedNoteId, sortOrder, onSelect, 
                     onEdit={onEdit}
                     onIconClick={onIconClick}
                     onMove={onMove}
+                    ancestorIds={[...ancestorIds, note._id]}
                 />
             ))}
         </div>
@@ -634,6 +641,7 @@ export default function SidebarTree() {
                                 onEdit={handleEdit}
                                 onIconClick={handleIconClick}
                                 onMove={handleMove}
+                                ancestorIds={[]}
                             />
                         ))}
                     </div>
