@@ -29,6 +29,10 @@ const getApiUrl = () => {
     }
   }
 
+  if (Constants.appOwnership && Constants.appOwnership !== 'expo' && Constants.appOwnership !== 'guest') {
+    return 'https://daylited.com/api';
+  }
+
   return Platform.select({
     android: 'http://10.0.2.2:3001/api',
     ios: 'http://localhost:3001/api',

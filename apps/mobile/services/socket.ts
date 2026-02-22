@@ -3,16 +3,20 @@ import { API_URL } from './api';
 
 const stripApiSuffix = (url: string) => url.replace(/\/api\/?$/, '');
 
-const toSecureHttp = (url: string) => {
-  if (url.startsWith('https://')) return url;
-  if (url.startsWith('http://')) return `https://${url.slice('http://'.length)}`;
-  return url;
+const normalizeBaseUrl = (url: string) => {
+  try {
+    const parsed = new URL(stripApiSuffix(url));
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return stripApiSuffix(url);
+  }
 };
 
 export const resolveSocketBaseUrl = (apiUrl?: string) => {
-  if (!apiUrl) return 'https://localhost:3001';
-  if (apiUrl.startsWith('http')) return toSecureHttp(stripApiSuffix(apiUrl));
-  return 'https://localhost:3001';
+  if (!apiUrl) return 'https://daylited.com';
+  const normalized = normalizeBaseUrl(apiUrl);
+  if (normalized.startsWith('http://') || normalized.startsWith('https://')) return normalized;
+  return 'https://daylited.com';
 };
 
 let socket: Socket | null = null;

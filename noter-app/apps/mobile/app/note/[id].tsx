@@ -12,7 +12,9 @@ import IconPickerModal from '@/components/IconPickerModal';
 import ProjectSelector from '@/components/ProjectSelector';
 
 export default function NoteEditorScreen() {
-  const { id, parentId } = useLocalSearchParams<{ id: string; parentId?: string }>();
+  const params = useLocalSearchParams<{ id: string | string[]; parentId?: string | string[] }>();
+  const id = Array.isArray(params.id) ? params.id[0] : params.id;
+  const parentId = Array.isArray(params.parentId) ? params.parentId[0] : params.parentId;
   const router = useRouter();
   const theme = useTheme();
   const { notes, createNote, updateNote, deleteNote, fetchNotes, verifyNoteLock } = useStore();
@@ -20,7 +22,7 @@ export default function NoteEditorScreen() {
   const richText = useRef<RichEditor>(null);
   
   const isNew = id === 'new';
-  const existingNote = notes.find(n => n._id === id);
+  const existingNote = id ? notes.find(n => n._id === id) : undefined;
 
   const [title, setTitle] = useState('');
   const [icon, setIcon] = useState<string>('');

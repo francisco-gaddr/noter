@@ -269,14 +269,20 @@ export const tiptapJsonToHtml = (json: any): string => {
     return `<p>${escapeHtml(String(parsed))}</p>`;
   }
 
+  const normalizeChildren = (value: any) => {
+    if (!value) return [];
+    if (Array.isArray(value)) return value;
+    return [value];
+  };
+
   // Handle Tiptap JSON structure
   if (json.type === 'doc' && json.content) {
-    return json.content.map((node: any) => tiptapJsonToHtml(node)).join('');
+    return normalizeChildren(json.content).map((node: any) => tiptapJsonToHtml(node)).join('');
   }
 
   let content = '';
   if (json.content) {
-    content = json.content.map((node: any) => tiptapJsonToHtml(node)).join('');
+    content = normalizeChildren(json.content).map((node: any) => tiptapJsonToHtml(node)).join('');
   }
 
   switch (json.type) {
