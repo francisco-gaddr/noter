@@ -55,6 +55,8 @@ cat >/etc/nginx/sites-available/${NGINX_SITE_NAME}.conf <<EOF
 server {
   listen 80 default_server;
   server_name ${SERVER_NAME};
+  proxy_hide_header Content-Security-Policy;
+  add_header Content-Security-Policy "default-src 'self' https: data: 'unsafe-inline' 'unsafe-eval'; connect-src 'self' https: wss:; img-src 'self' https: data: blob:; style-src 'self' 'unsafe-inline' https:; font-src 'self' https: data:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'" always;
 
   location /api/ {
     proxy_pass http://${PI_TAILSCALE_IP}:${API_PORT}/api/;
@@ -87,8 +89,6 @@ server {
     proxy_set_header X-Real-IP \$remote_addr;
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto \$scheme;
-    proxy_hide_header Content-Security-Policy;
-    add_header Content-Security-Policy "default-src 'self' https: data: 'unsafe-inline' 'unsafe-eval'; connect-src 'self' https: wss:; img-src 'self' https: data: blob:; style-src 'self' 'unsafe-inline' https:; font-src 'self' https: data:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'" always;
   }
 }
 EOF
@@ -99,6 +99,8 @@ if [[ -f "${CERT_PATH}" && -f "${KEY_PATH}" ]]; then
 server {
   listen 443 ssl http2 default_server;
   server_name ${SERVER_NAME};
+  proxy_hide_header Content-Security-Policy;
+  add_header Content-Security-Policy "default-src 'self' https: data: 'unsafe-inline' 'unsafe-eval'; connect-src 'self' https: wss:; img-src 'self' https: data: blob:; style-src 'self' 'unsafe-inline' https:; font-src 'self' https: data:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'" always;
 
   ssl_certificate ${CERT_PATH};
   ssl_certificate_key ${KEY_PATH};
@@ -134,8 +136,6 @@ server {
     proxy_set_header X-Real-IP \$remote_addr;
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto \$scheme;
-    proxy_hide_header Content-Security-Policy;
-    add_header Content-Security-Policy "default-src 'self' https: data: 'unsafe-inline' 'unsafe-eval'; connect-src 'self' https: wss:; img-src 'self' https: data: blob:; style-src 'self' 'unsafe-inline' https:; font-src 'self' https: data:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'" always;
   }
 }
 EOF

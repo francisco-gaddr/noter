@@ -1,5 +1,10 @@
 /** @type {import('next').NextConfig} */
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
+const hasBasePath = basePath.length > 0;
+
 const nextConfig = {
+  basePath: hasBasePath ? basePath : undefined,
+  assetPrefix: hasBasePath ? basePath : undefined,
   async headers() {
     const csp = [
       "default-src 'self' https: data: 'unsafe-inline' 'unsafe-eval'",
