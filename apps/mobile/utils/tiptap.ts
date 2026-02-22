@@ -8,9 +8,9 @@ const escapeHtml = (input: string) =>
 
 const escapeAttr = (input: string) => escapeHtml(input);
 
-const MAX_TIPTAP_DEPTH = 200;
-const MAX_SLATE_DEPTH = 200;
-const MAX_EXTRACT_DEPTH = 200;
+const MAX_TIPTAP_DEPTH = 15;
+const MAX_SLATE_DEPTH = 15;
+const MAX_EXTRACT_DEPTH = 15;
 
 const stripHtml = (html: string) => {
   // Decode common entities first to avoid "div" showing up if it was &lt;div&gt;
@@ -46,14 +46,20 @@ const slateLeafToHtml = (leaf: any) => {
   return html;
 };
 
-const slateNodeToHtml = (node: any, depth = 0): string => {
+const slateNodeToHtml = (node: any, depth = 0, visited = new WeakSet<object>()): string => {
   if (depth > MAX_SLATE_DEPTH) return '';
   if (!node) return '';
-  if (Array.isArray(node)) return node.map((child) => slateNodeToHtml(child, depth + 1)).join('');
+
+  if (typeof node === 'object') {
+      if (visited.has(node)) return '';
+      visited.add(node);
+  }
+
+  if (Array.isArray(node)) return node.map((child) => slateNodeToHtml(child, depth + 1, visited)).join('');
   if (isSlateText(node)) return slateLeafToHtml(node);
   if (!isSlateElement(node)) return '';
 
-  const childrenHtml = node.children.map((child: any) => slateNodeToHtml(child, depth + 1)).join('') || '';
+  const childrenHtml = node.children.map((child: any) => slateNodeToHtml(child, depth + 1, visited)).join('') || '';
 
   switch (node.type) {
     case 'paragraph':
@@ -102,13 +108,14 @@ const slateNodeToHtml = (node: any, depth = 0): string => {
 
 const slateValueToHtml = (value: any): string => {
   if (!value) return '';
-  if (!Array.isArray(value)) return slateNodeToHtml(value);
+  const visited = new WeakSet<object>();
+  if (!Array.isArray(value)) return slateNodeToHtml(value, 0, visited);
   let html = '';
   let checkItems: any[] = [];
 
   const flushCheckItems = () => {
     if (!checkItems.length) return;
-    const itemsHtml = checkItems.map((node) => slateNodeToHtml(node, 0)).join('');
+    const itemsHtml = checkItems.map((node) => slateNodeToHtml(node, 0, visited)).join('');
     html += `<ul>${itemsHtml}</ul>`;
     checkItems = [];
   };
@@ -119,44 +126,57 @@ const slateValueToHtml = (value: any): string => {
       continue;
     }
     flushCheckItems();
-    html += slateNodeToHtml(node, 0);
+    html += slateNodeToHtml(node, 0, visited);
   }
   flushCheckItems();
   return html;
 };
 
-const slateNodeToText = (node: any, depth = 0): string => {
+const slateNodeToText = (node: any, depth = 0, visited = new WeakSet<object>()): string => {
   if (depth > MAX_SLATE_DEPTH) return '';
   if (!node) return '';
-  if (Array.isArray(node)) return node.map((child) => slateNodeToText(child, depth + 1)).join('\n');
+
+  if (typeof node === 'object') {
+    if (visited.has(node)) return '';
+    visited.add(node);
+  }
+
+  if (Array.isArray(node)) return node.map((child) => slateNodeToText(child, depth + 1, visited)).join('\n');
   if (typeof node === 'string') return node;
   if (isSlateText(node)) return node.text || '';
-  if (isSlateElement(node)) return node.children.map((child: any) => slateNodeToText(child, depth + 1)).join('');
+  if (isSlateElement(node)) return node.children.map((child: any) => slateNodeToText(child, depth + 1, visited)).join('');
   if (node && typeof node === 'object' && Array.isArray((node as any).content)) {
-    return (node as any).content.map((child: any) => slateNodeToText(child, depth + 1)).join('');
+    return (node as any).content.map((child: any) => slateNodeToText(child, depth + 1, visited)).join('');
   }
   return '';
 };
 
 const slateValueToText = (value: any): string => {
   if (!value) return '';
+  const visited = new WeakSet<object>();
   const raw = Array.isArray(value)
-    ? value.map((node) => slateNodeToText(node, 0)).join('\n')
-    : slateNodeToText(value, 0);
+    ? value.map((node) => slateNodeToText(node, 0, visited)).join('\n')
+    : slateNodeToText(value, 0, visited);
   return raw
     .replace(/[ \t]+\n/g, '\n')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 };
 
-const tiptapJsonToText = (json: any, depth = 0): string => {
+const tiptapJsonToText = (json: any, depth = 0, visited = new WeakSet<object>()): string => {
   if (!json) return '';
   if (depth > MAX_TIPTAP_DEPTH) return '';
+
+  if (typeof json === 'object') {
+    if (visited.has(json)) return '';
+    visited.add(json);
+  }
+
   if (typeof json === 'string') return json;
-  if (Array.isArray(json)) return json.map((node: any) => tiptapJsonToText(node, depth + 1)).join('\n');
+  if (Array.isArray(json)) return json.map((node: any) => tiptapJsonToText(node, depth + 1, visited)).join('\n');
   if (typeof json !== 'object') return '';
   if (typeof json.text === 'string') return json.text;
-  if (Array.isArray(json.content)) return json.content.map((node: any) => tiptapJsonToText(node, depth + 1)).join('');
+  if (Array.isArray(json.content)) return json.content.map((node: any) => tiptapJsonToText(node, depth + 1, visited)).join('');
   return '';
 };
 
@@ -250,10 +270,23 @@ export const noteContentToPlainText = (content: any): string => {
   return String(content).trim();
 };
 
-export const tiptapJsonToHtml = (json: any, depth = 0): string => {
+export const tiptapJsonToHtml = (json: any, depth = 0, visited = new WeakSet<object>()): string => {
   if (!json) return '';
   if (depth > MAX_TIPTAP_DEPTH) return '';
+
+  if (typeof json === 'object') {
+    if (visited.has(json)) return '';
+    visited.add(json);
+  }
   
+  // Detect Slate-like structure (array of nodes or object with specific keys but not Tiptap standard)
+  if (Array.isArray(json) && json.length > 0 && isSlateElement(json[0])) {
+      return slateValueToHtml(json);
+  }
+  if (isSlateElement(json) || isSlateText(json)) {
+      return slateNodeToHtml(json, depth, visited);
+  }
+
   if (typeof json === 'string') {
     const parsed = parseJsonChain(json);
     if (Array.isArray(parsed)) return slateValueToHtml(parsed);
@@ -262,7 +295,7 @@ export const tiptapJsonToHtml = (json: any, depth = 0): string => {
         return slateValueToHtml(parsed);
       }
       if ((parsed as any).type || (parsed as any).content) {
-        return tiptapJsonToHtml(parsed, depth + 1);
+        return tiptapJsonToHtml(parsed, depth + 1, visited);
       }
       const extracted = extractUnknownText(parsed).trim();
       if (extracted) return `<p>${escapeHtml(extracted)}</p>`;
@@ -272,27 +305,25 @@ export const tiptapJsonToHtml = (json: any, depth = 0): string => {
     if (typeof parsed === 'string') {
       const trimmed = parsed.trim();
       if (/<\/?[a-z][\s\S]*>/i.test(trimmed)) return parsed;
-      if (!trimmed) return '';
-      return `<p>${escapeHtml(parsed)}</p>`;
+      return `<p>${escapeHtml(trimmed)}</p>`;
     }
     return `<p>${escapeHtml(String(parsed))}</p>`;
   }
 
-  const normalizeChildren = (value: any) => {
-    if (!value) return [];
-    if (Array.isArray(value)) return value;
-    return [value];
-  };
+  if (Array.isArray(json)) return json.map((node) => tiptapJsonToHtml(node, depth + 1, visited)).join('');
+  if (typeof json !== 'object') return '';
 
-  // Handle Tiptap JSON structure
-  if (json.type === 'doc' && json.content) {
-    return normalizeChildren(json.content).map((node: any) => tiptapJsonToHtml(node, depth + 1)).join('');
+  // Handle Tiptap doc
+  if (json.type === 'doc' && Array.isArray(json.content)) {
+    return json.content.map((node: any) => tiptapJsonToHtml(node, depth + 1, visited)).join('');
   }
 
-  let content = '';
-  if (json.content) {
-    content = normalizeChildren(json.content).map((node: any) => tiptapJsonToHtml(node, depth + 1)).join('');
-  }
+  // Handle generic content array (Tiptap or Slate children)
+  const content = Array.isArray(json.content) 
+    ? json.content.map((node: any) => tiptapJsonToHtml(node, depth + 1, visited)).join('') 
+    : Array.isArray(json.children)
+      ? json.children.map((node: any) => tiptapJsonToHtml(node, depth + 1, visited)).join('')
+      : '';
 
   switch (json.type) {
     case 'paragraph':

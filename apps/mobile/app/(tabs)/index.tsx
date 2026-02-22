@@ -196,17 +196,29 @@ export default function NotesScreen() {
       if (n.parentId) hasChildrenMap.set(n.parentId, true);
     }
 
-    const isProjectLike = (note: Note) => {
-      const noteType = (note as any).type;
-      if (noteType === 'project') return true;
-      if (noteType === 'task_list') return true;
-      if (noteType && noteType !== 'note') return true;
-      if (noteType === 'note') return false;
-      if (!hasChildrenMap.get(note._id)) return false;
-      const raw = typeof note.content === 'string' ? note.content : '';
-      const text = raw.replace(/<[^>]*>/g, '').trim();
-      return text.length === 0;
-    };
+  const isProjectLike = (note: Note) => {
+  const noteType = (note as any).type;
+  if (noteType === 'project') return true;
+  if (noteType === 'task_list') return true;
+  if (noteType && noteType !== 'note') return true;
+  
+  const icon = (note as any).icon;
+  if (typeof icon === 'string' && (icon.includes('folder') || icon.includes('project'))) return true;
+
+  if (noteType === 'note') return false;
+  
+  // For index view, we can't easily check children without the full map.
+  // But we can check content.
+  const raw = typeof note.content === 'string' ? note.content : '';
+  const text = raw.replace(/<[^>]*>/g, '').trim();
+  if (text.length === 0) return true;
+
+  // If we have access to hasChildrenMap (from context or recalc), use it. 
+  // Here we only have local check.
+  if (hasChildrenMap.get(note._id)) return true;
+
+  return false;
+};
 
     filtered = filtered.filter((n) => !isProjectLike(n));
 

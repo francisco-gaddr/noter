@@ -67,14 +67,26 @@ export default function NoteEditorScreen() {
 
   const toSafeHtml = (content: any) => {
     try {
+      if (!content) return '';
+      // Quick check to avoid passing obviously bad data
+      if (typeof content === 'object' && !Array.isArray(content) && !content.type && !content.content) {
+         // It might be a Slate JSON, let tiptapJsonToHtml handle it or try text extraction
+      }
+      
       const html = tiptapJsonToHtml(content);
       if (typeof html === 'string' && html.length <= 200000) return html;
-    } catch {
+      return '<p>Content too large to display</p>';
+    } catch (err) {
+      console.warn('Failed to convert content to safe HTML', err);
     }
-    const text = noteContentToPlainText(content);
-    if (!text) return '';
-    const trimmed = text.length > 200000 ? text.slice(0, 200000) : text;
-    return `<p>${escapeHtml(trimmed)}</p>`;
+    try {
+        const text = noteContentToPlainText(content);
+        if (!text) return '';
+        const trimmed = text.length > 200000 ? text.slice(0, 200000) : text;
+        return `<p>${escapeHtml(trimmed)}</p>`;
+    } catch {
+        return '<p>Error loading content</p>';
+    }
   };
   
   useEffect(() => {

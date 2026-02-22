@@ -54,11 +54,29 @@ export default function NoteTree({
       if (noteType === 'project') return true;
       if (noteType === 'task_list') return true;
       if (noteType && noteType !== 'note') return true;
+      
+      // Check icon as heuristic for legacy projects
+      const icon = (note as any).icon;
+      if (typeof icon === 'string' && (icon.includes('folder') || icon.includes('project'))) return true;
+
+      // If explicitly a note, return false (unless it matched icon above)
       if (noteType === 'note') return false;
-      if (!hasChildrenMap.get(note._id)) return false;
+
+      // If type is undefined/unknown:
+      // 1. If it has children, it's likely a project (or a note with sub-notes, but we treat structure as project-like)
+      if (hasChildrenMap.get(note._id)) return true;
+      
+      // 2. If it has no content and no children, it's ambiguous. 
+      // But if we are in "only notes" mode, we might want to hide it if we suspect it's a folder.
+      // However, a new empty note also looks like this.
+      // Let's rely on content check for ambiguous cases.
       const raw = typeof note.content === 'string' ? note.content : '';
       const text = raw.replace(/<[^>]*>/g, '').trim();
-      return text.length === 0;
+      
+      // If content is empty and type is unknown, assume project/folder to be safe and hide it from note list
+      if (text.length === 0) return true;
+      
+      return false;
     };
 
     return notes.filter((n) => !isProjectLike(n));
@@ -77,7 +95,7 @@ export default function NoteTree({
 
   const treeData = useMemo(() => {
     const buildTree = (parentId: string | null = null, level = 0, ancestorIds: string[] = []): TreeItem[] => {
-      if (level > 200) return [];
+      if (level > 15) return [];
       // Find items that match the parentId
       // For root (parentId === null), also include items whose parents are missing from the visible set (orphans)
       const isRoot = parentId === null;

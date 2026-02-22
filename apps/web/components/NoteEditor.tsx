@@ -454,18 +454,24 @@ const slateLeafToHtml = (leaf: any) => {
   return html;
 };
 
-const MAX_SLATE_DEPTH = 200;
+const MAX_SLATE_DEPTH = 15;
 
-const slateNodeToHtml = (node: any, depth = 0): string => {
+const slateNodeToHtml = (node: any, depth = 0, visited = new WeakSet<object>()): string => {
   if (depth > MAX_SLATE_DEPTH) return '';
   if (!node) return '';
-  if (Array.isArray(node)) return node.map((child) => slateNodeToHtml(child, depth + 1)).join('');
+  
+  if (typeof node === 'object') {
+    if (visited.has(node)) return '';
+    visited.add(node);
+  }
+
+  if (Array.isArray(node)) return node.map((child) => slateNodeToHtml(child, depth + 1, visited)).join('');
   if (Text.isText(node)) return slateLeafToHtml(node);
   if (typeof node !== 'object') return '';
 
   const type = typeof node.type === 'string' ? node.type : 'paragraph';
   const children = Array.isArray(node.children) ? node.children : [];
-  const childrenHtml = children.map((child: any) => slateNodeToHtml(child, depth + 1)).join('') || '';
+  const childrenHtml = children.map((child: any) => slateNodeToHtml(child, depth + 1, visited)).join('') || '';
 
   switch (type) {
     case 'paragraph':
@@ -515,14 +521,15 @@ const slateNodeToHtml = (node: any, depth = 0): string => {
 
 const slateValueToHtml = (value: any): string => {
   if (!value) return '';
-  if (!Array.isArray(value)) return slateNodeToHtml(value, 0);
+  const visited = new WeakSet<object>();
+  if (!Array.isArray(value)) return slateNodeToHtml(value, 0, visited);
 
   let html = '';
   let checkItems: any[] = [];
 
   const flushCheckItems = () => {
     if (!checkItems.length) return;
-    const itemsHtml = checkItems.map((node) => slateNodeToHtml(node, 0)).join('');
+    const itemsHtml = checkItems.map((node) => slateNodeToHtml(node, 0, visited)).join('');
     html += `<ul>${itemsHtml}</ul>`;
     checkItems = [];
   };
@@ -533,25 +540,31 @@ const slateValueToHtml = (value: any): string => {
       continue;
     }
     flushCheckItems();
-    html += slateNodeToHtml(node, 0);
+    html += slateNodeToHtml(node, 0, visited);
   }
   flushCheckItems();
   return html;
 };
 
-const MAX_TIPTAP_DEPTH = 200;
+const MAX_TIPTAP_DEPTH = 50;
 
-const tiptapJsonToHtml = (json: any, depth = 0): string => {
+const tiptapJsonToHtml = (json: any, depth = 0, visited = new WeakSet<object>()): string => {
   if (!json) return '';
   if (depth > MAX_TIPTAP_DEPTH) return '';
-  if (Array.isArray(json)) return json.map((node) => tiptapJsonToHtml(node, depth + 1)).join('');
+  
+  if (typeof json === 'object') {
+      if (visited.has(json)) return '';
+      visited.add(json);
+  }
+
+  if (Array.isArray(json)) return json.map((node) => tiptapJsonToHtml(node, depth + 1, visited)).join('');
   if (typeof json !== 'object') return '';
 
   if (json.type === 'doc' && Array.isArray(json.content)) {
-    return json.content.map((node: any) => tiptapJsonToHtml(node, depth + 1)).join('');
+    return json.content.map((node: any) => tiptapJsonToHtml(node, depth + 1, visited)).join('');
   }
 
-  const content = Array.isArray(json.content) ? json.content.map((node: any) => tiptapJsonToHtml(node, depth + 1)).join('') : '';
+  const content = Array.isArray(json.content) ? json.content.map((node: any) => tiptapJsonToHtml(node, depth + 1, visited)).join('') : '';
 
   switch (json.type) {
     case 'paragraph':
@@ -644,8 +657,13 @@ const htmlToSlateValue = (html: string): Descendant[] => {
     return flattened.length ? flattened : [{ text: '' }];
   };
 
-  const deserialize = (node: Node, marks: Partial<CustomText>, depth = 0): Descendant[] => {
+  const deserialize = (node: Node, marks: Partial<CustomText>, depth = 0, visited = new WeakSet<Node>()): Descendant[] => {
     if (depth > MAX_SLATE_DEPTH) return [];
+
+    // Circular reference check
+    if (visited.has(node)) return [];
+    visited.add(node);
+
     if (isTextNode(node)) {
       const text = node.textContent ?? '';
       if (!text) return [];
@@ -685,7 +703,7 @@ const htmlToSlateValue = (html: string): Descendant[] => {
       return [{ text: '\n', ...nextMarks } as any];
     }
 
-    const children = Array.from(el.childNodes).flatMap((n) => deserialize(n, nextMarks, depth + 1));
+    const children = Array.from(el.childNodes).flatMap((n) => deserialize(n, nextMarks, depth + 1, visited));
 
     if (tag === 'body' || tag === 'div' || tag === 'span') return children;
 
@@ -712,17 +730,17 @@ const htmlToSlateValue = (html: string): Descendant[] => {
         const rows = Array.from(tbody.children).filter(c => c.nodeName.toLowerCase() === 'tr');
         const children = rows.map(r => ({
             type: 'table-row',
-            children: Array.from(r.children).flatMap(c => deserialize(c, marks, depth + 1))
+            children: Array.from(r.children).flatMap(c => deserialize(c, marks, depth + 1, visited))
         }));
         return [{ type: 'table', children } as any];
     }
 
     if (tag === 'tr') {
-        return [{ type: 'table-row', children: Array.from(el.children).flatMap(c => deserialize(c, marks, depth + 1)) } as any];
+        return [{ type: 'table-row', children: Array.from(el.children).flatMap(c => deserialize(c, marks, depth + 1, visited)) } as any];
     }
 
     if (tag === 'td' || tag === 'th') {
-        const children = ensureInlineChildren(Array.from(el.childNodes).flatMap(n => deserialize(n, marks, depth + 1)));
+        const children = ensureInlineChildren(Array.from(el.childNodes).flatMap(n => deserialize(n, marks, depth + 1, visited)));
         return [{ type: 'table-cell', children } as any];
     }
 
@@ -770,7 +788,7 @@ const htmlToSlateValue = (html: string): Descendant[] => {
           const childNodes = Array.from(li.childNodes).filter(
             (n) => !(n as any).nodeName || (n as any).nodeName.toLowerCase() !== 'input'
           );
-          const inline = ensureInlineChildren(childNodes.flatMap((n) => deserialize(n, marks, depth + 1)));
+          const inline = ensureInlineChildren(childNodes.flatMap((n) => deserialize(n, marks, depth + 1, visited)));
           return { type: 'check-list-item', checked, children: inline } as any;
         });
       }
@@ -778,7 +796,7 @@ const htmlToSlateValue = (html: string): Descendant[] => {
       const wrapperType = tag === 'ol' ? 'numbered-list' : 'bulleted-list';
       const listChildren = items.map((li) => ({
         type: 'list-item',
-        children: ensureInlineChildren(Array.from(li.childNodes).flatMap((n) => deserialize(n, marks, depth + 1))),
+        children: ensureInlineChildren(Array.from(li.childNodes).flatMap((n) => deserialize(n, marks, depth + 1, visited))),
       }));
       return [{ type: wrapperType, children: listChildren } as any];
     }
@@ -821,8 +839,12 @@ const normalizeSlateValue = (input: unknown, fallbackText?: string): Descendant[
     return next;
   };
 
-  const normalizeDescendant = (node: unknown): Descendant | null => {
+  const normalizeDescendant = (node: unknown, depth = 0, visited = new WeakSet<object>()): Descendant | null => {
+    if (depth > MAX_SLATE_DEPTH) return null;
     if (!isRecord(node)) return null;
+    if (visited.has(node)) return null;
+    visited.add(node);
+
     if ('text' in node) return normalizeText(node) as any;
 
     const type = typeof node.type === 'string' ? node.type : 'paragraph';
@@ -832,7 +854,7 @@ const normalizeSlateValue = (input: unknown, fallbackText?: string): Descendant[
         ? (node as any).childr33en
         : [];
 
-    const children = rawChildren.map(normalizeDescendant).filter(Boolean) as Descendant[];
+    const children = rawChildren.map(c => normalizeDescendant(c, depth + 1, visited)).filter(Boolean) as Descendant[];
     const safeChildren = children.length ? children : ([{ text: '' }] as any);
 
     const element: any = { type, children: safeChildren };
