@@ -536,16 +536,19 @@ const slateValueToHtml = (value: any): string => {
   return html;
 };
 
-const tiptapJsonToHtml = (json: any): string => {
+const MAX_TIPTAP_DEPTH = 200;
+
+const tiptapJsonToHtml = (json: any, depth = 0): string => {
   if (!json) return '';
-  if (Array.isArray(json)) return json.map(tiptapJsonToHtml).join('');
+  if (depth > MAX_TIPTAP_DEPTH) return '';
+  if (Array.isArray(json)) return json.map((node) => tiptapJsonToHtml(node, depth + 1)).join('');
   if (typeof json !== 'object') return '';
 
   if (json.type === 'doc' && Array.isArray(json.content)) {
-    return json.content.map(tiptapJsonToHtml).join('');
+    return json.content.map((node: any) => tiptapJsonToHtml(node, depth + 1)).join('');
   }
 
-  const content = Array.isArray(json.content) ? json.content.map(tiptapJsonToHtml).join('') : '';
+  const content = Array.isArray(json.content) ? json.content.map((node: any) => tiptapJsonToHtml(node, depth + 1)).join('') : '';
 
   switch (json.type) {
     case 'paragraph':

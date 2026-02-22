@@ -8,6 +8,8 @@ const escapeHtml = (input: string) =>
 
 const escapeAttr = (input: string) => escapeHtml(input);
 
+const MAX_TIPTAP_DEPTH = 200;
+
 const stripHtml = (html: string) => {
   // Decode common entities first to avoid "div" showing up if it was &lt;div&gt;
   const decoded = html
@@ -143,13 +145,14 @@ const slateValueToText = (value: any): string => {
     .trim();
 };
 
-const tiptapJsonToText = (json: any): string => {
+const tiptapJsonToText = (json: any, depth = 0): string => {
   if (!json) return '';
+  if (depth > MAX_TIPTAP_DEPTH) return '';
   if (typeof json === 'string') return json;
-  if (Array.isArray(json)) return json.map(tiptapJsonToText).join('\n');
+  if (Array.isArray(json)) return json.map((node: any) => tiptapJsonToText(node, depth + 1)).join('\n');
   if (typeof json !== 'object') return '';
   if (typeof json.text === 'string') return json.text;
-  if (Array.isArray(json.content)) return json.content.map(tiptapJsonToText).join('');
+  if (Array.isArray(json.content)) return json.content.map((node: any) => tiptapJsonToText(node, depth + 1)).join('');
   return '';
 };
 
@@ -242,8 +245,9 @@ export const noteContentToPlainText = (content: any): string => {
   return String(content).trim();
 };
 
-export const tiptapJsonToHtml = (json: any): string => {
+export const tiptapJsonToHtml = (json: any, depth = 0): string => {
   if (!json) return '';
+  if (depth > MAX_TIPTAP_DEPTH) return '';
   
   if (typeof json === 'string') {
     const parsed = parseJsonChain(json);
@@ -253,7 +257,7 @@ export const tiptapJsonToHtml = (json: any): string => {
         return slateValueToHtml(parsed);
       }
       if ((parsed as any).type || (parsed as any).content) {
-        return tiptapJsonToHtml(parsed);
+        return tiptapJsonToHtml(parsed, depth + 1);
       }
       const extracted = extractUnknownText(parsed).trim();
       if (extracted) return `<p>${escapeHtml(extracted)}</p>`;
@@ -277,12 +281,12 @@ export const tiptapJsonToHtml = (json: any): string => {
 
   // Handle Tiptap JSON structure
   if (json.type === 'doc' && json.content) {
-    return normalizeChildren(json.content).map((node: any) => tiptapJsonToHtml(node)).join('');
+    return normalizeChildren(json.content).map((node: any) => tiptapJsonToHtml(node, depth + 1)).join('');
   }
 
   let content = '';
   if (json.content) {
-    content = normalizeChildren(json.content).map((node: any) => tiptapJsonToHtml(node)).join('');
+    content = normalizeChildren(json.content).map((node: any) => tiptapJsonToHtml(node, depth + 1)).join('');
   }
 
   switch (json.type) {

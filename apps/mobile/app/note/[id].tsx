@@ -140,7 +140,12 @@ export default function NoteEditorScreen() {
         setIcon(existingNote.icon || '');
         setSelectedParentId(existingNote.parentId || null);
       } else {
-        const html = tiptapJsonToHtml(existingNote.content);
+        let html = '';
+        try {
+          html = tiptapJsonToHtml(existingNote.content);
+        } catch {
+          html = '';
+        }
         setTitle(existingNote.title);
         setIcon(existingNote.icon || '');
         setInitialHtml(html);
@@ -253,7 +258,12 @@ export default function NoteEditorScreen() {
     try {
       if (passwordMode === 'unlock') {
         const decryptedContent = await verifyNoteLock(id!, password);
-        const html = tiptapJsonToHtml(decryptedContent);
+        let html = '';
+        try {
+          html = tiptapJsonToHtml(decryptedContent);
+        } catch {
+          html = '';
+        }
         setInitialHtml(html);
         contentRef.current = html;
         setEditorKey(`editor-${String(id)}-${Date.now()}`);

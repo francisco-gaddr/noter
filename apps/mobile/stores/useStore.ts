@@ -93,6 +93,31 @@ const tryDecryptString = (value: unknown): any => {
   }
 };
 
+const parseNoteLocked = (value: unknown): boolean => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value === 1;
+  if (typeof value === 'string') {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    try {
+      return decrypt(value) === 'true';
+    } catch {
+      return Boolean(value);
+    }
+  }
+  return false;
+};
+
+const parseNoteDate = (value: unknown): string => {
+  if (typeof value !== 'string') return new Date().toISOString();
+  try {
+    const decrypted = decrypt(value);
+    return decrypted || value;
+  } catch {
+    return value;
+  }
+};
+
 const processApiNote = (note: Note): Note => ({
   ...note,
   title: decrypt(note.title),
@@ -100,6 +125,9 @@ const processApiNote = (note: Note): Note => ({
   tags: Array.isArray((note as any).tags) ? ((note as any).tags as any[]).map((t) => tryDecryptString(t)) : [],
   icon: (note as any).icon ? tryDecryptString((note as any).icon) : (note as any).icon,
   type: (note as any).type ? tryDecryptString((note as any).type) : (note as any).type,
+  locked: parseNoteLocked((note as any).locked),
+  createdAt: parseNoteDate((note as any).createdAt),
+  updatedAt: parseNoteDate((note as any).updatedAt),
 });
 
 const parseTaskCompleted = (value: unknown): boolean => {
@@ -505,8 +533,13 @@ export const useStore = create<AppState>((set, get) => ({
         ...data,
         title: encrypt(data.title),
         content: encrypt(data.content),
-        type: data.type || 'note',
-        clientId, // Send it anyway
+        tags: data.tags?.map((t: string) => encrypt(t)) ?? [],
+        icon: data.icon ? encrypt(data.icon) : undefined,
+        type: data.type ? encrypt(data.type) : encrypt('note'),
+        locked: encrypt(String(!!data.locked)),
+        createdAt: encrypt(optimisticNote.createdAt),
+        updatedAt: encrypt(optimisticNote.updatedAt),
+        clientId,
       };
 
       // 4. Try Sync
@@ -579,6 +612,11 @@ export const useStore = create<AppState>((set, get) => ({
       if (data.content) encryptedData.content = encrypt(data.content);
       if (data.tags) encryptedData.tags = data.tags.map((t: string) => encrypt(t));
       if (data.icon) encryptedData.icon = encrypt(data.icon);
+      if (data.type) encryptedData.type = encrypt(data.type);
+      if (data.locked !== undefined) encryptedData.locked = encrypt(String(!!data.locked));
+      const createdAt = (data as any).createdAt;
+      if (createdAt) encryptedData.createdAt = encrypt(createdAt);
+      encryptedData.updatedAt = encrypt(optimisticNote.updatedAt);
 
       // 5. Try Sync
       const netState = await NetInfo.fetch();

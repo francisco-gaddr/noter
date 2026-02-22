@@ -40,6 +40,31 @@ const parseTaskPriority = (value: unknown): 'low' | 'medium' | 'high' => {
   return 'medium';
 };
 
+const parseNoteLocked = (value: unknown): boolean => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value === 1;
+  if (typeof value === 'string') {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    try {
+      return decrypt(value) === 'true';
+    } catch {
+      return Boolean(value);
+    }
+  }
+  return false;
+};
+
+const parseNoteDate = (value: unknown): string => {
+  if (typeof value !== 'string') return new Date().toISOString();
+  try {
+    const decrypted = decrypt(value);
+    return decrypted || value;
+  } catch {
+    return value;
+  }
+};
+
 let realtimeFallbackTimer: ReturnType<typeof setInterval> | null = null;
 
 const runRealtimeFallbackSync = async (get: () => StoreState) => {
@@ -269,6 +294,9 @@ export const useStore = create<StoreState>((set, get) => ({
           ...newNote,
           title: decrypt(newNote.title),
           content: decrypt(newNote.content),
+          locked: parseNoteLocked((newNote as any).locked),
+          createdAt: parseNoteDate((newNote as any).createdAt),
+          updatedAt: parseNoteDate((newNote as any).updatedAt),
       };
       const exists = get().notes.find(n => n._id === decryptedNote._id);
       const pending = get().pendingCreated.notes[decryptedNote._id];
@@ -290,6 +318,9 @@ export const useStore = create<StoreState>((set, get) => ({
             ...updatedNote,
             title: decrypt(updatedNote.title),
             content: decrypt(updatedNote.content),
+            locked: parseNoteLocked((updatedNote as any).locked),
+            createdAt: parseNoteDate((updatedNote as any).createdAt),
+            updatedAt: parseNoteDate((updatedNote as any).updatedAt),
         };
         set(state => {
             const currentNote = state.notes.find(n => n._id === decryptedNote._id);

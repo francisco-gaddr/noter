@@ -43,7 +43,11 @@ export default function NoteTree({
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const lastOrderKeyRef = useRef<string>('');
   const draggedItemRef = useRef<TreeItem | null>(null);
-  const visibleNotes = useMemo(() => notes.filter((n) => (n as any).type !== 'task_list'), [notes]);
+  const visibleNotes = useMemo(
+    () => notes.filter((n) => (n as any).type !== 'task_list' && (n as any).type !== 'project'),
+    [notes]
+  );
+  const noteById = useMemo(() => new Map(visibleNotes.map((note) => [note._id, note])), [visibleNotes]);
 
   const toggleExpand = (id: string) => {
     const newExpanded = new Set(expandedIds);
@@ -134,6 +138,20 @@ export default function NoteTree({
       return parentExists ? note.parentId : null;
     },
     [visibleNotes]
+  );
+  const isDescendantOf = useCallback(
+    (candidateId: string, ancestorId: string) => {
+      let currentId: string | null = candidateId;
+      let depth = 0;
+      while (currentId && depth < 500) {
+        if (currentId === ancestorId) return true;
+        const current = noteById.get(currentId);
+        currentId = current?.parentId ?? null;
+        depth += 1;
+      }
+      return false;
+    },
+    [noteById]
   );
 
   const getPreviewContent = useCallback((content: any) => noteContentToPlainText(content), []);
@@ -255,6 +273,12 @@ export default function NoteTree({
           // Otherwise, it adopts the parent of the item above (becoming a sibling)
           newParentId = prevItem.parentId;
         }
+      }
+      if (newParentId && !noteById.has(newParentId)) {
+        newParentId = null;
+      }
+      if (newParentId && isDescendantOf(newParentId, movedItem._id)) {
+        newParentId = null;
       }
 
       // Filter siblings from the NEW data order

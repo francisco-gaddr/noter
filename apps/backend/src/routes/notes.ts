@@ -15,12 +15,14 @@ const noteSchema = Joi.object({
   content: Joi.string().allow('').required(),
   tags: Joi.array().items(Joi.string()),
   parentId: Joi.string().allow(null),
-  locked: Joi.boolean(),
+  locked: Joi.alternatives().try(Joi.boolean(), Joi.string().allow('')),
   password: Joi.string().allow(''),
   icon: Joi.string().allow(null, ''),
   order: Joi.number(),
   type: Joi.string().allow('note', 'task_list', 'project').allow(null, '').required(),
-  clientId: Joi.string().allow('').optional()
+  clientId: Joi.string().allow('').optional(),
+  createdAt: Joi.string().allow(''),
+  updatedAt: Joi.string().allow('')
 });
 
 const updateSchema = Joi.object({
@@ -28,11 +30,13 @@ const updateSchema = Joi.object({
   content: Joi.string().allow(''),
   tags: Joi.array().items(Joi.string()),
   parentId: Joi.string().allow(null),
-  locked: Joi.boolean(),
+  locked: Joi.alternatives().try(Joi.boolean(), Joi.string().allow('')),
   password: Joi.string().allow(''),
   icon: Joi.string().allow(null, ''),
   order: Joi.number(),
-  type: Joi.string().allow(null, '')
+  type: Joi.string().allow(null, ''),
+  createdAt: Joi.string().allow(''),
+  updatedAt: Joi.string().allow('')
 });
 
 const reorderSchema = Joi.object({
@@ -58,7 +62,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
       return;
     }
 
-    const notes = await Note.find({ userId: (req as AuthRequest).user!.userId }).sort({ order: 1, createdAt: -1 });
+    const notes = await Note.find({ userId: (req as AuthRequest).user!.userId }).select('+password').sort({ order: 1, createdAt: -1 });
     
     // Create a map for quick lookup
     const notesMap = new Map(notes.map(n => [n._id.toString(), n]));
@@ -71,7 +75,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
         const note = notesMap.get(noteId);
         if (!note) return false;
         
-        if (note.locked) {
+        if ((note as any).locked === true || Boolean((note as any).password)) {
             memo.set(noteId, true);
             return true;
         }
@@ -88,10 +92,23 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
 
     // Hide content for locked notes (and their descendants)
     const sanitizedNotes = notes.map(note => {
-      const noteObj = note.toObject();
+      const noteObj: any = note.toObject();
       if (isLocked(note._id.toString())) {
         noteObj.content = ''; // Clear content for locked notes
       }
+      if (noteObj.lockedEnc) {
+        noteObj.locked = noteObj.lockedEnc;
+      }
+      if (noteObj.createdAtEnc) {
+        noteObj.createdAt = noteObj.createdAtEnc;
+      }
+      if (noteObj.updatedAtEnc) {
+        noteObj.updatedAt = noteObj.updatedAtEnc;
+      }
+      delete noteObj.lockedEnc;
+      delete noteObj.createdAtEnc;
+      delete noteObj.updatedAtEnc;
+      delete noteObj.password;
       return noteObj;
     });
 
@@ -118,7 +135,7 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
       res.json(cachedNote);
       return;
     }
-    const note = await Note.findById(req.params.id);
+    const note = await Note.findById(req.params.id).select('+password');
     if (!note) {
       res.status(404);
       return next(new Error('Note not found'));
@@ -133,15 +150,28 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
     // For now, let's behave like GET / and hide content if locked.
     
     // Actually, for simple sync check, we mostly care about updatedAt.
-    const noteObj = note.toObject();
+    const noteObj: any = note.toObject();
     
     // Check if locked (simplified check, not recursive for single note efficiency, but inaccurate)
     // To be consistent, we should use the same logic or just return it.
     // Let's just return it. The client handles decryption/locking view.
     // But wait, GET / hides content.
-    if (noteObj.locked) {
+    if ((noteObj as any).locked === true || Boolean((noteObj as any).password)) {
         noteObj.content = '';
     }
+    if ((noteObj as any).lockedEnc) {
+      noteObj.locked = (noteObj as any).lockedEnc;
+    }
+    if ((noteObj as any).createdAtEnc) {
+      noteObj.createdAt = (noteObj as any).createdAtEnc;
+    }
+    if ((noteObj as any).updatedAtEnc) {
+      noteObj.updatedAt = (noteObj as any).updatedAtEnc;
+    }
+    delete (noteObj as any).lockedEnc;
+    delete (noteObj as any).createdAtEnc;
+    delete (noteObj as any).updatedAtEnc;
+    delete (noteObj as any).password;
     
     await cache.set(cacheKey, noteObj, 300);
     res.json(noteObj);
@@ -171,9 +201,9 @@ router.post('/:id/verify-lock', async (req: Request, res: Response, next: NextFu
     while (currentId) {
         const note = await Note.findById(currentId).select('+password');
         if (!note) break;
-        if (note.locked) {
+        if ((note as any).locked === true || Boolean((note as any).password)) {
             lockerNode = note;
-            break; // Found the locker
+            break;
         }
         currentId = note.parentId?.toString();
     }
@@ -216,6 +246,18 @@ router.post('/', validate(noteSchema), async (req: Request, res: Response, next:
     if (noteData.password) {
       noteData.password = await bcrypt.hash(noteData.password, 10);
     }
+    if (typeof noteData.locked === 'string') {
+      noteData.lockedEnc = noteData.locked;
+      delete noteData.locked;
+    }
+    if (typeof noteData.createdAt === 'string' && noteData.createdAt.length > 0) {
+      noteData.createdAtEnc = noteData.createdAt;
+      delete noteData.createdAt;
+    }
+    if (typeof noteData.updatedAt === 'string' && noteData.updatedAt.length > 0) {
+      noteData.updatedAtEnc = noteData.updatedAt;
+      delete noteData.updatedAt;
+    }
 
     const note = new Note(noteData);
     const createdNote = await note.save();
@@ -225,7 +267,21 @@ router.post('/', validate(noteSchema), async (req: Request, res: Response, next:
     const io = req.app.get('io');
     io.to(`user:${userId}`).emit('note:created', createdNote);
 
-    res.status(201).json(createdNote);
+    const createdObj: any = createdNote.toObject();
+    if ((createdObj as any).lockedEnc) {
+      (createdObj as any).locked = (createdObj as any).lockedEnc;
+    }
+    if ((createdObj as any).createdAtEnc) {
+      (createdObj as any).createdAt = (createdObj as any).createdAtEnc;
+    }
+    if ((createdObj as any).updatedAtEnc) {
+      (createdObj as any).updatedAt = (createdObj as any).updatedAtEnc;
+    }
+    delete (createdObj as any).lockedEnc;
+    delete (createdObj as any).createdAtEnc;
+    delete (createdObj as any).updatedAtEnc;
+    delete (createdObj as any).password;
+    res.status(201).json(createdObj);
   } catch (error) {
     next(error);
   }
@@ -282,7 +338,13 @@ router.put('/:id', validate(updateSchema), async (req: Request, res: Response, n
       if (value.content !== undefined) note.content = value.content;
       if (value.tags) note.tags = value.tags;
       if (value.parentId !== undefined) note.parentId = value.parentId;
-      if (value.locked !== undefined) note.locked = value.locked;
+      if (value.locked !== undefined) {
+        if (typeof value.locked === 'string') {
+          (note as any).lockedEnc = value.locked;
+        } else {
+          note.locked = value.locked;
+        }
+      }
       if (value.type !== undefined) note.type = value.type;
       if (value.password !== undefined) {
         if (value.password) {
@@ -290,6 +352,12 @@ router.put('/:id', validate(updateSchema), async (req: Request, res: Response, n
         } else {
             note.password = '';
         }
+      }
+      if (typeof value.createdAt === 'string' && value.createdAt.length > 0) {
+        (note as any).createdAtEnc = value.createdAt;
+      }
+      if (typeof value.updatedAt === 'string' && value.updatedAt.length > 0) {
+        (note as any).updatedAtEnc = value.updatedAt;
       }
       if (value.icon !== undefined) note.icon = value.icon;
       if (value.order !== undefined) note.order = value.order;
@@ -300,10 +368,23 @@ router.put('/:id', validate(updateSchema), async (req: Request, res: Response, n
       await cache.del(`notes:list:${userId}`);
       await cache.del(`notes:item:${userId}:${req.params.id}`);
 
-      const noteObj = updatedNote.toObject();
-      if (noteObj.locked) {
+      const noteObj: any = updatedNote.toObject();
+      if ((noteObj as any).locked === true || Boolean((noteObj as any).password)) {
         noteObj.content = '';
       }
+      if ((noteObj as any).lockedEnc) {
+        noteObj.locked = (noteObj as any).lockedEnc;
+      }
+      if ((noteObj as any).createdAtEnc) {
+        noteObj.createdAt = (noteObj as any).createdAtEnc;
+      }
+      if ((noteObj as any).updatedAtEnc) {
+        noteObj.updatedAt = (noteObj as any).updatedAtEnc;
+      }
+      delete (noteObj as any).lockedEnc;
+      delete (noteObj as any).createdAtEnc;
+      delete (noteObj as any).updatedAtEnc;
+      delete (noteObj as any).password;
       
       const io = req.app.get('io');
       io.to(`user:${userId}`).emit('note:updated', noteObj);

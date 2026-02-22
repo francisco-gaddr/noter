@@ -82,6 +82,41 @@ export const db = {
         tags: n.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? [],
         icon: n.icon ? (() => { try { return decrypt(n.icon) } catch { return n.icon } })() : undefined,
         type: n.type ? (() => { try { return decrypt(n.type) as any } catch { return n.type } })() : 'note',
+        locked: (() => {
+            const value: any = (n as any).locked;
+            if (typeof value === 'boolean') return value;
+            if (typeof value === 'number') return value === 1;
+            if (typeof value === 'string') {
+                if (value === 'true') return true;
+                if (value === 'false') return false;
+                try {
+                    return decrypt(value) === 'true';
+                } catch {
+                    return Boolean(value);
+                }
+            }
+            return false;
+        })(),
+        createdAt: (() => {
+            const value: any = (n as any).createdAt;
+            if (typeof value !== 'string') return new Date().toISOString();
+            try {
+                const decrypted = decrypt(value);
+                return decrypted || value;
+            } catch {
+                return value;
+            }
+        })(),
+        updatedAt: (() => {
+            const value: any = (n as any).updatedAt;
+            if (typeof value !== 'string') return new Date().toISOString();
+            try {
+                const decrypted = decrypt(value);
+                return decrypted || value;
+            } catch {
+                return value;
+            }
+        })(),
     }));
   },
 
@@ -96,17 +131,55 @@ export const db = {
         tags: note.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? [],
         icon: note.icon ? (() => { try { return decrypt(note.icon) } catch { return note.icon } })() : undefined,
         type: note.type ? (() => { try { return decrypt(note.type) as any } catch { return note.type } })() : 'note',
+        locked: (() => {
+            const value: any = (note as any).locked;
+            if (typeof value === 'boolean') return value;
+            if (typeof value === 'number') return value === 1;
+            if (typeof value === 'string') {
+                if (value === 'true') return true;
+                if (value === 'false') return false;
+                try {
+                    return decrypt(value) === 'true';
+                } catch {
+                    return Boolean(value);
+                }
+            }
+            return false;
+        })(),
+        createdAt: (() => {
+            const value: any = (note as any).createdAt;
+            if (typeof value !== 'string') return new Date().toISOString();
+            try {
+                const decrypted = decrypt(value);
+                return decrypted || value;
+            } catch {
+                return value;
+            }
+        })(),
+        updatedAt: (() => {
+            const value: any = (note as any).updatedAt;
+            if (typeof value !== 'string') return new Date().toISOString();
+            try {
+                const decrypted = decrypt(value);
+                return decrypted || value;
+            } catch {
+                return value;
+            }
+        })(),
     };
   },
 
   async saveNote(note: Note, pendingSync = false): Promise<void> {
     const db = await initDB();
-    const encrypted = {
+    const encrypted: any = {
         ...note,
         title: encrypt(note.title),
         content: encrypt(note.content),
         tags: note.tags?.map(t => encrypt(t)) ?? [],
         icon: note.icon ? encrypt(note.icon) : undefined,
+        locked: encrypt(String(!!note.locked)),
+        createdAt: encrypt(String(note.createdAt)),
+        updatedAt: encrypt(String(note.updatedAt)),
         type: note.type,
         pendingSync
     };
@@ -137,6 +210,41 @@ export const db = {
         tags: n.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? [],
         icon: n.icon ? (() => { try { return decrypt(n.icon) } catch { return n.icon } })() : undefined,
         type: n.type ? (() => { try { return decrypt(n.type) as any } catch { return n.type } })() : 'note',
+        locked: (() => {
+            const value: any = (n as any).locked;
+            if (typeof value === 'boolean') return value;
+            if (typeof value === 'number') return value === 1;
+            if (typeof value === 'string') {
+                if (value === 'true') return true;
+                if (value === 'false') return false;
+                try {
+                    return decrypt(value) === 'true';
+                } catch {
+                    return Boolean(value);
+                }
+            }
+            return false;
+        })(),
+        createdAt: (() => {
+            const value: any = (n as any).createdAt;
+            if (typeof value !== 'string') return new Date().toISOString();
+            try {
+                const decrypted = decrypt(value);
+                return decrypted || value;
+            } catch {
+                return value;
+            }
+        })(),
+        updatedAt: (() => {
+            const value: any = (n as any).updatedAt;
+            if (typeof value !== 'string') return new Date().toISOString();
+            try {
+                const decrypted = decrypt(value);
+                return decrypted || value;
+            } catch {
+                return value;
+            }
+        })(),
     }));
   },
 

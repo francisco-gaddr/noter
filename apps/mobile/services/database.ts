@@ -163,6 +163,9 @@ export const saveNoteLocal = async (note: Note, isSynced: boolean = true) => {
   
   const createdAt = toIsoString(note.createdAt);
   const updatedAt = toIsoString(note.updatedAt);
+  const encryptedCreatedAt = encrypt(createdAt.toString());
+  const encryptedUpdatedAt = encrypt(updatedAt.toString());
+  const encryptedLocked = encrypt(String(!!note.locked));
 
   await db.runAsync(
     `INSERT OR REPLACE INTO notes (_id, title, content, tags, createdAt, updatedAt, userId, type, parentId, noteOrder, icon, locked, isSynced)
@@ -172,14 +175,14 @@ export const saveNoteLocal = async (note: Note, isSynced: boolean = true) => {
       encryptedTitle,
       encryptedContent,
       encryptedTags,
-      createdAt.toString(),
-      updatedAt.toString(),
+      encryptedCreatedAt,
+      encryptedUpdatedAt,
       note.userId,
       encryptedType,
       note.parentId || null,
       typeof (note as any).order === 'number' ? (note as any).order : null,
       encryptedIcon,
-      note.locked ? 1 : 0,
+      encryptedLocked,
       isSynced ? 1 : 0
     ]
   );
@@ -224,19 +227,46 @@ export const getNotesLocal = async (): Promise<Note[]> => {
         }
     }
 
+    let createdAt: string = row.createdAt;
+    try {
+        createdAt = decrypt(row.createdAt);
+    } catch {
+        createdAt = row.createdAt;
+    }
+
+    let updatedAt: string = row.updatedAt;
+    try {
+        updatedAt = decrypt(row.updatedAt);
+    } catch {
+        updatedAt = row.updatedAt;
+    }
+
+    let locked = false;
+    if (row.locked !== null && row.locked !== undefined) {
+        if (typeof row.locked === 'string') {
+            try {
+                locked = decrypt(row.locked) === 'true';
+            } catch {
+                locked = row.locked === '1' || row.locked === 'true';
+            }
+        } else {
+            locked = !!row.locked;
+        }
+    }
+
     return {
         _id: row._id,
         title: decrypt(row.title),
         content: decrypt(row.content),
         tags: tags,
-        createdAt: row.createdAt,
-        updatedAt: row.updatedAt,
+        createdAt: createdAt,
+        updatedAt: updatedAt,
         userId: row.userId,
         type: type,
         parentId: row.parentId,
         order: typeof row.noteOrder === 'number' ? row.noteOrder : 0,
         icon: icon,
-        locked: !!row.locked,
+        locked: locked,
     };
   });
 };

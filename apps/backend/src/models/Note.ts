@@ -8,12 +8,15 @@ export interface INote extends Document {
   tags: string[];
   parentId?: mongoose.Types.ObjectId;
   locked: boolean;
+  lockedEnc?: string;
   password?: string;
   icon?: string;
   order?: number;
   type?: 'note' | 'task_list' | 'project';
   createdAt: Date;
   updatedAt: Date;
+  createdAtEnc?: string;
+  updatedAtEnc?: string;
 }
 
 const NoteSchema: Schema = new Schema({
@@ -24,10 +27,13 @@ const NoteSchema: Schema = new Schema({
   tags: { type: [String], default: [] },
   parentId: { type: Schema.Types.ObjectId, ref: 'Note', default: null },
   locked: { type: Boolean, default: false },
+  lockedEnc: { type: String, default: '' },
   password: { type: String, select: false }, // Don't return by default
   icon: { type: String, default: null },
   order: { type: Number, default: 0 },
   type: { type: String, default: 'note' },
+  createdAtEnc: { type: String, default: '' },
+  updatedAtEnc: { type: String, default: '' },
 }, {
   timestamps: true
 });

@@ -12,6 +12,9 @@ interface State {
 }
 
 export class CustomErrorBoundary extends Component<Props, State> {
+  private static lastErrorMessage = '';
+  private static lastErrorAt = 0;
+
   public state: State = {
     hasError: false,
     error: null,
@@ -22,7 +25,13 @@ export class CustomErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('Uncaught error:', error, errorInfo);
+    const message = error?.message || 'Unknown error';
+    const now = Date.now();
+    if (CustomErrorBoundary.lastErrorMessage !== message || now - CustomErrorBoundary.lastErrorAt > 10000) {
+      console.error('Uncaught error:', error, errorInfo);
+      CustomErrorBoundary.lastErrorMessage = message;
+      CustomErrorBoundary.lastErrorAt = now;
+    }
   }
 
   private handleRetry = () => {

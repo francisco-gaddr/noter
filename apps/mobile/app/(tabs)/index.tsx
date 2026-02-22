@@ -191,12 +191,10 @@ export default function NotesScreen() {
       filtered = notes.filter((n) => included.has(n._id));
     }
 
-    if (viewMode === 'list') {
-      filtered = filtered.filter((n) => (n as any).type !== 'project');
-    }
+    filtered = filtered.filter((n) => (n as any).type !== 'project');
 
     return filtered;
-  }, [notes, activeProjectId, viewMode]);
+  }, [notes, activeProjectId]);
 
   const handleCreateNote = () => {
     router.push({
