@@ -644,7 +644,8 @@ const htmlToSlateValue = (html: string): Descendant[] => {
     return flattened.length ? flattened : [{ text: '' }];
   };
 
-  const deserialize = (node: Node, marks: Partial<CustomText>): Descendant[] => {
+  const deserialize = (node: Node, marks: Partial<CustomText>, depth = 0): Descendant[] => {
+    if (depth > MAX_SLATE_DEPTH) return [];
     if (isTextNode(node)) {
       const text = node.textContent ?? '';
       if (!text) return [];
@@ -684,7 +685,7 @@ const htmlToSlateValue = (html: string): Descendant[] => {
       return [{ text: '\n', ...nextMarks } as any];
     }
 
-    const children = Array.from(el.childNodes).flatMap((n) => deserialize(n, nextMarks));
+    const children = Array.from(el.childNodes).flatMap((n) => deserialize(n, nextMarks, depth + 1));
 
     if (tag === 'body' || tag === 'div' || tag === 'span') return children;
 
@@ -711,17 +712,17 @@ const htmlToSlateValue = (html: string): Descendant[] => {
         const rows = Array.from(tbody.children).filter(c => c.nodeName.toLowerCase() === 'tr');
         const children = rows.map(r => ({
             type: 'table-row',
-            children: Array.from(r.children).flatMap(c => deserialize(c, marks))
+            children: Array.from(r.children).flatMap(c => deserialize(c, marks, depth + 1))
         }));
         return [{ type: 'table', children } as any];
     }
 
     if (tag === 'tr') {
-        return [{ type: 'table-row', children: Array.from(el.children).flatMap(c => deserialize(c, marks)) } as any];
+        return [{ type: 'table-row', children: Array.from(el.children).flatMap(c => deserialize(c, marks, depth + 1)) } as any];
     }
 
     if (tag === 'td' || tag === 'th') {
-        const children = ensureInlineChildren(Array.from(el.childNodes).flatMap(n => deserialize(n, marks)));
+        const children = ensureInlineChildren(Array.from(el.childNodes).flatMap(n => deserialize(n, marks, depth + 1)));
         return [{ type: 'table-cell', children } as any];
     }
 
@@ -769,7 +770,7 @@ const htmlToSlateValue = (html: string): Descendant[] => {
           const childNodes = Array.from(li.childNodes).filter(
             (n) => !(n as any).nodeName || (n as any).nodeName.toLowerCase() !== 'input'
           );
-          const inline = ensureInlineChildren(childNodes.flatMap((n) => deserialize(n, marks)));
+          const inline = ensureInlineChildren(childNodes.flatMap((n) => deserialize(n, marks, depth + 1)));
           return { type: 'check-list-item', checked, children: inline } as any;
         });
       }
@@ -777,7 +778,7 @@ const htmlToSlateValue = (html: string): Descendant[] => {
       const wrapperType = tag === 'ol' ? 'numbered-list' : 'bulleted-list';
       const listChildren = items.map((li) => ({
         type: 'list-item',
-        children: ensureInlineChildren(Array.from(li.childNodes).flatMap((n) => deserialize(n, marks))),
+        children: ensureInlineChildren(Array.from(li.childNodes).flatMap((n) => deserialize(n, marks, depth + 1))),
       }));
       return [{ type: wrapperType, children: listChildren } as any];
     }
@@ -787,7 +788,7 @@ const htmlToSlateValue = (html: string): Descendant[] => {
     return children;
   };
 
-  const topLevel = Array.from(doc.body.childNodes).flatMap((n) => deserialize(n, {}));
+  const topLevel = Array.from(doc.body.childNodes).flatMap((n) => deserialize(n, {}, 0));
   const blocks = topLevel.filter(Boolean) as Descendant[];
   return blocks.length ? blocks : initialValue;
 };

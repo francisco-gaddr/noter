@@ -215,15 +215,13 @@ export const getNotesLocal = async (): Promise<Note[]> => {
 
     let type: 'note' | 'task_list' | 'project' | undefined = undefined;
     if (row.type) {
-        try {
-            const decryptedType = decrypt(row.type);
-            if (['note', 'task_list', 'project'].includes(decryptedType)) {
-                type = decryptedType as any;
-            } else {
-                type = row.type; // Fallback
-            }
-        } catch {
-            type = row.type; // Legacy
+        const decryptedType = decrypt(row.type);
+        if (['note', 'task_list', 'project'].includes(decryptedType)) {
+            type = decryptedType as any;
+        } else if (['note', 'task_list', 'project'].includes(row.type)) {
+            type = row.type as any;
+        } else {
+            type = undefined;
         }
     }
 

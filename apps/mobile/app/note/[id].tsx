@@ -7,7 +7,7 @@ import { useStore } from '@/stores/useStore';
 import { CreateNoteDto, UpdateNoteDto } from '@repo/shared';
 import { RichEditor, RichToolbar, actions } from 'react-native-pell-rich-editor';
 import PasswordModal from '@/components/PasswordModal';
-import { tiptapJsonToHtml } from '@/utils/tiptap';
+import { tiptapJsonToHtml, noteContentToPlainText } from '@/utils/tiptap';
 import IconPickerModal from '@/components/IconPickerModal';
 import ProjectSelector from '@/components/ProjectSelector';
 
@@ -56,6 +56,26 @@ export default function NoteEditorScreen() {
   
   const titleInputRef = useRef<TextInput>(null);
   const hasFocusedRef = useRef(false);
+
+  const escapeHtml = (input: string) =>
+    input
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+
+  const toSafeHtml = (content: any) => {
+    try {
+      const html = tiptapJsonToHtml(content);
+      if (typeof html === 'string' && html.length <= 200000) return html;
+    } catch {
+    }
+    const text = noteContentToPlainText(content);
+    if (!text) return '';
+    const trimmed = text.length > 200000 ? text.slice(0, 200000) : text;
+    return `<p>${escapeHtml(trimmed)}</p>`;
+  };
   
   useEffect(() => {
     if (isNew && !hasFocusedRef.current) {
@@ -138,14 +158,11 @@ export default function NoteEditorScreen() {
         setShowPasswordModal(true);
         setTitle(existingNote.title);
         setIcon(existingNote.icon || '');
+        setInitialHtml('');
+        contentRef.current = '';
         setSelectedParentId(existingNote.parentId || null);
       } else {
-        let html = '';
-        try {
-          html = tiptapJsonToHtml(existingNote.content);
-        } catch {
-          html = '';
-        }
+        const html = toSafeHtml(existingNote.content);
         setTitle(existingNote.title);
         setIcon(existingNote.icon || '');
         setInitialHtml(html);
@@ -258,12 +275,7 @@ export default function NoteEditorScreen() {
     try {
       if (passwordMode === 'unlock') {
         const decryptedContent = await verifyNoteLock(id!, password);
-        let html = '';
-        try {
-          html = tiptapJsonToHtml(decryptedContent);
-        } catch {
-          html = '';
-        }
+        const html = toSafeHtml(decryptedContent);
         setInitialHtml(html);
         contentRef.current = html;
         setEditorKey(`editor-${String(id)}-${Date.now()}`);

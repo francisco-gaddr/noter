@@ -191,7 +191,24 @@ export default function NotesScreen() {
       filtered = notes.filter((n) => included.has(n._id));
     }
 
-    filtered = filtered.filter((n) => (n as any).type !== 'project');
+    const hasChildrenMap = new Map<string, boolean>();
+    for (const n of notes) {
+      if (n.parentId) hasChildrenMap.set(n.parentId, true);
+    }
+
+    const isProjectLike = (note: Note) => {
+      const noteType = (note as any).type;
+      if (noteType === 'project') return true;
+      if (noteType === 'task_list') return true;
+      if (noteType && noteType !== 'note') return true;
+      if (noteType === 'note') return false;
+      if (!hasChildrenMap.get(note._id)) return false;
+      const raw = typeof note.content === 'string' ? note.content : '';
+      const text = raw.replace(/<[^>]*>/g, '').trim();
+      return text.length === 0;
+    };
+
+    filtered = filtered.filter((n) => !isProjectLike(n));
 
     return filtered;
   }, [notes, activeProjectId]);

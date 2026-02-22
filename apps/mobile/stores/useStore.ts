@@ -118,13 +118,19 @@ const parseNoteDate = (value: unknown): string => {
   }
 };
 
+const normalizeNoteType = (value: unknown): 'note' | 'task_list' | 'project' | undefined => {
+  const raw = tryDecryptString(value);
+  if (raw === 'note' || raw === 'task_list' || raw === 'project') return raw;
+  return undefined;
+};
+
 const processApiNote = (note: Note): Note => ({
   ...note,
   title: decrypt(note.title),
   content: decrypt(note.content),
   tags: Array.isArray((note as any).tags) ? ((note as any).tags as any[]).map((t) => tryDecryptString(t)) : [],
   icon: (note as any).icon ? tryDecryptString((note as any).icon) : (note as any).icon,
-  type: (note as any).type ? tryDecryptString((note as any).type) : (note as any).type,
+  type: normalizeNoteType((note as any).type),
   locked: parseNoteLocked((note as any).locked),
   createdAt: parseNoteDate((note as any).createdAt),
   updatedAt: parseNoteDate((note as any).updatedAt),
