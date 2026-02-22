@@ -87,6 +87,8 @@ server {
     proxy_set_header X-Real-IP \$remote_addr;
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_hide_header Content-Security-Policy;
+    add_header Content-Security-Policy "default-src 'self' https: data: 'unsafe-inline' 'unsafe-eval'; connect-src 'self' https: wss:; img-src 'self' https: data: blob:; style-src 'self' 'unsafe-inline' https:; font-src 'self' https: data:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'" always;
   }
 }
 EOF
@@ -132,6 +134,8 @@ server {
     proxy_set_header X-Real-IP \$remote_addr;
     proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto \$scheme;
+    proxy_hide_header Content-Security-Policy;
+    add_header Content-Security-Policy "default-src 'self' https: data: 'unsafe-inline' 'unsafe-eval'; connect-src 'self' https: wss:; img-src 'self' https: data: blob:; style-src 'self' 'unsafe-inline' https:; font-src 'self' https: data:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'" always;
   }
 }
 EOF
