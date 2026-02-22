@@ -1174,10 +1174,40 @@ export default function NoteEditor() {
     return false;
   }, [selectedNote, notes]);
 
+  const loadedValueCache = useRef<{
+    id: string;
+    isUnlockedLocally: boolean;
+    isEffectiveLocked: boolean;
+    value: Descendant[];
+  } | null>(null);
+
   const loadedValue = useMemo(() => {
     if (!selectedNote) return initialValue;
-    if (isEffectiveLocked && !isUnlockedLocally && !selectedNote.content) return initialValue;
-    return contentToSlateValue(selectedNote.content || '');
+
+    // Check cache to avoid heavy parsing on every render/save
+    if (
+      loadedValueCache.current &&
+      loadedValueCache.current.id === selectedNote._id &&
+      loadedValueCache.current.isUnlockedLocally === isUnlockedLocally &&
+      loadedValueCache.current.isEffectiveLocked === isEffectiveLocked
+    ) {
+      return loadedValueCache.current.value;
+    }
+
+    let newValue: Descendant[];
+    if (isEffectiveLocked && !isUnlockedLocally && !selectedNote.content) {
+        newValue = initialValue;
+    } else {
+        newValue = contentToSlateValue(selectedNote.content || '');
+    }
+
+    loadedValueCache.current = {
+      id: selectedNote._id,
+      isUnlockedLocally,
+      isEffectiveLocked,
+      value: newValue
+    };
+    return newValue;
   }, [selectedNote, isEffectiveLocked, isUnlockedLocally]);
 
   const saveTitle = useMemo(
@@ -1230,7 +1260,7 @@ export default function NoteEditor() {
         ReactEditor.focus(editor);
       } catch {}
     });
-  }, [editor, isEffectiveLocked, isUnlockedLocally, selectedNote?.content, selectedNoteId]);
+  }, [editor, isEffectiveLocked, isUnlockedLocally, selectedNoteId]);
 
   useEffect(() => {
     return () => {
