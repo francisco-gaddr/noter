@@ -1174,6 +1174,12 @@ export default function NoteEditor() {
     return false;
   }, [selectedNote, notes]);
 
+  const loadedValue = useMemo(() => {
+    if (!selectedNote) return initialValue;
+    if (isEffectiveLocked && !isUnlockedLocally && !selectedNote.content) return initialValue;
+    return contentToSlateValue(selectedNote.content || '');
+  }, [selectedNote, isEffectiveLocked, isUnlockedLocally]);
+
   const saveTitle = useMemo(
     () =>
       debounce((id: string, title: string, content: string) => {
@@ -1206,37 +1212,14 @@ export default function NoteEditor() {
 
     if (!shouldLoad) return;
 
-    let newValue = initialValue;
-    
-    // Check locked status for content loading
-    const isLocked = (() => {
-      if (note.locked) return true;
-      let pId = note.parentId;
-      let depth = 0;
-      while (pId && depth < 500) {
-        const p = notes.find(n => n._id === pId);
-        if (!p) break;
-        if (p.locked) return true;
-        pId = p.parentId;
-        depth += 1;
-      }
-      return false;
-    })();
-
-    if (isLocked && !note.content && !isUnlockedLocally) {
-        newValue = initialValue;
-    } else {
-        newValue = contentToSlateValue(note.content || '');
-    }
-
-    setValue(newValue);
-    lastSavedContentRef.current = slateValueToHtml(newValue);
+    setValue(loadedValue);
+    lastSavedContentRef.current = slateValueToHtml(loadedValue);
     lastSavedTitleRef.current = note.title || '';
     currentTitleRef.current = note.title || '';
     setTitle(note.title || '');
     previousNoteIdRef.current = selectedNoteId;
     loadedAfterUnlockRef.current = isUnlockedLocally;
-  }, [notes, selectedNoteId, isUnlockedLocally]);
+  }, [notes, selectedNoteId, isUnlockedLocally, loadedValue]);
 
   useEffect(() => {
     if (!selectedNoteId) return;
