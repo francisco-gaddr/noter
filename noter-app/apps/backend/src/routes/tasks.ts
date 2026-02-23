@@ -29,7 +29,7 @@ const reorderSchema = Joi.object({
   tasks: Joi.array().items(
     Joi.object({
       _id: Joi.string().required(),
-      position: Joi.number().required()
+      position: Joi.string().required()
     }).unknown(true)
   ).required()
 });
@@ -125,7 +125,7 @@ router.put('/reorder', validate(reorderSchema), async (req: Request, res: Respon
     const { tasks } = req.body; // Array of { _id, position }
     const userId = (req as AuthRequest).user!.userId;
 
-    const validTasks = (tasks as Array<{ _id: string; position: number }>).filter((t) =>
+    const validTasks = (tasks as Array<{ _id: string; position: string }>).filter((t) =>
       mongoose.Types.ObjectId.isValid(t._id),
     );
 

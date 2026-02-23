@@ -364,10 +364,14 @@ export const api = {
   },
 
   async reorderTasks(tasks: { _id: string; position: number }[]): Promise<void> {
+    const encryptedTasks = tasks.map(task => ({
+      _id: task._id,
+      position: encrypt(String(task.position))
+    }));
     const res = await fetch(`${API_URL}/tasks/reorder`, {
       method: 'PUT',
       headers: getHeaders(),
-      body: JSON.stringify({ tasks }),
+      body: JSON.stringify({ tasks: encryptedTasks }),
     });
     await handleResponse(res);
   },
