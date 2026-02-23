@@ -69,46 +69,61 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
     const memo = new Map<string, boolean>();
 
     // Helper to check if a note is effectively locked
-    const visiting = new Set<string>();
+    const isLocked = (startId: string): boolean => {
+        if (memo.has(startId)) return memo.get(startId)!;
 
-    const isLocked = (noteId: string): boolean => {
-        if (memo.has(noteId)) return memo.get(noteId)!;
-        if (visiting.has(noteId)) {
-             // Cycle detected! Treat as not locked by parent in this path to break cycle
-             return false;
-        }
+        let currentId: string | undefined = startId;
+        const path = new Set<string>();
 
-        visiting.add(noteId);
-        
-        const note = notesMap.get(noteId);
-        if (!note) {
-            visiting.delete(noteId);
-            return false;
-        }
-        
-        if ((note as any).locked === true || Boolean((note as any).password)) {
-            memo.set(noteId, true);
-            visiting.delete(noteId);
-            return true;
-        }
-        
-        if (note.parentId) {
-            const parentIdStr = note.parentId.toString();
-            // Prevent self-reference
-            if (parentIdStr === noteId) {
-                 memo.set(noteId, false);
-                 visiting.delete(noteId);
+        while (currentId) {
+            // Check cycle in current path
+            if (path.has(currentId)) {
+                // Cycle detected. Treat as unlocked to break loop.
+                for (const id of path) memo.set(id, false);
+                return false;
+            }
+
+            // Check memo
+            if (memo.has(currentId)) {
+                const result = memo.get(currentId)!;
+                // Propagate result to all visited nodes
+                for (const id of path) memo.set(id, result);
+                return result;
+            }
+
+            const note = notesMap.get(currentId);
+            
+            // If note doesn't exist (orphan ID), treat as unlocked end of chain
+            if (!note) {
+                 for (const id of path) memo.set(id, false);
                  return false;
             }
 
-            const parentLocked = isLocked(parentIdStr);
-            memo.set(noteId, parentLocked);
-            visiting.delete(noteId);
-            return parentLocked;
+            path.add(currentId);
+
+            // Check lock status of current note
+            if ((note as any).locked === true || Boolean((note as any).password)) {
+                // Found a lock!
+                for (const id of path) memo.set(id, true);
+                return true;
+            }
+
+            // Move to parent
+            if (!note.parentId) {
+                // Root reached, no lock found
+                for (const id of path) memo.set(id, false);
+                return false;
+            }
+            
+            currentId = note.parentId.toString();
+            
+            // Self-reference check (trivial cycle)
+            if (currentId === note._id.toString()) {
+                 for (const id of path) memo.set(id, false);
+                 return false;
+            }
         }
         
-        memo.set(noteId, false);
-        visiting.delete(noteId);
         return false;
     };
 
