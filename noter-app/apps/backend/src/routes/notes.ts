@@ -141,43 +141,29 @@ router.post('/:id/verify-lock', async (req: Request, res: Response, next: NextFu
       return next(new Error('Note not found'));
     }
 
-    // Find the nearest locked ancestor (or self)
-    let currentId: string | undefined = targetId;
-    let lockerNode: any = null;
-
-    // We need to traverse up. Since we don't have full tree here efficiently,
-    // we can either fetch all (consistent with GET) or iterative find.
-    // Iterative find is okay for a single request.
-    const visited = new Set<string>();
-    while (currentId) {
-        if (visited.has(currentId)) {
-            console.warn(`Cycle detected during verify-lock for note ${targetId}`);
-            break;
+    // With E2E encryption, lock verification is now handled client-side
+    // This endpoint is deprecated but kept for compatibility
+    // The client will decrypt the locked field and determine if the note is locked
+    
+    // For now, we'll just return the note content if a password is provided
+    // The actual lock logic is handled by the client after decryption
+    if (req.body.password) {
+      // Check if this note has a password set
+      if (targetNote.password) {
+        const isMatch = await bcrypt.compare(req.body.password, targetNote.password);
+        if (isMatch) {
+          res.json({ success: true, content: targetNote.content });
+        } else {
+          res.status(401);
+          next(new Error('Invalid password'));
         }
-        visited.add(currentId);
-
-        const note = await Note.findById(currentId).select('+password');
-        if (!note) break;
-        if (note.locked) {
-            lockerNode = note;
-            break; // Found the locker
-        }
-        currentId = note.parentId?.toString();
-    }
-
-    if (!lockerNode) {
-      // No lock found in chain
-      res.json({ success: true, content: targetNote.content });
-      return;
-    }
-
-    // Verify password against the locker node
-    const isMatch = await bcrypt.compare(req.body.password, lockerNode.password);
-    if (isMatch) {
-      res.json({ success: true, content: targetNote.content });
+      } else {
+        // No password set, but client requested unlock - this is for compatibility
+        res.json({ success: true, content: targetNote.content });
+      }
     } else {
-      res.status(401);
-      next(new Error('Invalid password'));
+      // No password provided, return content anyway (client will handle encryption)
+      res.json({ success: true, content: targetNote.content });
     }
   } catch (error) {
     next(error);
@@ -202,6 +188,14 @@ router.post('/', validate(noteSchema), async (req: Request, res: Response, next:
 
     if (noteData.password) {
       noteData.password = await bcrypt.hash(noteData.password, 10);
+    }
+
+    // Handle encrypted timestamps if not provided
+    if (!noteData.createdAt) {
+      noteData.createdAt = new Date().toISOString();
+    }
+    if (!noteData.updatedAt) {
+      noteData.updatedAt = new Date().toISOString();
     }
 
     const note = new Note(noteData);
@@ -269,7 +263,7 @@ router.put('/:id', validate(updateSchema), async (req: Request, res: Response, n
       if (value.content !== undefined) note.content = value.content;
       if (value.tags) note.tags = value.tags;
       if (value.parentId !== undefined) note.parentId = value.parentId;
-      if (value.locked !== undefined) note.locked = value.locked;
+      if (value.locked !== undefined) note.locked = value.locked; // Now stored as encrypted string
       if (value.type !== undefined) note.type = value.type;
       if (value.password !== undefined) {
         if (value.password) {
@@ -280,6 +274,8 @@ router.put('/:id', validate(updateSchema), async (req: Request, res: Response, n
       }
       if (value.icon !== undefined) note.icon = value.icon;
       if (value.order !== undefined) note.order = value.order;
+      if (value.createdAt !== undefined) note.createdAt = value.createdAt; // Handle encrypted timestamps
+      if (value.updatedAt !== undefined) note.updatedAt = value.updatedAt; // Handle encrypted timestamps
 
       const updatedNote = await note.save();
       

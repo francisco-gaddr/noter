@@ -1,0 +1,12 @@
+{"level":"info","message":"Connected to MongoDB","service":"backend-service","timestamp":"2026-02-23T17:01:14.343Z"}
+{"level":"info","message":"Server running at http://0.0.0.0:3001","service":"backend-service","timestamp":"2026-02-23T17:01:14.350Z"}
+{"level":"info","message":"Connected to MongoDB","service":"backend-service","timestamp":"2026-02-23T17:02:34.120Z"}
+{"level":"info","message":"Server running at http://0.0.0.0:3001","service":"backend-service","timestamp":"2026-02-23T17:02:34.127Z"}
+{"level":"info","message":"Connected to MongoDB","service":"backend-service","timestamp":"2026-02-23T17:03:11.917Z"}
+{"level":"info","message":"Server running at http://0.0.0.0:3001","service":"backend-service","timestamp":"2026-02-23T17:03:11.923Z"}
+{"level":"info","message":"Connected to MongoDB","service":"backend-service","timestamp":"2026-02-23T17:05:23.253Z"}
+{"level":"info","message":"Server running at http://0.0.0.0:3001","service":"backend-service","timestamp":"2026-02-23T17:05:23.260Z"}
+{"level":"info","message":"Connected to MongoDB","service":"backend-service","timestamp":"2026-02-23T17:06:21.913Z"}
+{"level":"info","message":"Server running at http://0.0.0.0:3001","service":"backend-service","timestamp":"2026-02-23T17:06:21.921Z"}
+{"level":"info","message":"Connected to MongoDB","service":"backend-service","timestamp":"2026-02-23T17:06:50.973Z"}
+{"level":"info","message":"Server running at http://0.0.0.0:3001","service":"backend-service","timestamp":"2026-02-23T17:06:50.979Z"}

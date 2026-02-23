@@ -74,6 +74,9 @@ const processApiNote = (note: Note): Note => ({
   tags: Array.isArray((note as any).tags) ? ((note as any).tags as any[]).map((t) => tryDecryptString(t)) : [],
   icon: (note as any).icon ? tryDecryptString((note as any).icon) : (note as any).icon,
   type: (note as any).type ? tryDecryptString((note as any).type) : (note as any).type,
+  locked: note.locked ? decrypt(String(note.locked)) === 'true' : false,
+  createdAt: decrypt(note.createdAt),
+  updatedAt: decrypt(note.updatedAt),
 });
 
 const parseTaskCompleted = (value: unknown): boolean => {
@@ -432,7 +435,10 @@ export const useStore = create<AppState>((set, get) => ({
         ...data,
         title: encrypt(data.title),
         content: encrypt(data.content),
-        type: data.type || 'note',
+        type: data.type ? encrypt(data.type) : undefined,
+        locked: encrypt(String(data.locked || false)),
+        createdAt: encrypt(new Date().toISOString()),
+        updatedAt: encrypt(new Date().toISOString()),
         clientId, // Send it anyway
       };
 
@@ -506,6 +512,9 @@ export const useStore = create<AppState>((set, get) => ({
       if (data.content) encryptedData.content = encrypt(data.content);
       if (data.tags) encryptedData.tags = data.tags.map((t: string) => encrypt(t));
       if (data.icon) encryptedData.icon = encrypt(data.icon);
+      if (data.locked !== undefined) encryptedData.locked = encrypt(String(data.locked));
+      // Always update updatedAt
+      encryptedData.updatedAt = encrypt(new Date().toISOString());
 
       // 5. Try Sync
       const netState = await NetInfo.fetch();

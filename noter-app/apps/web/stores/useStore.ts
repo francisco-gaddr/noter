@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Note, Task, UpdateTaskDto, User, decrypt } from '@repo/shared';
+import { Note, Task, UpdateTaskDto, User, decrypt, encrypt } from '@repo/shared';
 import { api, getUUID } from '../services/api';
 import { socket, connectSocket, disconnectSocket } from '../services/socket';
 import { db } from '../services/db';
@@ -684,7 +684,7 @@ export const useStore = create<StoreState>((set, get) => ({
                 ...(password !== undefined ? { password } : {}),
                 ...(icon !== undefined ? { icon } : {}),
                 ...(type !== undefined ? { type: type as any } : {}),
-                updatedAt: new Date().toISOString()
+                updatedAt: encrypt(new Date().toISOString()) // Encrypt timestamp
             };
         }
         return n;
@@ -709,6 +709,7 @@ export const useStore = create<StoreState>((set, get) => ({
       if (password !== undefined) payload.password = password;
       if (icon !== undefined) payload.icon = icon;
       if (type !== undefined) payload.type = type;
+      payload.updatedAt = encrypt(new Date().toISOString()); // Encrypt timestamp
 
       const updatedNote = await api.updateNote(id, payload);
       set((state) => ({

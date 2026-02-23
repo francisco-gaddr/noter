@@ -1168,11 +1168,17 @@ export default function NoteEditor() {
     // Early return if note is directly locked
     if (selectedNote.locked) return true;
     
+    // Use a more efficient approach - build a parent map first
+    const parentMap = new Map<string, any>();
+    notes.forEach(note => {
+      parentMap.set(note._id, note);
+    });
+    
     // Iterative traversal with cycle detection to prevent infinite loops
     const visited = new Set<string>();
     let currentId = selectedNote.parentId;
     let iterations = 0;
-    const MAX_ITERATIONS = 100; // Safety limit to prevent infinite loops
+    const MAX_ITERATIONS = 50; // Reduced safety limit for better performance
     
     while (currentId && iterations < MAX_ITERATIONS) {
       iterations++;
@@ -1184,7 +1190,7 @@ export default function NoteEditor() {
       }
       visited.add(currentId);
       
-      const parentNote = notes.find(n => n._id === currentId);
+      const parentNote = parentMap.get(currentId);
       if (!parentNote) {
         // Parent not found, stop traversal
         break;
