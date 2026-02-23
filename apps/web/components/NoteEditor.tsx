@@ -638,7 +638,9 @@ const htmlToSlateValue = (html: string): Descendant[] => {
   const isElementNode = (n: Node): n is HTMLElement => n.nodeType === Node.ELEMENT_NODE;
   const isTextNode = (n: Node): n is globalThis.Text => n.nodeType === Node.TEXT_NODE;
 
-  const ensureInlineChildren = (children: Descendant[]): any[] => {
+  const ensureInlineChildren = (children: Descendant[], depth = 0): any[] => {
+    if (depth > MAX_SLATE_DEPTH) return [{ text: '' }];
+
     const flattened: any[] = [];
     for (const child of children) {
       if (!child) continue;
@@ -651,7 +653,7 @@ const htmlToSlateValue = (html: string): Descendant[] => {
         continue;
       }
       if ((child as any).children && Array.isArray((child as any).children)) {
-        flattened.push(...ensureInlineChildren((child as any).children));
+        flattened.push(...ensureInlineChildren((child as any).children, depth + 1));
       }
     }
     return flattened.length ? flattened : [{ text: '' }];
@@ -823,7 +825,7 @@ const extractTextFromSlateLike = (v: unknown, depth = 0, visited?: WeakSet<objec
   if (set.has(v)) return '';
   set.add(v);
   if (typeof v.text === 'string') return v.text;
-  const children = (v.children ?? (v as any).childr33en) as unknown;
+  const children = (v.children) as unknown;
   return extractTextFromSlateLike(children, depth + 1, set);
 };
 
@@ -850,9 +852,7 @@ const normalizeSlateValue = (input: unknown, fallbackText?: string): Descendant[
     const type = typeof node.type === 'string' ? node.type : 'paragraph';
     const rawChildren = Array.isArray(node.children)
       ? node.children
-      : Array.isArray((node as any).childr33en)
-        ? (node as any).childr33en
-        : [];
+      : [];
 
     const children = rawChildren.map(c => normalizeDescendant(c, depth + 1, visited)).filter(Boolean) as Descendant[];
     const safeChildren = children.length ? children : ([{ text: '' }] as any);
@@ -1184,7 +1184,10 @@ export default function NoteEditor() {
   const loadedValue = useMemo(() => {
     if (!selectedNote) return initialValue;
 
-    // Check cache to avoid heavy parsing on every render/save
+    // Check cache to avoid heavy parsing on every render/save.
+    // Note: This optimization assumes that external content updates (e.g. from other users)
+    // should not override local state while the note is active, which aligns with the
+    // existing "shouldLoad" logic in the useEffect below.
     if (
       loadedValueCache.current &&
       loadedValueCache.current.id === selectedNote._id &&
