@@ -60,19 +60,30 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
 
     const notes = await Note.find({ userId: (req as AuthRequest).user!.userId }).sort({ order: 1, createdAt: -1 });
     
+    // Early return if no notes
+    if (notes.length === 0) {
+      res.json([]);
+      return;
+    }
+    
     // Create a map for quick lookup
     const notesMap = new Map(notes.map(n => [n._id.toString(), n]));
     const memo = new Map<string, boolean>();
 
-    // Helper to check if a note is effectively locked (iterative to avoid stack overflow)
+    // Optimized helper to check if a note is effectively locked
+    // Uses memoization and cycle detection to prevent stack overflow
     const isLocked = (startId: string): boolean => {
         if (memo.has(startId)) return memo.get(startId)!;
 
         const path: string[] = [];
         let currentId: string | undefined = startId;
         let result = false;
+        let iterations = 0;
+        const MAX_ITERATIONS = 1000; // Safety limit
 
-        while (currentId) {
+        while (currentId && iterations < MAX_ITERATIONS) {
+            iterations++;
+            
             // Check memo first
             if (memo.has(currentId)) {
                 result = memo.get(currentId)!;
@@ -105,6 +116,11 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
             currentId = note.parentId ? note.parentId.toString() : undefined;
         }
 
+        if (iterations >= MAX_ITERATIONS) {
+            console.error(`Maximum iterations reached for note ${startId}, possible infinite loop`);
+            result = false;
+        }
+
         // Apply result to all nodes in path
         for (const id of path) {
             memo.set(id, result);
@@ -113,10 +129,17 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
         return result;
     };
 
+    // Pre-calculate all lock statuses in a single pass for better performance
+    const lockStatuses = new Map<string, boolean>();
+    for (const note of notes) {
+        const noteId = note._id.toString();
+        lockStatuses.set(noteId, isLocked(noteId));
+    }
+
     // Hide content for locked notes (and their descendants)
     const sanitizedNotes = notes.map(note => {
       const noteObj = note.toObject();
-      if (isLocked(note._id.toString())) {
+      if (lockStatuses.get(note._id.toString())) {
         noteObj.content = ''; // Clear content for locked notes
       }
       return noteObj;
