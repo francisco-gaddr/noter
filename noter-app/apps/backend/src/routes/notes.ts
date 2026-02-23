@@ -19,7 +19,7 @@ const noteSchema = Joi.object({
   password: Joi.string().allow(''),
   icon: Joi.string().allow(null, ''),
   order: Joi.number(),
-  type: Joi.string().allow('note', 'task_list', 'project').allow(null, '').required(),
+  type: Joi.string().allow('note', 'task_list', 'project').default('note'),
   clientId: Joi.string().allow('').optional()
 });
 

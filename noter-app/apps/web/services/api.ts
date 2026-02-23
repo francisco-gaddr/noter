@@ -139,7 +139,7 @@ export const api = {
       content: encrypt(data.content),
       tags: data.tags?.map(t => encrypt(t)) ?? [],
       icon: data.icon ? encrypt(data.icon) : undefined,
-      type: data.type ? encrypt(data.type) : undefined,
+      type: encrypt(data.type || 'note'),
       locked: encrypt(String(data.locked || false)),
       createdAt: encrypt(new Date().toISOString()),
       updatedAt: encrypt(new Date().toISOString()),
@@ -240,6 +240,9 @@ export const api = {
       completed: parseTaskCompleted(task.completed),
       priority: parseTaskPriority(task.priority),
       dueDate: task.dueDate ? new Date(decrypt(task.dueDate)) : null,
+      createdAt: decrypt(task.createdAt),
+      updatedAt: decrypt(task.updatedAt),
+      position: task.position ? Number(decrypt(String(task.position))) : 0,
     }));
   },
 
@@ -251,6 +254,9 @@ export const api = {
       completed: encrypt(String(data.completed || false)),
       priority: encrypt(data.priority || 'medium'),
       dueDate: data.dueDate ? encrypt(new Date(data.dueDate).toISOString()) : '',
+      createdAt: encrypt(new Date().toISOString()),
+      updatedAt: encrypt(new Date().toISOString()),
+      position: data.position !== undefined ? encrypt(String(data.position)) : encrypt('0'),
     };
     
     const res = await fetch(`${API_URL}/tasks`, {
@@ -266,6 +272,9 @@ export const api = {
       completed: parseTaskCompleted(task.completed),
       priority: parseTaskPriority(task.priority),
       dueDate: task.dueDate ? new Date(decrypt(task.dueDate)) : null,
+      createdAt: decrypt(task.createdAt),
+      updatedAt: decrypt(task.updatedAt),
+      position: task.position ? Number(decrypt(String(task.position))) : 0,
     };
   },
 
@@ -276,6 +285,8 @@ export const api = {
     if (data.completed !== undefined) encryptedData.completed = encrypt(String(data.completed));
     if (data.priority) encryptedData.priority = encrypt(data.priority);
     if (data.dueDate) encryptedData.dueDate = encrypt(new Date(data.dueDate).toISOString());
+    encryptedData.updatedAt = encrypt(new Date().toISOString());
+    if (data.position !== undefined) encryptedData.position = encrypt(String(data.position));
 
     const res = await fetch(`${API_URL}/tasks/${id}`, {
       method: 'PUT',
@@ -289,6 +300,10 @@ export const api = {
       description: decrypt(task.description),
       completed: parseTaskCompleted(task.completed),
       priority: parseTaskPriority(task.priority),
+      dueDate: task.dueDate ? new Date(decrypt(task.dueDate)) : null,
+      createdAt: decrypt(task.createdAt),
+      updatedAt: decrypt(task.updatedAt),
+      position: task.position ? Number(decrypt(String(task.position))) : 0,
     };
   },
 

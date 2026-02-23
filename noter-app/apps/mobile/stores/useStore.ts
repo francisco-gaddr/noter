@@ -119,6 +119,9 @@ const processApiTask = (task: any): Task => ({
   completed: parseTaskCompleted(task.completed),
   priority: parseTaskPriority(task.priority),
   dueDate: task.dueDate ? (typeof task.dueDate === 'string' ? decrypt(task.dueDate) : task.dueDate) : null,
+  createdAt: decrypt(task.createdAt),
+  updatedAt: decrypt(task.updatedAt),
+  position: task.position ? Number(decrypt(String(task.position))) : 0,
 });
 
 const processLocalTask = (task: Task): Task => ({
@@ -699,6 +702,9 @@ export const useStore = create<AppState>((set, get) => ({
         completed: encrypt(String(data.completed || false)),
         priority: encrypt(data.priority || 'medium'),
         dueDate: data.dueDate ? encrypt(new Date(data.dueDate).toISOString()) : '',
+        createdAt: encrypt(new Date().toISOString()),
+        updatedAt: encrypt(new Date().toISOString()),
+        position: data.position !== undefined ? encrypt(String(data.position)) : encrypt('0'),
         clientId,
       };
 
@@ -796,6 +802,8 @@ export const useStore = create<AppState>((set, get) => ({
       if (data.dueDate !== undefined) {
         encryptedData.dueDate = data.dueDate ? encrypt(toIso(data.dueDate)) : '';
       }
+      encryptedData.updatedAt = encrypt(new Date().toISOString());
+      if (data.position !== undefined) encryptedData.position = encrypt(String(data.position));
 
       // 4. Save Local (mark as unsynced initially)
       await Database.saveTaskLocal(optimisticTask, false);

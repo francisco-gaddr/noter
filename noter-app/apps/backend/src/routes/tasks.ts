@@ -15,7 +15,10 @@ const taskSchema = Joi.object({
   dueDate: Joi.string().allow(null, ''), // Encrypted date string
   completed: Joi.string().allow(''), // Encrypted boolean string
   priority: Joi.string().allow(''), // Encrypted priority string
-  parentNoteId: Joi.string().allow(null)
+  parentNoteId: Joi.string().allow(null),
+  createdAt: Joi.string().allow(''), // Encrypted timestamp string
+  updatedAt: Joi.string().allow(''), // Encrypted timestamp string
+  position: Joi.string().allow('') // Encrypted position string
 });
 
 const assignSchema = Joi.object({

@@ -179,9 +179,9 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" htmlFor="due-date-input">{t('common.dueDate')}</label>
                 <input
                   id="due-date-input"
-                  type="datetime-local"
-                  value={dueDate}
-                  onChange={(e) => setDueDate(e.target.value)}
+                  type="date"
+                  value={dueDate ? dueDate.split('T')[0] : ''}
+                  onChange={(e) => setDueDate(e.target.value ? `${e.target.value}T00:00:00` : '')}
                   className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                 />
              </div>
