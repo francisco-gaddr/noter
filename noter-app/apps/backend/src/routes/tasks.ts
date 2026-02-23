@@ -71,7 +71,17 @@ router.post('/', validate(taskSchema), async (req: Request, res: Response, next:
       }
     }
 
-    const task = new Task({ ...req.body, userId });
+    const taskData = { ...req.body, userId };
+    
+    // Ensure encrypted timestamps are provided
+    if (!taskData.createdAt) {
+      taskData.createdAt = new Date().toISOString();
+    }
+    if (!taskData.updatedAt) {
+      taskData.updatedAt = new Date().toISOString();
+    }
+    
+    const task = new Task(taskData);
     const createdTask = await task.save();
     
     const io = req.app.get('io');

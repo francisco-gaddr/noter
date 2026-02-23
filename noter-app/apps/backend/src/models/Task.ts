@@ -26,8 +26,10 @@ const TaskSchema: Schema = new Schema({
   parentNoteId: { type: Schema.Types.ObjectId, ref: 'Note', default: null },
   parentId: { type: Schema.Types.ObjectId, ref: 'Task', default: null },
   position: { type: String, default: '' }, // Encrypted position
+  createdAt: { type: String, default: '' }, // Encrypted timestamp
+  updatedAt: { type: String, default: '' }, // Encrypted timestamp
 }, {
-  timestamps: true
+  timestamps: false // We'll manage timestamps manually since they're encrypted
 });
 
 // Indexes for performance

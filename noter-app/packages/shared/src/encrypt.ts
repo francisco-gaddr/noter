@@ -16,14 +16,14 @@ export const decrypt = (ciphertext: string): string => {
     try {
         const originalText = bytes.toString(CryptoJS.enc.Utf8);
         if (!originalText && ciphertext.length > 0) {
-            return ciphertext;
+            return 'invalid-encrypted-data';
         }
         return originalText;
     } catch (e) {
-        return ciphertext;
+        return 'invalid-encrypted-data';
     }
   } catch (error) {
     console.error('Decryption failed:', error);
-    return ciphertext; // Return original if decryption fails
+    return 'invalid-encrypted-data'; // Return error indicator if decryption fails
   }
 };
