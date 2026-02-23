@@ -10,9 +10,9 @@ export interface ITask extends Document {
   priority: string;
   parentNoteId: Schema.Types.ObjectId | null;
   parentId?: Schema.Types.ObjectId | null; // For subtasks
-  position: number;
-  createdAt: Date;
-  updatedAt: Date;
+  position: string; // Encrypted position
+  createdAt: string; // Encrypted timestamp
+  updatedAt: string; // Encrypted timestamp
 }
 
 const TaskSchema: Schema = new Schema({
@@ -25,7 +25,7 @@ const TaskSchema: Schema = new Schema({
   priority: { type: String, default: '' }, // Encrypted priority
   parentNoteId: { type: Schema.Types.ObjectId, ref: 'Note', default: null },
   parentId: { type: Schema.Types.ObjectId, ref: 'Task', default: null },
-  position: { type: Number, default: 0 }
+  position: { type: String, default: '' }, // Encrypted position
 }, {
   timestamps: true
 });

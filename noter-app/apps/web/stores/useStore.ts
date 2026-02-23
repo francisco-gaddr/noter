@@ -343,7 +343,10 @@ export const useStore = create<StoreState>((set, get) => ({
             title: decrypt(newTask.title),
             description: decrypt(newTask.description),
             completed: parseTaskCompleted(newTask.completed),
-            priority: parseTaskPriority(newTask.priority)
+            priority: parseTaskPriority(newTask.priority),
+            createdAt: decrypt(newTask.createdAt),
+            updatedAt: decrypt(newTask.updatedAt),
+            position: parseInt(decrypt(newTask.position), 10)
         };
         set(state => {
             const exists = state.tasks.some(t => t._id === decryptedTask._id);
@@ -365,7 +368,10 @@ export const useStore = create<StoreState>((set, get) => ({
             title: decrypt(updatedTask.title),
             description: decrypt(updatedTask.description),
             completed: parseTaskCompleted(updatedTask.completed),
-            priority: parseTaskPriority(updatedTask.priority)
+            priority: parseTaskPriority(updatedTask.priority),
+            createdAt: decrypt(updatedTask.createdAt),
+            updatedAt: decrypt(updatedTask.updatedAt),
+            position: parseInt(decrypt(updatedTask.position), 10)
         };
         set(state => ({
             tasks: state.tasks.map(t => t._id === decryptedTask._id ? decryptedTask : t)
