@@ -70,10 +70,16 @@ let realtimeFallbackTimer: ReturnType<typeof setInterval> | null = null;
 const runRealtimeFallbackSync = async (get: () => StoreState) => {
   try {
     await get().fetchNotes();
-  } catch {}
+  } catch (error) {
+    console.error('Realtime fallback sync failed for notes:', error);
+    // Don't propagate errors to avoid infinite loops
+  }
   try {
     await get().fetchTasks();
-  } catch {}
+  } catch (error) {
+    console.error('Realtime fallback sync failed for tasks:', error);
+    // Don't propagate errors to avoid infinite loops
+  }
 };
 
 const startRealtimeFallback = (get: () => StoreState) => {
