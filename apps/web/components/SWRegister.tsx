@@ -6,7 +6,9 @@ export default function SWRegister() {
   useEffect(() => {
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js').then(
+        const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
+        const swPath = `${basePath}/sw.js`;
+        navigator.serviceWorker.register(swPath).then(
           (registration) => {
             console.log('ServiceWorker registration successful with scope: ', registration.scope);
           },
