@@ -33,11 +33,12 @@ export interface UpdateNoteDto {
   content?: string;
   tags?: string[];
   parentId?: string | null;
-  locked?: boolean;
+  locked?: boolean | string;
   password?: string;
   icon?: string;
   order?: number;
   type?: 'note' | 'task_list' | 'project';
+  updatedAt?: string;
 }
 
 export interface Task {

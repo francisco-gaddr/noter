@@ -166,6 +166,7 @@ describe('Mobile E2E Encryption Tests', () => {
       });
 
       const callArgs = mockFetch.mock.calls[0];
+      if (!callArgs || !callArgs[1]) throw new Error('No fetch call found');
       const requestBody = JSON.parse(callArgs[1].body as string);
 
       // All sensitive fields should be encrypted in the request

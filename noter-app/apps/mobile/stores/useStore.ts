@@ -492,7 +492,15 @@ export const useStore = create<AppState>((set, get) => ({
 
     const optimisticNote: Note = {
         ...currentNote,
-        ...data,
+        ...(data.title !== undefined ? { title: data.title } : {}),
+        ...(data.content !== undefined ? { content: data.content } : {}),
+        ...(data.tags !== undefined ? { tags: data.tags } : {}),
+        ...(data.parentId !== undefined ? { parentId: data.parentId } : {}),
+        ...(data.locked !== undefined ? { locked: typeof data.locked === 'string' ? data.locked === 'true' : data.locked } : {}),
+        ...(data.password !== undefined ? { password: data.password } : {}),
+        ...(data.icon !== undefined ? { icon: data.icon } : {}),
+        ...(data.order !== undefined ? { order: data.order } : {}),
+        ...(data.type !== undefined ? { type: data.type } : {}),
         updatedAt: new Date().toISOString()
     };
 
