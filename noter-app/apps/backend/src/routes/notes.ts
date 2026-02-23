@@ -15,7 +15,7 @@ const noteSchema = Joi.object({
   content: Joi.string().allow('').required(),
   tags: Joi.array().items(Joi.string()),
   parentId: Joi.string().allow(null),
-  locked: Joi.boolean(),
+  locked: Joi.alternatives().try(Joi.boolean(), Joi.string()), // Accept both boolean and encrypted string
   password: Joi.string().allow(''),
   icon: Joi.string().allow(null, ''),
   order: Joi.number(),
@@ -28,7 +28,7 @@ const updateSchema = Joi.object({
   content: Joi.string().allow(''),
   tags: Joi.array().items(Joi.string()),
   parentId: Joi.string().allow(null),
-  locked: Joi.boolean(),
+  locked: Joi.alternatives().try(Joi.boolean(), Joi.string()), // Accept both boolean and encrypted string
   password: Joi.string().allow(''),
   icon: Joi.string().allow(null, ''),
   order: Joi.number(),
