@@ -239,10 +239,26 @@ export const api = {
       description: decrypt(task.description),
       completed: parseTaskCompleted(task.completed),
       priority: parseTaskPriority(task.priority),
-      dueDate: task.dueDate ? new Date(decrypt(task.dueDate)) : null,
+      dueDate: task.dueDate ? (() => {
+        try {
+          const decrypted = decrypt(task.dueDate);
+          const date = new Date(decrypted);
+          return isNaN(date.getTime()) ? null : date;
+        } catch {
+          return null;
+        }
+      })() : null,
       createdAt: decrypt(task.createdAt),
       updatedAt: decrypt(task.updatedAt),
-      position: task.position ? Number(decrypt(String(task.position))) : 0,
+      position: task.position ? (() => {
+        try {
+          const decrypted = decrypt(String(task.position));
+          const num = Number(decrypted);
+          return isNaN(num) ? 0 : num;
+        } catch {
+          return 0;
+        }
+      })() : 0,
     }));
   },
 
@@ -271,10 +287,26 @@ export const api = {
       description: decrypt(task.description),
       completed: parseTaskCompleted(task.completed),
       priority: parseTaskPriority(task.priority),
-      dueDate: task.dueDate ? new Date(decrypt(task.dueDate)) : null,
+      dueDate: task.dueDate ? (() => {
+        try {
+          const decrypted = decrypt(task.dueDate);
+          const date = new Date(decrypted);
+          return isNaN(date.getTime()) ? null : date;
+        } catch {
+          return null;
+        }
+      })() : null,
       createdAt: decrypt(task.createdAt),
       updatedAt: decrypt(task.updatedAt),
-      position: task.position ? Number(decrypt(String(task.position))) : 0,
+      position: task.position ? (() => {
+        try {
+          const decrypted = decrypt(String(task.position));
+          const num = Number(decrypted);
+          return isNaN(num) ? 0 : num;
+        } catch {
+          return 0;
+        }
+      })() : 0,
     };
   },
 
@@ -300,10 +332,26 @@ export const api = {
       description: decrypt(task.description),
       completed: parseTaskCompleted(task.completed),
       priority: parseTaskPriority(task.priority),
-      dueDate: task.dueDate ? new Date(decrypt(task.dueDate)) : null,
+      dueDate: task.dueDate ? (() => {
+        try {
+          const decrypted = decrypt(task.dueDate);
+          const date = new Date(decrypted);
+          return isNaN(date.getTime()) ? null : date;
+        } catch {
+          return null;
+        }
+      })() : null,
       createdAt: decrypt(task.createdAt),
       updatedAt: decrypt(task.updatedAt),
-      position: task.position ? Number(decrypt(String(task.position))) : 0,
+      position: task.position ? (() => {
+        try {
+          const decrypted = decrypt(String(task.position));
+          const num = Number(decrypted);
+          return isNaN(num) ? 0 : num;
+        } catch {
+          return 0;
+        }
+      })() : 0,
     };
   },
 
