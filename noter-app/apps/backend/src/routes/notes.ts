@@ -66,82 +66,12 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
       return;
     }
     
-    // Create a map for quick lookup
-    const notesMap = new Map(notes.map(n => [n._id.toString(), n]));
-    const memo = new Map<string, boolean>();
-
-    // Optimized helper to check if a note is effectively locked
-    // Uses memoization and cycle detection to prevent stack overflow
-    const isLocked = (startId: string): boolean => {
-        if (memo.has(startId)) return memo.get(startId)!;
-
-        const path: string[] = [];
-        let currentId: string | undefined = startId;
-        let result = false;
-        let iterations = 0;
-        const MAX_ITERATIONS = 1000; // Safety limit
-
-        while (currentId && iterations < MAX_ITERATIONS) {
-            iterations++;
-            
-            // Check memo first
-            if (memo.has(currentId)) {
-                result = memo.get(currentId)!;
-                break;
-            }
-
-            const note = notesMap.get(currentId);
-            if (!note) {
-                // Note not found (orphan or root), so not locked by parent
-                result = false;
-                break;
-            }
-            
-            // Check for cycle in current path
-            if (path.includes(currentId)) {
-                console.warn(`Cycle detected in note hierarchy involving ${currentId}`);
-                result = false; // Break cycle safely
-                break;
-            }
-
-            path.push(currentId);
-
-            // If this node is locked, everything below it is locked
-            if (note.locked) {
-                result = true;
-                break;
-            }
-
-            // Move up to parent
-            currentId = note.parentId ? note.parentId.toString() : undefined;
-        }
-
-        if (iterations >= MAX_ITERATIONS) {
-            console.error(`Maximum iterations reached for note ${startId}, possible infinite loop`);
-            result = false;
-        }
-
-        // Apply result to all nodes in path
-        for (const id of path) {
-            memo.set(id, result);
-        }
-        
-        return result;
-    };
-
-    // Pre-calculate all lock statuses in a single pass for better performance
-    const lockStatuses = new Map<string, boolean>();
-    for (const note of notes) {
-        const noteId = note._id.toString();
-        lockStatuses.set(noteId, isLocked(noteId));
-    }
-
-    // Hide content for locked notes (and their descendants)
+    // Since locked is now E2E encrypted, we cannot determine lock status on the server
+    // The client handles lock logic and decryption. We return all notes as-is.
     const sanitizedNotes = notes.map(note => {
       const noteObj = note.toObject();
-      if (lockStatuses.get(note._id.toString())) {
-        noteObj.content = ''; // Clear content for locked notes
-      }
+      // Note: Content hiding for locked notes is now handled client-side
+      // since we cannot decrypt the locked field server-side
       return noteObj;
     });
 

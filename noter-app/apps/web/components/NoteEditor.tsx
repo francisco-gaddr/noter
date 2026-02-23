@@ -1164,15 +1164,45 @@ export default function NoteEditor() {
 
   const isEffectiveLocked = useMemo(() => {
     if (!selectedNote) return false;
+    
+    // Early return if note is directly locked
     if (selectedNote.locked) return true;
-    let parentId = selectedNote.parentId;
-    while (parentId) {
-      const p = notes.find(n => n._id === parentId);
-      if (!p) break;
-      if (p.locked) return true;
-      parentId = p.parentId;
+    
+    // Iterative traversal with cycle detection to prevent infinite loops
+    const visited = new Set<string>();
+    let currentId = selectedNote.parentId;
+    let iterations = 0;
+    const MAX_ITERATIONS = 100; // Safety limit to prevent infinite loops
+    
+    while (currentId && iterations < MAX_ITERATIONS) {
+      iterations++;
+      
+      // Check for cycles
+      if (visited.has(currentId)) {
+        console.warn(`Cycle detected in note hierarchy for note ${selectedNote._id} at parent ${currentId}`);
+        break;
+      }
+      visited.add(currentId);
+      
+      const parentNote = notes.find(n => n._id === currentId);
+      if (!parentNote) {
+        // Parent not found, stop traversal
+        break;
+      }
+      
+      if (parentNote.locked) {
+        return true; // Found a locked ancestor
+      }
+      
+      // Move up the hierarchy
+      currentId = parentNote.parentId;
     }
-    return false;
+    
+    if (iterations >= MAX_ITERATIONS) {
+      console.error(`Maximum iterations (${MAX_ITERATIONS}) reached for note ${selectedNote._id}, possible infinite loop`);
+    }
+    
+    return false; // No locked ancestors found
   }, [selectedNote, notes]);
 
   const saveNote = useCallback(

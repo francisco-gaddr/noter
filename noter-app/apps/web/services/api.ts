@@ -110,6 +110,9 @@ export const api = {
       tags: note.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? [],
       icon: note.icon ? (() => { try { return decrypt(note.icon) } catch { return note.icon } })() : undefined,
       type: note.type ? (() => { try { return decrypt(note.type) as any } catch { return note.type } })() : 'note',
+      locked: note.locked ? decrypt(String(note.locked)) === 'true' : false,
+      createdAt: decrypt(note.createdAt),
+      updatedAt: decrypt(note.updatedAt),
     }));
   },
 
@@ -123,6 +126,9 @@ export const api = {
         tags: note.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? [],
         icon: note.icon ? (() => { try { return decrypt(note.icon) } catch { return note.icon } })() : undefined,
         type: note.type ? (() => { try { return decrypt(note.type) as any } catch { return note.type } })() : 'note',
+        locked: note.locked ? decrypt(String(note.locked)) === 'true' : false,
+        createdAt: decrypt(note.createdAt),
+        updatedAt: decrypt(note.updatedAt),
     };
   },
 
@@ -134,6 +140,9 @@ export const api = {
       tags: data.tags?.map(t => encrypt(t)) ?? [],
       icon: data.icon ? encrypt(data.icon) : undefined,
       type: data.type ? encrypt(data.type) : undefined,
+      locked: encrypt(String(data.locked || false)),
+      createdAt: encrypt(new Date().toISOString()),
+      updatedAt: encrypt(new Date().toISOString()),
     };
     
     const res = await fetch(`${API_URL}/notes`, {
@@ -149,6 +158,9 @@ export const api = {
       tags: note.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? [],
       icon: note.icon ? (() => { try { return decrypt(note.icon) } catch { return note.icon } })() : undefined,
       type: note.type ? (() => { try { return decrypt(note.type) as any } catch { return note.type } })() : 'note',
+      locked: note.locked ? decrypt(String(note.locked)) === 'true' : false,
+      createdAt: decrypt(note.createdAt),
+      updatedAt: decrypt(note.updatedAt),
     };
   },
 
@@ -156,6 +168,9 @@ export const api = {
     const encryptedData = { ...data };
     if (data.title) encryptedData.title = encrypt(data.title);
     if (data.content) encryptedData.content = encrypt(data.content);
+    if (data.locked !== undefined) encryptedData.locked = encrypt(String(data.locked));
+    // Always update updatedAt
+    encryptedData.updatedAt = encrypt(new Date().toISOString());
 
     const res = await fetch(`${API_URL}/notes/${id}`, {
       method: 'PUT',
@@ -167,6 +182,9 @@ export const api = {
       ...note,
       title: decrypt(note.title),
       content: decrypt(note.content),
+      locked: note.locked ? decrypt(String(note.locked)) === 'true' : false,
+      createdAt: decrypt(note.createdAt),
+      updatedAt: decrypt(note.updatedAt),
     };
   },
 
