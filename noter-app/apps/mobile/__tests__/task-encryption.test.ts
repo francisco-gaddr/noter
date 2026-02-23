@@ -214,7 +214,14 @@ describe('Task E2E Encryption Tests - Mobile', () => {
             dueDate: task.dueDate ? decrypt(task.dueDate) : null,
             createdAt: decrypt(task.createdAt),
             updatedAt: decrypt(task.updatedAt),
-            position: task.position ? Number(decrypt(String(task.position))) : 0,
+            position: task.position ? (() => {
+              try {
+                const decryptedPosition = decrypt(String(task.position));
+                return decryptedPosition === 'invalid-encrypted-data' ? 0 : Number(decryptedPosition);
+              } catch {
+                return 0;
+              }
+            })() : 0,
           };
         } catch (error) {
           // Fallback to original data if decryption fails

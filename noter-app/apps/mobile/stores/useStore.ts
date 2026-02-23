@@ -121,7 +121,14 @@ const processApiTask = (task: any): Task => ({
   dueDate: task.dueDate ? (typeof task.dueDate === 'string' ? decrypt(task.dueDate) : task.dueDate) : null,
   createdAt: decrypt(task.createdAt),
   updatedAt: decrypt(task.updatedAt),
-  position: task.position ? Number(decrypt(String(task.position))) : 0,
+  position: task.position ? (() => {
+    try {
+      const decryptedPosition = decrypt(String(task.position));
+      return decryptedPosition === 'invalid-encrypted-data' ? 0 : Number(decryptedPosition);
+    } catch {
+      return 0;
+    }
+  })() : 0,
 });
 
 const processLocalTask = (task: Task): Task => ({
@@ -211,11 +218,39 @@ export const useStore = create<AppState>((set, get) => ({
     get().connectSocket();
   },
 
+  // Fallback sync method when WebSocket fails
+  syncViaHttp: async () => {
+    try {
+      console.log('Attempting HTTP sync fallback due to WebSocket issues');
+      await get().fetchNotes();
+      await get().fetchTasks();
+      console.log('HTTP sync fallback completed successfully');
+    } catch (error) {
+      console.error('HTTP sync fallback failed:', error);
+    }
+  },
+
   connectSocket: () => {
     const token = get().token;
     const socket = initSocket(token);
 
-    if (!socket) return;
+    if (!socket) {
+      console.log('Socket initialization failed');
+      return;
+    }
+
+    // Add connection state monitoring
+    const checkConnection = () => {
+      const status = (socket as any).connected ? 'connected' : 'disconnected';
+      console.log(`Socket status: ${status}`);
+      
+      if (!(socket as any).connected) {
+        console.log('Socket not connected, will retry sync operations');
+      }
+    };
+
+    // Monitor connection state
+    setTimeout(checkConnection, 2000); // Check after 2 seconds
 
     // Clear existing listeners to avoid duplicates if reconnecting
     socket.off('note:created');
@@ -330,6 +365,20 @@ export const useStore = create<AppState>((set, get) => ({
         });
         return { tasks: newTasks };
       });
+    });
+
+    // Set up periodic health check
+    const healthCheckInterval = setInterval(() => {
+      const isConnected = (socket as any).connected;
+      if (!isConnected) {
+        console.log('WebSocket health check failed, triggering HTTP fallback sync');
+        get().syncViaHttp();
+      }
+    }, 30000); // Check every 30 seconds
+
+    // Clean up interval when socket disconnects
+    socket.on('disconnect', () => {
+      clearInterval(healthCheckInterval);
     });
   },
 
