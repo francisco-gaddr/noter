@@ -9,11 +9,14 @@ COPY packages/ ./packages/
 # Install dependencies with cache
 RUN npm ci
 
+# Build shared packages first
+RUN npx turbo run build --filter=@repo/shared
+
 # Copy source code
 COPY apps/backend/ ./apps/backend/
 COPY packages/ ./packages/
 
-# Build
+# Build backend
 RUN npx turbo run build --filter=backend
 
 FROM node:20-alpine AS runner
