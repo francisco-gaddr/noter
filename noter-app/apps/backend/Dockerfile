@@ -1,8 +1,19 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
-# Copy the entire monorepo to ensure shared packages are available
-COPY . .
+
+# Copy only package files first for better caching
+COPY package.json package-lock.json turbo.json ./
+COPY apps/backend/package.json ./apps/backend/
+COPY packages/ ./packages/
+
+# Install dependencies with cache
 RUN npm ci
+
+# Copy source code
+COPY apps/backend/ ./apps/backend/
+COPY packages/ ./packages/
+
+# Build
 RUN npx turbo run build --filter=backend
 
 FROM node:20-alpine AS runner

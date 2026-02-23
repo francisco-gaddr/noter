@@ -1,7 +1,19 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
-COPY . .
+
+# Copy only package files first for better caching
+COPY package.json package-lock.json turbo.json ./
+COPY apps/web/package.json ./apps/web/
+COPY packages/ ./packages/
+
+# Install dependencies with cache
 RUN npm ci
+
+# Copy source code
+COPY apps/web/ ./apps/web/
+COPY packages/ ./packages/
+
+# Build with environment variables
 ENV NEXT_TELEMETRY_DISABLED=1
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
