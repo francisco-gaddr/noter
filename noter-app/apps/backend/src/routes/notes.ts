@@ -64,26 +64,53 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
     const notesMap = new Map(notes.map(n => [n._id.toString(), n]));
     const memo = new Map<string, boolean>();
 
-    // Helper to check if a note is effectively locked
-    const isLocked = (noteId: string): boolean => {
-        if (memo.has(noteId)) return memo.get(noteId)!;
-        
-        const note = notesMap.get(noteId);
-        if (!note) return false;
-        
-        if (note.locked) {
-            memo.set(noteId, true);
-            return true;
+    // Helper to check if a note is effectively locked (iterative to avoid stack overflow)
+    const isLocked = (startId: string): boolean => {
+        if (memo.has(startId)) return memo.get(startId)!;
+
+        const path: string[] = [];
+        let currentId: string | undefined = startId;
+        let result = false;
+
+        while (currentId) {
+            // Check memo first
+            if (memo.has(currentId)) {
+                result = memo.get(currentId)!;
+                break;
+            }
+
+            const note = notesMap.get(currentId);
+            if (!note) {
+                // Note not found (orphan or root), so not locked by parent
+                result = false;
+                break;
+            }
+            
+            // Check for cycle in current path
+            if (path.includes(currentId)) {
+                console.warn(`Cycle detected in note hierarchy involving ${currentId}`);
+                result = false; // Break cycle safely
+                break;
+            }
+
+            path.push(currentId);
+
+            // If this node is locked, everything below it is locked
+            if (note.locked) {
+                result = true;
+                break;
+            }
+
+            // Move up to parent
+            currentId = note.parentId ? note.parentId.toString() : undefined;
+        }
+
+        // Apply result to all nodes in path
+        for (const id of path) {
+            memo.set(id, result);
         }
         
-        if (note.parentId) {
-            const parentLocked = isLocked(note.parentId.toString());
-            memo.set(noteId, parentLocked);
-            return parentLocked;
-        }
-        
-        memo.set(noteId, false);
-        return false;
+        return result;
     };
 
     // Hide content for locked notes (and their descendants)
@@ -168,7 +195,14 @@ router.post('/:id/verify-lock', async (req: Request, res: Response, next: NextFu
     // We need to traverse up. Since we don't have full tree here efficiently,
     // we can either fetch all (consistent with GET) or iterative find.
     // Iterative find is okay for a single request.
+    const visited = new Set<string>();
     while (currentId) {
+        if (visited.has(currentId)) {
+            console.warn(`Cycle detected during verify-lock for note ${targetId}`);
+            break;
+        }
+        visited.add(currentId);
+
         const note = await Note.findById(currentId).select('+password');
         if (!note) break;
         if (note.locked) {
