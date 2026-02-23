@@ -69,24 +69,46 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
     const memo = new Map<string, boolean>();
 
     // Helper to check if a note is effectively locked
+    const visiting = new Set<string>();
+
     const isLocked = (noteId: string): boolean => {
         if (memo.has(noteId)) return memo.get(noteId)!;
+        if (visiting.has(noteId)) {
+             // Cycle detected! Treat as not locked by parent in this path to break cycle
+             return false;
+        }
+
+        visiting.add(noteId);
         
         const note = notesMap.get(noteId);
-        if (!note) return false;
+        if (!note) {
+            visiting.delete(noteId);
+            return false;
+        }
         
         if ((note as any).locked === true || Boolean((note as any).password)) {
             memo.set(noteId, true);
+            visiting.delete(noteId);
             return true;
         }
         
         if (note.parentId) {
-            const parentLocked = isLocked(note.parentId.toString());
+            const parentIdStr = note.parentId.toString();
+            // Prevent self-reference
+            if (parentIdStr === noteId) {
+                 memo.set(noteId, false);
+                 visiting.delete(noteId);
+                 return false;
+            }
+
+            const parentLocked = isLocked(parentIdStr);
             memo.set(noteId, parentLocked);
+            visiting.delete(noteId);
             return parentLocked;
         }
         
         memo.set(noteId, false);
+        visiting.delete(noteId);
         return false;
     };
 
