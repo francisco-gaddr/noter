@@ -13,6 +13,8 @@ import { BackendUrlDialog } from '@/components/BackendUrlDialog';
 export default function SettingsScreen() {
   const { theme, setTheme } = useThemeContext();
   const setToken = useStore((s) => s.setToken);
+  const notificationsEnabled = useStore((s) => s.notificationsEnabled);
+  const setNotificationsEnabled = useStore((s) => s.setNotificationsEnabled);
   const paperTheme = useTheme();
   const router = useRouter();
   const { width } = useWindowDimensions();
@@ -192,6 +194,29 @@ export default function SettingsScreen() {
           <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
             Välj hur snabbt appen ska låsas vid inaktivitet
           </Text>
+        </View>
+      </List.Section>
+
+      <Divider />
+
+      <List.Section title="Notiser">
+        <List.Item
+          title="Push-notiser"
+          description={notificationsEnabled ? 'På' : 'Av'}
+          left={props => <List.Icon {...props} icon="bell" />}
+          right={() => (
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 10 }}>
+              <Switch
+                value={notificationsEnabled}
+                onValueChange={(val) => setNotificationsEnabled(val)}
+              />
+            </View>
+          )}
+        />
+        <View style={styles.hint}>
+           <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
+             Slå på för att få påminnelser om tasks
+           </Text>
         </View>
       </List.Section>
 

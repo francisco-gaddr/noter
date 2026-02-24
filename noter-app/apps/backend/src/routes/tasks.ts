@@ -20,7 +20,9 @@ const taskSchema = Joi.object({
   updatedAt: Joi.string().allow(''), // Encrypted timestamp string
   position: Joi.string().allow(''), // Encrypted position string
   recurrenceType: Joi.string().allow(''),
-  recurrenceDays: Joi.string().allow('')
+  recurrenceDays: Joi.string().allow(''),
+  reminderEnabled: Joi.string().allow(''),
+  reminderOffsetMinutes: Joi.string().allow('')
 });
 
 const assignSchema = Joi.object({
@@ -46,7 +48,9 @@ const updateTaskSchema = Joi.object({
   position: Joi.string().allow(''),
   updatedAt: Joi.string().allow(''),
   recurrenceType: Joi.string().allow(''),
-  recurrenceDays: Joi.string().allow('')
+  recurrenceDays: Joi.string().allow(''),
+  reminderEnabled: Joi.string().allow(''),
+  reminderOffsetMinutes: Joi.string().allow('')
 });
 
 // GET /api/tasks
@@ -177,6 +181,8 @@ router.put('/:id', validate(updateTaskSchema), async (req: Request, res: Respons
         if (req.body.updatedAt !== undefined) task.updatedAt = req.body.updatedAt;
         if (req.body.recurrenceType !== undefined) task.recurrenceType = req.body.recurrenceType;
         if (req.body.recurrenceDays !== undefined) task.recurrenceDays = req.body.recurrenceDays;
+        if (req.body.reminderEnabled !== undefined) task.reminderEnabled = req.body.reminderEnabled;
+        if (req.body.reminderOffsetMinutes !== undefined) task.reminderOffsetMinutes = req.body.reminderOffsetMinutes;
         
         const updatedTask = await task.save();
         

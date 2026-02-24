@@ -74,6 +74,8 @@ export const initDatabase = async () => {
       position REAL,
       recurrenceType TEXT,
       recurrenceDays TEXT,
+      reminderEnabled TEXT,
+      reminderOffsetMinutes TEXT,
       isSynced INTEGER DEFAULT 1
     );
     CREATE TABLE IF NOT EXISTS sync_queue (
@@ -110,6 +112,14 @@ export const initDatabase = async () => {
   }
   try {
       await db.execAsync('ALTER TABLE tasks ADD COLUMN recurrenceDays TEXT');
+  } catch (e) {
+  }
+  try {
+      await db.execAsync('ALTER TABLE tasks ADD COLUMN reminderEnabled TEXT');
+  } catch (e) {
+  }
+  try {
+      await db.execAsync('ALTER TABLE tasks ADD COLUMN reminderOffsetMinutes TEXT');
   } catch (e) {
   }
   
@@ -185,6 +195,7 @@ export const saveNoteLocal = async (note: Note, isSynced: boolean = true) => {
   const encryptedTags = encrypt(JSON.stringify(note.tags || []));
   const encryptedIcon = note.icon ? encrypt(note.icon) : null;
   const encryptedType = (note as any).type ? encrypt((note as any).type) : null;
+  const encryptedOrder = note.order !== undefined ? encrypt(String(note.order)) : null;
   
   const createdAt = toIsoString(note.createdAt);
   const updatedAt = toIsoString(note.updatedAt);
@@ -202,7 +213,7 @@ export const saveNoteLocal = async (note: Note, isSynced: boolean = true) => {
       note.userId,
       encryptedType,
       note.parentId || null,
-      typeof (note as any).order === 'number' ? (note as any).order : null,
+      encryptedOrder,
       encryptedIcon,
       note.locked ? 1 : 0,
       isSynced ? 1 : 0
@@ -278,7 +289,20 @@ export const getNotesLocal = async (): Promise<Note[]> => {
         userId: row.userId,
         type: type,
         parentId: row.parentId,
-        order: typeof row.noteOrder === 'number' ? row.noteOrder : 0,
+        order: (() => {
+          if (typeof row.noteOrder === 'number') return row.noteOrder;
+          if (typeof row.noteOrder === 'string') {
+            try {
+              const decrypted = decrypt(row.noteOrder);
+              const num = Number(decrypted);
+              return isNaN(num) ? 0 : num;
+            } catch {
+              const num = Number(row.noteOrder);
+              return isNaN(num) ? 0 : num;
+            }
+          }
+          return 0;
+        })(),
         icon: icon,
         locked: locked,
     };
@@ -296,6 +320,8 @@ export const saveTaskLocal = async (task: Task, isSynced: boolean = true) => {
   const encryptedCompleted = encrypt(String(task.completed));
   const encryptedRecurrenceType = task.recurrenceType ? encrypt(task.recurrenceType) : '';
   const encryptedRecurrenceDays = task.recurrenceDays ? encrypt(JSON.stringify(task.recurrenceDays)) : '';
+  const encryptedReminderEnabled = task.reminderEnabled !== undefined ? encrypt(String(task.reminderEnabled)) : '';
+  const encryptedReminderOffsetMinutes = task.reminderOffsetMinutes !== undefined ? encrypt(String(task.reminderOffsetMinutes)) : '';
   
   const createdAt = toIsoString(task.createdAt);
   const updatedAt = toIsoString(task.updatedAt);
@@ -307,8 +333,8 @@ export const saveTaskLocal = async (task: Task, isSynced: boolean = true) => {
   }
 
   await db.runAsync(
-    `INSERT OR REPLACE INTO tasks (_id, title, description, priority, completed, dueDate, createdAt, updatedAt, userId, parentNoteId, parentId, clientId, position, recurrenceType, recurrenceDays, isSynced)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO tasks (_id, title, description, priority, completed, dueDate, createdAt, updatedAt, userId, parentNoteId, parentId, clientId, position, recurrenceType, recurrenceDays, reminderEnabled, reminderOffsetMinutes, isSynced)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       task._id,
       encryptedTitle,
@@ -325,6 +351,8 @@ export const saveTaskLocal = async (task: Task, isSynced: boolean = true) => {
       typeof task.position === 'number' ? task.position : null,
       encryptedRecurrenceType,
       encryptedRecurrenceDays,
+      encryptedReminderEnabled,
+      encryptedReminderOffsetMinutes,
       isSynced ? 1 : 0
     ]
   );
@@ -384,7 +412,9 @@ export const getTasksLocal = async (): Promise<Task[]> => {
         parentId: row.parentId,
         position: row.position,
         recurrenceType: row.recurrenceType ? (() => { try { return decrypt(row.recurrenceType) as any } catch { return 'none' as any } })() : 'none',
-        recurrenceDays: row.recurrenceDays ? (() => { try { return JSON.parse(decrypt(row.recurrenceDays)) } catch { return [] } })() : []
+        recurrenceDays: row.recurrenceDays ? (() => { try { return JSON.parse(decrypt(row.recurrenceDays)) } catch { return [] } })() : [],
+        reminderEnabled: row.reminderEnabled ? (() => { try { return decrypt(row.reminderEnabled) === 'true' } catch { return false } })() : false,
+        reminderOffsetMinutes: row.reminderOffsetMinutes ? (() => { try { const num = Number(decrypt(row.reminderOffsetMinutes)); return num === 10 ? 10 : 0 } catch { return 0 } })() : 0
     } as unknown as Task;
   });
 };

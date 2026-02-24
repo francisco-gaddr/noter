@@ -18,7 +18,7 @@ const noteSchema = Joi.object({
   locked: Joi.alternatives().try(Joi.boolean(), Joi.string()), // Accept both boolean and encrypted string
   password: Joi.string().allow(''),
   icon: Joi.string().allow(null, ''),
-  order: Joi.number(),
+  order: Joi.alternatives().try(Joi.number(), Joi.string().allow('')),
   type: Joi.string().allow('note', 'task_list', 'project').default('note'),
   clientId: Joi.string().allow('').optional(),
   createdAt: Joi.string().allow(''),
@@ -33,7 +33,7 @@ const updateSchema = Joi.object({
   locked: Joi.alternatives().try(Joi.boolean(), Joi.string()), // Accept both boolean and encrypted string
   password: Joi.string().allow(''),
   icon: Joi.string().allow(null, ''),
-  order: Joi.number(),
+  order: Joi.alternatives().try(Joi.number(), Joi.string().allow('')),
   type: Joi.string().allow(null, ''),
   createdAt: Joi.string().allow(''),
   updatedAt: Joi.string().allow('')
@@ -44,7 +44,7 @@ const reorderSchema = Joi.object({
     .items(
       Joi.object({
         _id: Joi.string().required(),
-        order: Joi.number().required(),
+        order: Joi.alternatives().try(Joi.number(), Joi.string().allow('')).required(),
       }).unknown(true),
     )
     .required(),
@@ -62,7 +62,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
       return;
     }
 
-    const notes = await Note.find({ userId: (req as AuthRequest).user!.userId }).sort({ order: 1, createdAt: -1 });
+    const notes = await Note.find({ userId: (req as AuthRequest).user!.userId }).sort({ createdAt: -1 });
     
     // Early return if no notes
     if (notes.length === 0) {
@@ -123,10 +123,6 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
     // To be consistent, we should use the same logic or just return it.
     // Let's just return it. The client handles decryption/locking view.
     // But wait, GET / hides content.
-    if (noteObj.locked) {
-        noteObj.content = '';
-    }
-    
     await cache.set(cacheKey, noteObj, 300);
     res.json(noteObj);
   } catch (error) {
@@ -280,9 +276,6 @@ router.put('/:id', validate(updateSchema), async (req: Request, res: Response, n
       await cache.del(`notes:item:${userId}:${req.params.id}`);
 
       const noteObj = updatedNote.toObject();
-      if (noteObj.locked) {
-        noteObj.content = '';
-      }
       
       const io = req.app.get('io');
       io.to(`user:${userId}`).emit('note:updated', noteObj);

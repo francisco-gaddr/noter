@@ -46,18 +46,20 @@ export default function TaskCalendar({ tasks, onTaskClick, onCreateTask }: TaskC
     }, []);
 
     const events = tasks
-        .filter(task => task.dueDate)
-        .map(task => ({
-            id: task._id,
-            title: task.title,
-            start: new Date(task.dueDate!),
-            end: new Date(task.dueDate!),
-            allDay: (() => {
-              const d = new Date(task.dueDate!);
-              return d.getHours() === 0 && d.getMinutes() === 0;
-            })(),
-            resource: task,
-        }));
+        .map(task => {
+            if (!task.dueDate) return null;
+            const date = new Date(task.dueDate);
+            if (isNaN(date.getTime())) return null;
+            return {
+                id: task._id,
+                title: task.title,
+                start: date,
+                end: date,
+                allDay: date.getHours() === 0 && date.getMinutes() === 0,
+                resource: task,
+            };
+        })
+        .filter(Boolean) as any[];
 
     const [view, setView] = React.useState<View>('month');
     const [date, setDate] = React.useState(new Date());

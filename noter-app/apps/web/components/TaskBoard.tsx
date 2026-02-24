@@ -50,11 +50,15 @@ const DraggableTaskCard = ({ task, onClick, onStatusChange }: { task: Task, onCl
                         }`}>
                             {task.priority.toUpperCase()}
                         </span>
-                        {task.dueDate && (
-                            <span className="text-[10px] text-gray-500 dark:text-gray-400">
-                                {new Date(task.dueDate).toLocaleDateString()}
-                            </span>
-                        )}
+                        {task.dueDate && (() => {
+                            const d = new Date(task.dueDate);
+                            if (isNaN(d.getTime())) return null;
+                            return (
+                                <span className="text-[10px] text-gray-500 dark:text-gray-400">
+                                    {d.toLocaleDateString()}
+                                </span>
+                            );
+                        })()}
                     </div>
                 </div>
             </div>

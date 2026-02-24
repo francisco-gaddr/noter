@@ -1263,7 +1263,10 @@ export default function NoteEditor() {
     if (isEffectiveLocked && !isUnlockedLocally && !selectedNote?.content) return;
     requestAnimationFrame(() => {
       try {
-        Transforms.select(editor, Editor.end(editor, []));
+        if (!editor.children || editor.children.length === 0) return;
+        const end = Editor.end(editor, []);
+        if (!Editor.hasPath(editor, end.path)) return;
+        Transforms.select(editor, end);
         if (CustomEditor.ensureValidSelection(editor)) {
           ReactEditor.focus(editor);
         }
@@ -1283,8 +1286,13 @@ export default function NoteEditor() {
   // Focus editor when clicking on the container
   const focusEditor = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) {
-      Transforms.select(editor, Editor.end(editor, []));
-      ReactEditor.focus(editor);
+      try {
+        if (!editor.children || editor.children.length === 0) return;
+        const end = Editor.end(editor, []);
+        if (!Editor.hasPath(editor, end.path)) return;
+        Transforms.select(editor, end);
+        ReactEditor.focus(editor);
+      } catch {}
     }
   };
 

@@ -79,6 +79,21 @@ const parseTaskPriority = (value: unknown): 'low' | 'medium' | 'high' => {
   return 'medium';
 };
 
+const parseNoteOrder = (value: unknown): number => {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    try {
+      const decrypted = decrypt(value);
+      const num = Number(decrypted);
+      return isNaN(num) ? 0 : num;
+    } catch {
+      const num = Number(value);
+      return isNaN(num) ? 0 : num;
+    }
+  }
+  return 0;
+};
+
 export const api = {
   // Auth
   async register(username: string, password: string): Promise<AuthResponse> {
@@ -111,6 +126,7 @@ export const api = {
       icon: note.icon ? (() => { try { return decrypt(note.icon) } catch { return note.icon } })() : undefined,
       type: note.type ? (() => { try { return decrypt(note.type) as any } catch { return note.type } })() : 'note',
       locked: note.locked ? decrypt(String(note.locked)) === 'true' : false,
+      order: parseNoteOrder((note as any).order),
       createdAt: decrypt(note.createdAt),
       updatedAt: decrypt(note.updatedAt),
     }));
@@ -127,6 +143,7 @@ export const api = {
         icon: note.icon ? (() => { try { return decrypt(note.icon) } catch { return note.icon } })() : undefined,
         type: note.type ? (() => { try { return decrypt(note.type) as any } catch { return note.type } })() : 'note',
         locked: note.locked ? decrypt(String(note.locked)) === 'true' : false,
+        order: parseNoteOrder((note as any).order),
         createdAt: decrypt(note.createdAt),
         updatedAt: decrypt(note.updatedAt),
     };
@@ -141,6 +158,7 @@ export const api = {
       icon: data.icon ? encrypt(data.icon) : undefined,
       type: encrypt(data.type || 'note'),
       locked: encrypt(String(data.locked || false)),
+      order: data.order !== undefined ? encrypt(String(data.order)) : undefined,
       createdAt: encrypt(new Date().toISOString()),
       updatedAt: encrypt(new Date().toISOString()),
     };
@@ -159,19 +177,21 @@ export const api = {
       icon: note.icon ? (() => { try { return decrypt(note.icon) } catch { return note.icon } })() : undefined,
       type: note.type ? (() => { try { return decrypt(note.type) as any } catch { return note.type } })() : 'note',
       locked: note.locked ? decrypt(String(note.locked)) === 'true' : false,
+      order: parseNoteOrder((note as any).order),
       createdAt: decrypt(note.createdAt),
       updatedAt: decrypt(note.updatedAt),
     };
   },
 
   async updateNote(id: string, data: UpdateNoteDto): Promise<Note> {
-    const encryptedData = { ...data };
+    const encryptedData = { ...data } as any;
     if (data.title !== undefined) encryptedData.title = encrypt(data.title);
     if (data.content !== undefined) encryptedData.content = encrypt(data.content);
     if (data.tags !== undefined) encryptedData.tags = data.tags.map((t) => encrypt(t));
     if (data.icon !== undefined) encryptedData.icon = data.icon ? encrypt(data.icon) : undefined;
     if (data.type !== undefined) encryptedData.type = encrypt(String(data.type)) as any;
     if (data.locked !== undefined) encryptedData.locked = encrypt(String(data.locked));
+    if (data.order !== undefined) encryptedData.order = encrypt(String(data.order));
     // Always update updatedAt
     encryptedData.updatedAt = encrypt(new Date().toISOString());
 
@@ -189,6 +209,7 @@ export const api = {
       icon: note.icon ? (() => { try { return decrypt(note.icon) } catch { return note.icon } })() : undefined,
       type: note.type ? (() => { try { return decrypt(note.type) as any } catch { return note.type } })() : 'note',
       locked: note.locked ? decrypt(String(note.locked)) === 'true' : false,
+      order: parseNoteOrder((note as any).order),
       createdAt: decrypt(note.createdAt),
       updatedAt: decrypt(note.updatedAt),
     };
@@ -268,6 +289,21 @@ export const api = {
           return [];
         }
       })() : [],
+      reminderEnabled: task.reminderEnabled ? (() => {
+        try {
+          return decrypt(task.reminderEnabled) === 'true';
+        } catch {
+          return false;
+        }
+      })() : false,
+      reminderOffsetMinutes: task.reminderOffsetMinutes ? (() => {
+        try {
+          const num = Number(decrypt(task.reminderOffsetMinutes));
+          return num === 10 ? 10 : 0;
+        } catch {
+          return 0;
+        }
+      })() : 0,
       createdAt: decrypt(task.createdAt),
       updatedAt: decrypt(task.updatedAt),
       position: task.position ? (() => {
@@ -292,6 +328,8 @@ export const api = {
       dueDate: data.dueDate ? encrypt(new Date(data.dueDate).toISOString()) : '',
       recurrenceType: data.recurrenceType ? encrypt(data.recurrenceType) : '',
       recurrenceDays: data.recurrenceDays ? encrypt(JSON.stringify(data.recurrenceDays)) : '',
+      reminderEnabled: data.reminderEnabled !== undefined ? encrypt(String(data.reminderEnabled)) : '',
+      reminderOffsetMinutes: data.reminderOffsetMinutes !== undefined ? encrypt(String(data.reminderOffsetMinutes)) : '',
       createdAt: encrypt(new Date().toISOString()),
       updatedAt: encrypt(new Date().toISOString()),
       position: data.position !== undefined ? encrypt(String(data.position)) : encrypt('0'),
@@ -332,6 +370,21 @@ export const api = {
           return [];
         }
       })() : [],
+      reminderEnabled: task.reminderEnabled ? (() => {
+        try {
+          return decrypt(task.reminderEnabled) === 'true';
+        } catch {
+          return false;
+        }
+      })() : false,
+      reminderOffsetMinutes: task.reminderOffsetMinutes ? (() => {
+        try {
+          const num = Number(decrypt(task.reminderOffsetMinutes));
+          return num === 10 ? 10 : 0;
+        } catch {
+          return 0;
+        }
+      })() : 0,
       createdAt: decrypt(task.createdAt),
       updatedAt: decrypt(task.updatedAt),
       position: task.position ? (() => {
@@ -360,6 +413,12 @@ export const api = {
     }
     if (data.recurrenceDays !== undefined) {
       encryptedData.recurrenceDays = data.recurrenceDays ? encrypt(JSON.stringify(data.recurrenceDays)) : '';
+    }
+    if (data.reminderEnabled !== undefined) {
+      encryptedData.reminderEnabled = encrypt(String(data.reminderEnabled));
+    }
+    if (data.reminderOffsetMinutes !== undefined) {
+      encryptedData.reminderOffsetMinutes = encrypt(String(data.reminderOffsetMinutes));
     }
     encryptedData.updatedAt = encrypt(new Date().toISOString());
     if (data.position !== undefined) encryptedData.position = encrypt(String(data.position));
@@ -399,6 +458,21 @@ export const api = {
           return [];
         }
       })() : [],
+      reminderEnabled: task.reminderEnabled ? (() => {
+        try {
+          return decrypt(task.reminderEnabled) === 'true';
+        } catch {
+          return false;
+        }
+      })() : false,
+      reminderOffsetMinutes: task.reminderOffsetMinutes ? (() => {
+        try {
+          const num = Number(decrypt(task.reminderOffsetMinutes));
+          return num === 10 ? 10 : 0;
+        } catch {
+          return 0;
+        }
+      })() : 0,
       createdAt: decrypt(task.createdAt),
       updatedAt: decrypt(task.updatedAt),
       position: task.position ? (() => {

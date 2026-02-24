@@ -10,7 +10,7 @@ export interface INote extends Document {
   locked: string; // Encrypted boolean as string
   password?: string;
   icon?: string; // Encrypted
-  order?: number;
+  order?: string;
   type?: 'note' | 'task_list' | 'project'; // Encrypted
   createdAt: string; // Encrypted date as string
   updatedAt: string; // Encrypted date as string
@@ -26,7 +26,7 @@ const NoteSchema: Schema = new Schema({
   locked: { type: String, default: 'false' }, // Encrypted boolean as string
   password: { type: String, select: false }, // Don't return by default
   icon: { type: String, default: null }, // Encrypted
-  order: { type: Number, default: 0 },
+  order: { type: String, default: '' },
   type: { type: String, default: 'note' }, // Encrypted
   createdAt: { type: String, default: '' }, // Encrypted
   updatedAt: { type: String, default: '' }, // Encrypted

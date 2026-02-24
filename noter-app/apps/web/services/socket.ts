@@ -2,10 +2,9 @@ import { io } from 'socket.io-client';
 
 const stripApiSuffix = (url: string) => url.replace(/\/api\/?$/, '');
 
-const toSecureHttp = (url: string) => {
-  if (url.startsWith('https://')) return url;
-  if (url.startsWith('http://')) return `https://${url.slice('http://'.length)}`;
-  return url;
+const normalizeHttp = (url: string) => {
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  return `https://${url}`;
 };
 
 export const resolveSocketBaseUrl = (options?: {
@@ -18,20 +17,22 @@ export const resolveSocketBaseUrl = (options?: {
 
   if (isServer) {
     if (!envUrl) return 'https://localhost:3001';
-    if (envUrl.startsWith('http')) return toSecureHttp(stripApiSuffix(envUrl));
+    if (envUrl.startsWith('http')) return stripApiSuffix(envUrl);
     return 'https://localhost:3001';
   }
 
   const origin = options?.origin ?? window.location.origin;
   if (envUrl) {
-    if (envUrl.startsWith('http')) return toSecureHttp(stripApiSuffix(envUrl));
-    return toSecureHttp(origin);
+    if (envUrl.startsWith('http')) return stripApiSuffix(envUrl);
+    return normalizeHttp(origin);
   }
 
-  return toSecureHttp(origin);
+  return normalizeHttp(origin);
 };
 
-export const socket = io(resolveSocketBaseUrl(), {
+const socketBaseUrl = resolveSocketBaseUrl();
+
+export const socket = io(socketBaseUrl, {
   autoConnect: false,
   reconnection: true,
   reconnectionAttempts: Infinity,
@@ -40,7 +41,7 @@ export const socket = io(resolveSocketBaseUrl(), {
   timeout: 10000,
   path: '/socket.io/',
   transports: ['websocket', 'polling'],
-  secure: true,
+  secure: socketBaseUrl.startsWith('https://'),
   withCredentials: true,
 });
 

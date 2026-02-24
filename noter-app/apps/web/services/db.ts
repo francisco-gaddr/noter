@@ -82,6 +82,16 @@ export const db = {
         tags: n.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? [],
         icon: n.icon ? (() => { try { return decrypt(n.icon) } catch { return n.icon } })() : undefined,
         type: n.type ? (() => { try { return decrypt(n.type) as any } catch { return n.type } })() : 'note',
+        order: (() => {
+          try {
+            const decrypted = decrypt((n as any).order);
+            const num = Number(decrypted);
+            return isNaN(num) ? 0 : num;
+          } catch {
+            const num = Number((n as any).order);
+            return isNaN(num) ? 0 : num;
+          }
+        })()
     }));
   },
 
@@ -96,6 +106,16 @@ export const db = {
         tags: note.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? [],
         icon: note.icon ? (() => { try { return decrypt(note.icon) } catch { return note.icon } })() : undefined,
         type: note.type ? (() => { try { return decrypt(note.type) as any } catch { return note.type } })() : 'note',
+        order: (() => {
+          try {
+            const decrypted = decrypt((note as any).order);
+            const num = Number(decrypted);
+            return isNaN(num) ? 0 : num;
+          } catch {
+            const num = Number((note as any).order);
+            return isNaN(num) ? 0 : num;
+          }
+        })()
     };
   },
 
@@ -107,9 +127,10 @@ export const db = {
         content: encrypt(note.content),
         tags: note.tags?.map(t => encrypt(t)) ?? [],
         icon: note.icon ? encrypt(note.icon) : undefined,
-        type: note.type,
+        type: note.type ? encrypt(String(note.type)) : undefined,
+        order: note.order !== undefined ? encrypt(String(note.order)) : undefined,
         pendingSync
-    };
+    } as any;
     await db.put('notes', encrypted);
   },
 
@@ -160,6 +181,21 @@ export const db = {
           return []; 
         } 
       })() : [],
+      reminderEnabled: t.reminderEnabled ? (() => { 
+        try { 
+          return decrypt(String(t.reminderEnabled)) === 'true'; 
+        } catch { 
+          return false; 
+        } 
+      })() : false,
+      reminderOffsetMinutes: t.reminderOffsetMinutes ? (() => { 
+        try { 
+          const num = Number(decrypt(String(t.reminderOffsetMinutes))); 
+          return num === 10 ? 10 : 0; 
+        } catch { 
+          return 0; 
+        } 
+      })() : 0,
       createdAt: t.createdAt,
       updatedAt: t.updatedAt
     }));
@@ -175,6 +211,8 @@ export const db = {
         priority: encrypt(task.priority),
         recurrenceType: task.recurrenceType ? encrypt(task.recurrenceType) : '',
         recurrenceDays: task.recurrenceDays ? encrypt(JSON.stringify(task.recurrenceDays)) : '',
+        reminderEnabled: task.reminderEnabled !== undefined ? encrypt(String(task.reminderEnabled)) : '',
+        reminderOffsetMinutes: task.reminderOffsetMinutes !== undefined ? encrypt(String(task.reminderOffsetMinutes)) : '',
         pendingSync
     };
     await db.put('tasks', encrypted as any);
@@ -213,6 +251,21 @@ export const db = {
           return []; 
         } 
       })() : [],
+      reminderEnabled: t.reminderEnabled ? (() => { 
+        try { 
+          return decrypt(String(t.reminderEnabled)) === 'true'; 
+        } catch { 
+          return false; 
+        } 
+      })() : false,
+      reminderOffsetMinutes: t.reminderOffsetMinutes ? (() => { 
+        try { 
+          const num = Number(decrypt(String(t.reminderOffsetMinutes))); 
+          return num === 10 ? 10 : 0; 
+        } catch { 
+          return 0; 
+        } 
+      })() : 0,
     }));
   }
 };

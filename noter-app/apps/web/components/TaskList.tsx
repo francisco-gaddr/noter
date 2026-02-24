@@ -260,6 +260,26 @@ export default function TaskList() {
         fetchTasks(selectedTaskListId || undefined);
     }, [selectedTaskListId, fetchTasks]);
 
+    const openTaskDetail = useCallback((task: Task) => {
+        setSelectedTask(task);
+        setIsModalOpen(true);
+    }, []);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const params = new URLSearchParams(window.location.search);
+        const taskId = params.get('taskId');
+        if (!taskId) return;
+        const task = tasks.find(t => t._id === taskId);
+        if (task) {
+            openTaskDetail(task);
+            params.delete('taskId');
+            const query = params.toString();
+            const nextUrl = query ? `${window.location.pathname}?${query}` : window.location.pathname;
+            window.history.replaceState({}, '', nextUrl);
+        }
+    }, [tasks, openTaskDetail]);
+
     useEffect(() => {
         let visible = tasks.filter(t => !selectedTaskListId ? true : t.parentNoteId === selectedTaskListId);
 
@@ -385,11 +405,6 @@ export default function TaskList() {
         const currentIndex = priorities.indexOf(task.priority);
         const nextPriority = priorities[(currentIndex + 1) % priorities.length];
         await updateTask(task._id, { priority: nextPriority });
-    };
-
-    const openTaskDetail = (task: Task) => {
-        setSelectedTask(task);
-        setIsModalOpen(true);
     };
 
     const getPriorityColor = (priority: string) => {

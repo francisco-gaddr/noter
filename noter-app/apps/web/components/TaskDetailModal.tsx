@@ -28,11 +28,14 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<'low' | 'medium' | 'high'>('low');
-  const [dueDate, setDueDate] = useState('');
+  const [dueDateValue, setDueDateValue] = useState('');
+  const [dueTimeValue, setDueTimeValue] = useState('');
   const [completed, setCompleted] = useState(false);
   const [selectedListId, setSelectedListId] = useState<string>('');
   const [recurrenceType, setRecurrenceType] = useState<'none' | 'daily' | 'weekly'>('none');
   const [recurrenceDays, setRecurrenceDays] = useState<number[]>([]);
+  const [reminderEnabled, setReminderEnabled] = useState(false);
+  const [reminderOffsetMinutes, setReminderOffsetMinutes] = useState<0 | 10>(0);
   const [isSaving, setIsSaving] = useState(false);
   const recurrenceOptions = [
     { value: 'none', label: 'Ingen' },
@@ -48,6 +51,18 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
     { value: 6, label: 'Lör' },
     { value: 0, label: 'Sön' },
   ];
+  const toLocalDateInput = (date: Date) => {
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(0, 10);
+  };
+  const toLocalTimeInput = (date: Date) => {
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+    return local.toISOString().slice(11, 16);
+  };
+  const applyQuickDate = (target: Date) => {
+    setDueDateValue(toLocalDateInput(target));
+    setDueTimeValue('00:00');
+  };
 
   useEffect(() => {
     if (isOpen) {
@@ -55,12 +70,21 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
             setTitle(task.title);
             setDescription(task.description || '');
             setPriority(task.priority);
-            const formattedDate = task.dueDate ? new Date(task.dueDate).toISOString().slice(0, 16) : '';
-            setDueDate(formattedDate || '');
+            const parsed = task.dueDate ? new Date(task.dueDate) : null;
+            if (parsed && !isNaN(parsed.getTime())) {
+              setDueDateValue(toLocalDateInput(parsed));
+              const timeValue = toLocalTimeInput(parsed);
+              setDueTimeValue(timeValue === '00:00' ? '' : timeValue);
+            } else {
+              setDueDateValue('');
+              setDueTimeValue('');
+            }
             setCompleted(task.completed);
             setSelectedListId(task.parentNoteId || '');
             setRecurrenceType(task.recurrenceType || 'none');
             setRecurrenceDays(task.recurrenceDays || []);
+            setReminderEnabled(task.reminderEnabled || false);
+            setReminderOffsetMinutes(task.reminderOffsetMinutes === 10 ? 10 : 0);
         } else {
             // Reset for new task
             setTitle('');
@@ -68,16 +92,24 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
             setPriority('low');
             // Use initialDate if provided, otherwise empty
             if (initialDate) {
-                // Format for datetime-local input: YYYY-MM-DDTHH:mm
-                const formattedInitial = new Date(initialDate).toISOString().slice(0, 16);
-                setDueDate(formattedInitial);
+                const initDate = new Date(initialDate);
+                if (!isNaN(initDate.getTime())) {
+                  setDueDateValue(toLocalDateInput(initDate));
+                  setDueTimeValue('00:00');
+                } else {
+                  setDueDateValue('');
+                  setDueTimeValue('');
+                }
             } else {
-                setDueDate('');
+                setDueDateValue('');
+                setDueTimeValue('');
             }
             setCompleted(false);
             setSelectedListId('');
             setRecurrenceType('none');
             setRecurrenceDays([]);
+            setReminderEnabled(false);
+            setReminderOffsetMinutes(0);
         }
     }
   }, [task, isOpen, initialDate]);
@@ -99,26 +131,42 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
     setIsSaving(true);
     try {
       if (task) {
+        const dueIso = dueDateValue
+          ? (() => {
+              const d = new Date(`${dueDateValue}T${dueTimeValue || '00:00'}`);
+              return isNaN(d.getTime()) ? null : d.toISOString();
+            })()
+          : null;
         await onUpdate(task._id, {
             title,
             description,
             priority,
             completed,
-            dueDate: dueDate ? new Date(dueDate).toISOString() : null,
+            dueDate: dueIso,
             parentNoteId: selectedListId || null,
             recurrenceType,
-            recurrenceDays: recurrenceType === 'weekly' ? recurrenceDays : []
+            recurrenceDays: recurrenceType === 'weekly' ? recurrenceDays : [],
+            reminderEnabled,
+            reminderOffsetMinutes: reminderEnabled ? reminderOffsetMinutes : 0
         });
       } else if (onCreate) {
+         const dueIso = dueDateValue
+           ? (() => {
+               const d = new Date(`${dueDateValue}T${dueTimeValue || '00:00'}`);
+               return isNaN(d.getTime()) ? null : d.toISOString();
+             })()
+           : null;
          await onCreate({
             title,
             description,
             priority,
             completed,
-            dueDate: dueDate ? new Date(dueDate).toISOString() : null,
+            dueDate: dueIso,
             parentNoteId: selectedListId || null,
             recurrenceType,
-            recurrenceDays: recurrenceType === 'weekly' ? recurrenceDays : []
+            recurrenceDays: recurrenceType === 'weekly' ? recurrenceDays : [],
+            reminderEnabled,
+            reminderOffsetMinutes: reminderEnabled ? reminderOffsetMinutes : 0
          });
       }
       onClose();
@@ -200,14 +248,66 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                 </select>
              </div>
              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" htmlFor="due-date-input">{t('common.dueDate')}</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{t('common.dueDate')}</label>
+                <div className="flex flex-wrap gap-2 mb-2">
+                  <button
+                    type="button"
+                    onClick={() => applyQuickDate(new Date())}
+                    className="px-2 py-1 text-xs border rounded dark:border-gray-600 dark:text-white"
+                  >
+                    Idag
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() + 1);
+                      applyQuickDate(d);
+                    }}
+                    className="px-2 py-1 text-xs border rounded dark:border-gray-600 dark:text-white"
+                  >
+                    Imorgon
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const d = new Date();
+                      const day = d.getDay();
+                      const daysUntilSunday = (7 - day) % 7;
+                      d.setDate(d.getDate() + daysUntilSunday);
+                      applyQuickDate(d);
+                    }}
+                    className="px-2 py-1 text-xs border rounded dark:border-gray-600 dark:text-white"
+                  >
+                    Slutet av veckan
+                  </button>
+                </div>
                 <input
                   id="due-date-input"
                   type="date"
-                  value={dueDate ? dueDate.split('T')[0] : ''}
-                  onChange={(e) => setDueDate(e.target.value ? `${e.target.value}T00:00:00` : '')}
+                  value={dueDateValue}
+                  onChange={(e) => setDueDateValue(e.target.value)}
                   className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                 />
+                <input
+                  id="due-time-input"
+                  type="time"
+                  value={dueTimeValue}
+                  onChange={(e) => setDueTimeValue(e.target.value)}
+                  className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white mt-2"
+                />
+                {dueDateValue && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDueDateValue('');
+                      setDueTimeValue('');
+                    }}
+                    className="mt-2 text-xs text-gray-600 dark:text-gray-300"
+                  >
+                    Rensa datum
+                  </button>
+                )}
              </div>
           </div>
 
@@ -248,6 +348,29 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
               ))}
             </div>
           )}
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Påminnelse</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={reminderEnabled}
+                onChange={(e) => setReminderEnabled(e.target.checked)}
+                className="w-4 h-4"
+              />
+              <span className="text-sm text-gray-700 dark:text-gray-300">Aktivera påminnelse</span>
+            </div>
+            {reminderEnabled && (
+              <select
+                value={reminderOffsetMinutes}
+                onChange={(e) => setReminderOffsetMinutes(Number(e.target.value) === 10 ? 10 : 0)}
+                className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white mt-2"
+              >
+                <option value={0}>Vid förfallotid</option>
+                <option value={10}>10 minuter innan</option>
+              </select>
+            )}
+          </div>
           
            <div className="flex items-center gap-2">
                 <input

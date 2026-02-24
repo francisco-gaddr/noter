@@ -13,6 +13,8 @@ export interface ITask extends Document {
   position: string; // Encrypted position
   recurrenceType?: string;
   recurrenceDays?: string;
+  reminderEnabled?: string;
+  reminderOffsetMinutes?: string;
   createdAt: string; // Encrypted timestamp
   updatedAt: string; // Encrypted timestamp
 }
@@ -30,6 +32,8 @@ const TaskSchema: Schema = new Schema({
   position: { type: String, default: '' }, // Encrypted position
   recurrenceType: { type: String, default: '' },
   recurrenceDays: { type: String, default: '' },
+  reminderEnabled: { type: String, default: '' },
+  reminderOffsetMinutes: { type: String, default: '' },
   createdAt: { type: String, default: '' }, // Encrypted timestamp
   updatedAt: { type: String, default: '' }, // Encrypted timestamp
 }, {

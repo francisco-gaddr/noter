@@ -7,6 +7,8 @@ import * as Database from '../services/database';
 import { initSocket, disconnectSocket, getSocket } from '../services/socket';
 import NetInfo from '@react-native-community/netinfo';
 import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { scheduleTaskReminder, cancelTaskReminder, cancelAllTaskReminders } from '../services/notifications';
 
 interface AppState {
   notes: Note[];
@@ -19,10 +21,12 @@ interface AppState {
   activeProjectId: string | null;
   token: string | null;
   isInitialized: boolean;
+  notificationsEnabled: boolean;
   
   // UI Actions
   setActiveProject: (id: string | null) => void;
   setViewMode: (mode: 'list' | 'tree') => void;
+  setNotificationsEnabled: (enabled: boolean) => Promise<void>;
   init: () => Promise<void>;
   register: (username: string, password: string) => Promise<void>;
   
@@ -92,6 +96,21 @@ const processApiNote = (note: Note): Note => ({
   icon: (note as any).icon ? tryDecryptString((note as any).icon) : (note as any).icon,
   type: (note as any).type ? tryDecryptString((note as any).type) : (note as any).type,
   locked: parseNoteLocked(note.locked),
+  order: (() => {
+    const raw = (note as any).order;
+    if (typeof raw === 'number') return raw;
+    if (typeof raw === 'string') {
+      try {
+        const decrypted = decrypt(raw);
+        const num = Number(decrypted);
+        return isNaN(num) ? 0 : num;
+      } catch {
+        const num = Number(raw);
+        return isNaN(num) ? 0 : num;
+      }
+    }
+    return 0;
+  })(),
   createdAt: decrypt(note.createdAt),
   updatedAt: decrypt(note.updatedAt),
 });
@@ -170,6 +189,8 @@ const processApiTask = (task: any): Task => ({
   dueDate: task.dueDate ? (typeof task.dueDate === 'string' ? decrypt(task.dueDate) : task.dueDate) : null,
   recurrenceType: task.recurrenceType ? (() => { try { return decrypt(task.recurrenceType) as any } catch { return 'none' as any } })() : 'none',
   recurrenceDays: task.recurrenceDays ? (() => { try { return JSON.parse(decrypt(task.recurrenceDays)) } catch { return [] } })() : [],
+  reminderEnabled: task.reminderEnabled ? (() => { try { return decrypt(task.reminderEnabled) === 'true' } catch { return false } })() : false,
+  reminderOffsetMinutes: task.reminderOffsetMinutes ? (() => { try { const num = Number(decrypt(task.reminderOffsetMinutes)); return num === 10 ? 10 : 0 } catch { return 0 } })() : 0,
   createdAt: decrypt(task.createdAt),
   updatedAt: decrypt(task.updatedAt),
   position: task.position ? (() => {
@@ -215,6 +236,7 @@ export const useStore = create<AppState>((set, get) => ({
   activeProjectId: null,
   token: null,
   isInitialized: false,
+  notificationsEnabled: false,
 
   setActiveProject: (id) => set({ activeProjectId: id }),
   setToken: (token) => {
@@ -231,6 +253,18 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
   setViewMode: (mode) => set({ viewMode: mode }),
+  setNotificationsEnabled: async (enabled) => {
+    set({ notificationsEnabled: enabled });
+    await AsyncStorage.setItem('notificationsEnabled', JSON.stringify(enabled));
+    if (!enabled) {
+      await cancelAllTaskReminders();
+      return;
+    }
+    const tasks = get().tasks;
+    for (const task of tasks) {
+      await scheduleTaskReminder(task);
+    }
+  },
 
   init: async () => {
     if (get().isInitialized) return;
@@ -240,6 +274,10 @@ export const useStore = create<AppState>((set, get) => ({
     await Database.initDatabase();
 
     const storedToken = await SecureStore.getItemAsync('token');
+    const storedNotifications = await AsyncStorage.getItem('notificationsEnabled');
+    if (storedNotifications !== null) {
+      set({ notificationsEnabled: storedNotifications === 'true' });
+    }
     if (storedToken) {
       setAuthToken(storedToken);
       set({ token: storedToken });
@@ -360,12 +398,25 @@ export const useStore = create<AppState>((set, get) => ({
       });
     });
 
-    socket.on('notes:reordered', (reorderedNotes: { _id: string; order: number }[]) => {
+    socket.on('notes:reordered', (reorderedNotes: { _id: string; order: any }[]) => {
       set(state => {
         const newNotes = state.notes.map(n => {
           const update = reorderedNotes.find(rn => rn._id === n._id);
           if (update) {
-            const updated = { ...n, order: update.order } as any;
+            let nextOrder = 0;
+            if (typeof update.order === 'number') {
+              nextOrder = update.order;
+            } else if (typeof update.order === 'string') {
+              try {
+                const decrypted = decrypt(update.order);
+                const num = Number(decrypted);
+                nextOrder = isNaN(num) ? 0 : num;
+              } catch {
+                const num = Number(update.order);
+                nextOrder = isNaN(num) ? 0 : num;
+              }
+            }
+            const updated = { ...n, order: nextOrder } as any;
             Database.saveNoteLocal(updated, true);
             return updated;
           }
@@ -548,6 +599,7 @@ export const useStore = create<AppState>((set, get) => ({
         content: encrypt(data.content),
         type: data.type ? encrypt(data.type) : undefined,
         locked: encrypt(String(data.locked || false)),
+        order: data.order !== undefined ? encrypt(String(data.order)) : undefined,
         createdAt: encrypt(new Date().toISOString()),
         updatedAt: encrypt(new Date().toISOString()),
         clientId, // Send it anyway
@@ -633,6 +685,7 @@ export const useStore = create<AppState>((set, get) => ({
       if (data.icon !== undefined) encryptedData.icon = data.icon ? encrypt(data.icon) : '';
       if (data.type !== undefined) encryptedData.type = encrypt(data.type);
       if (data.locked !== undefined) encryptedData.locked = encrypt(String(data.locked));
+      if (data.order !== undefined) encryptedData.order = encrypt(String(data.order));
       // Always update updatedAt
       encryptedData.updatedAt = encrypt(new Date().toISOString());
 
@@ -711,7 +764,7 @@ export const useStore = create<AppState>((set, get) => ({
       return { notes: updatedNotes };
     });
     try {
-      const payload = notes.map((n, index) => ({ _id: n._id, order: index, parentId: n.parentId }));
+      const payload = notes.map((n, index) => ({ _id: n._id, order: encrypt(String(index)), parentId: n.parentId }));
       const netState = await NetInfo.fetch();
       if (netState.isConnected) {
         try {
@@ -757,16 +810,34 @@ export const useStore = create<AppState>((set, get) => ({
         const serverClientIds = new Set(decryptedTasks.map((t: any) => t.clientId).filter(Boolean));
         const localOnlyTasks = state.tasks.filter(t => t._id.startsWith('local_task_') && !serverClientIds.has(t.clientId));
         
-        set({ tasks: [...decryptedTasks, ...localOnlyTasks], isLoading: false });
+        const mergedTasks = [...decryptedTasks, ...localOnlyTasks];
+        set({ tasks: mergedTasks, isLoading: false });
+        if (get().notificationsEnabled) {
+          for (const task of mergedTasks) {
+            await scheduleTaskReminder(task);
+          }
+        }
       } else {
         const localTasks = await Database.getTasksLocal();
         const filtered = parentNoteId ? localTasks.filter(t => t.parentNoteId === parentNoteId) : localTasks;
-        set({ tasks: filtered.map(processLocalTask), isLoading: false });
+        const mapped = filtered.map(processLocalTask);
+        set({ tasks: mapped, isLoading: false });
+        if (get().notificationsEnabled) {
+          for (const task of mapped) {
+            await scheduleTaskReminder(task);
+          }
+        }
       }
     } catch (error: any) {
       const localTasks = await Database.getTasksLocal();
       const filtered = parentNoteId ? localTasks.filter(t => t.parentNoteId === parentNoteId) : localTasks;
-      set({ tasks: filtered.map(processLocalTask), isLoading: false, error: error.message });
+      const mapped = filtered.map(processLocalTask);
+      set({ tasks: mapped, isLoading: false, error: error.message });
+      if (get().notificationsEnabled) {
+        for (const task of mapped) {
+          await scheduleTaskReminder(task);
+        }
+      }
     }
   },
 
@@ -790,6 +861,8 @@ export const useStore = create<AppState>((set, get) => ({
       position: data.position ?? 0,
       recurrenceType: data.recurrenceType ?? 'none',
       recurrenceDays: data.recurrenceDays ?? [],
+      reminderEnabled: data.reminderEnabled ?? false,
+      reminderOffsetMinutes: data.reminderOffsetMinutes ?? 0,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       clientId, 
@@ -804,6 +877,9 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       // 3. Save to Local DB
       await Database.saveTaskLocal(optimisticTask, false);
+      if (get().notificationsEnabled) {
+        await scheduleTaskReminder(optimisticTask);
+      }
 
       // 4. Encrypt for Sync/Queue
       const encryptedData = {
@@ -815,6 +891,8 @@ export const useStore = create<AppState>((set, get) => ({
         dueDate: data.dueDate ? encrypt(new Date(data.dueDate).toISOString()) : '',
         recurrenceType: data.recurrenceType ? encrypt(data.recurrenceType) : '',
         recurrenceDays: data.recurrenceDays ? encrypt(JSON.stringify(data.recurrenceDays)) : '',
+        reminderEnabled: data.reminderEnabled !== undefined ? encrypt(String(data.reminderEnabled)) : '',
+        reminderOffsetMinutes: data.reminderOffsetMinutes !== undefined ? encrypt(String(data.reminderOffsetMinutes)) : '',
         createdAt: encrypt(new Date().toISOString()),
         updatedAt: encrypt(new Date().toISOString()),
         position: data.position !== undefined ? encrypt(String(data.position)) : encrypt('0'),
@@ -851,6 +929,10 @@ export const useStore = create<AppState>((set, get) => ({
           // Update DB
           await Database.deleteTaskLocal(tempId);
           await Database.saveTaskLocal(realTask, true);
+          if (get().notificationsEnabled) {
+            await cancelTaskReminder(tempId);
+            await scheduleTaskReminder(realTask);
+          }
 
           return realTask;
         } catch (error) {
@@ -897,6 +979,8 @@ export const useStore = create<AppState>((set, get) => ({
     if (data.parentNoteId !== undefined) optimisticTask.parentNoteId = data.parentNoteId;
     if (data.recurrenceType !== undefined) optimisticTask.recurrenceType = data.recurrenceType;
     if (data.recurrenceDays !== undefined) optimisticTask.recurrenceDays = data.recurrenceDays;
+    if (data.reminderEnabled !== undefined) optimisticTask.reminderEnabled = data.reminderEnabled;
+    if (data.reminderOffsetMinutes !== undefined) optimisticTask.reminderOffsetMinutes = data.reminderOffsetMinutes;
     optimisticTask.updatedAt = new Date().toISOString();
 
     const shouldCreateNext = data.completed === true && !currentTask.completed;
@@ -912,6 +996,8 @@ export const useStore = create<AppState>((set, get) => ({
           parentNoteId: optimisticTask.parentNoteId,
           recurrenceType: optimisticTask.recurrenceType,
           recurrenceDays: optimisticTask.recurrenceDays,
+          reminderEnabled: optimisticTask.reminderEnabled,
+          reminderOffsetMinutes: optimisticTask.reminderOffsetMinutes,
         });
       }
     }
@@ -921,6 +1007,9 @@ export const useStore = create<AppState>((set, get) => ({
       tasks: state.tasks.map((t) => (t._id === id ? optimisticTask : t)),
       isLoading: false,
     }));
+    if (get().notificationsEnabled) {
+      await scheduleTaskReminder(optimisticTask);
+    }
 
     try {
       // 3. Encrypt Data
@@ -944,6 +1033,12 @@ export const useStore = create<AppState>((set, get) => ({
       if (data.recurrenceDays !== undefined) {
         encryptedData.recurrenceDays = data.recurrenceDays ? encrypt(JSON.stringify(data.recurrenceDays)) : '';
       }
+      if (data.reminderEnabled !== undefined) {
+        encryptedData.reminderEnabled = encrypt(String(data.reminderEnabled));
+      }
+      if (data.reminderOffsetMinutes !== undefined) {
+        encryptedData.reminderOffsetMinutes = encrypt(String(data.reminderOffsetMinutes));
+      }
       encryptedData.updatedAt = encrypt(new Date().toISOString());
       if (data.position !== undefined) encryptedData.position = encrypt(String(data.position));
 
@@ -965,6 +1060,9 @@ export const useStore = create<AppState>((set, get) => ({
             tasks: state.tasks.map((t) => (t._id === id ? realTask : t)),
           }));
           await Database.saveTaskLocal(realTask, true);
+          if (get().notificationsEnabled) {
+            await scheduleTaskReminder(realTask);
+          }
 
           return realTask;
         } catch (error) {
@@ -1000,6 +1098,9 @@ export const useStore = create<AppState>((set, get) => ({
       }
       
       await Database.deleteTaskLocal(id);
+      if (get().notificationsEnabled) {
+        await cancelTaskReminder(id);
+      }
 
       set((state) => ({
         tasks: state.tasks.filter((t) => t._id !== id),

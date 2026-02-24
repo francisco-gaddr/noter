@@ -48,7 +48,7 @@ export const initSocket = (token?: string | null) => {
     reconnectionDelay: 1000,
     reconnectionDelayMax: 5000,
     timeout: 10000,
-    secure: true,
+    secure: baseUrl.startsWith('https://'),
     path: '/socket.io/',
     withCredentials: true,
     auth: token ? { token } : undefined

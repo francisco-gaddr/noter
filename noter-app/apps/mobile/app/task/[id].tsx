@@ -20,6 +20,8 @@ const schema = yup.object({
   completed: yup.boolean().default(false),
   recurrenceType: yup.mixed<'none' | 'daily' | 'weekly'>().oneOf(['none', 'daily', 'weekly']).default('none'),
   recurrenceDays: yup.array().of(yup.number()).default([]),
+  reminderEnabled: yup.boolean().default(false),
+  reminderOffsetMinutes: yup.mixed<0 | 10>().oneOf([0, 10]).default(0),
 }).required();
 
 type FormData = yup.InferType<typeof schema>;
@@ -74,10 +76,14 @@ export default function TaskEditorScreen() {
       completed: false,
       recurrenceType: 'none',
       recurrenceDays: [],
+      reminderEnabled: false,
+      reminderOffsetMinutes: 0,
     },
   });
   const recurrenceType = watch('recurrenceType');
   const recurrenceDays = watch('recurrenceDays');
+  const reminderEnabled = watch('reminderEnabled');
+  const reminderOffsetMinutes = watch('reminderOffsetMinutes');
   const weekDays = [
     { value: 1, label: 'Mån' },
     { value: 2, label: 'Tis' },
@@ -103,6 +109,8 @@ export default function TaskEditorScreen() {
       setValue('completed', existingTask.completed);
       setValue('recurrenceType', existingTask.recurrenceType || 'none');
       setValue('recurrenceDays', existingTask.recurrenceDays || []);
+      setValue('reminderEnabled', existingTask.reminderEnabled || false);
+      setValue('reminderOffsetMinutes', existingTask.reminderOffsetMinutes === 10 ? 10 : 0);
       setSelectedListId(existingTask.parentNoteId || null);
       setInitialized(true);
     }
@@ -122,6 +130,8 @@ export default function TaskEditorScreen() {
         completed: data.completed,
         recurrenceType: data.recurrenceType,
         recurrenceDays: data.recurrenceType === 'weekly' ? normalizeDays(data.recurrenceDays) : [],
+        reminderEnabled: data.reminderEnabled,
+        reminderOffsetMinutes: data.reminderEnabled ? data.reminderOffsetMinutes : 0,
       };
       await updateTask(id!, dto);
       setLastSaved(new Date());
@@ -171,6 +181,8 @@ export default function TaskEditorScreen() {
           parentNoteId: selectedListId || null,
           recurrenceType: data.recurrenceType,
           recurrenceDays: data.recurrenceType === 'weekly' ? normalizeDays(data.recurrenceDays) : [],
+          reminderEnabled: data.reminderEnabled,
+          reminderOffsetMinutes: data.reminderEnabled ? data.reminderOffsetMinutes : 0,
         };
         // await createTask to ensure optimistic update happens before nav
         // and to keep submitting state true
@@ -186,6 +198,8 @@ export default function TaskEditorScreen() {
           parentNoteId: selectedListId || null,
           recurrenceType: data.recurrenceType,
           recurrenceDays: data.recurrenceType === 'weekly' ? normalizeDays(data.recurrenceDays) : [],
+          reminderEnabled: data.reminderEnabled,
+          reminderOffsetMinutes: data.reminderEnabled ? data.reminderOffsetMinutes : 0,
         };
         await updateTask(id!, dto);
         router.back();
@@ -292,35 +306,33 @@ export default function TaskEditorScreen() {
             name="dueDate"
             render={({ field: { onChange, value } }) => (
               <View>
-                {isNew && (
-                  <View style={styles.quickDateRow}>
-                    <Button
-                      mode="outlined"
-                      compact
-                      onPress={() => onChange(startOfDay(new Date()))}
-                    >
-                      Idag
-                    </Button>
-                    <Button
-                      mode="outlined"
-                      compact
-                      onPress={() => {
-                        const t = startOfDay(new Date());
-                        t.setDate(t.getDate() + 1);
-                        onChange(t);
-                      }}
-                    >
-                      Imorgon
-                    </Button>
-                    <Button
-                      mode="outlined"
-                      compact
-                      onPress={() => onChange(endOfWeek(new Date()))}
-                    >
-                      Slutet av veckan
-                    </Button>
-                  </View>
-                )}
+                <View style={styles.quickDateRow}>
+                  <Button
+                    mode="outlined"
+                    compact
+                    onPress={() => onChange(startOfDay(new Date()))}
+                  >
+                    Idag
+                  </Button>
+                  <Button
+                    mode="outlined"
+                    compact
+                    onPress={() => {
+                      const t = startOfDay(new Date());
+                      t.setDate(t.getDate() + 1);
+                      onChange(t);
+                    }}
+                  >
+                    Imorgon
+                  </Button>
+                  <Button
+                    mode="outlined"
+                    compact
+                    onPress={() => onChange(endOfWeek(new Date()))}
+                  >
+                    Slutet av veckan
+                  </Button>
+                </View>
                 <Button 
                   mode="outlined" 
                   onPress={() => setShowDatePicker(true)}
@@ -440,6 +452,39 @@ export default function TaskEditorScreen() {
                 </Button>
               ))}
             </View>
+          )}
+        </View>
+
+        <View style={styles.section}>
+          <Text variant="titleMedium" style={styles.sectionTitle}>Påminnelse</Text>
+          <Controller
+            control={control}
+            name="reminderEnabled"
+            render={({ field: { onChange, value } }) => (
+              <View style={styles.checkboxRow}>
+                <Checkbox
+                  status={value ? 'checked' : 'unchecked'}
+                  onPress={() => onChange(!value)}
+                />
+                <Text onPress={() => onChange(!value)}>Aktivera påminnelse</Text>
+              </View>
+            )}
+          />
+          {reminderEnabled && (
+            <Controller
+              control={control}
+              name="reminderOffsetMinutes"
+              render={({ field: { onChange, value } }) => (
+                <SegmentedButtons
+                  value={String(value === 10 ? 10 : 0)}
+                  onValueChange={(next) => onChange(Number(next) === 10 ? 10 : 0)}
+                  buttons={[
+                    { value: '0', label: 'Vid förfallotid' },
+                    { value: '10', label: '10 min innan' },
+                  ]}
+                />
+              )}
+            />
           )}
         </View>
 

@@ -44,7 +44,8 @@ const getNextRecurringDueDate = (task: Task): string | null => {
   const recurrenceType = task.recurrenceType ?? 'none';
   if (recurrenceType === 'none') return null;
 
-  const base = task.dueDate ? new Date(task.dueDate) : new Date();
+  const baseCandidate = task.dueDate ? new Date(task.dueDate) : new Date();
+  const base = isNaN(baseCandidate.getTime()) ? new Date() : baseCandidate;
   if (recurrenceType === 'daily') {
     const next = new Date(base);
     next.setDate(base.getDate() + 1);
@@ -87,6 +88,92 @@ const parseNoteLocked = (value: unknown): boolean => {
   return false;
 };
 
+const parseNoteOrder = (value: unknown): number => {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    try {
+      const decrypted = decrypt(value);
+      const num = Number(decrypted);
+      return isNaN(num) ? 0 : num;
+    } catch {
+      const num = Number(value);
+      return isNaN(num) ? 0 : num;
+    }
+  }
+  return 0;
+};
+
+const reminderTimers = new Map<string, number>();
+
+const scheduleWebReminder = (task: Task) => {
+  if (typeof window === 'undefined') return;
+  if (!task.reminderEnabled) {
+    const existing = reminderTimers.get(task._id);
+    if (existing !== undefined) {
+      clearTimeout(existing);
+      reminderTimers.delete(task._id);
+    }
+    return;
+  }
+  const existing = reminderTimers.get(task._id);
+  if (!task.dueDate) {
+    if (existing !== undefined) {
+      clearTimeout(existing);
+      reminderTimers.delete(task._id);
+    }
+    return;
+  }
+  const due = new Date(task.dueDate);
+  if (isNaN(due.getTime())) {
+    if (existing !== undefined) {
+      clearTimeout(existing);
+      reminderTimers.delete(task._id);
+    }
+    return;
+  }
+  const offset = task.reminderOffsetMinutes === 10 ? 10 : 0;
+  const trigger = new Date(due.getTime() - offset * 60000);
+  const delay = trigger.getTime() - Date.now();
+  if (delay <= 0) {
+    if (existing !== undefined) {
+      clearTimeout(existing);
+      reminderTimers.delete(task._id);
+    }
+    return;
+  }
+  if (existing !== undefined) {
+    clearTimeout(existing);
+  }
+  const timeoutId = window.setTimeout(() => {
+    if (!('Notification' in window)) return;
+    if (Notification.permission === 'default') {
+      Notification.requestPermission().then(() => {
+        if (Notification.permission === 'granted') {
+          const n = new Notification(task.title, {
+            body: offset === 10 ? 'Påminnelse 10 minuter innan' : 'Påminnelse',
+            data: { taskId: task._id }
+          } as any);
+          n.onclick = () => {
+            const url = `${window.location.origin}/app?taskId=${task._id}`;
+            window.location.href = url;
+          };
+        }
+      });
+      return;
+    }
+    if (Notification.permission !== 'granted') return;
+    const n = new Notification(task.title, {
+      body: offset === 10 ? 'Påminnelse 10 minuter innan' : 'Påminnelse',
+      data: { taskId: task._id }
+    } as any);
+    n.onclick = () => {
+      const url = `${window.location.origin}/app?taskId=${task._id}`;
+      window.location.href = url;
+    };
+  }, delay);
+  reminderTimers.set(task._id, timeoutId);
+};
+
 const decryptNoteFromSocket = (note: Note): Note => ({
   ...note,
   title: decrypt(note.title),
@@ -95,6 +182,7 @@ const decryptNoteFromSocket = (note: Note): Note => ({
   icon: note.icon ? (() => { try { return decrypt(note.icon); } catch { return note.icon; } })() : undefined,
   type: note.type ? (() => { try { return decrypt(note.type) as any; } catch { return note.type; } })() : 'note',
   locked: parseNoteLocked(note.locked),
+  order: parseNoteOrder((note as any).order),
   createdAt: decrypt(note.createdAt),
   updatedAt: decrypt(note.updatedAt),
 });
@@ -141,7 +229,7 @@ interface StoreState {
   unlockNote: (id: string, password: string) => Promise<boolean>;
   deleteNote: (id: string) => Promise<void>;
   
-  createTask: (title: string, parentNoteId?: string, dueDate?: string | null, options?: { description?: string; priority?: 'low' | 'medium' | 'high'; recurrenceType?: 'none' | 'daily' | 'weekly'; recurrenceDays?: number[] }) => Promise<void>;
+  createTask: (title: string, parentNoteId?: string, dueDate?: string | null, options?: { description?: string; priority?: 'low' | 'medium' | 'high'; recurrenceType?: 'none' | 'daily' | 'weekly'; recurrenceDays?: number[]; reminderEnabled?: boolean; reminderOffsetMinutes?: 0 | 10 }) => Promise<void>;
   updateTask: (id: string, data: UpdateTaskDto) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
   reorderTasks: (tasks: Task[]) => Promise<void>;
@@ -375,9 +463,9 @@ export const useStore = create<StoreState>((set, get) => ({
     });
 
     socket.off('notes:reordered');
-    socket.on('notes:reordered', (notes: Array<{ _id: string; order: number }>) => {
+    socket.on('notes:reordered', (notes: Array<{ _id: string; order: any }>) => {
       set(state => {
-        const orderMap = new Map(notes.map(n => [n._id, n.order]));
+        const orderMap = new Map(notes.map(n => [n._id, parseNoteOrder(n.order)]));
         const next = state.notes.map(n => (orderMap.has(n._id) ? { ...n, order: orderMap.get(n._id)! } : n));
         return { notes: next };
       });
@@ -408,6 +496,8 @@ export const useStore = create<StoreState>((set, get) => ({
             })(),
             recurrenceType: newTask.recurrenceType ? (() => { try { return decrypt(newTask.recurrenceType) as any } catch { return 'none' as any } })() : 'none',
             recurrenceDays: newTask.recurrenceDays ? (() => { try { return JSON.parse(decrypt(newTask.recurrenceDays)) } catch { return [] } })() : [],
+            reminderEnabled: newTask.reminderEnabled ? (() => { try { return decrypt(newTask.reminderEnabled) === 'true' } catch { return false } })() : false,
+            reminderOffsetMinutes: newTask.reminderOffsetMinutes ? (() => { try { const num = Number(decrypt(newTask.reminderOffsetMinutes)); return num === 10 ? 10 : 0 } catch { return 0 } })() : 0,
         };
         set(state => {
             const exists = state.tasks.some(t => t._id === decryptedTask._id);
@@ -420,6 +510,7 @@ export const useStore = create<StoreState>((set, get) => ({
             return { tasks: uniqBy([decryptedTask, ...state.tasks], '_id') };
         });
         db.saveTask(decryptedTask);
+        scheduleWebReminder(decryptedTask);
     });
 
     socket.off('task:updated');
@@ -443,11 +534,14 @@ export const useStore = create<StoreState>((set, get) => ({
             })(),
             recurrenceType: updatedTask.recurrenceType ? (() => { try { return decrypt(updatedTask.recurrenceType) as any } catch { return 'none' as any } })() : 'none',
             recurrenceDays: updatedTask.recurrenceDays ? (() => { try { return JSON.parse(decrypt(updatedTask.recurrenceDays)) } catch { return [] } })() : [],
+            reminderEnabled: updatedTask.reminderEnabled ? (() => { try { return decrypt(updatedTask.reminderEnabled) === 'true' } catch { return false } })() : false,
+            reminderOffsetMinutes: updatedTask.reminderOffsetMinutes ? (() => { try { const num = Number(decrypt(updatedTask.reminderOffsetMinutes)); return num === 10 ? 10 : 0 } catch { return 0 } })() : 0,
         };
         set(state => ({
             tasks: state.tasks.map(t => t._id === decryptedTask._id ? decryptedTask : t)
         }));
         db.saveTask(decryptedTask);
+        scheduleWebReminder(decryptedTask);
     });
 
     socket.off('task:deleted');
@@ -456,6 +550,11 @@ export const useStore = create<StoreState>((set, get) => ({
             tasks: state.tasks.filter(t => t._id !== taskId)
         }));
         db.deleteTask(taskId);
+        const existing = reminderTimers.get(taskId);
+        if (existing !== undefined) {
+          clearTimeout(existing);
+          reminderTimers.delete(taskId);
+        }
     });
 
     socket.off('tasks:reordered');
@@ -495,7 +594,10 @@ export const useStore = create<StoreState>((set, get) => ({
                   const created = await api.createNote({ 
                       title: note.title, 
                       content: note.content, 
-                      parentId: note.parentId 
+                      parentId: note.parentId,
+                      order: note.order,
+                      icon: note.icon,
+                      type: note.type
                   });
                   set(state => ({
                       notes: state.notes.map(n => n._id === note._id ? created : n),
@@ -512,7 +614,8 @@ export const useStore = create<StoreState>((set, get) => ({
                       locked: note.locked,
                       password: noteWithPassword.password,
                       icon: note.icon,
-                      type: note.type
+                      type: note.type,
+                      order: note.order
                   });
                   await db.saveNote(note, false);
               }
@@ -548,7 +651,9 @@ export const useStore = create<StoreState>((set, get) => ({
                       dueDate: task.dueDate,
                       clientId: task.clientId,
                       recurrenceType: task.recurrenceType,
-                      recurrenceDays: task.recurrenceDays
+                      recurrenceDays: task.recurrenceDays,
+                      reminderEnabled: task.reminderEnabled,
+                      reminderOffsetMinutes: task.reminderOffsetMinutes
                   });
                   set(state => ({
                       tasks: state.tasks.map(t => t._id === task._id ? created : t)
@@ -563,7 +668,9 @@ export const useStore = create<StoreState>((set, get) => ({
                       priority: task.priority,
                       dueDate: task.dueDate,
                       recurrenceType: task.recurrenceType,
-                      recurrenceDays: task.recurrenceDays
+                      recurrenceDays: task.recurrenceDays,
+                      reminderEnabled: task.reminderEnabled,
+                      reminderOffsetMinutes: task.reminderOffsetMinutes
                   });
                   await db.saveTask(task, false);
               }
@@ -631,6 +738,7 @@ export const useStore = create<StoreState>((set, get) => ({
         const validTasks = cachedTasks.filter(t => !(t as any).deleted);
         if (validTasks.length > 0) {
              set({ tasks: validTasks, isLoading: false });
+             validTasks.forEach(scheduleWebReminder);
         }
     } catch (e) {
         console.error('Failed to load tasks from DB', e);
@@ -678,6 +786,7 @@ export const useStore = create<StoreState>((set, get) => ({
         for (const task of tasks) {
             await db.saveTask(task);
         }
+        tasks.forEach(scheduleWebReminder);
     } catch (error: any) {
         set({ error: error.message, isLoading: false });
     }
@@ -899,7 +1008,9 @@ export const useStore = create<StoreState>((set, get) => ({
               clientId, 
               dueDate: dueDate || null,
               recurrenceType: options?.recurrenceType,
-              recurrenceDays: options?.recurrenceDays
+              recurrenceDays: options?.recurrenceDays,
+              reminderEnabled: options?.reminderEnabled,
+              reminderOffsetMinutes: options?.reminderOffsetMinutes
           });
           set(state => ({ 
               tasks: uniqBy([newTask, ...state.tasks], '_id'),
@@ -916,6 +1027,7 @@ export const useStore = create<StoreState>((set, get) => ({
               });
           }, 10000);
           db.saveTask(newTask);
+          scheduleWebReminder(newTask);
       } catch (error: any) {
           // Offline creation
           const tempId = `temp-${Date.now()}`;
@@ -932,6 +1044,8 @@ export const useStore = create<StoreState>((set, get) => ({
               position: 0,
               recurrenceType: options?.recurrenceType || 'none',
               recurrenceDays: options?.recurrenceDays || [],
+              reminderEnabled: options?.reminderEnabled || false,
+              reminderOffsetMinutes: options?.reminderOffsetMinutes || 0,
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
           } as Task;
@@ -943,6 +1057,7 @@ export const useStore = create<StoreState>((set, get) => ({
               }
           }));
           await db.saveTask(tempTask, true);
+          scheduleWebReminder(tempTask);
       }
   },
 
@@ -961,8 +1076,10 @@ export const useStore = create<StoreState>((set, get) => ({
                   {
                       description: mergedTask.description,
                       priority: mergedTask.priority,
-                      recurrenceType: mergedTask.recurrenceType,
-                      recurrenceDays: mergedTask.recurrenceDays
+                  recurrenceType: mergedTask.recurrenceType,
+                  recurrenceDays: mergedTask.recurrenceDays,
+                  reminderEnabled: mergedTask.reminderEnabled,
+                  reminderOffsetMinutes: mergedTask.reminderOffsetMinutes
                   }
               );
           }
@@ -976,6 +1093,7 @@ export const useStore = create<StoreState>((set, get) => ({
       const currentTask = get().tasks.find(t => t._id === id);
       if (currentTask) {
           await db.saveTask(currentTask, true); // Mark pending sync
+          scheduleWebReminder(currentTask);
       }
 
       if (id.startsWith('temp-')) return;
@@ -997,6 +1115,11 @@ export const useStore = create<StoreState>((set, get) => ({
       set(state => ({
           tasks: state.tasks.filter(t => t._id !== id)
       }));
+      const existing = reminderTimers.get(id);
+      if (existing !== undefined) {
+        clearTimeout(existing);
+        reminderTimers.delete(id);
+      }
 
       if (id.startsWith('temp-')) {
           await db.deleteTask(id);

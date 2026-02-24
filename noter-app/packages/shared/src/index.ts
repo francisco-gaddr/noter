@@ -55,6 +55,8 @@ export interface Task {
   position?: number;
   recurrenceType?: 'none' | 'daily' | 'weekly';
   recurrenceDays?: number[];
+  reminderEnabled?: boolean;
+  reminderOffsetMinutes?: 0 | 10;
   createdAt: string;
   updatedAt: string;
 }
@@ -72,6 +74,8 @@ export interface EncryptedTask {
   position?: number;
   recurrenceType?: string;
   recurrenceDays?: string;
+  reminderEnabled?: string;
+  reminderOffsetMinutes?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -88,6 +92,8 @@ export interface CreateTaskDto {
   position?: number;
   recurrenceType?: 'none' | 'daily' | 'weekly';
   recurrenceDays?: number[];
+  reminderEnabled?: boolean;
+  reminderOffsetMinutes?: 0 | 10;
 }
 
 export interface UpdateTaskDto {
@@ -101,6 +107,8 @@ export interface UpdateTaskDto {
   position?: number;
   recurrenceType?: 'none' | 'daily' | 'weekly';
   recurrenceDays?: number[];
+  reminderEnabled?: boolean;
+  reminderOffsetMinutes?: 0 | 10;
 }
 
 export interface User {
