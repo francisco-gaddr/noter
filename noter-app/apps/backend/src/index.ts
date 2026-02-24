@@ -44,9 +44,12 @@ app.use(limiter);
 
 const io = new Server(server, {
   cors: {
-    origin: "*",
-    methods: ["GET", "POST", "PUT", "DELETE"]
-  }
+    origin: true,
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    credentials: true
+  },
+  pingInterval: 25000,
+  pingTimeout: 20000
 });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';

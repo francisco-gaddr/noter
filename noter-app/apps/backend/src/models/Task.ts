@@ -11,6 +11,8 @@ export interface ITask extends Document {
   parentNoteId: Schema.Types.ObjectId | null;
   parentId?: Schema.Types.ObjectId | null; // For subtasks
   position: string; // Encrypted position
+  recurrenceType?: string;
+  recurrenceDays?: string;
   createdAt: string; // Encrypted timestamp
   updatedAt: string; // Encrypted timestamp
 }
@@ -26,6 +28,8 @@ const TaskSchema: Schema = new Schema({
   parentNoteId: { type: Schema.Types.ObjectId, ref: 'Note', default: null },
   parentId: { type: Schema.Types.ObjectId, ref: 'Task', default: null },
   position: { type: String, default: '' }, // Encrypted position
+  recurrenceType: { type: String, default: '' },
+  recurrenceDays: { type: String, default: '' },
   createdAt: { type: String, default: '' }, // Encrypted timestamp
   updatedAt: { type: String, default: '' }, // Encrypted timestamp
 }, {

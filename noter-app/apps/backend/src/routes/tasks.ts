@@ -18,7 +18,9 @@ const taskSchema = Joi.object({
   parentNoteId: Joi.string().allow(null),
   createdAt: Joi.string().allow(''), // Encrypted timestamp string
   updatedAt: Joi.string().allow(''), // Encrypted timestamp string
-  position: Joi.string().allow('') // Encrypted position string
+  position: Joi.string().allow(''), // Encrypted position string
+  recurrenceType: Joi.string().allow(''),
+  recurrenceDays: Joi.string().allow('')
 });
 
 const assignSchema = Joi.object({
@@ -40,7 +42,11 @@ const updateTaskSchema = Joi.object({
   dueDate: Joi.string().allow(null, ''),
   completed: Joi.string().allow(''),
   priority: Joi.string().allow(''),
-  parentNoteId: Joi.string().allow(null)
+  parentNoteId: Joi.string().allow(null),
+  position: Joi.string().allow(''),
+  updatedAt: Joi.string().allow(''),
+  recurrenceType: Joi.string().allow(''),
+  recurrenceDays: Joi.string().allow('')
 });
 
 // GET /api/tasks
@@ -72,14 +78,6 @@ router.post('/', validate(taskSchema), async (req: Request, res: Response, next:
     }
 
     const taskData = { ...req.body, userId };
-    
-    // Ensure encrypted timestamps are provided
-    if (!taskData.createdAt) {
-      taskData.createdAt = new Date().toISOString();
-    }
-    if (!taskData.updatedAt) {
-      taskData.updatedAt = new Date().toISOString();
-    }
     
     const task = new Task(taskData);
     const createdTask = await task.save();
@@ -175,6 +173,10 @@ router.put('/:id', validate(updateTaskSchema), async (req: Request, res: Respons
         if (req.body.completed !== undefined) task.completed = req.body.completed;
         if (req.body.priority !== undefined) task.priority = req.body.priority;
         if (req.body.parentNoteId !== undefined) task.parentNoteId = req.body.parentNoteId;
+        if (req.body.position !== undefined) task.position = req.body.position;
+        if (req.body.updatedAt !== undefined) task.updatedAt = req.body.updatedAt;
+        if (req.body.recurrenceType !== undefined) task.recurrenceType = req.body.recurrenceType;
+        if (req.body.recurrenceDays !== undefined) task.recurrenceDays = req.body.recurrenceDays;
         
         const updatedTask = await task.save();
         

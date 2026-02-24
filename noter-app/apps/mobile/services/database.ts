@@ -69,6 +69,11 @@ export const initDatabase = async () => {
       updatedAt TEXT,
       userId TEXT,
       parentNoteId TEXT,
+      parentId TEXT,
+      clientId TEXT,
+      position REAL,
+      recurrenceType TEXT,
+      recurrenceDays TEXT,
       isSynced INTEGER DEFAULT 1
     );
     CREATE TABLE IF NOT EXISTS sync_queue (
@@ -86,6 +91,26 @@ export const initDatabase = async () => {
       await db.execAsync('ALTER TABLE tasks ADD COLUMN parentNoteId TEXT');
   } catch (e) {
       // Column likely exists
+  }
+  try {
+      await db.execAsync('ALTER TABLE tasks ADD COLUMN parentId TEXT');
+  } catch (e) {
+  }
+  try {
+      await db.execAsync('ALTER TABLE tasks ADD COLUMN clientId TEXT');
+  } catch (e) {
+  }
+  try {
+      await db.execAsync('ALTER TABLE tasks ADD COLUMN position REAL');
+  } catch (e) {
+  }
+  try {
+      await db.execAsync('ALTER TABLE tasks ADD COLUMN recurrenceType TEXT');
+  } catch (e) {
+  }
+  try {
+      await db.execAsync('ALTER TABLE tasks ADD COLUMN recurrenceDays TEXT');
+  } catch (e) {
   }
   
   try {
@@ -269,6 +294,8 @@ export const saveTaskLocal = async (task: Task, isSynced: boolean = true) => {
   const encryptedDescription = task.description ? encrypt(task.description) : '';
   const encryptedPriority = encrypt(task.priority);
   const encryptedCompleted = encrypt(String(task.completed));
+  const encryptedRecurrenceType = task.recurrenceType ? encrypt(task.recurrenceType) : '';
+  const encryptedRecurrenceDays = task.recurrenceDays ? encrypt(JSON.stringify(task.recurrenceDays)) : '';
   
   const createdAt = toIsoString(task.createdAt);
   const updatedAt = toIsoString(task.updatedAt);
@@ -280,8 +307,8 @@ export const saveTaskLocal = async (task: Task, isSynced: boolean = true) => {
   }
 
   await db.runAsync(
-    `INSERT OR REPLACE INTO tasks (_id, title, description, priority, completed, dueDate, createdAt, updatedAt, userId, parentNoteId, isSynced)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO tasks (_id, title, description, priority, completed, dueDate, createdAt, updatedAt, userId, parentNoteId, parentId, clientId, position, recurrenceType, recurrenceDays, isSynced)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       task._id,
       encryptedTitle,
@@ -293,6 +320,11 @@ export const saveTaskLocal = async (task: Task, isSynced: boolean = true) => {
       updatedAt.toString(),
       task.userId,
       task.parentNoteId || null,
+      task.parentId || null,
+      task.clientId || null,
+      typeof task.position === 'number' ? task.position : null,
+      encryptedRecurrenceType,
+      encryptedRecurrenceDays,
       isSynced ? 1 : 0
     ]
   );
@@ -350,7 +382,9 @@ export const getTasksLocal = async (): Promise<Task[]> => {
         parentNoteId: row.parentNoteId,
         clientId: row.clientId,
         parentId: row.parentId,
-        position: row.position
+        position: row.position,
+        recurrenceType: row.recurrenceType ? (() => { try { return decrypt(row.recurrenceType) as any } catch { return 'none' as any } })() : 'none',
+        recurrenceDays: row.recurrenceDays ? (() => { try { return JSON.parse(decrypt(row.recurrenceDays)) } catch { return [] } })() : []
     } as unknown as Task;
   });
 };

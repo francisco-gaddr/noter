@@ -53,6 +53,8 @@ export interface Task {
   parentNoteId: string | null;
   parentId?: string | null; // For subtasks
   position?: number;
+  recurrenceType?: 'none' | 'daily' | 'weekly';
+  recurrenceDays?: number[];
   createdAt: string;
   updatedAt: string;
 }
@@ -68,6 +70,8 @@ export interface EncryptedTask {
   parentNoteId: string | null;
   parentId?: string | null;
   position?: number;
+  recurrenceType?: string;
+  recurrenceDays?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -82,6 +86,8 @@ export interface CreateTaskDto {
   parentNoteId?: string | null;
   parentId?: string | null;
   position?: number;
+  recurrenceType?: 'none' | 'daily' | 'weekly';
+  recurrenceDays?: number[];
 }
 
 export interface UpdateTaskDto {
@@ -93,6 +99,8 @@ export interface UpdateTaskDto {
   parentNoteId?: string | null;
   parentId?: string | null;
   position?: number;
+  recurrenceType?: 'none' | 'daily' | 'weekly';
+  recurrenceDays?: number[];
 }
 
 export interface User {

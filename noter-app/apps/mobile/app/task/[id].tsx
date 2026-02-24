@@ -18,6 +18,8 @@ const schema = yup.object({
   dueDate: yup.date().nullable().optional(),
   priority: yup.mixed<'low' | 'medium' | 'high'>().oneOf(['low', 'medium', 'high']).default('medium'),
   completed: yup.boolean().default(false),
+  recurrenceType: yup.mixed<'none' | 'daily' | 'weekly'>().oneOf(['none', 'daily', 'weekly']).default('none'),
+  recurrenceDays: yup.array().of(yup.number()).default([]),
 }).required();
 
 type FormData = yup.InferType<typeof schema>;
@@ -70,8 +72,22 @@ export default function TaskEditorScreen() {
       dueDate: routeDueDate ? new Date(routeDueDate) : null,
       priority: 'medium',
       completed: false,
+      recurrenceType: 'none',
+      recurrenceDays: [],
     },
   });
+  const recurrenceType = watch('recurrenceType');
+  const recurrenceDays = watch('recurrenceDays');
+  const weekDays = [
+    { value: 1, label: 'Mån' },
+    { value: 2, label: 'Tis' },
+    { value: 3, label: 'Ons' },
+    { value: 4, label: 'Tor' },
+    { value: 5, label: 'Fre' },
+    { value: 6, label: 'Lör' },
+    { value: 0, label: 'Sön' },
+  ];
+  const normalizeDays = (days?: (number | undefined)[]) => (days || []).filter((d): d is number => typeof d === 'number');
   
   const [selectedListId, setSelectedListId] = useState<string | null>(
     typeof routeParentId === 'string' && routeParentId !== 'all' ? routeParentId : null
@@ -85,6 +101,8 @@ export default function TaskEditorScreen() {
       setValue('dueDate', existingTask.dueDate ? new Date(existingTask.dueDate) : null);
       setValue('priority', existingTask.priority);
       setValue('completed', existingTask.completed);
+      setValue('recurrenceType', existingTask.recurrenceType || 'none');
+      setValue('recurrenceDays', existingTask.recurrenceDays || []);
       setSelectedListId(existingTask.parentNoteId || null);
       setInitialized(true);
     }
@@ -102,6 +120,8 @@ export default function TaskEditorScreen() {
         dueDate: data.dueDate ? data.dueDate.toISOString() : null,
         priority: data.priority,
         completed: data.completed,
+        recurrenceType: data.recurrenceType,
+        recurrenceDays: data.recurrenceType === 'weekly' ? normalizeDays(data.recurrenceDays) : [],
       };
       await updateTask(id!, dto);
       setLastSaved(new Date());
@@ -149,6 +169,8 @@ export default function TaskEditorScreen() {
           priority: data.priority,
           completed: data.completed,
           parentNoteId: selectedListId || null,
+          recurrenceType: data.recurrenceType,
+          recurrenceDays: data.recurrenceType === 'weekly' ? normalizeDays(data.recurrenceDays) : [],
         };
         // await createTask to ensure optimistic update happens before nav
         // and to keep submitting state true
@@ -162,6 +184,8 @@ export default function TaskEditorScreen() {
           priority: data.priority,
           completed: data.completed,
           parentNoteId: selectedListId || null,
+          recurrenceType: data.recurrenceType,
+          recurrenceDays: data.recurrenceType === 'weekly' ? normalizeDays(data.recurrenceDays) : [],
         };
         await updateTask(id!, dto);
         router.back();
@@ -373,6 +397,50 @@ export default function TaskEditorScreen() {
               />
             )}
           />
+        </View>
+
+        <View style={styles.section}>
+          <Text variant="titleMedium" style={styles.sectionTitle}>Återkommande</Text>
+          <Controller
+            control={control}
+            name="recurrenceType"
+            render={({ field: { onChange, value } }) => (
+              <SegmentedButtons
+                value={value || 'none'}
+                onValueChange={(next) => {
+                  onChange(next);
+                  if (next !== 'weekly') {
+                    setValue('recurrenceDays', []);
+                  }
+                }}
+                buttons={[
+                  { value: 'none', label: 'Ingen' },
+                  { value: 'daily', label: 'Dagligen' },
+                  { value: 'weekly', label: 'Veckovis' },
+                ]}
+              />
+            )}
+          />
+          {recurrenceType === 'weekly' && (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 }}>
+              {weekDays.map((day) => (
+                <Button
+                  key={day.value}
+                  mode={recurrenceDays?.includes(day.value) ? 'contained' : 'outlined'}
+                  onPress={() => {
+                    const current = Array.isArray(recurrenceDays) ? recurrenceDays : [];
+                    const next = current.includes(day.value)
+                      ? current.filter(d => d !== day.value)
+                      : [...current, day.value];
+                    setValue('recurrenceDays', next);
+                  }}
+                  style={{ marginRight: 8, marginBottom: 8 }}
+                >
+                  {day.label}
+                </Button>
+              ))}
+            </View>
+          )}
         </View>
 
         <View style={styles.section}>

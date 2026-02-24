@@ -31,7 +31,23 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   const [dueDate, setDueDate] = useState('');
   const [completed, setCompleted] = useState(false);
   const [selectedListId, setSelectedListId] = useState<string>('');
+  const [recurrenceType, setRecurrenceType] = useState<'none' | 'daily' | 'weekly'>('none');
+  const [recurrenceDays, setRecurrenceDays] = useState<number[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const recurrenceOptions = [
+    { value: 'none', label: 'Ingen' },
+    { value: 'daily', label: 'Dagligen' },
+    { value: 'weekly', label: 'Veckovis' },
+  ];
+  const weekDays = [
+    { value: 1, label: 'Mån' },
+    { value: 2, label: 'Tis' },
+    { value: 3, label: 'Ons' },
+    { value: 4, label: 'Tor' },
+    { value: 5, label: 'Fre' },
+    { value: 6, label: 'Lör' },
+    { value: 0, label: 'Sön' },
+  ];
 
   useEffect(() => {
     if (isOpen) {
@@ -43,6 +59,8 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
             setDueDate(formattedDate || '');
             setCompleted(task.completed);
             setSelectedListId(task.parentNoteId || '');
+            setRecurrenceType(task.recurrenceType || 'none');
+            setRecurrenceDays(task.recurrenceDays || []);
         } else {
             // Reset for new task
             setTitle('');
@@ -58,6 +76,8 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
             }
             setCompleted(false);
             setSelectedListId('');
+            setRecurrenceType('none');
+            setRecurrenceDays([]);
         }
     }
   }, [task, isOpen, initialDate]);
@@ -85,7 +105,9 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
             priority,
             completed,
             dueDate: dueDate ? new Date(dueDate).toISOString() : null,
-            parentNoteId: selectedListId || null
+            parentNoteId: selectedListId || null,
+            recurrenceType,
+            recurrenceDays: recurrenceType === 'weekly' ? recurrenceDays : []
         });
       } else if (onCreate) {
          await onCreate({
@@ -94,7 +116,9 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
             priority,
             completed,
             dueDate: dueDate ? new Date(dueDate).toISOString() : null,
-            parentNoteId: selectedListId || null
+            parentNoteId: selectedListId || null,
+            recurrenceType,
+            recurrenceDays: recurrenceType === 'weekly' ? recurrenceDays : []
          });
       }
       onClose();
@@ -186,6 +210,44 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                 />
              </div>
           </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Återkommande</label>
+            <select
+              value={recurrenceType}
+              onChange={(e) => {
+                const next = e.target.value as 'none' | 'daily' | 'weekly';
+                setRecurrenceType(next);
+                if (next !== 'weekly') {
+                  setRecurrenceDays([]);
+                }
+              }}
+              className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            >
+              {recurrenceOptions.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {recurrenceType === 'weekly' && (
+            <div className="flex flex-wrap gap-2">
+              {weekDays.map(day => (
+                <label key={day.value} className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+                  <input
+                    type="checkbox"
+                    checked={recurrenceDays.includes(day.value)}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setRecurrenceDays(prev => checked ? [...prev, day.value] : prev.filter(d => d !== day.value));
+                    }}
+                    className="w-4 h-4"
+                  />
+                  {day.label}
+                </label>
+              ))}
+            </div>
+          )}
           
            <div className="flex items-center gap-2">
                 <input

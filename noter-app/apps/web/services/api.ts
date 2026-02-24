@@ -254,6 +254,20 @@ export const api = {
           return null;
         }
       })() : null,
+      recurrenceType: task.recurrenceType ? (() => {
+        try {
+          return decrypt(task.recurrenceType) as any;
+        } catch {
+          return 'none' as any;
+        }
+      })() : 'none',
+      recurrenceDays: task.recurrenceDays ? (() => {
+        try {
+          return JSON.parse(decrypt(task.recurrenceDays));
+        } catch {
+          return [];
+        }
+      })() : [],
       createdAt: decrypt(task.createdAt),
       updatedAt: decrypt(task.updatedAt),
       position: task.position ? (() => {
@@ -276,6 +290,8 @@ export const api = {
       completed: encrypt(String(data.completed || false)),
       priority: encrypt(data.priority || 'medium'),
       dueDate: data.dueDate ? encrypt(new Date(data.dueDate).toISOString()) : '',
+      recurrenceType: data.recurrenceType ? encrypt(data.recurrenceType) : '',
+      recurrenceDays: data.recurrenceDays ? encrypt(JSON.stringify(data.recurrenceDays)) : '',
       createdAt: encrypt(new Date().toISOString()),
       updatedAt: encrypt(new Date().toISOString()),
       position: data.position !== undefined ? encrypt(String(data.position)) : encrypt('0'),
@@ -302,6 +318,20 @@ export const api = {
           return null;
         }
       })() : null,
+      recurrenceType: task.recurrenceType ? (() => {
+        try {
+          return decrypt(task.recurrenceType) as any;
+        } catch {
+          return 'none' as any;
+        }
+      })() : 'none',
+      recurrenceDays: task.recurrenceDays ? (() => {
+        try {
+          return JSON.parse(decrypt(task.recurrenceDays));
+        } catch {
+          return [];
+        }
+      })() : [],
       createdAt: decrypt(task.createdAt),
       updatedAt: decrypt(task.updatedAt),
       position: task.position ? (() => {
@@ -318,11 +348,19 @@ export const api = {
 
   async updateTask(id: string, data: UpdateTaskDto): Promise<Task> {
     const encryptedData = { ...data } as any;
-    if (data.title) encryptedData.title = encrypt(data.title);
-    if (data.description) encryptedData.description = encrypt(data.description);
+    if (data.title !== undefined) encryptedData.title = encrypt(data.title);
+    if (data.description !== undefined) encryptedData.description = encrypt(data.description || '');
     if (data.completed !== undefined) encryptedData.completed = encrypt(String(data.completed));
-    if (data.priority) encryptedData.priority = encrypt(data.priority);
-    if (data.dueDate) encryptedData.dueDate = encrypt(new Date(data.dueDate).toISOString());
+    if (data.priority !== undefined) encryptedData.priority = encrypt(data.priority);
+    if (data.dueDate !== undefined) {
+      encryptedData.dueDate = data.dueDate ? encrypt(new Date(data.dueDate).toISOString()) : '';
+    }
+    if (data.recurrenceType !== undefined) {
+      encryptedData.recurrenceType = data.recurrenceType ? encrypt(data.recurrenceType) : '';
+    }
+    if (data.recurrenceDays !== undefined) {
+      encryptedData.recurrenceDays = data.recurrenceDays ? encrypt(JSON.stringify(data.recurrenceDays)) : '';
+    }
     encryptedData.updatedAt = encrypt(new Date().toISOString());
     if (data.position !== undefined) encryptedData.position = encrypt(String(data.position));
 
@@ -347,6 +385,20 @@ export const api = {
           return null;
         }
       })() : null,
+      recurrenceType: task.recurrenceType ? (() => {
+        try {
+          return decrypt(task.recurrenceType) as any;
+        } catch {
+          return 'none' as any;
+        }
+      })() : 'none',
+      recurrenceDays: task.recurrenceDays ? (() => {
+        try {
+          return JSON.parse(decrypt(task.recurrenceDays));
+        } catch {
+          return [];
+        }
+      })() : [],
       createdAt: decrypt(task.createdAt),
       updatedAt: decrypt(task.updatedAt),
       position: task.position ? (() => {

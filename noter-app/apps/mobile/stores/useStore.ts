@@ -129,6 +129,38 @@ const parseTaskPriority = (value: unknown): 'low' | 'medium' | 'high' => {
   return 'medium';
 };
 
+const getNextRecurringDueDate = (task: Task): string | null => {
+  const recurrenceType = task.recurrenceType ?? 'none';
+  if (recurrenceType === 'none') return null;
+
+  const base = task.dueDate ? new Date(task.dueDate) : new Date();
+  if (recurrenceType === 'daily') {
+    const next = new Date(base);
+    next.setDate(base.getDate() + 1);
+    return next.toISOString();
+  }
+
+  if (recurrenceType === 'weekly') {
+    const days = Array.isArray(task.recurrenceDays) && task.recurrenceDays.length > 0
+      ? task.recurrenceDays
+      : [base.getDay()];
+    const sorted = [...days].sort((a, b) => a - b);
+    const currentDay = base.getDay();
+    const nextDay = sorted.find(d => d > currentDay);
+    const next = new Date(base);
+    if (nextDay === undefined) {
+      const first = sorted[0];
+      const daysUntil = (7 - currentDay) + first;
+      next.setDate(base.getDate() + daysUntil);
+    } else {
+      next.setDate(base.getDate() + (nextDay - currentDay));
+    }
+    return next.toISOString();
+  }
+
+  return null;
+};
+
 const processApiTask = (task: any): Task => ({
   ...(task as Task),
   title: decrypt(task.title),
@@ -136,6 +168,8 @@ const processApiTask = (task: any): Task => ({
   completed: parseTaskCompleted(task.completed),
   priority: parseTaskPriority(task.priority),
   dueDate: task.dueDate ? (typeof task.dueDate === 'string' ? decrypt(task.dueDate) : task.dueDate) : null,
+  recurrenceType: task.recurrenceType ? (() => { try { return decrypt(task.recurrenceType) as any } catch { return 'none' as any } })() : 'none',
+  recurrenceDays: task.recurrenceDays ? (() => { try { return JSON.parse(decrypt(task.recurrenceDays)) } catch { return [] } })() : [],
   createdAt: decrypt(task.createdAt),
   updatedAt: decrypt(task.updatedAt),
   position: task.position ? (() => {
@@ -369,12 +403,20 @@ export const useStore = create<AppState>((set, get) => ({
       });
     });
 
-    socket.on('tasks:reordered', (reorderedTasks: { _id: string; position: number }[]) => {
+    socket.on('tasks:reordered', (reorderedTasks: { _id: string; position: any }[]) => {
       set(state => {
         const newTasks = state.tasks.map(t => {
           const update = reorderedTasks.find(rt => rt._id === t._id);
           if (update) {
-            const updated = { ...t, position: update.position };
+            let nextPosition = 0;
+            try {
+              const decrypted = decrypt(String(update.position));
+              const num = Number(decrypted);
+              nextPosition = isNaN(num) ? 0 : num;
+            } catch {
+              nextPosition = 0;
+            }
+            const updated = { ...t, position: nextPosition };
             Database.saveTaskLocal(updated, true);
             return updated;
           }
@@ -484,8 +526,8 @@ export const useStore = create<AppState>((set, get) => ({
       icon: data.icon,
       order: data.order,
       type: data.type || 'note',
-      createdAt: encrypt(new Date().toISOString()),
-      updatedAt: encrypt(new Date().toISOString()),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
       clientId, 
     };
 
@@ -570,7 +612,7 @@ export const useStore = create<AppState>((set, get) => ({
         ...(data.icon !== undefined ? { icon: data.icon } : {}),
         ...(data.order !== undefined ? { order: data.order } : {}),
         ...(data.type !== undefined ? { type: data.type } : {}),
-        updatedAt: encrypt(new Date().toISOString())
+        updatedAt: new Date().toISOString()
     };
 
     // 2. Update State
@@ -585,10 +627,10 @@ export const useStore = create<AppState>((set, get) => ({
 
       // 4. Encrypt
       const encryptedData: any = { ...data };
-      if (data.title) encryptedData.title = encrypt(data.title);
-      if (data.content) encryptedData.content = encrypt(data.content);
-      if (data.tags) encryptedData.tags = data.tags.map((t: string) => encrypt(t));
-      if (data.icon) encryptedData.icon = encrypt(data.icon);
+      if (data.title !== undefined) encryptedData.title = encrypt(data.title);
+      if (data.content !== undefined) encryptedData.content = encrypt(data.content);
+      if (data.tags !== undefined) encryptedData.tags = data.tags.map((t: string) => encrypt(t));
+      if (data.icon !== undefined) encryptedData.icon = data.icon ? encrypt(data.icon) : '';
       if (data.type !== undefined) encryptedData.type = encrypt(data.type);
       if (data.locked !== undefined) encryptedData.locked = encrypt(String(data.locked));
       // Always update updatedAt
@@ -746,6 +788,8 @@ export const useStore = create<AppState>((set, get) => ({
       parentNoteId: data.parentNoteId ?? null,
       parentId: data.parentId ?? null,
       position: data.position ?? 0,
+      recurrenceType: data.recurrenceType ?? 'none',
+      recurrenceDays: data.recurrenceDays ?? [],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       clientId, 
@@ -769,6 +813,8 @@ export const useStore = create<AppState>((set, get) => ({
         completed: encrypt(String(data.completed || false)),
         priority: encrypt(data.priority || 'medium'),
         dueDate: data.dueDate ? encrypt(new Date(data.dueDate).toISOString()) : '',
+        recurrenceType: data.recurrenceType ? encrypt(data.recurrenceType) : '',
+        recurrenceDays: data.recurrenceDays ? encrypt(JSON.stringify(data.recurrenceDays)) : '',
         createdAt: encrypt(new Date().toISOString()),
         updatedAt: encrypt(new Date().toISOString()),
         position: data.position !== undefined ? encrypt(String(data.position)) : encrypt('0'),
@@ -849,7 +895,26 @@ export const useStore = create<AppState>((set, get) => ({
     if (data.dueDate !== undefined) optimisticTask.dueDate = data.dueDate;
     if (data.position !== undefined) optimisticTask.position = data.position;
     if (data.parentNoteId !== undefined) optimisticTask.parentNoteId = data.parentNoteId;
+    if (data.recurrenceType !== undefined) optimisticTask.recurrenceType = data.recurrenceType;
+    if (data.recurrenceDays !== undefined) optimisticTask.recurrenceDays = data.recurrenceDays;
     optimisticTask.updatedAt = new Date().toISOString();
+
+    const shouldCreateNext = data.completed === true && !currentTask.completed;
+    if (shouldCreateNext && optimisticTask.recurrenceType && optimisticTask.recurrenceType !== 'none') {
+      const nextDueDate = getNextRecurringDueDate(optimisticTask);
+      if (nextDueDate) {
+        await get().createTask({
+          title: optimisticTask.title,
+          description: optimisticTask.description,
+          dueDate: nextDueDate,
+          priority: optimisticTask.priority,
+          completed: false,
+          parentNoteId: optimisticTask.parentNoteId,
+          recurrenceType: optimisticTask.recurrenceType,
+          recurrenceDays: optimisticTask.recurrenceDays,
+        });
+      }
+    }
 
     // 2. Update State immediately
     set((state) => ({
@@ -872,6 +937,12 @@ export const useStore = create<AppState>((set, get) => ({
       if (data.priority !== undefined) encryptedData.priority = encrypt(data.priority);
       if (data.dueDate !== undefined) {
         encryptedData.dueDate = data.dueDate ? encrypt(toIso(data.dueDate)) : '';
+      }
+      if (data.recurrenceType !== undefined) {
+        encryptedData.recurrenceType = data.recurrenceType ? encrypt(data.recurrenceType) : '';
+      }
+      if (data.recurrenceDays !== undefined) {
+        encryptedData.recurrenceDays = data.recurrenceDays ? encrypt(JSON.stringify(data.recurrenceDays)) : '';
       }
       encryptedData.updatedAt = encrypt(new Date().toISOString());
       if (data.position !== undefined) encryptedData.position = encrypt(String(data.position));
@@ -977,7 +1048,7 @@ export const useStore = create<AppState>((set, get) => ({
     };
 
     const newPositions = new Map<string, number>();
-    const payload: { _id: string; position: number }[] = [];
+    const payload: { _id: string; position: string }[] = [];
 
     for (const [key, subset] of grouped.entries()) {
       const parentNoteId = key === '__null__' ? null : key;

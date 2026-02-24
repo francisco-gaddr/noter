@@ -20,7 +20,9 @@ const noteSchema = Joi.object({
   icon: Joi.string().allow(null, ''),
   order: Joi.number(),
   type: Joi.string().allow('note', 'task_list', 'project').default('note'),
-  clientId: Joi.string().allow('').optional()
+  clientId: Joi.string().allow('').optional(),
+  createdAt: Joi.string().allow(''),
+  updatedAt: Joi.string().allow('')
 });
 
 const updateSchema = Joi.object({
@@ -32,7 +34,9 @@ const updateSchema = Joi.object({
   password: Joi.string().allow(''),
   icon: Joi.string().allow(null, ''),
   order: Joi.number(),
-  type: Joi.string().allow(null, '')
+  type: Joi.string().allow(null, ''),
+  createdAt: Joi.string().allow(''),
+  updatedAt: Joi.string().allow('')
 });
 
 const reorderSchema = Joi.object({
@@ -190,14 +194,6 @@ router.post('/', validate(noteSchema), async (req: Request, res: Response, next:
       noteData.password = await bcrypt.hash(noteData.password, 10);
     }
 
-    // Handle encrypted timestamps if not provided
-    if (!noteData.createdAt) {
-      noteData.createdAt = new Date().toISOString();
-    }
-    if (!noteData.updatedAt) {
-      noteData.updatedAt = new Date().toISOString();
-    }
-
     const note = new Note(noteData);
     const createdNote = await note.save();
     
@@ -259,9 +255,9 @@ router.put('/:id', validate(updateSchema), async (req: Request, res: Response, n
     const note = await Note.findById(req.params.id);
 
     if (note) {
-      if (value.title) note.title = value.title;
+      if (value.title !== undefined) note.title = value.title;
       if (value.content !== undefined) note.content = value.content;
-      if (value.tags) note.tags = value.tags;
+      if (value.tags !== undefined) note.tags = value.tags;
       if (value.parentId !== undefined) note.parentId = value.parentId;
       if (value.locked !== undefined) note.locked = value.locked; // Now stored as encrypted string
       if (value.type !== undefined) note.type = value.type;

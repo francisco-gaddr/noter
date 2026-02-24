@@ -40,6 +40,38 @@ const parseTaskPriority = (value: unknown): 'low' | 'medium' | 'high' => {
   return 'medium';
 };
 
+const getNextRecurringDueDate = (task: Task): string | null => {
+  const recurrenceType = task.recurrenceType ?? 'none';
+  if (recurrenceType === 'none') return null;
+
+  const base = task.dueDate ? new Date(task.dueDate) : new Date();
+  if (recurrenceType === 'daily') {
+    const next = new Date(base);
+    next.setDate(base.getDate() + 1);
+    return next.toISOString();
+  }
+
+  if (recurrenceType === 'weekly') {
+    const days = Array.isArray(task.recurrenceDays) && task.recurrenceDays.length > 0
+      ? task.recurrenceDays
+      : [base.getDay()];
+    const sorted = [...days].sort((a, b) => a - b);
+    const currentDay = base.getDay();
+    const nextDay = sorted.find(d => d > currentDay);
+    const next = new Date(base);
+    if (nextDay === undefined) {
+      const first = sorted[0] ?? currentDay;
+      const daysUntil = (7 - currentDay) + first;
+      next.setDate(base.getDate() + daysUntil);
+    } else {
+      next.setDate(base.getDate() + (nextDay - currentDay));
+    }
+    return next.toISOString();
+  }
+
+  return null;
+};
+
 const parseNoteLocked = (value: unknown): boolean => {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'number') return value === 1;
@@ -109,7 +141,7 @@ interface StoreState {
   unlockNote: (id: string, password: string) => Promise<boolean>;
   deleteNote: (id: string) => Promise<void>;
   
-  createTask: (title: string, parentNoteId?: string, dueDate?: string | null, options?: { description?: string; priority?: 'low' | 'medium' | 'high' }) => Promise<void>;
+  createTask: (title: string, parentNoteId?: string, dueDate?: string | null, options?: { description?: string; priority?: 'low' | 'medium' | 'high'; recurrenceType?: 'none' | 'daily' | 'weekly'; recurrenceDays?: number[] }) => Promise<void>;
   updateTask: (id: string, data: UpdateTaskDto) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
   reorderTasks: (tasks: Task[]) => Promise<void>;
@@ -365,7 +397,17 @@ export const useStore = create<StoreState>((set, get) => ({
             priority: parseTaskPriority(newTask.priority),
             createdAt: decrypt(newTask.createdAt),
             updatedAt: decrypt(newTask.updatedAt),
-            position: parseInt(decrypt(newTask.position), 10)
+            position: (() => {
+                try {
+                    const decrypted = decrypt(String(newTask.position));
+                    const num = Number(decrypted);
+                    return isNaN(num) ? 0 : num;
+                } catch {
+                    return 0;
+                }
+            })(),
+            recurrenceType: newTask.recurrenceType ? (() => { try { return decrypt(newTask.recurrenceType) as any } catch { return 'none' as any } })() : 'none',
+            recurrenceDays: newTask.recurrenceDays ? (() => { try { return JSON.parse(decrypt(newTask.recurrenceDays)) } catch { return [] } })() : [],
         };
         set(state => {
             const exists = state.tasks.some(t => t._id === decryptedTask._id);
@@ -390,7 +432,17 @@ export const useStore = create<StoreState>((set, get) => ({
             priority: parseTaskPriority(updatedTask.priority),
             createdAt: decrypt(updatedTask.createdAt),
             updatedAt: decrypt(updatedTask.updatedAt),
-            position: parseInt(decrypt(updatedTask.position), 10)
+            position: (() => {
+                try {
+                    const decrypted = decrypt(String(updatedTask.position));
+                    const num = Number(decrypted);
+                    return isNaN(num) ? 0 : num;
+                } catch {
+                    return 0;
+                }
+            })(),
+            recurrenceType: updatedTask.recurrenceType ? (() => { try { return decrypt(updatedTask.recurrenceType) as any } catch { return 'none' as any } })() : 'none',
+            recurrenceDays: updatedTask.recurrenceDays ? (() => { try { return JSON.parse(decrypt(updatedTask.recurrenceDays)) } catch { return [] } })() : [],
         };
         set(state => ({
             tasks: state.tasks.map(t => t._id === decryptedTask._id ? decryptedTask : t)
@@ -407,12 +459,20 @@ export const useStore = create<StoreState>((set, get) => ({
     });
 
     socket.off('tasks:reordered');
-    socket.on('tasks:reordered', (reorderedTasks: { _id: string; position: number }[]) => {
+    socket.on('tasks:reordered', (reorderedTasks: { _id: string; position: any }[]) => {
         set(state => {
             const newTasks = state.tasks.map(t => {
                 const update = reorderedTasks.find(rt => rt._id === t._id);
                 if (update) {
-                    return { ...t, position: update.position };
+                    let nextPosition = 0;
+                    try {
+                        const decrypted = decrypt(String(update.position));
+                        const num = Number(decrypted);
+                        nextPosition = isNaN(num) ? 0 : num;
+                    } catch {
+                        nextPosition = 0;
+                    }
+                    return { ...t, position: nextPosition };
                 }
                 return t;
             });
@@ -486,7 +546,9 @@ export const useStore = create<StoreState>((set, get) => ({
                       description: task.description,
                       priority: task.priority,
                       dueDate: task.dueDate,
-                      clientId: task.clientId
+                      clientId: task.clientId,
+                      recurrenceType: task.recurrenceType,
+                      recurrenceDays: task.recurrenceDays
                   });
                   set(state => ({
                       tasks: state.tasks.map(t => t._id === task._id ? created : t)
@@ -499,7 +561,9 @@ export const useStore = create<StoreState>((set, get) => ({
                       completed: task.completed,
                       description: task.description,
                       priority: task.priority,
-                      dueDate: task.dueDate
+                      dueDate: task.dueDate,
+                      recurrenceType: task.recurrenceType,
+                      recurrenceDays: task.recurrenceDays
                   });
                   await db.saveTask(task, false);
               }
@@ -684,8 +748,8 @@ export const useStore = create<StoreState>((set, get) => ({
           icon: icon,
           order: order ?? 0,
           type,
-          createdAt: encrypt(new Date().toISOString()),
-          updatedAt: encrypt(new Date().toISOString()),
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
       } as Note;
       set((state) => ({
         notes: [tempNote, ...state.notes],
@@ -710,7 +774,7 @@ export const useStore = create<StoreState>((set, get) => ({
                 ...(password !== undefined ? { password } : {}),
                 ...(icon !== undefined ? { icon } : {}),
                 ...(type !== undefined ? { type: type as any } : {}),
-                updatedAt: encrypt(new Date().toISOString()) // Encrypt timestamp
+                updatedAt: new Date().toISOString()
             };
         }
         return n;
@@ -735,7 +799,7 @@ export const useStore = create<StoreState>((set, get) => ({
       if (password !== undefined) payload.password = password;
       if (icon !== undefined) payload.icon = icon;
       if (type !== undefined) payload.type = type;
-      payload.updatedAt = encrypt(new Date().toISOString()); // Encrypt timestamp
+      payload.updatedAt = encrypt(new Date().toISOString());
 
       const updatedNote = await api.updateNote(id, payload);
       set((state) => ({
@@ -751,7 +815,7 @@ export const useStore = create<StoreState>((set, get) => ({
   moveNote: async (id, parentId, order) => {
       // Optimistic
       set((state) => ({
-          notes: state.notes.map(n => n._id === id ? { ...n, parentId, order, updatedAt: encrypt(new Date().toISOString()) } : n)
+          notes: state.notes.map(n => n._id === id ? { ...n, parentId, order, updatedAt: new Date().toISOString() } : n)
       }));
 
       const currentNote = get().notes.find(n => n._id === id);
@@ -765,7 +829,7 @@ export const useStore = create<StoreState>((set, get) => ({
           await api.updateNote(id, { parentId, order });
           // Note: api.updateNote returns the full note, so we could update state with it
           // But we already did optimistic.
-          const updatedNote = { ...currentNote!, parentId, order, updatedAt: encrypt(new Date().toISOString()) };
+          const updatedNote = { ...currentNote!, parentId, order, updatedAt: new Date().toISOString() };
            await db.saveNote(updatedNote, false);
       } catch (error: any) {
           set({ error: error.message });
@@ -824,10 +888,19 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
 
-  createTask: async (title, parentNoteId, dueDate) => {
+  createTask: async (title, parentNoteId, dueDate, options) => {
       const clientId = getUUID();
       try {
-          const newTask = await api.createTask({ title, parentNoteId, priority: 'medium', clientId, dueDate: dueDate || null });
+          const newTask = await api.createTask({ 
+              title, 
+              parentNoteId, 
+              priority: options?.priority || 'medium', 
+              description: options?.description || '',
+              clientId, 
+              dueDate: dueDate || null,
+              recurrenceType: options?.recurrenceType,
+              recurrenceDays: options?.recurrenceDays
+          });
           set(state => ({ 
               tasks: uniqBy([newTask, ...state.tasks], '_id'),
               pendingCreated: { 
@@ -851,12 +924,14 @@ export const useStore = create<StoreState>((set, get) => ({
               userId: 'local',
               clientId,
               title,
-              description: '',
+              description: options?.description || '',
               dueDate: dueDate || null,
               parentNoteId,
               completed: false,
-              priority: 'medium',
+              priority: options?.priority || 'medium',
               position: 0,
+              recurrenceType: options?.recurrenceType || 'none',
+              recurrenceDays: options?.recurrenceDays || [],
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
           } as Task;
@@ -872,6 +947,27 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   updateTask: async (id, data) => {
+      const previousTask = get().tasks.find(t => t._id === id);
+      const mergedTask = previousTask ? { ...previousTask, ...data } as Task : null;
+      const shouldCreateNext = data.completed === true && previousTask && !previousTask.completed;
+
+      if (shouldCreateNext && mergedTask && mergedTask.recurrenceType && mergedTask.recurrenceType !== 'none') {
+          const nextDueDate = getNextRecurringDueDate(mergedTask);
+          if (nextDueDate) {
+              await get().createTask(
+                  mergedTask.title,
+                  mergedTask.parentNoteId || undefined,
+                  nextDueDate,
+                  {
+                      description: mergedTask.description,
+                      priority: mergedTask.priority,
+                      recurrenceType: mergedTask.recurrenceType,
+                      recurrenceDays: mergedTask.recurrenceDays
+                  }
+              );
+          }
+      }
+
       // Optimistic
       set(state => ({
           tasks: state.tasks.map(t => t._id === id ? { ...t, ...data, updatedAt: new Date().toISOString() } : t)

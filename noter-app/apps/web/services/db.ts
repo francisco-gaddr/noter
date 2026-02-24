@@ -151,6 +151,15 @@ export const db = {
       completed: parseTaskCompleted((t as any).completed),
       priority: parseTaskPriority((t as any).priority),
       dueDate: t.dueDate || null,
+      recurrenceType: t.recurrenceType ? (() => { try { return decrypt(t.recurrenceType) as any } catch { return 'none' as any } })() : 'none',
+      recurrenceDays: t.recurrenceDays ? (() => { 
+        try { 
+          if (typeof t.recurrenceDays === 'string') return JSON.parse(decrypt(t.recurrenceDays)); 
+          return Array.isArray(t.recurrenceDays) ? t.recurrenceDays : [];
+        } catch { 
+          return []; 
+        } 
+      })() : [],
       createdAt: t.createdAt,
       updatedAt: t.updatedAt
     }));
@@ -164,6 +173,8 @@ export const db = {
         description: encrypt(task.description || ''),
         completed: encrypt(String(task.completed)),
         priority: encrypt(task.priority),
+        recurrenceType: task.recurrenceType ? encrypt(task.recurrenceType) : '',
+        recurrenceDays: task.recurrenceDays ? encrypt(JSON.stringify(task.recurrenceDays)) : '',
         pendingSync
     };
     await db.put('tasks', encrypted as any);
@@ -193,6 +204,15 @@ export const db = {
       completed: parseTaskCompleted((t as any).completed),
       priority: parseTaskPriority((t as any).priority),
       dueDate: t.dueDate ? (() => { try { return new Date(decrypt(t.dueDate)).toISOString() } catch { return t.dueDate } })() : null,
+      recurrenceType: t.recurrenceType ? (() => { try { return decrypt(t.recurrenceType) as any } catch { return 'none' as any } })() : 'none',
+      recurrenceDays: t.recurrenceDays ? (() => { 
+        try { 
+          if (typeof t.recurrenceDays === 'string') return JSON.parse(decrypt(t.recurrenceDays)); 
+          return Array.isArray(t.recurrenceDays) ? t.recurrenceDays : [];
+        } catch { 
+          return []; 
+        } 
+      })() : [],
     }));
   }
 };
