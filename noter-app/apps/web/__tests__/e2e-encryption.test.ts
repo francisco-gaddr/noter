@@ -102,8 +102,10 @@ describe('E2E Encryption Tests', () => {
 
       const result = await api.fetchNotes();
 
-      expect(result[0].locked).toBe(true); // Should be decrypted to boolean
-      expect(result[1].locked).toBe(false); // Should be decrypted to boolean
+      const first = result[0]!;
+      const second = result[1]!;
+      expect(first.locked).toBe(true);
+      expect(second.locked).toBe(false);
     });
 
     it('should decrypt timestamp fields correctly', async () => {
@@ -128,8 +130,9 @@ describe('E2E Encryption Tests', () => {
 
       const result = await api.fetchNotes();
 
-      expect(result[0].createdAt).toBe(now);
-      expect(result[0].updatedAt).toBe(now);
+      const first = result[0]!;
+      expect(first.createdAt).toBe(now);
+      expect(first.updatedAt).toBe(now);
     });
   });
 
@@ -153,10 +156,10 @@ describe('E2E Encryption Tests', () => {
 
       const result = await api.fetchNotes();
 
-      // Should handle decryption errors gracefully
-      expect(result[0].locked).toBe(false); // Default fallback
-      expect(result[0].createdAt).toBe('invalid-encrypted-data'); // Should return original if decryption fails
-      expect(result[0].updatedAt).toBe('invalid-encrypted-data'); // Should return original if decryption fails
+      const first = result[0]!;
+      expect(first.locked).toBe(false);
+      expect(first.createdAt).toBe('invalid-encrypted-data');
+      expect(first.updatedAt).toBe('invalid-encrypted-data');
     });
 
     it('should handle null/undefined encrypted fields', async () => {
@@ -178,9 +181,10 @@ describe('E2E Encryption Tests', () => {
 
       const result = await api.fetchNotes();
 
-      expect(result[0].locked).toBe(false); // Should handle null gracefully
-      expect(result[0].createdAt).toBe(null);
-      expect(result[0].updatedAt).toBe(null);
+      const first = result[0]!;
+      expect(first.locked).toBe(false);
+      expect(first.createdAt).toBe(null);
+      expect(first.updatedAt).toBe(null);
     });
   });
 
@@ -208,8 +212,9 @@ describe('E2E Encryption Tests', () => {
 
       await api.createNote(sensitiveData);
 
-      const callArgs = mockFetch.mock.calls[0];
-      const requestBody = JSON.parse(callArgs[1].body as string);
+      const callArgs = mockFetch.mock.calls[0]!;
+      const requestOptions = callArgs[1] as RequestInit;
+      const requestBody = JSON.parse(requestOptions.body as string);
 
       // All sensitive fields should be encrypted in the request
       expect(requestBody.title).not.toBe(sensitiveData.title);

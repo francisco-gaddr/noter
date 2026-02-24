@@ -1485,7 +1485,7 @@ export default function NoteEditor() {
         </div>
       </div>
       
-      <Slate key={`${selectedNoteId}:${isUnlockedLocally ? 'u' : 'l'}`} editor={editor} initialValue={loadedValue} onChange={onChange}>
+      <Slate key={`${selectedNoteId}:${isUnlockedLocally ? 'u' : 'l'}:${selectedNote?.updatedAt ?? ''}`} editor={editor} initialValue={loadedValue} onChange={onChange}>
         <Toolbar />
         <div 
             className="flex-1 overflow-y-auto w-full cursor-text" 

@@ -10,6 +10,8 @@ export default function LoginScreen() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorVisible, setErrorVisible] = useState(false);
   const router = useRouter();
   const { login } = useStore();
   const theme = useTheme();
@@ -50,6 +52,11 @@ export default function LoginScreen() {
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <Surface style={styles.card} elevation={2}>
         <Text variant="headlineMedium" style={styles.title}>Welcome Back</Text>
+        {errorVisible && errorMessage ? (
+          <Text variant="bodySmall" style={{ color: theme.colors.error, marginBottom: 10 }}>
+            {errorMessage}
+          </Text>
+        ) : null}
         
         <TextInput
           label="Username"
@@ -99,7 +106,7 @@ export default function LoginScreen() {
         <BackendUrlDialog 
             visible={showSettings}
             onDismiss={() => setShowSettings(false)}
-            currentUrl={currentApiUrl}
+            currentUrl={activeApiUrl}
             onSave={handleSaveSettings}
         />
       </Portal>

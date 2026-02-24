@@ -24,9 +24,11 @@ interface AppState {
   setActiveProject: (id: string | null) => void;
   setViewMode: (mode: 'list' | 'tree') => void;
   init: () => Promise<void>;
+  register: (username: string, password: string) => Promise<void>;
   
   // Socket Actions
   connectSocket: () => void;
+  syncViaHttp: () => Promise<void>;
 
   // Note Actions
   fetchNotes: () => Promise<void>;
@@ -67,6 +69,21 @@ const tryDecryptString = (value: unknown): any => {
   }
 };
 
+const parseNoteLocked = (value: unknown): boolean => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value === 1;
+  if (typeof value === 'string') {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    try {
+      return decrypt(value) === 'true';
+    } catch {
+      return false;
+    }
+  }
+  return false;
+};
+
 const processApiNote = (note: Note): Note => ({
   ...note,
   title: decrypt(note.title),
@@ -74,7 +91,7 @@ const processApiNote = (note: Note): Note => ({
   tags: Array.isArray((note as any).tags) ? ((note as any).tags as any[]).map((t) => tryDecryptString(t)) : [],
   icon: (note as any).icon ? tryDecryptString((note as any).icon) : (note as any).icon,
   type: (note as any).type ? tryDecryptString((note as any).type) : (note as any).type,
-  locked: note.locked ? decrypt(String(note.locked)) === 'true' : false,
+  locked: parseNoteLocked(note.locked),
   createdAt: decrypt(note.createdAt),
   updatedAt: decrypt(note.updatedAt),
 });
@@ -398,7 +415,7 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
-  register: async (username, password) => {
+  register: async (username: string, password: string) => {
     try {
       set({ isLoading: true, error: null });
       await apiRegister(username, password);
@@ -572,6 +589,7 @@ export const useStore = create<AppState>((set, get) => ({
       if (data.content) encryptedData.content = encrypt(data.content);
       if (data.tags) encryptedData.tags = data.tags.map((t: string) => encrypt(t));
       if (data.icon) encryptedData.icon = encrypt(data.icon);
+      if (data.type !== undefined) encryptedData.type = encrypt(data.type);
       if (data.locked !== undefined) encryptedData.locked = encrypt(String(data.locked));
       // Always update updatedAt
       encryptedData.updatedAt = encrypt(new Date().toISOString());

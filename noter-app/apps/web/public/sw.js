@@ -1,9 +1,9 @@
 const CACHE_NAME = 'noter-cache-v3';
 const STATIC_ASSETS = [
-  '/favicon.ico',
-  '/manifest.json',
-  '/file-text.svg',
-  '/globe.svg'
+  '/app/favicon.ico',
+  '/app/manifest.json',
+  '/app/file-text.svg',
+  '/app/globe.svg'
 ];
 
 self.addEventListener('install', (event) => {
@@ -53,7 +53,7 @@ self.addEventListener('fetch', (event) => {
 
   // Next.js Static Assets (_next/static) & Public Images: Cache First
   // These are hashed, so they don't change.
-  if (url.pathname.startsWith('/_next/static/') || url.pathname.match(/\.(png|jpg|jpeg|svg|gif|webp)$/)) {
+  if (url.pathname.startsWith('/_next/static/') || url.pathname.startsWith('/app/_next/static/') || url.pathname.match(/\.(png|jpg|jpeg|svg|gif|webp)$/)) {
     event.respondWith(
       caches.match(event.request).then((cachedResponse) => {
         if (cachedResponse) return cachedResponse;

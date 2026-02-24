@@ -1,5 +1,4 @@
 import { encrypt, decrypt } from '@repo/shared';
-import { api } from '../services/api';
 
 // Mock fetch for API tests
 global.fetch = jest.fn();

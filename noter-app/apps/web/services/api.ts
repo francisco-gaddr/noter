@@ -166,8 +166,11 @@ export const api = {
 
   async updateNote(id: string, data: UpdateNoteDto): Promise<Note> {
     const encryptedData = { ...data };
-    if (data.title) encryptedData.title = encrypt(data.title);
-    if (data.content) encryptedData.content = encrypt(data.content);
+    if (data.title !== undefined) encryptedData.title = encrypt(data.title);
+    if (data.content !== undefined) encryptedData.content = encrypt(data.content);
+    if (data.tags !== undefined) encryptedData.tags = data.tags.map((t) => encrypt(t));
+    if (data.icon !== undefined) encryptedData.icon = data.icon ? encrypt(data.icon) : undefined;
+    if (data.type !== undefined) encryptedData.type = encrypt(String(data.type)) as any;
     if (data.locked !== undefined) encryptedData.locked = encrypt(String(data.locked));
     // Always update updatedAt
     encryptedData.updatedAt = encrypt(new Date().toISOString());
@@ -182,6 +185,9 @@ export const api = {
       ...note,
       title: decrypt(note.title),
       content: decrypt(note.content),
+      tags: note.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? [],
+      icon: note.icon ? (() => { try { return decrypt(note.icon) } catch { return note.icon } })() : undefined,
+      type: note.type ? (() => { try { return decrypt(note.type) as any } catch { return note.type } })() : 'note',
       locked: note.locked ? decrypt(String(note.locked)) === 'true' : false,
       createdAt: decrypt(note.createdAt),
       updatedAt: decrypt(note.updatedAt),

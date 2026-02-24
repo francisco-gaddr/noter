@@ -52,32 +52,31 @@ export const initSocket = (token?: string | null) => {
     auth: token ? { token } : undefined
   });
 
-  if (token) socket.connect();
+  const activeSocket = socket;
+  if (!activeSocket) return null;
 
-  socket.on('connect', () => {
+  if (token) activeSocket.connect();
+
+  activeSocket.on('connect', () => {
     console.log('Socket connected');
-    // Reset reconnection delay on successful connection
-    socket.io.opts.reconnectionDelay = 1000;
+    activeSocket.io.opts.reconnectionDelay = 1000;
   });
 
-  socket.on('disconnect', (reason) => {
+  activeSocket.on('disconnect', (reason) => {
     console.log('Socket disconnected, reason:', reason);
     if (reason === 'io server disconnect') {
-      // Server forcefully disconnected, try to reconnect
       console.log('Server disconnected, attempting reconnection...');
-      setTimeout(() => socket.connect(), 1000);
+      setTimeout(() => activeSocket.connect(), 1000);
     }
   });
   
-  socket.on('connect_error', (err) => {
+  activeSocket.on('connect_error', (err) => {
     console.log(`Socket connection error to ${baseUrl}:`, err.message);
     
-    // Implement exponential backoff for reconnection
-    const currentDelay = socket.io.opts.reconnectionDelay || 1000;
-    const maxDelay = socket.io.opts.reconnectionDelayMax || 5000;
-    socket.io.opts.reconnectionDelay = Math.min(currentDelay * 1.5, maxDelay);
+    const currentDelay = activeSocket.io.opts.reconnectionDelay || 1000;
+    const maxDelay = activeSocket.io.opts.reconnectionDelayMax || 5000;
+    activeSocket.io.opts.reconnectionDelay = Math.min(currentDelay * 1.5, maxDelay);
     
-    // Log specific error types for debugging
     if (err.message.includes('xhr poll error')) {
       console.log('XHR poll error - server may be unreachable or CORS issues');
     } else if (err.message.includes('websocket error')) {
@@ -87,21 +86,19 @@ export const initSocket = (token?: string | null) => {
     }
   });
 
-  // Handle transport errors
-  socket.on('error', (err) => {
+  activeSocket.on('error', (err) => {
     console.log('Socket error:', err);
   });
 
-  // Handle reconnection attempts
-  socket.on('reconnect_attempt', (attemptNumber) => {
+  activeSocket.on('reconnect_attempt', (attemptNumber) => {
     console.log(`Socket reconnection attempt ${attemptNumber}`);
   });
 
-  socket.on('reconnect_failed', () => {
+  activeSocket.on('reconnect_failed', () => {
     console.log('Socket reconnection failed after maximum attempts');
   });
 
-  return socket;
+  return activeSocket;
 };
 
 export const getSocket = () => socket;

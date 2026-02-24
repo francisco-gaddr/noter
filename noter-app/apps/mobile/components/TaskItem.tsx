@@ -11,8 +11,10 @@ interface TaskItemProps {
   onDelete?: (task: Task) => void;
   onPress: (task: Task) => void;
   onLongPress?: () => void;
+  onDragStart?: () => void;
   disabled?: boolean;
   isActive?: boolean;
+  showDragHandle?: boolean;
 }
 
 export const TaskItem: React.FC<TaskItemProps> = ({
@@ -21,10 +23,16 @@ export const TaskItem: React.FC<TaskItemProps> = ({
   onDelete,
   onPress,
   onLongPress,
+  onDragStart,
   disabled,
   isActive,
+  showDragHandle,
 }) => {
   const theme = useTheme();
+  const handleLongPress = () => {
+    onLongPress?.();
+    onDragStart?.();
+  };
 
   const renderRightActions = (progress: any, dragX: any) => {
     const scale = dragX.interpolate({
@@ -61,7 +69,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({
     >
       <TouchableRipple
         onPress={() => onPress(task)}
-        onLongPress={onLongPress}
+          onLongPress={handleLongPress}
         disabled={disabled}
         style={[
           styles.itemContainer,
@@ -69,6 +77,9 @@ export const TaskItem: React.FC<TaskItemProps> = ({
         ]}
       >
         <View style={styles.itemRow}>
+          {showDragHandle ? (
+            <IconButton icon="drag" size={18} style={styles.dragHandle} />
+          ) : null}
           <Checkbox
             status={task.completed ? 'checked' : 'unchecked'}
             onPress={() => {

@@ -40,6 +40,33 @@ const parseTaskPriority = (value: unknown): 'low' | 'medium' | 'high' => {
   return 'medium';
 };
 
+const parseNoteLocked = (value: unknown): boolean => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value === 1;
+  if (typeof value === 'string') {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    try {
+      return decrypt(value) === 'true';
+    } catch {
+      return false;
+    }
+  }
+  return false;
+};
+
+const decryptNoteFromSocket = (note: Note): Note => ({
+  ...note,
+  title: decrypt(note.title),
+  content: decrypt(note.content),
+  tags: note.tags?.map(t => { try { return decrypt(t); } catch { return t; } }) ?? [],
+  icon: note.icon ? (() => { try { return decrypt(note.icon); } catch { return note.icon; } })() : undefined,
+  type: note.type ? (() => { try { return decrypt(note.type) as any; } catch { return note.type; } })() : 'note',
+  locked: parseNoteLocked(note.locked),
+  createdAt: decrypt(note.createdAt),
+  updatedAt: decrypt(note.updatedAt),
+});
+
 interface StoreState {
   user: User | null;
   token: string | null;
@@ -255,11 +282,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
     socket.off('note:created');
     socket.on('note:created', (newNote: Note) => {
-      const decryptedNote = {
-          ...newNote,
-          title: decrypt(newNote.title),
-          content: decrypt(newNote.content),
-      };
+      const decryptedNote = decryptNoteFromSocket(newNote);
       const exists = get().notes.find(n => n._id === decryptedNote._id);
       const pending = get().pendingCreated.notes[decryptedNote._id];
       if (exists || pending) {
@@ -276,11 +299,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
     socket.off('note:updated');
     socket.on('note:updated', (updatedNote: Note) => {
-        const decryptedNote = {
-            ...updatedNote,
-            title: decrypt(updatedNote.title),
-            content: decrypt(updatedNote.content),
-        };
+        const decryptedNote = decryptNoteFromSocket(updatedNote);
         set(state => {
             const currentNote = state.notes.find(n => n._id === decryptedNote._id);
             if (currentNote) {
@@ -432,7 +451,8 @@ export const useStore = create<StoreState>((set, get) => ({
                       content: note.content,
                       locked: note.locked,
                       password: noteWithPassword.password,
-                      icon: note.icon
+                      icon: note.icon,
+                      type: note.type
                   });
                   await db.saveNote(note, false);
               }

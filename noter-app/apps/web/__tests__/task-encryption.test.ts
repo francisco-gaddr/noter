@@ -125,8 +125,9 @@ describe('Task E2E Encryption Tests', () => {
         })
       );
 
-      const callArgs = mockFetch.mock.calls[0];
-      const requestBody = JSON.parse(callArgs[1].body as string);
+      const callArgs = mockFetch.mock.calls[0]!;
+      const requestOptions = callArgs[1] as RequestInit;
+      const requestBody = JSON.parse(requestOptions.body as string);
 
       // All sensitive fields should be encrypted
       expect(requestBody.title).not.toBe('Test Task');
@@ -184,14 +185,15 @@ describe('Task E2E Encryption Tests', () => {
 
       const result = await api.fetchTasks();
 
-      expect(result[0].title).toBe('Task Title');
-      expect(result[0].description).toBe('Task Description');
-      expect(result[0].completed).toBe(false);
-      expect(result[0].priority).toBe('medium');
-      expect(result[0].dueDate).toEqual(new Date(now));
-      expect(result[0].createdAt).toBe(now);
-      expect(result[0].updatedAt).toBe(now);
-      expect(result[0].position).toBe(5);
+      const first = result[0]!;
+      expect(first.title).toBe('Task Title');
+      expect(first.description).toBe('Task Description');
+      expect(first.completed).toBe(false);
+      expect(first.priority).toBe('medium');
+      expect(first.dueDate).toEqual(new Date(now));
+      expect(first.createdAt).toBe(now);
+      expect(first.updatedAt).toBe(now);
+      expect(first.position).toBe(5);
     });
 
     it('should handle task reordering with encrypted position', async () => {
@@ -237,13 +239,13 @@ describe('Task E2E Encryption Tests', () => {
 
       const result = await api.fetchTasks();
 
-      // Should handle decryption errors gracefully
-      expect(result[0].title).toBe('invalid-encrypted-data'); // Should return original if decryption fails
-      expect(result[0].description).toBe('invalid-encrypted-data');
-      expect(result[0].completed).toBe(false); // Default fallback for boolean
-      expect(result[0].priority).toBe('medium'); // Default fallback for priority
-      expect(result[0].dueDate).toBe(null); // Should be null when decryption fails
-      expect(result[0].position).toBe(0); // Default fallback for number
+      const first = result[0]!;
+      expect(first.title).toBe('invalid-encrypted-data');
+      expect(first.description).toBe('invalid-encrypted-data');
+      expect(first.completed).toBe(false);
+      expect(first.priority).toBe('medium');
+      expect(first.dueDate).toBe(null);
+      expect(first.position).toBe(0);
     });
 
     it('should handle null/undefined encrypted task fields', async () => {
@@ -270,14 +272,15 @@ describe('Task E2E Encryption Tests', () => {
 
       const result = await api.fetchTasks();
 
-      expect(result[0].title).toBe('Task Title');
-      expect(result[0].description).toBe(null);
-      expect(result[0].completed).toBe(false); // Default for boolean
-      expect(result[0].priority).toBe('medium'); // Default fallback for priority
-      expect(result[0].dueDate).toBe(null);
-      expect(result[0].createdAt).toBe(null);
-      expect(result[0].updatedAt).toBe(null);
-      expect(result[0].position).toBe(0); // Default for number
+      const first = result[0]!;
+      expect(first.title).toBe('Task Title');
+      expect(first.description).toBe(null);
+      expect(first.completed).toBe(false);
+      expect(first.priority).toBe('medium');
+      expect(first.dueDate).toBe(null);
+      expect(first.createdAt).toBe(null);
+      expect(first.updatedAt).toBe(null);
+      expect(first.position).toBe(0);
     });
   });
 
@@ -287,7 +290,7 @@ describe('Task E2E Encryption Tests', () => {
         title: 'My Secret Task',
         description: 'This is secret task content',
         completed: true,
-        priority: 'high',
+        priority: 'high' as const,
         dueDate: '2024-12-31T23:59:59.999Z',
         position: 10
       };
@@ -313,8 +316,9 @@ describe('Task E2E Encryption Tests', () => {
 
       await api.createTask(sensitiveData);
 
-      const callArgs = mockFetch.mock.calls[0];
-      const requestBody = JSON.parse(callArgs[1].body as string);
+      const callArgs = mockFetch.mock.calls[0]!;
+      const requestOptions = callArgs[1] as RequestInit;
+      const requestBody = JSON.parse(requestOptions.body as string);
 
       // All sensitive fields should be encrypted in the request
       expect(requestBody.title).not.toBe(sensitiveData.title);

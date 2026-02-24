@@ -224,6 +224,25 @@ export const getNotesLocal = async (): Promise<Note[]> => {
         }
     }
 
+    let locked = false;
+    if (typeof row.locked === 'number') {
+      locked = row.locked === 1;
+    } else if (typeof row.locked === 'string') {
+      if (row.locked === 'true' || row.locked === '1') {
+        locked = true;
+      } else if (row.locked === 'false' || row.locked === '0') {
+        locked = false;
+      } else {
+        try {
+          locked = decrypt(row.locked) === 'true';
+        } catch {
+          locked = false;
+        }
+      }
+    } else {
+      locked = !!row.locked;
+    }
+
     return {
         _id: row._id,
         title: decrypt(row.title),
@@ -236,7 +255,7 @@ export const getNotesLocal = async (): Promise<Note[]> => {
         parentId: row.parentId,
         order: typeof row.noteOrder === 'number' ? row.noteOrder : 0,
         icon: icon,
-        locked: !!row.locked,
+        locked: locked,
     };
   });
 };

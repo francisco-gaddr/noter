@@ -10,7 +10,7 @@ const inter = Inter({ subsets: ['latin'] })
 export const metadata: Metadata = {
   title: 'Noter',
   description: 'Secure Notes App',
-  manifest: '/manifest.json'
+  manifest: '/app/manifest.json'
 }
 
 export default function RootLayout({

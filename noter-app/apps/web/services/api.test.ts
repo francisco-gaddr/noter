@@ -91,7 +91,8 @@ describe('E2E Encryption Tests', () => {
 
       const notes = await api.fetchNotes();
 
-      expect(notes[0].locked).toBe(false);
+      const first = notes[0]!;
+      expect(first.locked).toBe(false);
     });
 
     it('should handle missing locked field gracefully', async () => {
@@ -115,7 +116,8 @@ describe('E2E Encryption Tests', () => {
 
       const notes = await api.fetchNotes();
 
-      expect(notes[0].locked).toBe(false);
+      const first = notes[0]!;
+      expect(first.locked).toBe(false);
     });
   });
 
@@ -290,8 +292,9 @@ describe('E2E Encryption Tests', () => {
       const notes = await api.fetchNotes();
 
       // Should fallback to original value when decryption fails
-      expect(notes[0].tags).toEqual(['encrypted_malformed']);
-      expect(notes[0].locked).toBe(true); // This should still work
+      const first = notes[0]!;
+      expect(first.tags).toEqual(['encrypted_malformed']);
+      expect(first.locked).toBe(true);
     });
 
     it('should handle network errors', async () => {
