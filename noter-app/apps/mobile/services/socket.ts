@@ -49,6 +49,8 @@ export const initSocket = (token?: string | null) => {
     reconnectionDelayMax: 5000,
     timeout: 10000,
     secure: true,
+    path: '/socket.io/',
+    withCredentials: true,
     auth: token ? { token } : undefined
   });
 

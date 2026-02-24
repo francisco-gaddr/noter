@@ -15,6 +15,7 @@ export default function Home() {
   const [sidebarWidth, setSidebarWidth] = useState(256);
   const [isResizing, setIsResizing] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const startResizing = useCallback(() => {
     setIsResizing(true);
@@ -40,6 +41,10 @@ export default function Home() {
     const savedWidth = localStorage.getItem('sidebarWidth');
     if (savedWidth) {
       setSidebarWidth(parseInt(savedWidth, 10));
+    }
+    const savedCollapsed = localStorage.getItem('sidebarCollapsed');
+    if (savedCollapsed) {
+      setIsSidebarCollapsed(savedCollapsed === 'true');
     }
     if (user) {
         initSocket();
@@ -74,27 +79,38 @@ export default function Home() {
         className="flex flex-col h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-300"
       >
         <header role="banner">
-          <Navbar />
+          <Navbar
+            onToggleSidebar={() => {
+              const next = !isSidebarCollapsed;
+              setIsSidebarCollapsed(next);
+              localStorage.setItem('sidebarCollapsed', String(next));
+            }}
+            isSidebarCollapsed={isSidebarCollapsed}
+          />
         </header>
         <div className="flex flex-1 overflow-hidden">
           <nav 
               className="relative flex-shrink-0 overflow-hidden flex flex-col"
-              style={{ width: sidebarWidth }}
+              style={{ width: isSidebarCollapsed ? 0 : sidebarWidth }}
               aria-label="Huvudnavigering"
               role="navigation"
           >
-            <SidebarTree />
-            <div
-              className={`absolute top-0 right-0 w-1 h-full cursor-col-resize bg-gray-200 dark:bg-gray-700 hover:bg-blue-500 transition-colors z-10 ${isResizing ? 'bg-blue-500' : ''}`}
-              onMouseDown={startResizing}
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="Ändra sidopanelbredd"
-              aria-valuenow={sidebarWidth}
-              aria-valuemin={200}
-              aria-valuemax={600}
-              tabIndex={0}
-            />
+            {!isSidebarCollapsed && (
+              <>
+                <SidebarTree />
+                <div
+                  className={`absolute top-0 right-0 w-1 h-full cursor-col-resize bg-gray-200 dark:bg-gray-700 hover:bg-blue-500 transition-colors z-10 ${isResizing ? 'bg-blue-500' : ''}`}
+                  onMouseDown={startResizing}
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label="Ändra sidopanelbredd"
+                  aria-valuenow={sidebarWidth}
+                  aria-valuemin={200}
+                  aria-valuemax={600}
+                  tabIndex={0}
+                />
+              </>
+            )}
           </nav>
 
           <main className="flex-1 overflow-hidden bg-white dark:bg-gray-900" role="main" id="main-content">

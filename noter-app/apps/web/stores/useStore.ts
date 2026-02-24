@@ -684,8 +684,8 @@ export const useStore = create<StoreState>((set, get) => ({
           icon: icon,
           order: order ?? 0,
           type,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          createdAt: encrypt(new Date().toISOString()),
+          updatedAt: encrypt(new Date().toISOString()),
       } as Note;
       set((state) => ({
         notes: [tempNote, ...state.notes],
@@ -751,7 +751,7 @@ export const useStore = create<StoreState>((set, get) => ({
   moveNote: async (id, parentId, order) => {
       // Optimistic
       set((state) => ({
-          notes: state.notes.map(n => n._id === id ? { ...n, parentId, order, updatedAt: new Date().toISOString() } : n)
+          notes: state.notes.map(n => n._id === id ? { ...n, parentId, order, updatedAt: encrypt(new Date().toISOString()) } : n)
       }));
 
       const currentNote = get().notes.find(n => n._id === id);
@@ -765,7 +765,7 @@ export const useStore = create<StoreState>((set, get) => ({
           await api.updateNote(id, { parentId, order });
           // Note: api.updateNote returns the full note, so we could update state with it
           // But we already did optimistic.
-          const updatedNote = { ...currentNote!, parentId, order, updatedAt: new Date().toISOString() };
+          const updatedNote = { ...currentNote!, parentId, order, updatedAt: encrypt(new Date().toISOString()) };
            await db.saveNote(updatedNote, false);
       } catch (error: any) {
           set({ error: error.message });

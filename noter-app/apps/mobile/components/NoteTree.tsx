@@ -43,7 +43,7 @@ export default function NoteTree({
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const lastOrderKeyRef = useRef<string>('');
   const draggedItemRef = useRef<TreeItem | null>(null);
-  const visibleNotes = useMemo(() => notes.filter((n) => (n as any).type !== 'task_list'), [notes]);
+  const visibleNotes = useMemo(() => notes.filter((n) => (n as any).type !== 'task_list' && (n as any).type !== 'project'), [notes]);
 
   const toggleExpand = (id: string) => {
     const newExpanded = new Set(expandedIds);

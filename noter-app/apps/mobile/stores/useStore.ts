@@ -484,8 +484,8 @@ export const useStore = create<AppState>((set, get) => ({
       icon: data.icon,
       order: data.order,
       type: data.type || 'note',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: encrypt(new Date().toISOString()),
+      updatedAt: encrypt(new Date().toISOString()),
       clientId, 
     };
 
@@ -570,7 +570,7 @@ export const useStore = create<AppState>((set, get) => ({
         ...(data.icon !== undefined ? { icon: data.icon } : {}),
         ...(data.order !== undefined ? { order: data.order } : {}),
         ...(data.type !== undefined ? { type: data.type } : {}),
-        updatedAt: new Date().toISOString()
+        updatedAt: encrypt(new Date().toISOString())
     };
 
     // 2. Update State

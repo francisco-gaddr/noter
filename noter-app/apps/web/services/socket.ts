@@ -41,6 +41,7 @@ export const socket = io(resolveSocketBaseUrl(), {
   path: '/socket.io/',
   transports: ['websocket', 'polling'],
   secure: true,
+  withCredentials: true,
 });
 
 export const connectSocket = () => {

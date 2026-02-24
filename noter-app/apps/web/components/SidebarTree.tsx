@@ -272,7 +272,15 @@ export default function SidebarTree() {
   const effectiveSelectedId = activeTab === 'tasks' ? selectedTaskListId : selectedNoteId;
 
   const projects = useMemo(() => {
-    return notes.filter(n => (n as any).type === 'project').sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+    const set = new Map<string, typeof notes[0]>();
+    notes.forEach(n => {
+      if ((n as any).type === 'project') set.set(n._id, n);
+    });
+    notes.forEach(n => {
+      const hasChildren = notes.some(c => c.parentId === n._id);
+      if (hasChildren) set.set(n._id, n);
+    });
+    return Array.from(set.values()).sort((a, b) => (a.title || '').localeCompare(b.title || ''));
   }, [notes]);
 
   const { rootNotes, flatFilteredNotes, sortedFlatNotes } = useMemo(() => {
