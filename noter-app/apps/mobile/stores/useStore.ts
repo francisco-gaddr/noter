@@ -841,11 +841,15 @@ export const useStore = create<AppState>((set, get) => ({
       throw new Error('Task not found');
     }
 
-    const optimisticTask = {
-      ...currentTask,
-      ...data,
-      updatedAt: new Date().toISOString(),
-    };
+    const optimisticTask = { ...currentTask };
+    if (data.title !== undefined) optimisticTask.title = data.title;
+    if (data.description !== undefined) optimisticTask.description = data.description;
+    if (data.completed !== undefined) optimisticTask.completed = data.completed;
+    if (data.priority !== undefined) optimisticTask.priority = data.priority;
+    if (data.dueDate !== undefined) optimisticTask.dueDate = data.dueDate;
+    if (data.position !== undefined) optimisticTask.position = data.position;
+    if (data.parentNoteId !== undefined) optimisticTask.parentNoteId = data.parentNoteId;
+    optimisticTask.updatedAt = new Date().toISOString();
 
     // 2. Update State immediately
     set((state) => ({
@@ -1003,7 +1007,7 @@ export const useStore = create<AppState>((set, get) => ({
       for (let i = 0; i < newGroup.length; i += 1) {
         const id = newGroup[i]._id;
         newPositions.set(id, i);
-        payload.push({ _id: id, position: i });
+        payload.push({ _id: id, position: encrypt(String(i)) as any });
       }
     }
 

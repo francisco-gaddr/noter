@@ -14,6 +14,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { Platform } from 'react-native';
 import IconPickerModal from '@/components/IconPickerModal';
 
+import { EditListDialog } from '@/components/EditListDialog';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 
 const ListAvatar = ({ uri }: { uri?: string }) => {
@@ -456,38 +457,27 @@ export default function TasksScreen() {
       />
 
       <Portal>
-        <Dialog visible={editListDialogVisible} onDismiss={() => setEditListDialogVisible(false)}>
-            <Dialog.Title>Ändra listnamn</Dialog.Title>
-            <Dialog.Content>
-                <TextInput
-                    label="Namn"
-                    value={editingList?.title || ''}
-                    onChangeText={(text) => setEditingList(prev => prev ? {...prev, title: text} : null)}
-                />
-                <Button 
-                    mode="outlined" 
-                    onPress={() => {
-                        // We need to close this dialog and open icon picker?
-                        // Or open icon picker on top?
-                        // Let's use the state from TasksScreen
-                        setEditListDialogVisible(false);
-                        if (editingList) {
-                            setSelectedListId(editingList.id);
-                            setIconPickerVisible(true);
-                        }
-                    }}
-                    style={{ marginTop: 16 }}
-                    icon="emoticon-outline"
-                >
-                    Byt Ikon
-                </Button>
-            </Dialog.Content>
-            <Dialog.Actions>
-                <Button onPress={() => setEditListDialogVisible(false)}>Avbryt</Button>
-                <Button onPress={confirmDeleteCurrentList} textColor={theme.colors.error}>Ta bort lista</Button>
-                <Button onPress={saveListTitle}>Spara</Button>
-            </Dialog.Actions>
-        </Dialog>
+      <EditListDialog
+        visible={editListDialogVisible}
+        initialTitle={editingList?.title || ''}
+        onDismiss={() => setEditListDialogVisible(false)}
+        onSave={async (newTitle) => {
+            if (editingList) {
+                await updateNote(editingList.id, { title: newTitle });
+                setEditListDialogVisible(false);
+                setEditingList(null);
+                fetchNotes(); // Refresh lists
+            }
+        }}
+        onDelete={confirmDeleteCurrentList}
+        onChangeIcon={() => {
+            setEditListDialogVisible(false);
+            if (editingList) {
+                setSelectedListId(editingList.id);
+                setIconPickerVisible(true);
+            }
+        }}
+      />
 
         <Dialog visible={filterDialogVisible} onDismiss={() => setFilterDialogVisible(false)}>
             <Dialog.Title>Filtrera uppgifter</Dialog.Title>
