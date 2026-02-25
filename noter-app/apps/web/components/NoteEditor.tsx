@@ -1261,6 +1261,13 @@ export default function NoteEditor() {
   useEffect(() => {
     if (!selectedNoteId) return;
     if (isEffectiveLocked && !isUnlockedLocally && !selectedNote?.content) return;
+    
+    // Only focus editor when note changes, not during regular typing
+    const shouldFocus = previousNoteIdRef.current !== selectedNoteId || 
+                      (isUnlockedLocally && !loadedAfterUnlockRef.current);
+    
+    if (!shouldFocus) return;
+    
     requestAnimationFrame(() => {
       try {
         if (!editor.children || editor.children.length === 0) return;
@@ -1288,6 +1295,14 @@ export default function NoteEditor() {
     if (e.target === e.currentTarget) {
       try {
         if (!editor.children || editor.children.length === 0) return;
+        
+        // Only focus if we don't already have a valid selection
+        const { selection } = editor;
+        if (selection && CustomEditor.hasValidSelection(editor)) {
+          ReactEditor.focus(editor);
+          return;
+        }
+        
         const end = Editor.end(editor, []);
         if (!Editor.hasPath(editor, end.path)) return;
         Transforms.select(editor, end);
