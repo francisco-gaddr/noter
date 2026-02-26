@@ -10,6 +10,7 @@ import { useStore } from '../stores/useStore';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { FaChevronLeft, FaChevronRight } from 'react-icons/fa';
+import { getEncryptedItem, setEncryptedItem } from '../services/secureStorage';
 
 export default function Home() {
   const { initSocket, user, activeTab, isHydrated } = useStore();
@@ -25,7 +26,7 @@ export default function Home() {
 
   const stopResizing = useCallback(() => {
     setIsResizing(false);
-    localStorage.setItem('sidebarWidth', sidebarWidth.toString());
+    setEncryptedItem('sidebarWidth', sidebarWidth.toString());
   }, [sidebarWidth]);
 
   const resize = useCallback(
@@ -40,11 +41,11 @@ export default function Home() {
 
   useEffect(() => {
     setMounted(true);
-    const savedWidth = localStorage.getItem('sidebarWidth');
+    const savedWidth = getEncryptedItem('sidebarWidth');
     if (savedWidth) {
       setSidebarWidth(parseInt(savedWidth, 10));
     }
-    const savedCollapsed = localStorage.getItem('sidebarCollapsed');
+    const savedCollapsed = getEncryptedItem('sidebarCollapsed');
     if (savedCollapsed) {
       setIsSidebarCollapsed(savedCollapsed === '1');
     }
@@ -95,7 +96,7 @@ export default function Home() {
                 type="button"
                 onClick={() => {
                   setIsSidebarCollapsed(true);
-                  localStorage.setItem('sidebarCollapsed', '1');
+                  setEncryptedItem('sidebarCollapsed', '1');
                   setIsResizing(false);
                 }}
                 className="absolute top-2 right-2 z-20 p-2 rounded hover:bg-gray-200 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-200"
@@ -121,7 +122,7 @@ export default function Home() {
               type="button"
               onClick={() => {
                 setIsSidebarCollapsed(false);
-                localStorage.setItem('sidebarCollapsed', '0');
+                setEncryptedItem('sidebarCollapsed', '0');
               }}
               className="absolute left-0 top-20 z-20 p-2 rounded-r hover:bg-gray-200 dark:hover:bg-gray-800 bg-gray-100/90 dark:bg-gray-800/90 text-gray-700 dark:text-gray-200 border border-l-0 border-gray-200 dark:border-gray-700"
               aria-label="Fäll ut sidopanel"

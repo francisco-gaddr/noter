@@ -5,6 +5,7 @@ import { useBiometrics } from '@/hooks/useBiometrics';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { encrypt, decrypt } from '@repo/shared';
 
 interface AppLockProps {
   children: React.ReactNode;
@@ -49,7 +50,14 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
         }
 
         if (savedLastBg) {
-          const lastBg = parseInt(savedLastBg, 10);
+          const decrypted = (() => {
+            try {
+              return decrypt(savedLastBg);
+            } catch {
+              return savedLastBg;
+            }
+          })();
+          const lastBg = parseInt(decrypted, 10);
           lastBackgroundAtRef.current = lastBg;
           const timeoutMs = lockTimingToMs(currentTiming);
           
@@ -142,7 +150,7 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
       if (nextAppState.match(/inactive|background/)) {
         const now = Date.now();
         lastBackgroundAtRef.current = now;
-        AsyncStorage.setItem(LAST_BACKGROUND_KEY, now.toString()).catch(() => {});
+        AsyncStorage.setItem(LAST_BACKGROUND_KEY, encrypt(now.toString())).catch(() => {});
       }
 
       appState.current = nextAppState;

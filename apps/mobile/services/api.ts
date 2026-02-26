@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
+import { logDebug, logError, logWarn } from './logger';
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -58,9 +59,9 @@ export const setApiUrl = async (url: string) => {
   try {
     await SecureStore.setItemAsync('custom_api_url', url);
   } catch (e) {
-    console.warn('Failed to save custom API URL', e);
+    logWarn('Failed to save custom API URL', e);
   }
-  console.log('API_URL updated to:', API_URL);
+  logDebug('API_URL updated to:', API_URL);
 };
 
 export const initApiUrl = async () => {
@@ -68,14 +69,14 @@ export const initApiUrl = async () => {
         const stored = await SecureStore.getItemAsync('custom_api_url');
         if (stored) {
             API_URL = stored;
-            console.log('API_URL loaded from storage:', API_URL);
+            logDebug('API_URL loaded from storage:', API_URL);
         }
     } catch (e) {
-        console.warn('Failed to load custom API URL', e);
+        logWarn('Failed to load custom API URL', e);
     }
 };
 
-console.log('API_URL configured as:', API_URL);
+logDebug('API_URL configured as:', API_URL);
 
 let authToken: string | null = null;
 let unauthorizedHandler: null | (() => void | Promise<void>) = null;
@@ -91,7 +92,7 @@ export const setUnauthorizedHandler = (handler: null | (() => void | Promise<voi
 };
 
 const handleApiError = (error: any, url: string) => {
-    console.error(`[API Error] Request to ${url} failed:`, error);
+    logError(`[API Error] Request to ${url} failed:`, error);
     
     let message = error.message || 'Unknown error';
     
@@ -130,7 +131,7 @@ export async function login(username: string, password: string) {
 export async function register(username: string, password: string) {
   const url = `${API_URL}/auth/register`;
   try {
-    console.log(`[API] Registering user: ${username} to ${url}`);
+    logDebug(`[API] Registering user: ${username} to ${url}`);
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -183,14 +184,14 @@ export async function fetchWithAuth(endpoint: string, options: RequestInit = {})
 
   for (let attempt = 0; attempt < maxRetries; attempt += 1) {
     try {
-      console.log(`[API] Requesting: ${options.method || 'GET'} ${url}`);
+      logDebug(`[API] Requesting: ${options.method || 'GET'} ${url}`);
       const response = await fetch(url, {
         ...options,
         headers,
       });
 
       if (!response.ok) {
-        console.warn(`[API] Error ${response.status} from ${url}`);
+        logWarn(`[API] Error ${response.status} from ${url}`);
         if (response.status === 401) {
           await SecureStore.deleteItemAsync('token');
           authToken = null;
@@ -236,12 +237,12 @@ export async function fetchWithAuth(endpoint: string, options: RequestInit = {})
           continue;
         }
 
-        console.error(`[API] Server error details:`, body);
+        logError(`[API] Server error details:`, body);
         throw err;
       }
 
       const data = await response.json();
-      console.log(
+      logDebug(
         `[API] Success from ${url}`,
         Array.isArray(data) ? `(Array length: ${data.length})` : '(Object)'
       );
@@ -269,7 +270,7 @@ export async function fetchWithAuth(endpoint: string, options: RequestInit = {})
 3. The API URL is correct (Settings > API URL).`;
       }
 
-      console.error(
+      logError(
         `[API] Network/Logic failed to ${url}`,
         status ? `${status} ${message}` : message
       );

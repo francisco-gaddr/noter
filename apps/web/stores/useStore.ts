@@ -5,8 +5,10 @@ import { socket, connectSocket, disconnectSocket } from '../services/socket';
 import { db } from '../services/db';
 import deepmerge from 'deepmerge';
 import { uniqBy } from 'lodash';
+import { getEncryptedItem, getEncryptedJson, removeEncryptedItem, setEncryptedItem, setEncryptedJson } from '../services/secureStorage';
+import { logDebug, logError } from '../services/logger';
 
-type SortOrder = 'date-desc' | 'date-asc' | 'title-asc' | 'title-desc' | 'custom';
+type SortOrder = 'updated-desc' | 'updated-asc' | 'created-desc' | 'created-asc' | 'date-desc' | 'date-asc' | 'title-asc' | 'title-desc' | 'custom';
 
 const parseTaskCompleted = (value: unknown): boolean => {
   if (typeof value === 'boolean') return value;
@@ -71,13 +73,13 @@ const runRealtimeFallbackSync = async (get: () => StoreState) => {
   try {
     await get().fetchNotes();
   } catch (error) {
-    console.error('Realtime fallback sync failed for notes:', error);
+    logError('Realtime fallback sync failed for notes:', error);
     // Don't propagate errors to avoid infinite loops
   }
   try {
     await get().fetchTasks();
   } catch (error) {
-    console.error('Realtime fallback sync failed for tasks:', error);
+    logError('Realtime fallback sync failed for tasks:', error);
     // Don't propagate errors to avoid infinite loops
   }
 };
@@ -130,8 +132,8 @@ interface StoreState {
   fetchNotes: () => Promise<void>;
   fetchTasks: (parentNoteId?: string) => Promise<void>;
   selectNote: (id: string | null) => void;
-  createNote: (title: string, parentId?: string | null, type?: 'note' | 'task_list' | 'project', order?: number, icon?: string) => Promise<void>;
-  updateNote: (id: string, title?: string, content?: string, locked?: boolean, password?: string, icon?: string, type?: string) => Promise<void>;
+  createNote: (title: string, parentId?: string | null, type?: 'note' | 'task_list' | 'project', order?: number, icon?: string, iconColor?: string) => Promise<void>;
+  updateNote: (id: string, title?: string, content?: string, locked?: boolean, password?: string, icon?: string, type?: string, iconColor?: string) => Promise<void>;
   moveNote: (id: string, parentId: string | null, order: number) => Promise<void>;
   unlockNote: (id: string, password: string) => Promise<boolean>;
   deleteNote: (id: string) => Promise<void>;
@@ -157,12 +159,12 @@ export const useStore = create<StoreState>((set, get) => ({
   activeProjectId: null,
   setActiveProject: (id) => {
     set({ activeProjectId: id });
-    localStorage.setItem('activeProjectId', id || '');
+    setEncryptedItem('activeProjectId', id || '');
   },
   language: 'sv',
   setLanguage: (lng) => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem('language', lng);
+      setEncryptedItem('language', lng);
     }
     set({ language: lng });
   },
@@ -170,20 +172,20 @@ export const useStore = create<StoreState>((set, get) => ({
   hydrate: () => {
     if (typeof window === 'undefined') return;
     try {
-        const user = JSON.parse(localStorage.getItem('user') || 'null');
-        const token = localStorage.getItem('token');
-        const language = (localStorage.getItem('language') as 'sv' | 'en') || 'sv';
-        const activeTab = (localStorage.getItem('activeTab') as any) || 'notes';
-        const selectedNoteId = localStorage.getItem('lastSelectedNoteId') || localStorage.getItem('selectedNoteId') || null;
-        const selectedTaskListId = localStorage.getItem('lastSelectedTaskListId') || null;
-        const activeProjectId = localStorage.getItem('activeProjectId') || null;
+        const user = getEncryptedJson<User>('user');
+        const token = getEncryptedItem('token');
+        const language = (getEncryptedItem('language') as 'sv' | 'en') || 'sv';
+        const activeTab = (getEncryptedItem('activeTab') as any) || 'notes';
+        const selectedNoteId = getEncryptedItem('lastSelectedNoteId') || getEncryptedItem('selectedNoteId') || null;
+        const selectedTaskListId = getEncryptedItem('lastSelectedTaskListId') || null;
+        const activeProjectId = getEncryptedItem('activeProjectId') || null;
 
         set({ user, token, language, activeTab, selectedNoteId, selectedTaskListId, activeProjectId, isHydrated: true });
         if (token) {
             get().initSocket();
         }
     } catch (e) {
-        console.error('Failed to hydrate store', e);
+        logError('Failed to hydrate store', e);
         set({ isHydrated: true });
     }
   },
@@ -191,8 +193,8 @@ export const useStore = create<StoreState>((set, get) => ({
   login: async (username, password) => {
     try {
         const { user, token } = await api.login(username, password);
-        localStorage.setItem('token', token);
-        localStorage.setItem('user', JSON.stringify(user));
+        setEncryptedItem('token', token);
+        setEncryptedJson('user', user);
         set({ user, token });
         await get().fetchNotes();
         await get().fetchTasks();
@@ -206,8 +208,8 @@ export const useStore = create<StoreState>((set, get) => ({
   register: async (username, password) => {
     try {
         const { user, token } = await api.register(username, password);
-        localStorage.setItem('token', token);
-        localStorage.setItem('user', JSON.stringify(user));
+        setEncryptedItem('token', token);
+        setEncryptedJson('user', user);
         set({ user, token });
         await get().fetchNotes();
         await get().fetchTasks();
@@ -219,8 +221,8 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   logout: () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    removeEncryptedItem('token');
+    removeEncryptedItem('user');
     disconnectSocket();
     set({ user: null, token: null, notes: [], tasks: [], selectedNoteId: null, selectedTaskListId: null, isAppLocked: false });
   },
@@ -233,11 +235,11 @@ export const useStore = create<StoreState>((set, get) => ({
   isLoading: false,
   error: null,
   searchQuery: '',
-  sortOrder: 'date-desc',
+  sortOrder: 'updated-desc',
   activeTab: 'notes',
   setActiveTab: (tab) => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem('activeTab', tab);
+      setEncryptedItem('activeTab', tab);
     }
     set({ activeTab: tab });
   },
@@ -265,7 +267,7 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!get().token) return;
     socket.off('connect');
     socket.on('connect', () => {
-      console.log('Connected to socket server');
+      logDebug('Connected to socket server');
       set({ error: null });
       stopRealtimeFallback();
       void runRealtimeFallbackSync(get);
@@ -495,7 +497,7 @@ export const useStore = create<StoreState>((set, get) => ({
                   await db.deleteNote(note._id);
                   continue;
               }
-              console.error('Sync failed for note', note._id, e);
+              logError('Sync failed for note', note._id, e);
           }
       }
 
@@ -540,7 +542,7 @@ export const useStore = create<StoreState>((set, get) => ({
                    await db.deleteTask(task._id);
                    continue;
                }
-               console.error('Sync failed for task', task._id, e);
+               logError('Sync failed for task', task._id, e);
           }
       }
   },
@@ -554,7 +556,7 @@ export const useStore = create<StoreState>((set, get) => ({
             set({ notes: validNotes, isLoading: false });
         }
     } catch (e) {
-        console.error('Failed to load notes from DB', e);
+        logError('Failed to load notes from DB', e);
     }
 
     try {
@@ -596,7 +598,7 @@ export const useStore = create<StoreState>((set, get) => ({
              set({ tasks: validTasks, isLoading: false });
         }
     } catch (e) {
-        console.error('Failed to load tasks from DB', e);
+        logError('Failed to load tasks from DB', e);
     }
 
     try {
@@ -650,15 +652,15 @@ export const useStore = create<StoreState>((set, get) => ({
     const { activeTab } = get();
     if (typeof window !== 'undefined') {
       if (activeTab === 'tasks') {
-        if (id) localStorage.setItem('lastSelectedTaskListId', id);
-        else localStorage.removeItem('lastSelectedTaskListId');
+        if (id) setEncryptedItem('lastSelectedTaskListId', id);
+        else removeEncryptedItem('lastSelectedTaskListId');
       } else {
         if (id) {
-          localStorage.setItem('lastSelectedNoteId', id);
-          localStorage.setItem('selectedNoteId', id);
+          setEncryptedItem('lastSelectedNoteId', id);
+          setEncryptedItem('selectedNoteId', id);
         } else {
-          localStorage.removeItem('lastSelectedNoteId');
-          localStorage.removeItem('selectedNoteId');
+          removeEncryptedItem('lastSelectedNoteId');
+          removeEncryptedItem('selectedNoteId');
         }
       }
     }
@@ -725,7 +727,16 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
 
-  updateNote: async (id, title, content, locked, password, icon, type, iconColor) => {
+  updateNote: async (
+    id: string,
+    title?: string,
+    content?: string,
+    locked?: boolean,
+    password?: string,
+    icon?: string,
+    type?: string,
+    iconColor?: string
+  ) => {
     // Optimistic update
     set((state) => ({
       notes: state.notes.map((n) => {

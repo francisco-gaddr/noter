@@ -1,4 +1,5 @@
 import { io } from 'socket.io-client';
+import { getEncryptedItem } from './secureStorage';
 
 const stripApiSuffix = (url: string) => url.replace(/\/api\/?$/, '');
 
@@ -45,7 +46,7 @@ export const socket = io(resolveSocketBaseUrl(), {
 
 export const connectSocket = () => {
   if (typeof window !== 'undefined') {
-    const token = localStorage.getItem('token');
+    const token = getEncryptedItem('token');
     if (!token) return;
     (socket as any).auth = { token };
   }

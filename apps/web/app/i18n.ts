@@ -56,8 +56,10 @@ const resources = {
       sort: {
         label: 'Sort order',
         custom: 'Custom',
-        newest: 'Newest First',
-        oldest: 'Oldest First',
+        updatedNewest: 'Last Modified (Newest)',
+        updatedOldest: 'Last Modified (Oldest)',
+        createdNewest: 'Created (Newest)',
+        createdOldest: 'Created (Oldest)',
         titleAsc: 'Title A-Z',
         titleDesc: 'Title Z-A'
       },
@@ -253,12 +255,13 @@ const resources = {
       },
       sort: {
         label: 'Sortering',
-        newest: 'Nyast först',
-        oldest: 'Äldst först',
+        updatedNewest: 'Senast ändrad (nyast)',
+        updatedOldest: 'Senast ändrad (äldst)',
+        createdNewest: 'Skapad (nyast)',
+        createdOldest: 'Skapad (äldst)',
         titleAsc: 'Titel A–Ö',
         titleDesc: 'Titel Ö–A',
-        custom: 'Egen',
-        updatedAt: 'Senast uppdaterad'
+        custom: 'Egen'
       },
       list: { noNotes: 'Inga anteckningar ännu. Klicka + för att lägga till.', allTasks: 'Alla uppgifter' },
       common: {

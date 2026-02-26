@@ -1,6 +1,6 @@
 import React from 'react';
-import { StyleSheet, View, ScrollView, TouchableOpacity } from 'react-native';
-import { Modal, Portal, Text, Button, useTheme, IconButton, Searchbar } from 'react-native-paper';
+import { StyleSheet, View, ScrollView, TouchableOpacity, TextInput } from 'react-native';
+import { Modal, Portal, Text, Button, useTheme, IconButton } from 'react-native-paper';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 
 interface IconPickerModalProps {
@@ -77,11 +77,17 @@ export default function IconPickerModal({ visible, onDismiss, onSelect, currentI
       <Modal visible={visible} onDismiss={onDismiss} contentContainerStyle={[styles.modalContent, { backgroundColor: theme.colors.surface }]}>
         <Text variant="titleMedium" style={styles.title}>Välj ikon</Text>
         
-        <Searchbar
+        <TextInput
           placeholder="Sök ikon..."
+          placeholderTextColor={theme.colors.onSurfaceVariant}
           onChangeText={setSearchQuery}
           value={searchQuery}
-          style={styles.searchBar}
+          style={[styles.searchBar, { color: theme.colors.onSurface, borderColor: theme.colors.outline }]}
+          autoCorrect={false}
+          autoCapitalize="none"
+          autoComplete="off"
+          spellCheck={false}
+          importantForAutofill="no"
         />
 
         <ScrollView style={styles.grid} contentContainerStyle={styles.gridContent}>
@@ -142,6 +148,9 @@ const styles = StyleSheet.create({
   searchBar: {
     marginBottom: 16,
     height: 40,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
   },
   grid: {
     flexGrow: 1,

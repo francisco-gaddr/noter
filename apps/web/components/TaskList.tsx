@@ -5,6 +5,7 @@ import { useStore } from '../stores/useStore';
 import { Task } from '@repo/shared';
 import { FaPlus, FaTrash, FaCheckCircle, FaRegCircle, FaExclamationCircle, FaSort, FaBars, FaList, FaColumns, FaCalendar, FaFilter } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
+import { getEncryptedItem, getEncryptedJson, removeEncryptedItem, setEncryptedItem, setEncryptedJson } from '../services/secureStorage';
 import { TaskDetailModal } from './TaskDetailModal';
 import TaskBoard from './TaskBoard';
 import TaskCalendar from './TaskCalendar';
@@ -204,19 +205,19 @@ export default function TaskList() {
     // Load persisted settings
     useEffect(() => {
         if (typeof window !== 'undefined') {
-            const savedSort = localStorage.getItem('taskSortBy');
+            const savedSort = getEncryptedItem('taskSortBy');
             if (savedSort) setSortBy(savedSort as any);
             
-            const savedView = localStorage.getItem('taskViewMode');
+            const savedView = getEncryptedItem('taskViewMode');
             if (savedView) setViewMode(savedView as any);
 
-            const savedFilterRange = localStorage.getItem('taskFilterDateRange');
-            if (savedFilterRange) setFilterDateRange(JSON.parse(savedFilterRange));
+            const savedFilterRange = getEncryptedJson<{ start: string | null; end: string | null }>('taskFilterDateRange');
+            if (savedFilterRange) setFilterDateRange(savedFilterRange);
 
-            const savedQuickFilter = localStorage.getItem('taskQuickFilter');
+            const savedQuickFilter = getEncryptedItem('taskQuickFilter');
             if (savedQuickFilter) setQuickFilter(savedQuickFilter);
 
-            const savedStatusFilter = localStorage.getItem('taskStatusFilter');
+            const savedStatusFilter = getEncryptedItem('taskStatusFilter');
             if (savedStatusFilter) setStatusFilter(savedStatusFilter as any);
         }
     }, []);
@@ -224,12 +225,12 @@ export default function TaskList() {
     // Save settings when changed
     useEffect(() => {
         if (typeof window !== 'undefined') {
-            localStorage.setItem('taskSortBy', sortBy);
-            localStorage.setItem('taskViewMode', viewMode);
-            localStorage.setItem('taskFilterDateRange', JSON.stringify(filterDateRange));
-            localStorage.setItem('taskStatusFilter', statusFilter);
-            if (quickFilter) localStorage.setItem('taskQuickFilter', quickFilter);
-            else localStorage.removeItem('taskQuickFilter');
+            setEncryptedItem('taskSortBy', sortBy);
+            setEncryptedItem('taskViewMode', viewMode);
+            setEncryptedJson('taskFilterDateRange', filterDateRange);
+            setEncryptedItem('taskStatusFilter', statusFilter);
+            if (quickFilter) setEncryptedItem('taskQuickFilter', quickFilter);
+            else removeEncryptedItem('taskQuickFilter');
         }
     }, [sortBy, viewMode, filterDateRange, quickFilter, statusFilter]);
 

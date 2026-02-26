@@ -9,6 +9,7 @@ import { TaskTimeline } from '@/components/TaskTimeline';
 import { Task } from '@repo/shared';
 import { orderBy } from 'lodash';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { decrypt, encrypt } from '@repo/shared';
 import { SvgUri } from 'react-native-svg';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Platform } from 'react-native';
@@ -68,9 +69,13 @@ export default function TasksScreen() {
   useEffect(() => {
     const loadState = async () => {
       try {
-        const savedListId = await AsyncStorage.getItem(STORAGE_KEY_LIST);
-        const savedViewMode = await AsyncStorage.getItem(STORAGE_KEY_VIEW);
-        const savedFilters = await AsyncStorage.getItem(STORAGE_KEY_FILTERS);
+        const savedListIdRaw = await AsyncStorage.getItem(STORAGE_KEY_LIST);
+        const savedViewModeRaw = await AsyncStorage.getItem(STORAGE_KEY_VIEW);
+        const savedFiltersRaw = await AsyncStorage.getItem(STORAGE_KEY_FILTERS);
+
+        const savedListId = savedListIdRaw ? (() => { try { return decrypt(savedListIdRaw); } catch { return savedListIdRaw; } })() : null;
+        const savedViewMode = savedViewModeRaw ? (() => { try { return decrypt(savedViewModeRaw); } catch { return savedViewModeRaw; } })() : null;
+        const savedFilters = savedFiltersRaw ? (() => { try { return decrypt(savedFiltersRaw); } catch { return savedFiltersRaw; } })() : null;
         
         if (savedListId) setSelectedListId(savedListId === 'all' ? null : savedListId);
         if (savedViewMode) setViewMode(savedViewMode as any);
@@ -93,14 +98,14 @@ export default function TasksScreen() {
   // Save persistence
   useEffect(() => {
     const saveState = async () => {
-        await AsyncStorage.setItem(STORAGE_KEY_LIST, selectedListId || 'all');
-        await AsyncStorage.setItem(STORAGE_KEY_VIEW, viewMode);
-        await AsyncStorage.setItem(STORAGE_KEY_FILTERS, JSON.stringify({
+        await AsyncStorage.setItem(STORAGE_KEY_LIST, encrypt(selectedListId || 'all'));
+        await AsyncStorage.setItem(STORAGE_KEY_VIEW, encrypt(viewMode));
+        await AsyncStorage.setItem(STORAGE_KEY_FILTERS, encrypt(JSON.stringify({
             quickFilter,
             statusFilter,
             start: filterDateRange.start ? filterDateRange.start.toISOString() : null,
             end: filterDateRange.end ? filterDateRange.end.toISOString() : null
-        }));
+        })));
     };
     saveState();
   }, [selectedListId, viewMode, filterDateRange, quickFilter, statusFilter]);

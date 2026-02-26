@@ -7,6 +7,7 @@ import * as Database from '../services/database';
 import { initSocket, disconnectSocket, getSocket } from '../services/socket';
 import NetInfo from '@react-native-community/netinfo';
 import * as SecureStore from 'expo-secure-store';
+import { logDebug, logError } from '../services/logger';
 
 let realtimeFallbackTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -494,7 +495,7 @@ export const useStore = create<AppState>((set, get) => ({
         set({ notes: localNotes.map(processLocalNote), isLoading: false });
       }
     } catch (error: any) {
-      console.error('[Store] Fetch notes error:', error);
+      logError('[Store] Fetch notes error:', error);
       // Fallback to local
       const localNotes = await Database.getNotesLocal();
       set({ notes: localNotes.map(processLocalNote), isLoading: false, error: error.message });
@@ -728,7 +729,7 @@ export const useStore = create<AppState>((set, get) => ({
         }
       }
     } catch (error) {
-      console.error('Reorder notes failed', error);
+      logError('Reorder notes failed', error);
     }
   },
 
@@ -972,12 +973,12 @@ export const useStore = create<AppState>((set, get) => ({
       const state = get();
       const orphans = state.tasks.filter(t => !t.parentNoteId);
       if (orphans.length === 0) return;
-      console.log(`[Store] Deleting ${orphans.length} orphan tasks`);
+      logDebug(`[Store] Deleting ${orphans.length} orphan tasks`);
       for (const t of orphans) {
         await get().deleteTask(t._id);
       }
     } catch (e) {
-      console.log('[Store] Failed to delete orphan tasks', e);
+      logError('[Store] Failed to delete orphan tasks', e);
     }
   },
 
@@ -1076,7 +1077,7 @@ export const useStore = create<AppState>((set, get) => ({
         }
       }
     } catch (error: any) {
-      console.error('Reorder failed', error);
+      logError('Reorder failed', error);
       // set({ error: error.message });
     }
   },
@@ -1229,7 +1230,7 @@ export const useStore = create<AppState>((set, get) => ({
           if (typeof status === 'number' && status >= 400 && status < 500 && status !== 429) {
             await Database.removeFromSyncQueue(item.id);
           }
-          console.error('Sync item failed', item, error);
+          logError('Sync item failed', item, error);
         }
       }
       
@@ -1237,7 +1238,7 @@ export const useStore = create<AppState>((set, get) => ({
       await get().fetchNotes();
       await get().fetchTasks();
     } catch (error) {
-      console.error('Sync offline changes failed', error);
+      logError('Sync offline changes failed', error);
     } finally {
       set({ isSyncingOffline: false });
     }

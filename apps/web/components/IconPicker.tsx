@@ -51,7 +51,8 @@ const ICON_KEYS = [
 export const IconPicker: React.FC<IconPickerProps> = ({ onSelect, onClose, currentColor }) => {
     const { t } = useTranslation();
     const COLORS = ['#FF5252', '#FF9800', '#4CAF50', '#2196F3', '#9C27B0'];
-    const [selectedColor, setSelectedColor] = React.useState<string>(currentColor || COLORS[0]);
+    const defaultColor = COLORS[0] ?? '#2196F3';
+    const [selectedColor, setSelectedColor] = React.useState<string>(currentColor ?? defaultColor);
 
     return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>

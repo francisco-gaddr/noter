@@ -1,6 +1,7 @@
 import { act } from '@testing-library/react';
 import { expect } from '@jest/globals';
 import { useStore } from '../stores/useStore';
+import { setEncryptedItem, setEncryptedJson } from '../services/secureStorage';
 
 // Mocks
 jest.mock('../services/api', () => ({
@@ -77,8 +78,8 @@ describe('Web Store', () => {
 
   it('should init socket on hydrate when token exists', () => {
     const { connectSocket } = require('../services/socket');
-    localStorage.setItem('user', JSON.stringify({ _id: '1', username: 'test' }));
-    localStorage.setItem('token', 'abc');
+    setEncryptedJson('user', { _id: '1', username: 'test' });
+    setEncryptedItem('token', 'abc');
 
     act(() => {
       useStore.getState().hydrate();

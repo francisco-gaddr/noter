@@ -9,11 +9,23 @@ const toIsoString = (value: unknown): string => {
   return String(value ?? '');
 };
 
-const toIsoStringOrNull = (value: unknown): string | null => {
-  if (value == null) return null;
-  if (value instanceof Date) return value.toISOString();
-  if (typeof value === 'string') return value;
-  return String(value);
+const decryptText = (value: unknown, fallback: string | null = null): string | null => {
+  if (value == null) return fallback;
+  const raw = typeof value === 'string' ? value : String(value);
+  try {
+    return decrypt(raw);
+  } catch {
+    return raw;
+  }
+};
+
+const encryptText = (value: unknown): string => encrypt(String(value ?? ''));
+
+const decryptNumber = (value: unknown): number | null => {
+  const text = decryptText(value);
+  if (text == null || text === '') return null;
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? parsed : null;
 };
 
 const computeSyncDedupeKey = (action: string, entity: string, data: any): string | null => {
@@ -55,6 +67,7 @@ export const initDatabase = async () => {
       parentId TEXT,
       noteOrder REAL,
       icon TEXT,
+      iconColor TEXT,
       locked INTEGER DEFAULT 0,
       isSynced INTEGER DEFAULT 1
     );
@@ -69,6 +82,9 @@ export const initDatabase = async () => {
       updatedAt TEXT,
       userId TEXT,
       parentNoteId TEXT,
+      parentId TEXT,
+      position REAL,
+      clientId TEXT,
       isSynced INTEGER DEFAULT 1
     );
     CREATE TABLE IF NOT EXISTS sync_queue (
@@ -111,11 +127,35 @@ export const initDatabase = async () => {
   } catch (e) {
       // Column likely exists
   }
+  
+  try {
+      await db.execAsync('ALTER TABLE notes ADD COLUMN iconColor TEXT');
+  } catch (e) {
+      // Column likely exists
+  }
 
   try {
     await db.execAsync('ALTER TABLE sync_queue ADD COLUMN dedupeKey TEXT');
   } catch (e) {
     // Column likely exists
+  }
+
+  try {
+      await db.execAsync('ALTER TABLE tasks ADD COLUMN parentId TEXT');
+  } catch (e) {
+      // Column likely exists
+  }
+
+  try {
+      await db.execAsync('ALTER TABLE tasks ADD COLUMN position REAL');
+  } catch (e) {
+      // Column likely exists
+  }
+
+  try {
+      await db.execAsync('ALTER TABLE tasks ADD COLUMN clientId TEXT');
+  } catch (e) {
+      // Column likely exists
   }
 
   await db.execAsync('CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_queue_dedupeKey ON sync_queue(dedupeKey)');
@@ -136,7 +176,8 @@ export const initDatabase = async () => {
 
     let parsed: any = null;
     try {
-      parsed = JSON.parse(row.data);
+      const decrypted = decryptText(row.data, row.data) || row.data;
+      parsed = JSON.parse(decrypted);
     } catch {
       parsed = null;
     }
@@ -156,10 +197,13 @@ export const saveNoteLocal = async (note: Note, isSynced: boolean = true) => {
   const encryptedTitle = encrypt(note.title);
   const encryptedContent = encrypt(note.content);
   
-  // Encrypt metadata
   const encryptedTags = encrypt(JSON.stringify(note.tags || []));
   const encryptedIcon = note.icon ? encrypt(note.icon) : null;
+  const encryptedIconColor = (note as any).iconColor ? encrypt((note as any).iconColor) : null;
   const encryptedType = (note as any).type ? encrypt((note as any).type) : null;
+  const encryptedUserId = encryptText(note.userId);
+  const encryptedParentId = note.parentId ? encryptText(note.parentId) : null;
+  const encryptedOrder = typeof (note as any).order === 'number' ? encryptText((note as any).order) : null;
   
   const createdAt = toIsoString(note.createdAt);
   const updatedAt = toIsoString(note.updatedAt);
@@ -168,8 +212,8 @@ export const saveNoteLocal = async (note: Note, isSynced: boolean = true) => {
   const encryptedLocked = encrypt(String(!!note.locked));
 
   await db.runAsync(
-    `INSERT OR REPLACE INTO notes (_id, title, content, tags, createdAt, updatedAt, userId, type, parentId, noteOrder, icon, locked, isSynced)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO notes (_id, title, content, tags, createdAt, updatedAt, userId, type, parentId, noteOrder, icon, iconColor, locked, isSynced)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       note._id,
       encryptedTitle,
@@ -177,11 +221,12 @@ export const saveNoteLocal = async (note: Note, isSynced: boolean = true) => {
       encryptedTags,
       encryptedCreatedAt,
       encryptedUpdatedAt,
-      note.userId,
+      encryptedUserId,
       encryptedType,
-      note.parentId || null,
-      typeof (note as any).order === 'number' ? (note as any).order : null,
+      encryptedParentId,
+      encryptedOrder,
       encryptedIcon,
+      encryptedIconColor,
       encryptedLocked,
       isSynced ? 1 : 0
     ]
@@ -189,8 +234,8 @@ export const saveNoteLocal = async (note: Note, isSynced: boolean = true) => {
 };
 
 export const getNotesLocal = async (): Promise<Note[]> => {
-  const result = await db.getAllAsync<any>('SELECT * FROM notes ORDER BY updatedAt DESC');
-  return result.map(row => {
+  const result = await db.getAllAsync<any>('SELECT * FROM notes');
+  const notes = result.map(row => {
     let tags: string[] = [];
     try {
         const decryptedTags = decrypt(row.tags);
@@ -233,19 +278,8 @@ export const getNotesLocal = async (): Promise<Note[]> => {
         }
     }
 
-    let createdAt: string = row.createdAt;
-    try {
-        createdAt = decrypt(row.createdAt);
-    } catch {
-        createdAt = row.createdAt;
-    }
-
-    let updatedAt: string = row.updatedAt;
-    try {
-        updatedAt = decrypt(row.updatedAt);
-    } catch {
-        updatedAt = row.updatedAt;
-    }
+    const createdAt = decryptText(row.createdAt, row.createdAt) || row.createdAt;
+    const updatedAt = decryptText(row.updatedAt, row.updatedAt) || row.updatedAt;
 
     let locked = false;
     if (row.locked !== null && row.locked !== undefined) {
@@ -260,6 +294,11 @@ export const getNotesLocal = async (): Promise<Note[]> => {
         }
     }
 
+    const iconColor = row.iconColor ? decryptText(row.iconColor, row.iconColor) : undefined;
+    const userId = decryptText(row.userId, row.userId) || row.userId;
+    const parentId = row.parentId ? decryptText(row.parentId, row.parentId) : null;
+    const order = decryptNumber(row.noteOrder);
+
     return {
         _id: row._id,
         title: decrypt(row.title),
@@ -267,14 +306,16 @@ export const getNotesLocal = async (): Promise<Note[]> => {
         tags: tags,
         createdAt: createdAt,
         updatedAt: updatedAt,
-        userId: row.userId,
+        userId: userId,
         type: type,
-        parentId: row.parentId,
-        order: typeof row.noteOrder === 'number' ? row.noteOrder : 0,
+        parentId: parentId,
+        order: order ?? 0,
         icon: icon,
+        iconColor: iconColor || undefined,
         locked: locked,
     };
   });
+  return notes.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 };
 
 export const deleteNoteLocal = async (id: string) => {
@@ -289,6 +330,13 @@ export const saveTaskLocal = async (task: Task, isSynced: boolean = true) => {
   
   const createdAt = toIsoString(task.createdAt);
   const updatedAt = toIsoString(task.updatedAt);
+  const encryptedCreatedAt = encrypt(createdAt.toString());
+  const encryptedUpdatedAt = encrypt(updatedAt.toString());
+  const encryptedUserId = encryptText(task.userId);
+  const encryptedParentNoteId = task.parentNoteId ? encryptText(task.parentNoteId) : null;
+  const encryptedParentId = task.parentId ? encryptText(task.parentId) : null;
+  const encryptedPosition = typeof task.position === 'number' ? encryptText(task.position) : null;
+  const encryptedClientId = task.clientId ? encryptText(task.clientId) : null;
   
   let encryptedDueDate: string | null = null;
   if (task.dueDate) {
@@ -297,8 +345,8 @@ export const saveTaskLocal = async (task: Task, isSynced: boolean = true) => {
   }
 
   await db.runAsync(
-    `INSERT OR REPLACE INTO tasks (_id, title, description, priority, completed, dueDate, createdAt, updatedAt, userId, parentNoteId, isSynced)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO tasks (_id, title, description, priority, completed, dueDate, createdAt, updatedAt, userId, parentNoteId, parentId, position, clientId, isSynced)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       task._id,
       encryptedTitle,
@@ -306,18 +354,21 @@ export const saveTaskLocal = async (task: Task, isSynced: boolean = true) => {
       encryptedPriority,
       encryptedCompleted,
       encryptedDueDate,
-      createdAt.toString(),
-      updatedAt.toString(),
-      task.userId,
-      task.parentNoteId || null,
+      encryptedCreatedAt,
+      encryptedUpdatedAt,
+      encryptedUserId,
+      encryptedParentNoteId,
+      encryptedParentId,
+      encryptedPosition,
+      encryptedClientId,
       isSynced ? 1 : 0
     ]
   );
 };
 
 export const getTasksLocal = async (): Promise<Task[]> => {
-  const result = await db.getAllAsync<any>('SELECT * FROM tasks ORDER BY createdAt DESC');
-  return result.map(row => {
+  const result = await db.getAllAsync<any>('SELECT * FROM tasks');
+  const tasks = result.map(row => {
     let completed = false;
     try {
         completed = decrypt(row.completed) === 'true';
@@ -349,10 +400,17 @@ export const getTasksLocal = async (): Promise<Task[]> => {
             const decryptedDate = decrypt(row.dueDate);
             dueDate = decryptedDate;
         } catch {
-            // Fallback for legacy
             dueDate = row.dueDate;
         }
     }
+
+    const createdAt = decryptText(row.createdAt, row.createdAt) || row.createdAt;
+    const updatedAt = decryptText(row.updatedAt, row.updatedAt) || row.updatedAt;
+    const userId = decryptText(row.userId, row.userId) || row.userId;
+    const parentNoteId = row.parentNoteId ? decryptText(row.parentNoteId, row.parentNoteId) : null;
+    const parentId = row.parentId ? decryptText(row.parentId, row.parentId) : null;
+    const position = decryptNumber(row.position);
+    const clientId = row.clientId ? decryptText(row.clientId, row.clientId) : undefined;
 
     return {
         _id: row._id,
@@ -361,15 +419,16 @@ export const getTasksLocal = async (): Promise<Task[]> => {
         priority: priority,
         completed: completed,
         dueDate: dueDate,
-        createdAt: row.createdAt,
-        updatedAt: row.updatedAt,
-        userId: row.userId,
-        parentNoteId: row.parentNoteId,
-        clientId: row.clientId,
-        parentId: row.parentId,
-        position: row.position
+        createdAt: createdAt,
+        updatedAt: updatedAt,
+        userId: userId,
+        parentNoteId: parentNoteId,
+        clientId: clientId,
+        parentId: parentId,
+        position: position ?? 0
     } as unknown as Task;
   });
+  return tasks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 };
 
 export const deleteTaskLocal = async (id: string) => {
@@ -378,9 +437,10 @@ export const deleteTaskLocal = async (id: string) => {
 
 export const addToSyncQueue = async (action: string, entity: string, data: any) => {
   const dedupeKey = computeSyncDedupeKey(action, entity, data);
+  const encryptedData = encrypt(JSON.stringify(data));
   await db.runAsync(
     `INSERT OR IGNORE INTO sync_queue (action, entity, data, timestamp, dedupeKey) VALUES (?, ?, ?, ?, ?)`,
-    [action, entity, JSON.stringify(data), new Date().toISOString(), dedupeKey]
+    [action, entity, encryptedData, encrypt(new Date().toISOString()), dedupeKey]
   );
 };
 
@@ -390,8 +450,18 @@ export const getSyncQueue = async () => {
     id: row.id,
     action: row.action,
     entity: row.entity,
-    data: JSON.parse(row.data),
-    timestamp: row.timestamp
+    data: (() => {
+      try {
+        return JSON.parse(decrypt(row.data));
+      } catch {
+        try {
+          return JSON.parse(row.data);
+        } catch {
+          return null;
+        }
+      }
+    })(),
+    timestamp: decryptText(row.timestamp, row.timestamp) || row.timestamp
   }));
 };
 

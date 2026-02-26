@@ -6,6 +6,7 @@ import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useStore } from '@/stores/useStore';
 import { CreateNoteDto, UpdateNoteDto } from '@repo/shared';
 import { RichEditor, RichToolbar, actions } from 'react-native-pell-rich-editor';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import PasswordModal from '@/components/PasswordModal';
 import { tiptapJsonToHtml, noteContentToPlainText } from '@/utils/tiptap';
 import IconPickerModal from '@/components/IconPickerModal';
@@ -507,7 +508,7 @@ export default function NoteEditorScreen() {
                 const IconComponent = require('@expo/vector-icons/FontAwesome5').default;
                 return <IconComponent name={fa5Name as any} size={20} color={iconColor || theme.colors.onSurface} />;
               }
-              return <Appbar.Icon icon="file-document-outline" />;
+              return <MaterialCommunityIcons name="file-document-outline" size={20} color={iconColor || theme.colors.onSurface} />;
             }}
             onPress={() => setShowIconPicker(true)}
           />
@@ -601,7 +602,7 @@ export default function NoteEditorScreen() {
             initialContentHTML={initialHtml}
             onChange={handleContentChange}
             placeholder="Börja skriva..."
-            onLinkPress={(url) => {
+            onLinkPress={(url: string) => {
               if (url) Linking.openURL(url);
             }}
             scrollEnabled={false}

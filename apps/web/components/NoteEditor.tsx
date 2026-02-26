@@ -822,7 +822,7 @@ const isRecord = (v: unknown): v is Record<string, any> =>
 
 const extractYouTubeId = (url: string): string => {
   const match = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
-  return match ? match[1] : '';
+  return match?.[1] ?? '';
 };
 
 const extractTextFromSlateLike = (v: unknown, depth = 0, visited?: WeakSet<object>): string => {
@@ -1161,6 +1161,12 @@ export default function NoteEditor() {
   const { t } = useTranslation();
 
   const selectedNote = notes.find((n) => n._id === selectedNoteId);
+  const currentActiveUsers = useMemo(() => {
+    if (!selectedNote) return [];
+    const users = activeUsers[selectedNote._id] ?? [];
+    if (!user?._id) return users;
+    return users.filter((u) => u._id !== user._id);
+  }, [activeUsers, selectedNote, user]);
   const [title, setTitle] = useState('');
   const [value, setValue] = useState<Descendant[]>(initialValue);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);

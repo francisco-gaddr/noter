@@ -11,6 +11,7 @@ import { Note } from '@repo/shared';
 import { IconPicker } from './IconPicker';
 import { CreateNodeModal } from './CreateNodeModal';
 import { useTranslation } from 'react-i18next';
+import { getEncryptedItem, setEncryptedItem } from '../services/secureStorage';
 
 interface TreeNodeProps {
     note: Note;
@@ -32,6 +33,10 @@ type NodeDropCollected = { isOver: boolean; canDrop: boolean };
 
 const sortNotes = (nodes: Note[], order: string) => {
     switch (order) {
+        case 'updated-desc': return orderBy(nodes, ['updatedAt'], ['desc']);
+        case 'updated-asc': return orderBy(nodes, ['updatedAt'], ['asc']);
+        case 'created-desc': return orderBy(nodes, ['createdAt'], ['desc']);
+        case 'created-asc': return orderBy(nodes, ['createdAt'], ['asc']);
         case 'date-desc': return orderBy(nodes, ['updatedAt'], ['desc']);
         case 'date-asc': return orderBy(nodes, ['updatedAt'], ['asc']);
         case 'title-asc': return orderBy(nodes, ['title'], ['asc']);
@@ -252,10 +257,10 @@ export default function SidebarTree() {
   useEffect(() => {
     fetchNotes();
     // Load persisted state
-    const savedTab = localStorage.getItem('activeTab');
-    const savedNoteId = localStorage.getItem('lastSelectedNoteId') || localStorage.getItem('selectedNoteId');
-    const savedTaskListId = localStorage.getItem('lastSelectedTaskListId');
-    const savedViewMode = localStorage.getItem('viewMode');
+    const savedTab = getEncryptedItem('activeTab');
+    const savedNoteId = getEncryptedItem('lastSelectedNoteId') || getEncryptedItem('selectedNoteId');
+    const savedTaskListId = getEncryptedItem('lastSelectedTaskListId');
+    const savedViewMode = getEncryptedItem('viewMode');
 
     const tab = savedTab === 'tasks' ? 'tasks' : 'notes';
     setActiveTab(tab);
@@ -271,7 +276,7 @@ export default function SidebarTree() {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem('viewMode', viewMode);
+    setEncryptedItem('viewMode', viewMode);
   }, [viewMode]);
 
   const effectiveSelectedId = activeTab === 'tasks' ? selectedTaskListId : selectedNoteId;
@@ -478,7 +483,7 @@ export default function SidebarTree() {
           <button
               onClick={() => {
                 setActiveTab('notes');
-                const last = localStorage.getItem('lastSelectedNoteId') || localStorage.getItem('selectedNoteId');
+                const last = getEncryptedItem('lastSelectedNoteId') || getEncryptedItem('selectedNoteId');
                 if (last && last !== 'null') selectNote(last);
               }}
               className={`flex-1 p-3 text-sm font-medium ${activeTab === 'notes' ? 'text-blue-600 border-b-2 border-blue-600 dark:text-blue-400' : 'text-gray-600 hover:text-gray-700 dark:text-gray-400'}`}
@@ -488,7 +493,7 @@ export default function SidebarTree() {
           <button
               onClick={() => {
                 setActiveTab('tasks');
-                const last = localStorage.getItem('lastSelectedTaskListId');
+                const last = getEncryptedItem('lastSelectedTaskListId');
                 if (last && last !== 'null') selectNote(last);
                 else selectNote(null);
               }}
@@ -582,8 +587,10 @@ export default function SidebarTree() {
                         onChange={(e) => setSortOrder(e.target.value as any)}
                         className="w-full text-sm p-1 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus:outline-none text-gray-900 dark:text-gray-100"
                     >
-                        <option value="date-desc">{t('sort.newest')}</option>
-                        <option value="date-asc">{t('sort.oldest')}</option>
+                        <option value="updated-desc">{t('sort.updatedNewest')}</option>
+                        <option value="updated-asc">{t('sort.updatedOldest')}</option>
+                        <option value="created-desc">{t('sort.createdNewest')}</option>
+                        <option value="created-asc">{t('sort.createdOldest')}</option>
                         <option value="title-asc">{t('sort.titleAsc')}</option>
                         <option value="title-desc">{t('sort.titleDesc')}</option>
                         <option value="custom">{t('sort.custom') || 'Custom'}</option>
