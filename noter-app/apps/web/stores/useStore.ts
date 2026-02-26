@@ -413,43 +413,50 @@ export const useStore = create<StoreState>((set, get) => ({
           });
           return;
       }
-      set(state => ({ notes: uniqBy([decryptedNote, ...state.notes], '_id') }));
-      db.saveNote(decryptedNote);
+      // Batch the state update and DB operation
+      requestAnimationFrame(() => {
+        set(state => ({ notes: uniqBy([decryptedNote, ...state.notes], '_id') }));
+        db.saveNote(decryptedNote);
+      });
     });
 
     socket.off('note:updated');
     socket.on('note:updated', (updatedNote: Note) => {
         const decryptedNote = decryptNoteFromSocket(updatedNote);
-        set(state => {
-            const currentNote = state.notes.find(n => n._id === decryptedNote._id);
-            if (currentNote) {
-                // Conflict handling: Merge using deepmerge based on updatedAt
-                const localTime = new Date(currentNote.updatedAt).getTime();
-                const remoteTime = new Date(decryptedNote.updatedAt).getTime();
+        
+        // Use requestAnimationFrame to batch this potentially expensive operation
+        requestAnimationFrame(() => {
+            set(state => {
+                const currentNote = state.notes.find(n => n._id === decryptedNote._id);
+                if (currentNote) {
+                    // Conflict handling: Merge using deepmerge based on updatedAt
+                    const localTime = new Date(currentNote.updatedAt).getTime();
+                    const remoteTime = new Date(decryptedNote.updatedAt).getTime();
 
-                if (localTime > remoteTime) {
-                    // Local is newer, ignore remote (or merge carefully)
-                    // For now, let's assume local wins if strictly newer
-                     return {};
+                    if (localTime > remoteTime) {
+                        // Local is newer, ignore remote (or merge carefully)
+                        // For now, let's assume local wins if strictly newer
+                         return {};
+                    }
                 }
-            }
-            
-            // Remote is newer or no local note, accept remote
-            const newNotes = state.notes.map(n => n._id === decryptedNote._id ? { ...n, ...decryptedNote } : n);
-            
-            // Preserve unlocked content if still locked in backend but unlocked locally
-            if (state.selectedNoteId === decryptedNote._id) {
-                 const currentNote = state.notes.find(n => n._id === decryptedNote._id);
-                 if (currentNote && !currentNote.locked && decryptedNote.locked) {
-                     // If we have unlocked content locally, keep it?
-                     // Or re-lock? If remote says locked, it might be re-locked.
-                     // But if we are editing, we don't want to be locked out suddenly.
-                     // Let's rely on 'locked' status.
-                 }
-            }
-            return { notes: newNotes };
+                
+                // Remote is newer or no local note, accept remote
+                const newNotes = state.notes.map(n => n._id === decryptedNote._id ? { ...n, ...decryptedNote } : n);
+                
+                // Preserve unlocked content if still locked in backend but unlocked locally
+                if (state.selectedNoteId === decryptedNote._id) {
+                     const currentNote = state.notes.find(n => n._id === decryptedNote._id);
+                     if (currentNote && !currentNote.locked && decryptedNote.locked) {
+                         // If we have unlocked content locally, keep it?
+                         // Or re-lock? If remote says locked, it might be re-locked.
+                         // But if we are editing, we don't want to be locked out suddenly.
+                         // Let's rely on 'locked' status.
+                     }
+                }
+                return { notes: newNotes };
+            });
+            db.saveNote(decryptedNote); // Cache incoming
         });
-        db.saveNote(decryptedNote); // Cache incoming
     });
 
     socket.off('note:deleted');

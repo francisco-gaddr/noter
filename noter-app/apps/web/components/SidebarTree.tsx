@@ -285,9 +285,11 @@ export default function SidebarTree() {
 
   const { rootNotes, flatFilteredNotes, sortedFlatNotes } = useMemo(() => {
     if (searchQuery) {
+      // Only search when there's actually a search query to avoid unnecessary computation
       const fuse = new Fuse(notes, {
         keys: ['title', 'content', 'tags'],
-        threshold: 0.4
+        threshold: 0.4,
+        includeScore: false
       });
       const matches = fuse.search(searchQuery).map(res => res.item);
       const filtered = matches.filter(n => {

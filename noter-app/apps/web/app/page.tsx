@@ -33,7 +33,7 @@ export default function Home() {
         setSidebarWidth(newWidth);
       }
     },
-    [isResizing]
+    [isResizing, setSidebarWidth]
   );
 
   useEffect(() => {
