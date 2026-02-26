@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
+import { encrypt, decrypt } from '@repo/shared';
 import { logDebug, logError, logWarn } from './logger';
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -57,7 +58,7 @@ export const setApiUrl = async (url: string) => {
 
   API_URL = url;
   try {
-    await SecureStore.setItemAsync('custom_api_url', url);
+    await SecureStore.setItemAsync('custom_api_url', encrypt(url));
   } catch (e) {
     logWarn('Failed to save custom API URL', e);
   }
@@ -68,7 +69,14 @@ export const initApiUrl = async () => {
     try {
         const stored = await SecureStore.getItemAsync('custom_api_url');
         if (stored) {
-            API_URL = stored;
+            const decrypted = (() => {
+              try {
+                return decrypt(stored);
+              } catch {
+                return stored;
+              }
+            })();
+            API_URL = decrypted;
             logDebug('API_URL loaded from storage:', API_URL);
         }
     } catch (e) {
@@ -161,7 +169,14 @@ export async function fetchWithAuth(endpoint: string, options: RequestInit = {})
   
   // If no token in memory, try to get from SecureStore (fallback/recovery)
   if (!authToken) {
-    authToken = await SecureStore.getItemAsync('token');
+    const stored = await SecureStore.getItemAsync('token');
+    if (stored) {
+      try {
+        authToken = decrypt(stored);
+      } catch {
+        authToken = stored;
+      }
+    }
   }
 
   const headers: Record<string, string> = {

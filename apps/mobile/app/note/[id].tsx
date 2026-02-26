@@ -462,7 +462,28 @@ export default function NoteEditorScreen() {
          </div>`
       );
     } else {
-      richText.current?.insertVideo(url);
+      const isTikTok = (() => {
+        try {
+          return /(^|\.)tiktok\.com$/i.test(new URL(url).hostname);
+        } catch {
+          return false;
+        }
+      })();
+      if (isTikTok) {
+        void (async () => {
+          try {
+            const response = await fetch(`https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`);
+            const data = await response.json();
+            if (data && typeof data.html === 'string') {
+              richText.current?.insertHTML(data.html);
+              return;
+            }
+          } catch {}
+          richText.current?.insertVideo(url);
+        })();
+      } else {
+        richText.current?.insertVideo(url);
+      }
     }
     setShowVideoModal(false);
     setVideoUrl('');

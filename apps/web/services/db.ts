@@ -4,12 +4,12 @@ import { Note, Task, encrypt, decrypt } from '@repo/shared';
 interface NoterDB extends DBSchema {
   notes: {
     key: string;
-    value: Note & { pendingSync?: boolean; deleted?: boolean };
+    value: Note & { pendingSync?: boolean | string; deleted?: boolean | string };
     indexes: { 'by-updated': string };
   };
   tasks: {
     key: string;
-    value: Task & { pendingSync?: boolean; deleted?: boolean };
+    value: Task & { pendingSync?: boolean | string; deleted?: boolean | string };
     indexes: { 'by-updated': string; 'by-note': string };
   };
 }
@@ -80,6 +80,22 @@ const decryptText = (value: unknown, fallback: string | null = null): string | n
   }
 };
 
+const parseEncryptedBool = (value: unknown): boolean => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value === 1;
+  if (typeof value === 'string') {
+    if (value === 'true' || value === '1') return true;
+    if (value === 'false' || value === '0') return false;
+    try {
+      const decrypted = decrypt(value);
+      if (decrypted === 'true' || decrypted === '1') return true;
+      if (decrypted === 'false' || decrypted === '0') return false;
+    } catch {}
+    return Boolean(value);
+  }
+  return false;
+};
+
 const decryptNumber = (value: unknown): number | null => {
   const text = decryptText(value);
   if (text == null || text === '') return null;
@@ -89,7 +105,7 @@ const decryptNumber = (value: unknown): number | null => {
 
 export const db = {
   // Notes
-  async getAllNotes(): Promise<Note[]> {
+  async getAllNotes(): Promise<(Note & { pendingSync?: boolean; deleted?: boolean })[]> {
     const db = await initDB();
     const notes = await db.getAll('notes');
     return notes.map(n => ({
@@ -147,10 +163,12 @@ export const db = {
                 return value;
             }
         })(),
+        pendingSync: parseEncryptedBool((n as any).pendingSync),
+        deleted: parseEncryptedBool((n as any).deleted),
     }));
   },
 
-  async getNote(id: string): Promise<Note | undefined> {
+  async getNote(id: string): Promise<(Note & { pendingSync?: boolean; deleted?: boolean }) | undefined> {
     const db = await initDB();
     const note = await db.get('notes', id);
     if (!note) return undefined;
@@ -209,6 +227,8 @@ export const db = {
                 return value;
             }
         })(),
+        pendingSync: parseEncryptedBool((note as any).pendingSync),
+        deleted: parseEncryptedBool((note as any).deleted),
     };
   },
 
@@ -229,7 +249,7 @@ export const db = {
         createdAt: encrypt(String(note.createdAt)),
         updatedAt: encrypt(String(note.updatedAt)),
         type: note.type ? encrypt(note.type) : note.type,
-        pendingSync
+        pendingSync: encrypt(String(!!pendingSync))
     };
     await db.put('notes', encrypted);
   },
@@ -243,14 +263,14 @@ export const db = {
       const db = await initDB();
       const note = await db.get('notes', id);
       if (note) {
-          await db.put('notes', { ...note, deleted: true, pendingSync: true });
+          await db.put('notes', { ...note, deleted: encrypt('true'), pendingSync: encrypt('true') });
       }
   },
 
   async getPendingSyncNotes(): Promise<(Note & { deleted?: boolean })[]> {
     const db = await initDB();
     const all = await db.getAll('notes');
-    const pending = all.filter((n) => n.pendingSync);
+    const pending = all.filter((n) => parseEncryptedBool((n as any).pendingSync));
     return pending.map(n => ({
         ...n,
         title: decrypt(n.title),
@@ -307,11 +327,13 @@ export const db = {
                 return value;
             }
         })(),
+        pendingSync: true,
+        deleted: parseEncryptedBool((n as any).deleted),
     }));
   },
 
   // Tasks
-  async getAllTasks(): Promise<Task[]> {
+  async getAllTasks(): Promise<(Task & { pendingSync?: boolean; deleted?: boolean })[]> {
     const db = await initDB();
     const tasks = await db.getAll('tasks');
     return tasks.map(t => ({
@@ -332,7 +354,9 @@ export const db = {
         if (typeof (t as any).position === 'number') return (t as any).position;
         return 0;
       })(),
-      clientId: (t as any).clientId ? (decryptText((t as any).clientId, (t as any).clientId) || (t as any).clientId) : undefined
+      clientId: (t as any).clientId ? (decryptText((t as any).clientId, (t as any).clientId) || (t as any).clientId) : undefined,
+      pendingSync: parseEncryptedBool((t as any).pendingSync),
+      deleted: parseEncryptedBool((t as any).deleted)
     }));
   },
 
@@ -352,7 +376,7 @@ export const db = {
         parentId: task.parentId ? encrypt(task.parentId) : null,
         position: typeof task.position === 'number' ? encrypt(String(task.position)) : task.position ? encrypt(String(task.position)) : undefined,
         clientId: task.clientId ? encrypt(task.clientId) : task.clientId,
-        pendingSync
+        pendingSync: encrypt(String(!!pendingSync))
     };
     await db.put('tasks', encrypted as any);
   },
@@ -366,14 +390,14 @@ export const db = {
       const db = await initDB();
       const task = await db.get('tasks', id);
       if (task) {
-          await db.put('tasks', { ...task, deleted: true, pendingSync: true });
+          await db.put('tasks', { ...task, deleted: encrypt('true'), pendingSync: encrypt('true') });
       }
   },
 
   async getPendingSyncTasks(): Promise<(Task & { deleted?: boolean })[]> {
     const db = await initDB();
     const all = await db.getAll('tasks');
-    const pending = all.filter((t) => t.pendingSync);
+    const pending = all.filter((t) => parseEncryptedBool((t as any).pendingSync));
     return pending.map(t => ({
       ...t,
       title: decrypt(t.title),
@@ -393,6 +417,8 @@ export const db = {
         return 0;
       })(),
       clientId: (t as any).clientId ? (decryptText((t as any).clientId, (t as any).clientId) || (t as any).clientId) : undefined,
+      pendingSync: true,
+      deleted: parseEncryptedBool((t as any).deleted),
     }));
   }
 };

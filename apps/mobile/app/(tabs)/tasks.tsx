@@ -10,6 +10,7 @@ import { Task } from '@repo/shared';
 import { orderBy } from 'lodash';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { decrypt, encrypt } from '@repo/shared';
+import { logError } from '@/services/logger';
 import { SvgUri } from 'react-native-svg';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Platform } from 'react-native';
@@ -89,7 +90,7 @@ export default function TasksScreen() {
             });
         }
       } catch (e) {
-        console.log('Failed to load state', e);
+        logError('Failed to load state', e);
       }
     };
     loadState();

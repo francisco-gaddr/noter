@@ -138,7 +138,7 @@ interface StoreState {
   unlockNote: (id: string, password: string) => Promise<boolean>;
   deleteNote: (id: string) => Promise<void>;
   
-  createTask: (title: string, parentNoteId?: string, dueDate?: string | null) => Promise<void>;
+  createTask: (title: string, parentNoteId?: string, dueDate?: string | null, description?: string, priority?: 'low' | 'medium' | 'high') => Promise<void>;
   updateTask: (id: string, data: UpdateTaskDto) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
   reorderTasks: (tasks: Task[]) => Promise<void>;
@@ -864,10 +864,10 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
 
-  createTask: async (title, parentNoteId, dueDate) => {
+  createTask: async (title, parentNoteId, dueDate, description = '', priority = 'medium') => {
       const clientId = crypto.randomUUID();
       try {
-          const newTask = await api.createTask({ title, parentNoteId, priority: 'medium', clientId, dueDate: dueDate || null });
+          const newTask = await api.createTask({ title, parentNoteId, priority, description, clientId, dueDate: dueDate || null });
           set(state => ({ 
               tasks: uniqBy([newTask, ...state.tasks], '_id'),
               pendingCreated: { 
@@ -891,11 +891,11 @@ export const useStore = create<StoreState>((set, get) => ({
               userId: 'local',
               clientId,
               title,
-              description: '',
+              description,
               dueDate: dueDate || null,
               parentNoteId,
               completed: false,
-              priority: 'medium',
+              priority,
               position: 0,
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),

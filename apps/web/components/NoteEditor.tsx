@@ -17,7 +17,7 @@ import TurndownService from 'turndown';
 import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
 
-type CustomElement = { type: string; children: CustomText[]; url?: string; align?: string; checked?: boolean };
+type CustomElement = { type: string; children: CustomText[]; url?: string; align?: string; checked?: boolean; html?: string };
 type CustomText = { text: string; bold?: boolean; italic?: boolean; underline?: boolean; code?: boolean };
 
 const sanitizeUrl = (url: string, type: 'link' | 'image' | 'video' = 'link'): string => {
@@ -40,6 +40,27 @@ const sanitizeUrl = (url: string, type: 'link' | 'image' | 'video' = 'link'): st
     // If it doesn't parse, we assume it's relative if it doesn't look like a script.
     return trimmed;
   }
+};
+
+const isTikTokUrl = (url: string): boolean => {
+  if (!url) return false;
+  try {
+    return /(^|\.)tiktok\.com$/i.test(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+};
+
+const stripScriptTags = (html: string): string =>
+  html.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '');
+
+const sanitizeTikTokHtml = (html: string): string => {
+  const stripped = stripScriptTags(html);
+  return DOMPurify.sanitize(stripped, {
+    ADD_TAGS: ['blockquote'],
+    ADD_ATTR: ['cite', 'data-video-id', 'data-embed-from', 'style', 'class'],
+    ALLOW_DATA_ATTR: true
+  });
 };
 
 declare module 'slate' {
@@ -296,6 +317,12 @@ const CustomEditor = {
     const video: SlateElement = { type: 'video', url: sanitizedUrl, children: [text] } as any;
     Transforms.insertNodes(editor, video);
   },
+  insertTikTok(editor: Editor, url: string, html: string) {
+    const text = { text: '' };
+    const sanitizedUrl = sanitizeUrl(url, 'video');
+    const tiktok: SlateElement = { type: 'tiktok', url: sanitizedUrl, html, children: [text] } as any;
+    Transforms.insertNodes(editor, tiktok);
+  },
 
   insertTable(editor: Editor) {
     const table: SlateElement = {
@@ -423,7 +450,7 @@ const CustomEditor = {
 const withEmbeds = (editor: Editor) => {
   const { isVoid } = editor;
   editor.isVoid = element => {
-    return (element as any).type === 'image' || (element as any).type === 'video' ? true : isVoid(element);
+    return (element as any).type === 'image' || (element as any).type === 'video' || (element as any).type === 'tiktok' ? true : isVoid(element);
   };
   return editor;
 };
@@ -511,6 +538,13 @@ const slateNodeToHtml = (node: any, depth = 0, visited = new WeakSet<object>()):
         return `<div class="video-container"><iframe width="560" height="315" src="https://www.youtube.com/embed/${extractYouTubeId(sanitizedUrl)}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>`;
       }
       return `<a href="${escapeAttr(sanitizedUrl)}">${escapeHtml(sanitizedUrl)}</a>`;
+    }
+    case 'tiktok': {
+      const html = typeof node.html === 'string' ? node.html : '';
+      if (html) return sanitizeTikTokHtml(html);
+      const url = typeof node.url === 'string' ? node.url : '';
+      if (!url) return '';
+      return `<a href="${escapeAttr(sanitizeUrl(url, 'video'))}">${escapeHtml(url)}</a>`;
     }
     case 'table':
       return `<table style="border-collapse: collapse; width: 100%; border: 1px solid #ddd;"><tbody>${childrenHtml}</tbody></table>`;
@@ -761,7 +795,16 @@ const htmlToSlateValue = (html: string): Descendant[] => {
     if (tag === 'h1') return [{ type: 'heading-one', children: ensureInlineChildren(children) } as any];
     if (tag === 'h2') return [{ type: 'heading-two', children: ensureInlineChildren(children) } as any];
 
-    if (tag === 'blockquote') return [{ type: 'block-quote', children: ensureInlineChildren(children) } as any];
+    if (tag === 'blockquote') {
+      const className = el.getAttribute('class') || '';
+      const cite = el.getAttribute('cite') || '';
+      const isTikTok = className.includes('tiktok-embed') || el.getAttribute('data-video-id') || cite.includes('tiktok.com');
+      if (isTikTok) {
+        const html = sanitizeTikTokHtml(el.outerHTML);
+        return [{ type: 'tiktok', url: cite || undefined, html, children: [{ text: '' }] } as any];
+      }
+      return [{ type: 'block-quote', children: ensureInlineChildren(children) } as any];
+    }
 
     if (tag === 'pre') {
       const text = el.textContent ?? '';
@@ -823,6 +866,14 @@ const isRecord = (v: unknown): v is Record<string, any> =>
 const extractYouTubeId = (url: string): string => {
   const match = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
   return match?.[1] ?? '';
+};
+
+const fetchTikTokEmbedHtml = async (url: string): Promise<string> => {
+  const response = await fetch(`https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`);
+  if (!response.ok) return '';
+  const data = await response.json();
+  if (!data || typeof data.html !== 'string') return '';
+  return sanitizeTikTokHtml(data.html);
 };
 
 const extractTextFromSlateLike = (v: unknown, depth = 0, visited?: WeakSet<object>): string => {
@@ -1117,7 +1168,21 @@ const Toolbar = () => {
         onMouseDown={(event: any) => {
           event.preventDefault();
           const url = window.prompt(t('noteEditor.prompts.videoUrl'));
-          if (url) CustomEditor.insertVideo(editor, url);
+          if (!url) return;
+          const sanitizedUrl = sanitizeUrl(url, 'video');
+          if (!sanitizedUrl) return;
+          if (isTikTokUrl(sanitizedUrl)) {
+            void (async () => {
+              const html = await fetchTikTokEmbedHtml(sanitizedUrl);
+              if (html) {
+                CustomEditor.insertTikTok(editor, sanitizedUrl, html);
+              } else {
+                CustomEditor.insertVideo(editor, sanitizedUrl);
+              }
+            })();
+            return;
+          }
+          CustomEditor.insertVideo(editor, sanitizedUrl);
         }}
       />
     </div>
@@ -1652,6 +1717,47 @@ const Leaf = ({ attributes, children, leaf }: any) => {
   return <span {...attributes}>{children}</span>;
 };
 
+const TikTokEmbed = ({ html, url }: { html?: string; url?: string }) => {
+  const [embedHtml, setEmbedHtml] = useState(html || '');
+
+  useEffect(() => {
+    let active = true;
+    if (!embedHtml && url && isTikTokUrl(url)) {
+      void (async () => {
+        const fetched = await fetchTikTokEmbedHtml(url);
+        if (active) setEmbedHtml(fetched);
+      })();
+    }
+    return () => {
+      active = false;
+    };
+  }, [embedHtml, url]);
+
+  useEffect(() => {
+    if (!embedHtml) return;
+    if (typeof document === 'undefined') return;
+    const existing = document.querySelector('script[src="https://www.tiktok.com/embed.js"]');
+    if (!existing) {
+      const script = document.createElement('script');
+      script.src = 'https://www.tiktok.com/embed.js';
+      script.async = true;
+      document.body.appendChild(script);
+    } else {
+      const script = document.createElement('script');
+      script.src = 'https://www.tiktok.com/embed.js';
+      script.async = true;
+      document.body.appendChild(script);
+    }
+  }, [embedHtml]);
+
+  if (!embedHtml) {
+    const safeUrl = url ? sanitizeUrl(url, 'video') : '';
+    return safeUrl ? <a href={safeUrl} target="_blank" rel="noopener noreferrer">{safeUrl}</a> : null;
+  }
+
+  return <div dangerouslySetInnerHTML={{ __html: embedHtml }} />;
+};
+
 const Element = ({ attributes, children, element }: any) => {
   switch (element.type) {
     case 'block-quote':
@@ -1684,6 +1790,16 @@ const Element = ({ attributes, children, element }: any) => {
         </div>
       );
     case 'video':
+      if (isTikTokUrl(element.url)) {
+        return (
+          <div {...attributes} className="my-4">
+            <div contentEditable={false}>
+              <TikTokEmbed url={element.url} />
+            </div>
+            {children}
+          </div>
+        );
+      }
       return (
         <div {...attributes} className="my-4">
           <div contentEditable={false} className="relative pt-[56.25%] bg-gray-100 dark:bg-gray-800 rounded overflow-hidden">
@@ -1694,6 +1810,15 @@ const Element = ({ attributes, children, element }: any) => {
               height="100%"
               controls
             />
+          </div>
+          {children}
+        </div>
+      );
+    case 'tiktok':
+      return (
+        <div {...attributes} className="my-4">
+          <div contentEditable={false}>
+            <TikTokEmbed html={element.html} url={element.url} />
           </div>
           {children}
         </div>

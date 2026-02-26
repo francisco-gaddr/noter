@@ -4,6 +4,7 @@ import { List, Switch, Text, Divider, useTheme, Menu, Dialog, Portal, Button, Te
 import { useThemeContext } from '@/context/ThemeContext';
 import { useRouter } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
+import { decrypt, encrypt } from '@repo/shared';
 import Constants from 'expo-constants';
 import { useStore } from '@/stores/useStore';
 import { API_URL, setApiUrl, getAuthToken } from '@/services/api';
@@ -41,12 +42,28 @@ export default function SettingsScreen() {
 
   useEffect(() => {
     (async () => {
-      const saved = await SecureStore.getItemAsync('language');
+      const savedRaw = await SecureStore.getItemAsync('language');
+      const saved = (() => {
+        if (!savedRaw) return null;
+        try {
+          return decrypt(savedRaw);
+        } catch {
+          return savedRaw;
+        }
+      })();
       if (saved === 'sv' || saved === 'en') {
         setLanguage(saved);
         i18n.locale = saved;
       }
-      const savedLockTiming = await SecureStore.getItemAsync('lockTiming');
+      const savedLockTimingRaw = await SecureStore.getItemAsync('lockTiming');
+      const savedLockTiming = (() => {
+        if (!savedLockTimingRaw) return null;
+        try {
+          return decrypt(savedLockTimingRaw);
+        } catch {
+          return savedLockTimingRaw;
+        }
+      })();
       if (
         savedLockTiming === 'immediate' ||
         savedLockTiming === '5min' ||
@@ -66,7 +83,7 @@ export default function SettingsScreen() {
     setLanguage(lang);
     i18n.locale = lang;
     try {
-      await SecureStore.setItemAsync('language', lang);
+      await SecureStore.setItemAsync('language', encrypt(lang));
     } catch (e) {
     }
   };
@@ -82,7 +99,7 @@ export default function SettingsScreen() {
   const saveLockTiming = async (timing: typeof lockTiming) => {
     setLockTiming(timing);
     try {
-      await SecureStore.setItemAsync('lockTiming', timing);
+      await SecureStore.setItemAsync('lockTiming', encrypt(timing));
     } catch {}
   };
 

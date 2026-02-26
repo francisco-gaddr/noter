@@ -44,9 +44,17 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
         ]);
 
         let currentTiming: LockTiming = 'immediate';
-        if (saved === 'immediate' || saved === '5min' || saved === '15min' || saved === '30min' || saved === '1h') {
-          setLockTiming(saved);
-          currentTiming = saved;
+        const savedTiming = (() => {
+          if (!saved) return null;
+          try {
+            return decrypt(saved);
+          } catch {
+            return saved;
+          }
+        })();
+        if (savedTiming === 'immediate' || savedTiming === '5min' || savedTiming === '15min' || savedTiming === '30min' || savedTiming === '1h') {
+          setLockTiming(savedTiming);
+          currentTiming = savedTiming;
         }
 
         if (savedLastBg) {
@@ -127,9 +135,17 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
           let timingToUse: LockTiming = lockTiming;
           try {
             const saved = await SecureStore.getItemAsync(LOCK_TIMING_KEY);
-            if (saved === 'immediate' || saved === '5min' || saved === '15min' || saved === '30min' || saved === '1h') {
-              timingToUse = saved;
-              if (saved !== lockTiming) setLockTiming(saved);
+            const savedTiming = (() => {
+              if (!saved) return null;
+              try {
+                return decrypt(saved);
+              } catch {
+                return saved;
+              }
+            })();
+            if (savedTiming === 'immediate' || savedTiming === '5min' || savedTiming === '15min' || savedTiming === '30min' || savedTiming === '1h') {
+              timingToUse = savedTiming;
+              if (savedTiming !== lockTiming) setLockTiming(savedTiming);
             }
           } catch {}
 

@@ -237,10 +237,19 @@ export const useStore = create<AppState>((set, get) => ({
     await initApiUrl();
     await Database.initDatabase();
 
-    const storedToken = await SecureStore.getItemAsync('token');
-    if (storedToken) {
-      setAuthToken(storedToken);
-      set({ token: storedToken });
+    const storedTokenRaw = await SecureStore.getItemAsync('token');
+    if (storedTokenRaw) {
+      const token = (() => {
+        try {
+          return decrypt(storedTokenRaw);
+        } catch {
+          return storedTokenRaw;
+        }
+      })();
+      if (token) {
+        setAuthToken(token);
+        set({ token });
+      }
     }
 
     setUnauthorizedHandler(async () => {
@@ -420,7 +429,7 @@ export const useStore = create<AppState>((set, get) => ({
       const response = await apiLogin(username, password);
       const token = response.token; // Assuming backend returns { token: '...' }
       if (token) {
-        await SecureStore.setItemAsync('token', token);
+        await SecureStore.setItemAsync('token', encrypt(token));
         setAuthToken(token);
         set({ token });
         
@@ -448,7 +457,7 @@ export const useStore = create<AppState>((set, get) => ({
       const token = response.token;
       
       if (token) {
-        await SecureStore.setItemAsync('token', token);
+        await SecureStore.setItemAsync('token', encrypt(token));
         setAuthToken(token);
         set({ token });
         
@@ -468,7 +477,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   logout: async () => {
     try {
-      await SecureStore.deleteItemAsync('token');
+    await SecureStore.deleteItemAsync('token');
     } catch {}
     setAuthToken(null);
     disconnectSocket();

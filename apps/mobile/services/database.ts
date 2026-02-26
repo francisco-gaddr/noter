@@ -1,4 +1,5 @@
 import * as SQLite from 'expo-sqlite';
+import CryptoJS from 'crypto-js';
 import { Note, Task, encrypt, decrypt } from '@repo/shared';
 
 const db = SQLite.openDatabaseSync('noter.db');
@@ -27,6 +28,17 @@ const decryptNumber = (value: unknown): number | null => {
   const parsed = Number(text);
   return Number.isFinite(parsed) ? parsed : null;
 };
+
+const decryptBool = (value: unknown): boolean => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value === 1;
+  const text = decryptText(value);
+  if (text === 'true' || text === '1') return true;
+  if (text === 'false' || text === '0') return false;
+  return Boolean(text);
+};
+
+const hashText = (value: string): string => CryptoJS.SHA256(value).toString();
 
 const computeSyncDedupeKey = (action: string, entity: string, data: any): string | null => {
   if (!action || !entity) return null;
@@ -93,7 +105,8 @@ export const initDatabase = async () => {
       entity TEXT,
       data TEXT,
       timestamp TEXT,
-      dedupeKey TEXT
+      dedupeKey TEXT,
+      dedupeKeyHash TEXT
     );
   `);
   
@@ -141,6 +154,12 @@ export const initDatabase = async () => {
   }
 
   try {
+      await db.execAsync('ALTER TABLE sync_queue ADD COLUMN dedupeKeyHash TEXT');
+  } catch (e) {
+      // Column likely exists
+  }
+
+  try {
       await db.execAsync('ALTER TABLE tasks ADD COLUMN parentId TEXT');
   } catch (e) {
       // Column likely exists
@@ -158,38 +177,48 @@ export const initDatabase = async () => {
       // Column likely exists
   }
 
-  await db.execAsync('CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_queue_dedupeKey ON sync_queue(dedupeKey)');
+  await db.execAsync('DROP INDEX IF EXISTS idx_sync_queue_dedupeKey');
+  await db.execAsync('CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_queue_dedupeKeyHash ON sync_queue(dedupeKeyHash)');
 
   const existing = await db.getAllAsync<any>(
-    'SELECT id, action, entity, data, dedupeKey FROM sync_queue ORDER BY timestamp ASC'
+    'SELECT id, action, entity, data, timestamp, dedupeKey, dedupeKeyHash FROM sync_queue'
   );
   const seen = new Set<string>();
   for (const row of existing) {
-    if (typeof row.dedupeKey === 'string' && row.dedupeKey.length > 0) {
-      if (seen.has(row.dedupeKey)) {
-        await db.runAsync('DELETE FROM sync_queue WHERE id = ?', [row.id]);
-        continue;
-      }
-      seen.add(row.dedupeKey);
-      continue;
-    }
+    const actionText = decryptText(row.action, row.action) || row.action;
+    const entityText = decryptText(row.entity, row.entity) || row.entity;
+    const dataText = decryptText(row.data, row.data) || row.data;
+    const dedupeKeyText = decryptText(row.dedupeKey, row.dedupeKey) || row.dedupeKey;
+    const timestampText = decryptText(row.timestamp, row.timestamp) || row.timestamp;
 
     let parsed: any = null;
     try {
-      const decrypted = decryptText(row.data, row.data) || row.data;
-      parsed = JSON.parse(decrypted);
+      parsed = JSON.parse(dataText);
     } catch {
       parsed = null;
     }
-    const dedupeKey = computeSyncDedupeKey(row.action, row.entity, parsed);
-    if (!dedupeKey) continue;
-
-    if (seen.has(dedupeKey)) {
-      await db.runAsync('DELETE FROM sync_queue WHERE id = ?', [row.id]);
-      continue;
+    const computedDedupeKey = dedupeKeyText || computeSyncDedupeKey(actionText, entityText, parsed);
+    const hash = computedDedupeKey ? hashText(computedDedupeKey) : null;
+    if (hash) {
+      if (seen.has(hash)) {
+        await db.runAsync('DELETE FROM sync_queue WHERE id = ?', [row.id]);
+        continue;
+      }
+      seen.add(hash);
     }
-    seen.add(dedupeKey);
-    await db.runAsync('UPDATE sync_queue SET dedupeKey = ? WHERE id = ?', [dedupeKey, row.id]);
+
+    await db.runAsync(
+      'UPDATE sync_queue SET action = ?, entity = ?, data = ?, timestamp = ?, dedupeKey = ?, dedupeKeyHash = ? WHERE id = ?',
+      [
+        encryptText(actionText),
+        encryptText(entityText),
+        encryptText(dataText),
+        encryptText(timestampText),
+        computedDedupeKey ? encryptText(computedDedupeKey) : null,
+        hash,
+        row.id
+      ]
+    );
   }
 };
 
@@ -210,6 +239,7 @@ export const saveNoteLocal = async (note: Note, isSynced: boolean = true) => {
   const encryptedCreatedAt = encrypt(createdAt.toString());
   const encryptedUpdatedAt = encrypt(updatedAt.toString());
   const encryptedLocked = encrypt(String(!!note.locked));
+  const encryptedIsSynced = encryptText(isSynced ? '1' : '0');
 
   await db.runAsync(
     `INSERT OR REPLACE INTO notes (_id, title, content, tags, createdAt, updatedAt, userId, type, parentId, noteOrder, icon, iconColor, locked, isSynced)
@@ -228,7 +258,7 @@ export const saveNoteLocal = async (note: Note, isSynced: boolean = true) => {
       encryptedIcon,
       encryptedIconColor,
       encryptedLocked,
-      isSynced ? 1 : 0
+      encryptedIsSynced
     ]
   );
 };
@@ -281,18 +311,7 @@ export const getNotesLocal = async (): Promise<Note[]> => {
     const createdAt = decryptText(row.createdAt, row.createdAt) || row.createdAt;
     const updatedAt = decryptText(row.updatedAt, row.updatedAt) || row.updatedAt;
 
-    let locked = false;
-    if (row.locked !== null && row.locked !== undefined) {
-        if (typeof row.locked === 'string') {
-            try {
-                locked = decrypt(row.locked) === 'true';
-            } catch {
-                locked = row.locked === '1' || row.locked === 'true';
-            }
-        } else {
-            locked = !!row.locked;
-        }
-    }
+    const locked = decryptBool(row.locked);
 
     const iconColor = row.iconColor ? decryptText(row.iconColor, row.iconColor) : undefined;
     const userId = decryptText(row.userId, row.userId) || row.userId;
@@ -337,6 +356,7 @@ export const saveTaskLocal = async (task: Task, isSynced: boolean = true) => {
   const encryptedParentId = task.parentId ? encryptText(task.parentId) : null;
   const encryptedPosition = typeof task.position === 'number' ? encryptText(task.position) : null;
   const encryptedClientId = task.clientId ? encryptText(task.clientId) : null;
+  const encryptedIsSynced = encryptText(isSynced ? '1' : '0');
   
   let encryptedDueDate: string | null = null;
   if (task.dueDate) {
@@ -361,7 +381,7 @@ export const saveTaskLocal = async (task: Task, isSynced: boolean = true) => {
       encryptedParentId,
       encryptedPosition,
       encryptedClientId,
-      isSynced ? 1 : 0
+      encryptedIsSynced
     ]
   );
 };
@@ -369,13 +389,7 @@ export const saveTaskLocal = async (task: Task, isSynced: boolean = true) => {
 export const getTasksLocal = async (): Promise<Task[]> => {
   const result = await db.getAllAsync<any>('SELECT * FROM tasks');
   const tasks = result.map(row => {
-    let completed = false;
-    try {
-        completed = decrypt(row.completed) === 'true';
-    } catch {
-        // Fallback for legacy unencrypted data (0 or 1)
-        completed = !!row.completed;
-    }
+    const completed = decryptBool(row.completed);
 
     let priority: any = 'medium';
     try {
@@ -438,21 +452,24 @@ export const deleteTaskLocal = async (id: string) => {
 export const addToSyncQueue = async (action: string, entity: string, data: any) => {
   const dedupeKey = computeSyncDedupeKey(action, entity, data);
   const encryptedData = encrypt(JSON.stringify(data));
+  const encryptedAction = encryptText(action);
+  const encryptedEntity = encryptText(entity);
+  const encryptedDedupeKey = dedupeKey ? encryptText(dedupeKey) : null;
+  const dedupeKeyHash = dedupeKey ? hashText(dedupeKey) : null;
   await db.runAsync(
-    `INSERT OR IGNORE INTO sync_queue (action, entity, data, timestamp, dedupeKey) VALUES (?, ?, ?, ?, ?)`,
-    [action, entity, encryptedData, encrypt(new Date().toISOString()), dedupeKey]
+    `INSERT OR IGNORE INTO sync_queue (action, entity, data, timestamp, dedupeKey, dedupeKeyHash) VALUES (?, ?, ?, ?, ?, ?)`,
+    [encryptedAction, encryptedEntity, encryptedData, encryptText(new Date().toISOString()), encryptedDedupeKey, dedupeKeyHash]
   );
 };
 
 export const getSyncQueue = async () => {
-  const result = await db.getAllAsync<any>('SELECT * FROM sync_queue ORDER BY timestamp ASC');
-  return result.map(row => ({
-    id: row.id,
-    action: row.action,
-    entity: row.entity,
-    data: (() => {
+  const result = await db.getAllAsync<any>('SELECT * FROM sync_queue');
+  const queue = result.map(row => {
+    const action = decryptText(row.action, row.action) || row.action;
+    const entity = decryptText(row.entity, row.entity) || row.entity;
+    const data = (() => {
       try {
-        return JSON.parse(decrypt(row.data));
+        return JSON.parse(decryptText(row.data, row.data) || row.data);
       } catch {
         try {
           return JSON.parse(row.data);
@@ -460,9 +477,11 @@ export const getSyncQueue = async () => {
           return null;
         }
       }
-    })(),
-    timestamp: decryptText(row.timestamp, row.timestamp) || row.timestamp
-  }));
+    })();
+    const timestamp = decryptText(row.timestamp, row.timestamp) || row.timestamp;
+    return { id: row.id, action, entity, data, timestamp };
+  });
+  return queue.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 };
 
 export const removeFromSyncQueue = async (id: number) => {

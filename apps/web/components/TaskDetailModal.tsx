@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Task } from '@repo/shared';
 import { FaTimes, FaSave, FaTrash } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
@@ -8,6 +8,10 @@ interface TaskDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   task: Task | null;
+  mode?: 'edit' | 'create';
+  initialDueDate?: string | null;
+  initialParentNoteId?: string | null;
+  onCreate?: (data: { title: string; description: string; priority: 'low' | 'medium' | 'high'; dueDate?: string; parentNoteId?: string | null }) => Promise<void>;
   onUpdate: (id: string, updates: Partial<Task>) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
 }
@@ -16,11 +20,16 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   isOpen,
   onClose,
   task,
+  mode = 'edit',
+  initialDueDate,
+  initialParentNoteId,
+  onCreate,
   onUpdate,
   onDelete
 }) => {
   const { t } = useTranslation();
   const { notes } = useStore();
+  const titleRef = useRef<HTMLInputElement | null>(null);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<'low' | 'medium' | 'high'>('low');
@@ -29,42 +38,72 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   const [selectedListId, setSelectedListId] = useState<string>('');
   const [isSaving, setIsSaving] = useState(false);
 
+  const toDateTimeInputValue = (iso?: string | null) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
+  const normalizedMode = useMemo(() => (mode === 'create' ? 'create' : task ? 'edit' : 'create'), [mode, task]);
+
   useEffect(() => {
+    if (!isOpen) return;
+    if (normalizedMode === 'create') {
+      setTitle('');
+      setDescription('');
+      setPriority('medium');
+      setDueDate(toDateTimeInputValue(initialDueDate));
+      setCompleted(false);
+      setSelectedListId(initialParentNoteId || '');
+      requestAnimationFrame(() => titleRef.current?.focus());
+      return;
+    }
     if (task) {
       setTitle(task.title);
       setDescription(task.description || '');
       setPriority(task.priority);
-      // Format date for input type="date" (YYYY-MM-DD)
-      const formattedDate = task.dueDate ? new Date(task.dueDate).toISOString().split('T')[0] : '';
-      setDueDate(formattedDate || '');
+      setDueDate(toDateTimeInputValue(task.dueDate));
       setCompleted(task.completed);
       setSelectedListId(task.parentNoteId || '');
     }
-  }, [task, isOpen]);
+  }, [task, isOpen, normalizedMode, initialDueDate, initialParentNoteId]);
 
-  if (!isOpen || !task) return null;
+  if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSaving(true);
     try {
-      await onUpdate(task._id, {
-        title,
-        description,
-        priority,
-        completed,
-        dueDate: dueDate ? new Date(dueDate).toISOString() : undefined,
-        parentNoteId: selectedListId || null
-      });
+      const dueDateIso = dueDate ? new Date(dueDate).toISOString() : undefined;
+      if (normalizedMode === 'create') {
+        await onCreate?.({
+          title,
+          description,
+          priority,
+          dueDate: dueDateIso,
+          parentNoteId: selectedListId || null
+        });
+      } else if (task) {
+        await onUpdate(task._id, {
+          title,
+          description,
+          priority,
+          completed,
+          dueDate: dueDateIso,
+          parentNoteId: selectedListId || null
+        });
+      }
       onClose();
     } catch (error) {
-      console.error('Failed to update task', error);
     } finally {
       setIsSaving(false);
     }
   };
 
   const handleDelete = async () => {
+    if (!task) return;
     if (confirm(t('confirm.deleteTask'))) {
         await onDelete(task._id);
         onClose();
@@ -85,7 +124,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
       >
         <div className="flex justify-between items-center mb-4">
           <h3 id="modal-title" className="text-xl font-bold text-gray-900 dark:text-gray-100">
-            {task ? t('tasks.editTitle') : t('tasks.createTitle') || 'Create Task'}
+            {normalizedMode === 'edit' ? t('tasks.editTitle') : t('tasks.createTitle') || 'Create Task'}
           </h3>
           <button 
             onClick={onClose} 
@@ -102,6 +141,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
             <input
               id="task-title"
               type="text"
+              ref={titleRef}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
@@ -137,7 +177,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" htmlFor="due-date-input">{t('common.dueDate')}</label>
                 <input
                   id="due-date-input"
-                  type="date"
+                  type="datetime-local"
                   value={dueDate}
                   onChange={(e) => setDueDate(e.target.value)}
                   className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white"
@@ -174,7 +214,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
           </div>
 
           <div className="flex justify-between pt-4 border-t border-gray-200 dark:border-gray-700 mt-4">
-            {task ? (
+            {normalizedMode === 'edit' && task ? (
               <button
                 type="button"
                 onClick={handleDelete}

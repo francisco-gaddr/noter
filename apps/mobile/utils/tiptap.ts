@@ -104,6 +104,13 @@ const slateNodeToHtml = (node: any, depth = 0, visited = new WeakSet<object>()):
       }
       return `<a href="${escapeAttr(url)}">${escapeHtml(url)}</a>`;
     }
+    case 'tiktok': {
+      const html = typeof (node as any).html === 'string' ? (node as any).html : '';
+      if (html) return html;
+      const url = typeof (node as any).url === 'string' ? (node as any).url : '';
+      if (!url) return '';
+      return `<a href="${escapeAttr(url)}">${escapeHtml(url)}</a>`;
+    }
     case 'table':
       return `<table style="border-collapse: collapse; width: 100%; border: 1px solid #ddd;"><tbody>${childrenHtml}</tbody></table>`;
     case 'table-row':

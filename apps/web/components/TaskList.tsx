@@ -187,7 +187,7 @@ export default function TaskList() {
     const [newTaskTitle, setNewTaskTitle] = useState('');
     const [selectedTask, setSelectedTask] = useState<Task | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [newTaskDefaults, setNewTaskDefaults] = useState<{ dueDate: Date | null }>({ dueDate: null });
+    const [newTaskDefaults, setNewTaskDefaults] = useState<{ dueDate: Date | null; parentNoteId: string | null }>({ dueDate: null, parentNoteId: null });
     const [sortBy, setSortBy] = useState<'createdAt' | 'custom' | 'dueDate' | 'title' | 'priority'>('custom'); // Default to custom
     const [viewMode, setViewMode] = useState<'list' | 'board' | 'calendar'>('list');
     const [filterDateRange, setFilterDateRange] = useState<{ start: string | null; end: string | null }>({ start: null, end: null });
@@ -365,12 +365,15 @@ export default function TaskList() {
         setNewTaskTitle('');
     };
 
-    const handleCreateTaskWithDate = useCallback(async (date: Date) => {
-        const parentId = selectedTaskListId || undefined;
-        if (!parentId) return;
-        const title = t('tasks.newTask') || 'Ny uppgift';
-        await createTask(title, parentId, date.toISOString());
-    }, [createTask, selectedTaskListId, t]);
+    const openCreateTaskModal = useCallback((date?: Date) => {
+        setSelectedTask(null);
+        setNewTaskDefaults({ dueDate: date ?? null, parentNoteId: selectedTaskListId || null });
+        setIsModalOpen(true);
+    }, [selectedTaskListId]);
+
+    const handleCreateTaskWithDate = useCallback((date: Date) => {
+        openCreateTaskModal(date);
+    }, [openCreateTaskModal]);
 
     const toggleComplete = async (task: Task) => {
         await updateTask(task._id, { completed: !task.completed });
@@ -637,6 +640,13 @@ export default function TaskList() {
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
                 task={selectedTask}
+                mode={selectedTask ? 'edit' : 'create'}
+                initialDueDate={newTaskDefaults.dueDate ? newTaskDefaults.dueDate.toISOString() : null}
+                initialParentNoteId={newTaskDefaults.parentNoteId}
+                onCreate={async ({ title, description, priority, dueDate, parentNoteId }) => {
+                    if (!title.trim()) return;
+                    await createTask(title.trim(), parentNoteId || undefined, dueDate || undefined, description, priority);
+                }}
                 onUpdate={updateTask}
                 onDelete={deleteTask}
             />
