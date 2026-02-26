@@ -161,7 +161,7 @@ const TreeNode = ({ note, allNotes, level, selectedNoteId, sortOrder, onSelect, 
                     className="relative cursor-pointer hover:scale-110 transition-transform"
                     onClick={(e) => onIconClick(e, note)}
                 >
-                    <Icon className={note.icon ? "text-gray-600 dark:text-gray-300" : "text-yellow-500"} aria-hidden="true" />
+                    <Icon className={note.icon ? "" : "text-yellow-500"} aria-hidden="true" color={(note as any).iconColor || undefined} />
                     {isLocked && (
                         <div className="absolute -bottom-1 -right-1 bg-white dark:bg-gray-900 rounded-full p-[1px]">
                              <FaLock size={8} className="text-red-500" aria-hidden="true" />
@@ -385,9 +385,9 @@ export default function SidebarTree() {
       });
   };
 
-  const handleCreateConfirm = async (title: string, icon: string) => {
+  const handleCreateConfirm = async (title: string, icon: string, iconColor?: string) => {
     try {
-        await createNote(title, createModal.parentId, createModal.type, undefined, icon);
+        await createNote(title, createModal.parentId, createModal.type, undefined, icon, iconColor);
         setCreateModal({ ...createModal, isOpen: false });
     } catch (e) {
         console.error(e);
@@ -400,10 +400,10 @@ export default function SidebarTree() {
     setEditModal({ isOpen: true, note });
   };
 
-  const handleEditConfirm = async (title: string, icon: string) => {
+  const handleEditConfirm = async (title: string, icon: string, iconColor?: string) => {
     if (editModal.note) {
         try {
-            await updateNote(editModal.note._id, title, undefined, undefined, undefined, icon, (editModal.note as any).type);
+            await updateNote(editModal.note._id, title, undefined, undefined, undefined, icon, (editModal.note as any).type, iconColor);
             setEditModal({ isOpen: false, note: null });
         } catch (e) {
             console.error(e);
@@ -426,9 +426,9 @@ export default function SidebarTree() {
     setIconPickerNote(note);
   };
 
-  const handleIconSelect = async (icon: string) => {
+  const handleIconSelect = async (icon: string, color?: string) => {
     if (iconPickerNote) {
-        await updateNote(iconPickerNote._id, undefined, undefined, undefined, undefined, icon);
+        await updateNote(iconPickerNote._id, undefined, undefined, undefined, undefined, icon, undefined, color);
         setIconPickerNote(null);
     }
   };
@@ -451,6 +451,7 @@ export default function SidebarTree() {
           <IconPicker 
               onSelect={handleIconSelect} 
               onClose={() => setIconPickerNote(null)} 
+              currentColor={(iconPickerNote as any).iconColor}
           />
       )}
 
@@ -468,6 +469,7 @@ export default function SidebarTree() {
         type={(editModal.note as any)?.type || 'note'}
         initialTitle={editModal.note?.title}
         initialIcon={(editModal.note as any)?.icon}
+        initialIconColor={(editModal.note as any)?.iconColor}
         mode="edit"
       />
       

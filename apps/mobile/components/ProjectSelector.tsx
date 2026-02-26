@@ -100,14 +100,14 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
   const [selectedProjectForMenu, setSelectedProjectForMenu] = useState<Note | null>(null);
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   
-  const renderProjectIcon = (iconKey?: string) => {
+  const renderProjectIcon = (iconKey?: string, iconColor?: string) => {
     if (!iconKey) return <IconButton icon="folder-outline" size={24} />;
     if (iconKey.startsWith('Fa')) {
       const name = iconKey.startsWith('Fa') ? iconKey.substring(2) : iconKey;
       const fa5Name = name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
       return (
         <View style={{ width: 40, alignItems: 'center' }}>
-          <FontAwesome5 name={fa5Name as any} size={20} color={theme.colors.onSurface} />
+          <FontAwesome5 name={fa5Name as any} size={20} color={iconColor || theme.colors.onSurface} />
         </View>
       );
     }
@@ -238,7 +238,7 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
                   onPress={() => handleSelect(project._id)}
                   onLongPress={(e) => openMenu(e, project)}
                 >
-                  {renderProjectIcon((project as any).icon)}
+                  {renderProjectIcon((project as any).icon, (project as any).iconColor)}
                   <Text variant="bodyLarge" style={{ flex: 1 }}>{project.title}</Text>
                   {currentSelected === project._id && <IconButton icon="check" size={20} />}
                 </TouchableOpacity>

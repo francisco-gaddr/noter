@@ -8,6 +8,7 @@ export interface Note {
   locked: boolean;
   password?: string;
   icon?: string;
+  iconColor?: string;
   order?: number;
   type?: 'note' | 'task_list' | 'project';
   clientId?: string;
@@ -24,6 +25,7 @@ export interface CreateNoteDto {
   locked?: boolean;
   password?: string;
   icon?: string;
+  iconColor?: string;
   order?: number;
   type?: 'note' | 'task_list' | 'project';
 }
@@ -36,6 +38,7 @@ export interface UpdateNoteDto {
   locked?: boolean;
   password?: string;
   icon?: string;
+  iconColor?: string;
   order?: number;
   type?: 'note' | 'task_list' | 'project';
 }

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { StyleSheet, View, TextInput, Alert, KeyboardAvoidingView, Platform, Modal, ScrollView, Keyboard, Pressable } from 'react-native';
+import { StyleSheet, View, TextInput, Alert, KeyboardAvoidingView, Platform, Modal, ScrollView, Keyboard, Pressable, Linking } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Appbar, useTheme, Text, Menu, Button } from 'react-native-paper';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
@@ -10,6 +10,7 @@ import PasswordModal from '@/components/PasswordModal';
 import { tiptapJsonToHtml, noteContentToPlainText } from '@/utils/tiptap';
 import IconPickerModal from '@/components/IconPickerModal';
 import ProjectSelector from '@/components/ProjectSelector';
+import i18n from '@/lib/i18n';
 
 export default function NoteEditorScreen() {
   const params = useLocalSearchParams<{ id: string | string[]; parentId?: string | string[] }>();
@@ -18,6 +19,7 @@ export default function NoteEditorScreen() {
   const router = useRouter();
   const theme = useTheme();
   const { notes, createNote, updateNote, deleteNote, fetchNotes, verifyNoteLock } = useStore();
+  const t = i18n.t.bind(i18n);
   
   const richText = useRef<RichEditor>(null);
   
@@ -26,6 +28,7 @@ export default function NoteEditorScreen() {
 
   const [title, setTitle] = useState('');
   const [icon, setIcon] = useState<string>('');
+  const [iconColor, setIconColor] = useState<string>('#2196F3');
   const [showIconPicker, setShowIconPicker] = useState(false);
   const [initialHtml, setInitialHtml] = useState(''); // Only used to initialize the editor
   const contentRef = useRef<string>('');
@@ -103,10 +106,12 @@ export default function NoteEditorScreen() {
   // Keep refs updated
   const titleRef = useRef(title);
   const iconRef = useRef(icon);
+  const iconColorRef = useRef(iconColor);
   const selectedParentIdRef = useRef(selectedParentId);
   
   useEffect(() => { titleRef.current = title; }, [title]);
   useEffect(() => { iconRef.current = icon; }, [icon]);
+  useEffect(() => { iconColorRef.current = iconColor; }, [iconColor]);
   useEffect(() => { selectedParentIdRef.current = selectedParentId; }, [selectedParentId]);
   useEffect(() => { isSavingRef.current = isSaving; }, [isSaving]);
 
@@ -119,6 +124,7 @@ export default function NoteEditorScreen() {
       const currentContent = contentRef.current;
       const currentTitle = titleRef.current;
       const currentIcon = iconRef.current;
+      const currentIconColor = iconColorRef.current;
       const currentParentId = selectedParentIdRef.current;
 
       // If it's a new note and empty (no title, no content), don't create it
@@ -142,6 +148,7 @@ export default function NoteEditorScreen() {
              content: currentContent,
              parentId: currentParentId,
              icon: currentIcon,
+             iconColor: currentIconColor,
              type: 'note'
            });
         } else {
@@ -150,7 +157,8 @@ export default function NoteEditorScreen() {
                  title: titleToSave,
                  content: currentContent,
                  parentId: currentParentId,
-                 icon: currentIcon
+                 icon: currentIcon,
+                 iconColor: currentIconColor
                });
             }
         } catch (e) {
@@ -170,6 +178,7 @@ export default function NoteEditorScreen() {
         setShowPasswordModal(true);
         setTitle(existingNote.title);
         setIcon(existingNote.icon || '');
+        setIconColor((existingNote as any).iconColor || '#2196F3');
         setInitialHtml('');
         contentRef.current = '';
         setSelectedParentId(existingNote.parentId || null);
@@ -177,6 +186,7 @@ export default function NoteEditorScreen() {
         const html = toSafeHtml(existingNote.content);
         setTitle(existingNote.title);
         setIcon(existingNote.icon || '');
+        setIconColor((existingNote as any).iconColor || '#2196F3');
         setInitialHtml(html);
         contentRef.current = html;
         setEditorKey(`editor-${String(id)}-${Date.now()}`);
@@ -188,6 +198,7 @@ export default function NoteEditorScreen() {
     } else if (isNew) {
       setTitle('');
       setIcon('');
+      setIconColor('#2196F3');
       setInitialHtml('');
       contentRef.current = '';
       setEditorKey(`editor-${String(id ?? 'new')}-${Date.now()}`);
@@ -213,7 +224,8 @@ export default function NoteEditorScreen() {
   };
 
   const handleContentChange = (html: string) => {
-    contentRef.current = html;
+    const withTargets = html.replace(/<a\s+href="([^"]+)"(?![^>]*\btarget=)/gi, '<a href="$1" target="_blank" rel="noopener noreferrer"');
+    contentRef.current = withTargets;
   };
 
   const handleManualSave = async () => {
@@ -235,11 +247,12 @@ export default function NoteEditorScreen() {
           content: contentRef.current || '', 
           tags: [], 
           icon,
+          iconColor,
           parentId: selectedParentId
         };
         await createNote(dto);
       } else {
-        const dto: UpdateNoteDto = { title: titleToSave, content: contentRef.current || '', icon, parentId: selectedParentId || undefined };
+        const dto: UpdateNoteDto = { title: titleToSave, content: contentRef.current || '', icon, iconColor, parentId: selectedParentId || undefined };
         await updateNote(id!, dto);
       }
       setLastSaved(new Date());
@@ -437,11 +450,21 @@ export default function NoteEditorScreen() {
   };
 
   const submitVideo = () => {
-    if (videoUrl) {
-      richText.current?.insertVideo(videoUrl);
-      setShowVideoModal(false);
-      setVideoUrl('');
+    if (!videoUrl) return;
+    const url = videoUrl.trim();
+    const ytMatch = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+    if (ytMatch) {
+      const videoId = ytMatch[1];
+      richText.current?.insertHTML(
+        `<div class="video-container">
+           <iframe width="560" height="315" src="https://www.youtube.com/embed/${videoId}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+         </div>`
+      );
+    } else {
+      richText.current?.insertVideo(url);
     }
+    setShowVideoModal(false);
+    setVideoUrl('');
   };
 
   if (isLocked) {
@@ -450,12 +473,12 @@ export default function NoteEditorScreen() {
         <Stack.Screen options={{ headerShown: false }} />
         <Appbar.Header>
           <Appbar.BackAction onPress={() => router.back()} />
-          <Appbar.Content title="Locked Note" />
+          <Appbar.Content title={t('lockedNote')} />
         </Appbar.Header>
         <View style={styles.lockedContainer}>
-          <Text variant="headlineSmall" style={{ marginBottom: 16 }}>This note is locked</Text>
+          <Text variant="headlineSmall" style={{ marginBottom: 16 }}>{t('thisNoteLocked')}</Text>
           <Button mode="contained" onPress={() => { setPasswordMode('unlock'); setShowPasswordModal(true); }}>
-            Unlock Note
+            {t('unlockNote')}
           </Button>
         </View>
         <PasswordModal
@@ -464,7 +487,7 @@ export default function NoteEditorScreen() {
           onSubmit={handleUnlock}
           error={unlockError}
           loading={unlocking}
-          title="Enter Password to Unlock"
+          title={t('enterPasswordToUnlock')}
         />
       </View>
     );
@@ -475,10 +498,49 @@ export default function NoteEditorScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <Appbar.Header>
         <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content 
-          title={isNew ? 'New Note' : 'Edit Note'} 
-          subtitle={lastSaved ? `Saved ${lastSaved.toLocaleTimeString()}` : (isSaving ? 'Saving...' : '')}
-        />
+        {icon && (
+          <Appbar.Action 
+            icon={() => {
+              if (icon.startsWith('Fa')) {
+                const name = icon.startsWith('Fa') ? icon.substring(2) : icon;
+                const fa5Name = name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
+                const IconComponent = require('@expo/vector-icons/FontAwesome5').default;
+                return <IconComponent name={fa5Name as any} size={20} color={iconColor || theme.colors.onSurface} />;
+              }
+              return <Appbar.Icon icon="file-document-outline" />;
+            }}
+            onPress={() => setShowIconPicker(true)}
+          />
+        )}
+        <View style={{ flex: 1, marginHorizontal: 8 }}>
+          <TextInput
+            value={title}
+            onChangeText={setTitle}
+            placeholder={isNew ? 'Ny anteckning' : 'Anteckningstitel'}
+            style={[
+              styles.titleInput, 
+              { 
+                color: theme.colors.onSurface, 
+                fontSize: 20, 
+                fontWeight: '600',
+                textAlign: 'left'
+              }
+            ]}
+            onBlur={handleManualSave}
+            onSubmitEditing={handleManualSave}
+            returnKeyType="done"
+          />
+          {lastSaved && (
+            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginTop: -2 }}>
+              Sparad {lastSaved.toLocaleTimeString()}
+            </Text>
+          )}
+          {isSaving && (
+            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginTop: -2 }}>
+              Sparar...
+            </Text>
+          )}
+        </View>
         <Menu
           visible={showMenu}
           onDismiss={() => setShowMenu(false)}
@@ -501,7 +563,7 @@ export default function NoteEditorScreen() {
             leadingIcon="shape-outline"
           />
           {!isNew && (
-            <Menu.Item onPress={handleDelete} title="Delete" leadingIcon="delete" />
+            <Menu.Item onPress={handleDelete} title="Ta bort" leadingIcon="delete" />
           )}
           {!isNew && (
             <Menu.Item 
@@ -514,7 +576,7 @@ export default function NoteEditorScreen() {
                   setShowMenu(false); 
                 }
               }} 
-              title={existingNote?.locked ? "Remove Lock" : "Lock Note"} 
+              title={existingNote?.locked ? "Ta bort lås" : "Lås anteckning"} 
               leadingIcon={existingNote?.locked ? "lock-open" : "lock"} 
             />
           )}
@@ -533,31 +595,15 @@ export default function NoteEditorScreen() {
           keyboardShouldPersistTaps="always"
           nestedScrollEnabled
         >
-          <TextInput
-          ref={titleInputRef}
-          style={[styles.titleInput, { color: theme.colors.onSurface }]}
-          placeholder="Title"
-          placeholderTextColor={theme.colors.onSurfaceDisabled}
-          value={title}
-          onChangeText={handleTitleChange}
-          returnKeyType="next"
-          onSubmitEditing={() => {
-            // Small delay to ensure TextInput blur completes and keyboard stays up/transitions
-            setTimeout(() => {
-                const editor = richText.current as any;
-                editor?.focusContent?.();
-                editor?.focusContentEditor?.();
-            }, 50);
-          }}
-          blurOnSubmit={false}
-          // autoFocus handled by useEffect to avoid re-focus loops
-        />
         <RichEditor
             key={editorKey}
             ref={richText}
             initialContentHTML={initialHtml}
             onChange={handleContentChange}
-            placeholder="Start typing..."
+            placeholder="Börja skriva..."
+            onLinkPress={(url) => {
+              if (url) Linking.openURL(url);
+            }}
             scrollEnabled={false}
             editorStyle={{
               backgroundColor: theme.colors.background,
@@ -627,14 +673,14 @@ export default function NoteEditorScreen() {
       <IconPickerModal
         visible={showIconPicker}
         onDismiss={() => setShowIconPicker(false)}
-        onSelect={(nextIcon) => {
+        onSelect={(nextIcon, color) => {
           setIcon(nextIcon);
+          if (color) setIconColor(color);
           setShowIconPicker(false);
         }}
         currentIcon={icon}
+        currentColor={iconColor}
       />
-
-      {/* Video URL Modal */}
       <Modal
         visible={showVideoModal}
         transparent={true}
@@ -643,7 +689,7 @@ export default function NoteEditorScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: theme.colors.surface }]}>
-            <Text variant="titleMedium" style={{ marginBottom: 16 }}>Insert Video URL</Text>
+            <Text variant="titleMedium" style={{ marginBottom: 16 }}>Infoga video-URL</Text>
             <TextInput
               style={[styles.input, { color: theme.colors.onSurface, borderColor: theme.colors.outline }]}
               placeholder="https://youtube.com/..."

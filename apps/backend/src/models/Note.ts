@@ -11,6 +11,7 @@ export interface INote extends Document {
   lockedEnc?: string;
   password?: string;
   icon?: string;
+  iconColor?: string;
   order?: number;
   type?: 'note' | 'task_list' | 'project';
   createdAt: Date;
@@ -30,6 +31,7 @@ const NoteSchema: Schema = new Schema({
   lockedEnc: { type: String, default: '' },
   password: { type: String, select: false }, // Don't return by default
   icon: { type: String, default: null },
+  iconColor: { type: String, default: null },
   order: { type: Number, default: 0 },
   type: { type: String, default: 'note' },
   createdAtEnc: { type: String, default: '' },

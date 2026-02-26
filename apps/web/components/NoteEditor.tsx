@@ -506,7 +506,11 @@ const slateNodeToHtml = (node: any, depth = 0, visited = new WeakSet<object>()):
     case 'video': {
       const url = typeof node.url === 'string' ? node.url : '';
       if (!url) return '';
-      return `<a href="${escapeAttr(sanitizeUrl(url, 'video'))}">${escapeHtml(url)}</a>`;
+      const sanitizedUrl = sanitizeUrl(url, 'video');
+      if (sanitizedUrl.includes('youtube.com') || sanitizedUrl.includes('youtu.be')) {
+        return `<div class="video-container"><iframe width="560" height="315" src="https://www.youtube.com/embed/${extractYouTubeId(sanitizedUrl)}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>`;
+      }
+      return `<a href="${escapeAttr(sanitizedUrl)}">${escapeHtml(sanitizedUrl)}</a>`;
     }
     case 'table':
       return `<table style="border-collapse: collapse; width: 100%; border: 1px solid #ddd;"><tbody>${childrenHtml}</tbody></table>`;
@@ -815,6 +819,11 @@ const htmlToSlateValue = (html: string): Descendant[] => {
 
 const isRecord = (v: unknown): v is Record<string, any> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
+
+const extractYouTubeId = (url: string): string => {
+  const match = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
+  return match ? match[1] : '';
+};
 
 const extractTextFromSlateLike = (v: unknown, depth = 0, visited?: WeakSet<object>): string => {
   if (depth > MAX_SLATE_DEPTH) return '';
@@ -1273,6 +1282,15 @@ export default function NoteEditor() {
 
   const renderLeaf = useCallback((props: any) => <Leaf {...props} />, []);
   const renderElement = useCallback((props: any) => <Element {...props} />, []);
+  const handleEditorClick = useCallback((event: React.MouseEvent) => {
+    const target = event.target as HTMLElement | null;
+    if (!target) return;
+    if (target.tagName !== 'A') return;
+    event.preventDefault();
+    const href = (target as HTMLAnchorElement).getAttribute('href') || '';
+    const safe = sanitizeUrl(href, 'link');
+    if (safe) window.open(safe, '_blank', 'noopener,noreferrer');
+  }, []);
 
   // Focus editor when clicking on the container
   const focusEditor = (e: React.MouseEvent) => {
@@ -1436,7 +1454,7 @@ export default function NoteEditor() {
                  className="p-2 mr-2 rounded hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400 transition-colors flex-shrink-0"
                  title={t('noteEditor.changeIcon')}
              >
-                 <Icon size={28} />
+                <Icon size={28} color={(selectedNote as any).iconColor || undefined} />
              </button>
             <input
               type="text"
@@ -1449,11 +1467,12 @@ export default function NoteEditor() {
         
         {showIconPicker && (
              <IconPicker 
-                 onSelect={(icon) => {
-                     updateNote(selectedNote._id, currentTitleRef.current, lastSavedContentRef.current, selectedNote.locked, undefined, icon);
+                onSelect={(icon, color) => {
+                    updateNote(selectedNote._id, currentTitleRef.current, lastSavedContentRef.current, selectedNote.locked, undefined, icon, undefined, color);
                      setShowIconPicker(false);
                  }}
                  onClose={() => setShowIconPicker(false)}
+                currentColor={(selectedNote as any).iconColor}
              />
         )}
 
@@ -1506,6 +1525,7 @@ export default function NoteEditor() {
             renderElement={renderElement}
             className="prose dark:prose-invert prose-p:my-0 prose-ul:my-0 prose-ol:my-0 prose-li:my-0 prose-headings:my-2 max-w-none w-full focus:outline-none min-h-full leading-snug"
             placeholder={t('noteEditor.startTyping')}
+            onClick={handleEditorClick}
             onKeyDown={event => {
               const { selection } = editor;
 
@@ -1644,7 +1664,7 @@ const Element = ({ attributes, children, element }: any) => {
       return <h2 {...attributes} className="text-2xl font-bold mt-5 mb-3">{children}</h2>;
     case 'link':
       return (
-        <a {...attributes} href={element.url} className="text-blue-500 hover:text-blue-700 underline cursor-pointer" target="_blank" rel="noopener noreferrer">
+        <a {...attributes} href={sanitizeUrl(element.url, 'link')} className="text-blue-500 hover:text-blue-700 underline cursor-pointer" target="_blank" rel="noopener noreferrer">
           {children}
         </a>
       );

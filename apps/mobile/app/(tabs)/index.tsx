@@ -54,9 +54,9 @@ export default function NotesScreen() {
     activeProjectId ? notes.find(n => n._id === activeProjectId) : null
   , [activeProjectId, notes]);
 
-  const handleIconSelect = async (icon: string) => {
+  const handleIconSelect = async (icon: string, color?: string) => {
     if (activeProjectId) {
-        await updateNote(activeProjectId, { icon });
+        await updateNote(activeProjectId, { icon, iconColor: color });
         setIconPickerVisible(false);
         fetchNotes();
     }
@@ -248,6 +248,7 @@ export default function NotesScreen() {
         visible={iconPickerVisible}
         onDismiss={() => setIconPickerVisible(false)}
         onSelect={handleIconSelect}
+        currentColor={(activeProject as any)?.iconColor}
       />
       <NoteList 
         notes={sortedNotes} 

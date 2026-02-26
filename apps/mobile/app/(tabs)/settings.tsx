@@ -9,6 +9,7 @@ import { useStore } from '@/stores/useStore';
 import { API_URL, setApiUrl, getAuthToken } from '@/services/api';
 import { disconnectSocket, initSocket } from '@/services/socket';
 import { BackendUrlDialog } from '@/components/BackendUrlDialog';
+import i18n from '@/lib/i18n';
 
 export default function SettingsScreen() {
   const { theme, setTheme } = useThemeContext();
@@ -16,6 +17,7 @@ export default function SettingsScreen() {
   const paperTheme = useTheme();
   const router = useRouter();
   const { width } = useWindowDimensions();
+  const t = i18n.t.bind(i18n);
   const [language, setLanguage] = useState<'sv' | 'en'>('sv');
   const [lockTiming, setLockTiming] = useState<'immediate' | '5min' | '15min' | '30min' | '1h'>('immediate');
   const [lockTimingDialogVisible, setLockTimingDialogVisible] = useState(false);
@@ -42,6 +44,7 @@ export default function SettingsScreen() {
       const saved = await SecureStore.getItemAsync('language');
       if (saved === 'sv' || saved === 'en') {
         setLanguage(saved);
+        i18n.locale = saved;
       }
       const savedLockTiming = await SecureStore.getItemAsync('lockTiming');
       if (
@@ -61,19 +64,19 @@ export default function SettingsScreen() {
 
   const saveLanguage = async (lang: 'sv' | 'en') => {
     setLanguage(lang);
+    i18n.locale = lang;
     try {
       await SecureStore.setItemAsync('language', lang);
     } catch (e) {
-      // Non-fatal
     }
   };
 
   const lockTimingLabel = (v: typeof lockTiming) => {
-    if (v === 'immediate') return 'Direkt';
-    if (v === '5min') return 'Efter 5 min';
-    if (v === '15min') return 'Efter 15 min';
-    if (v === '30min') return 'Efter 30 min';
-    return 'Efter 1 h';
+    if (v === 'immediate') return t('immediate');
+    if (v === '5min') return t('after5min');
+    if (v === '15min') return t('after15min');
+    if (v === '30min') return t('after30min');
+    return t('after1h');
   };
 
   const saveLockTiming = async (timing: typeof lockTiming) => {
@@ -93,18 +96,18 @@ export default function SettingsScreen() {
       disconnectSocket();
       initSocket(getAuthToken());
       
-      Alert.alert('Inställning sparad', 'Backend-adress har uppdaterats och anslutningen startas om.');
+      Alert.alert(t('success'), t('backendUrlHint'));
     }
   };
 
   const handleLogout = async () => {
     Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
+      t('logout'),
+      t('logoutConfirm'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('cancel'), style: 'cancel' },
         {
-          text: 'Logout',
+          text: t('logout'),
           style: 'destructive',
           onPress: async () => {
                await SecureStore.deleteItemAsync('token');
@@ -124,10 +127,10 @@ export default function SettingsScreen() {
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: paperTheme.colors.background }]}>
-      <List.Section title="Appearance">
+      <List.Section title={t('appearance')}>
         <List.Item
-          title="Theme"
-          description={`Current: ${theme.charAt(0).toUpperCase() + theme.slice(1)}`}
+          title={t('theme')}
+          description={`${t('current')}: ${theme.charAt(0).toUpperCase() + theme.slice(1)}`}
           left={props => <List.Icon {...props} icon="theme-light-dark" />}
           right={() => (
              <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 10 }}>
@@ -141,16 +144,16 @@ export default function SettingsScreen() {
         />
         <View style={styles.hint}>
            <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
-             Tap item to cycle: System → Light → Dark
+             {t('tapToCycleTheme')}
            </Text>
         </View>
       </List.Section>
 
       <Divider />
 
-      <List.Section title="Language">
+      <List.Section title={t('language')}>
         <List.Item
-          title="Språk"
+          title={t('language')}
           description={language === 'sv' ? 'Svenska' : 'English'}
           left={props => <List.Icon {...props} icon="translate" />}
           right={() => (
@@ -165,32 +168,32 @@ export default function SettingsScreen() {
         />
         <View style={styles.hint}>
            <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
-             Växla språk: Svenska ↔ English (lagras lokalt)
+             {t('toggleLanguageHint')}
            </Text>
         </View>
       </List.Section>
 
       <Divider />
 
-      <List.Section title="Security">
+      <List.Section title={t('security')}>
         <List.Item
-          title="App-lås"
-          description={`Lås: ${lockTimingLabel(lockTiming)}`}
+          title={t('appLock')}
+          description={`${t('lockTiming')}: ${lockTimingLabel(lockTiming)}`}
           left={props => <List.Icon {...props} icon="lock" />}
           onPress={() => setLockTimingDialogVisible(true)}
         />
         <View style={styles.hint}>
           <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
-            Välj hur snabbt appen ska låsas vid inaktivitet
+            {t('lockTimingHint')}
           </Text>
         </View>
       </List.Section>
 
       <Divider />
 
-      <List.Section title="Developer">
+      <List.Section title={t('developer')}>
         <List.Item
-          title="Backend URL"
+          title={t('backendUrl')}
           description={backendUrl}
           left={props => <List.Icon {...props} icon="server" />}
           onPress={() => {
@@ -199,16 +202,16 @@ export default function SettingsScreen() {
         />
         <View style={styles.hint}>
           <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
-            Ställ in adress till backend API
+            {t('backendUrlHint')}
           </Text>
         </View>
       </List.Section>
 
       <Divider />
 
-      <List.Section title="Account">
+      <List.Section title={t('account')}>
         <List.Item
-          title="Logout"
+          title={t('logout')}
           left={props => <List.Icon {...props} icon="logout" />}
           onPress={handleLogout}
         />
@@ -223,21 +226,21 @@ export default function SettingsScreen() {
       <Portal>
         {/* App Lock Dialog */}
         <Dialog visible={lockTimingDialogVisible} onDismiss={() => setLockTimingDialogVisible(false)}>
-          <Dialog.Title>Välj tid för autolås</Dialog.Title>
+          <Dialog.Title>{t('chooseLockTiming')}</Dialog.Title>
           <Dialog.Content>
             <RadioButton.Group onValueChange={value => {
               saveLockTiming(value as any);
               setLockTimingDialogVisible(false);
             }} value={lockTiming}>
-              <RadioButton.Item label="Direkt" value="immediate" />
-              <RadioButton.Item label="Efter 5 min" value="5min" />
-              <RadioButton.Item label="Efter 15 min" value="15min" />
-              <RadioButton.Item label="Efter 30 min" value="30min" />
-              <RadioButton.Item label="Efter 1 h" value="1h" />
+              <RadioButton.Item label={t('immediate')} value="immediate" />
+              <RadioButton.Item label={t('after5min')} value="5min" />
+              <RadioButton.Item label={t('after15min')} value="15min" />
+              <RadioButton.Item label={t('after30min')} value="30min" />
+              <RadioButton.Item label={t('after1h')} value="1h" />
             </RadioButton.Group>
           </Dialog.Content>
           <Dialog.Actions>
-            <Button onPress={() => setLockTimingDialogVisible(false)}>Avbryt</Button>
+            <Button onPress={() => setLockTimingDialogVisible(false)}>{t('cancel')}</Button>
           </Dialog.Actions>
         </Dialog>
 

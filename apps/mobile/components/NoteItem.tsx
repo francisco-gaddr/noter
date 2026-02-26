@@ -65,9 +65,10 @@ export const NoteItem: React.FC<NoteItemProps> = ({
       <View style={{ width: 24, alignItems: 'center', marginRight: 8 }}>
         {(() => {
           const iconKey = (note as any).icon as string | undefined;
+          const iconColor = (note as any).iconColor as string | undefined;
 
           if (iconKey) {
-            return <FontAwesome5 name={toFa5(iconKey) as any} size={16} color={theme.colors.onSurface} />;
+            return <FontAwesome5 name={toFa5(iconKey) as any} size={16} color={iconColor || theme.colors.onSurface} />;
           }
 
           if ((note as any).type === 'project') {

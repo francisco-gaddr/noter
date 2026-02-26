@@ -8,6 +8,11 @@ const escapeHtml = (input: string) =>
 
 const escapeAttr = (input: string) => escapeHtml(input);
 
+const extractYouTubeId = (url: string): string => {
+  const match = url.match(/(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/);
+  return match ? match[1] : '';
+};
+
 const MAX_TIPTAP_DEPTH = 15;
 const MAX_SLATE_DEPTH = 15;
 const MAX_EXTRACT_DEPTH = 15;
@@ -83,7 +88,7 @@ const slateNodeToHtml = (node: any, depth = 0, visited = new WeakSet<object>()):
     case 'link': {
       const url = typeof (node as any).url === 'string' ? (node as any).url : '';
       if (!url) return childrenHtml;
-      return `<a href="${escapeAttr(url)}">${childrenHtml}</a>`;
+      return `<a href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">${childrenHtml}</a>`;
     }
     case 'image': {
       const url = typeof (node as any).url === 'string' ? (node as any).url : '';
@@ -93,6 +98,10 @@ const slateNodeToHtml = (node: any, depth = 0, visited = new WeakSet<object>()):
     case 'video': {
       const url = typeof (node as any).url === 'string' ? (node as any).url : '';
       if (!url) return '';
+      if (url.includes('youtube.com') || url.includes('youtu.be')) {
+        const videoId = extractYouTubeId(url);
+        return `<div class="video-container"><iframe width="560" height="315" src="https://www.youtube.com/embed/${videoId}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>`;
+      }
       return `<a href="${escapeAttr(url)}">${escapeHtml(url)}</a>`;
     }
     case 'table':

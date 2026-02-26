@@ -202,10 +202,10 @@ export default function TasksScreen() {
     return orderBy(lists, [(n) => (typeof (n as any).order === 'number' ? (n as any).order : 0), 'createdAt'], ['asc', 'desc']);
   }, [notes]);
 
-  const handleIconSelect = async (icon: string) => {
+  const handleIconSelect = async (icon: string, color?: string) => {
     if (!selectedListId) return;
     try {
-      await updateNote(selectedListId, { icon });
+      await updateNote(selectedListId, { icon, iconColor: color });
     } finally {
       setIconPickerVisible(false);
     }
@@ -554,6 +554,7 @@ export default function TasksScreen() {
             onDismiss={() => setIconPickerVisible(false)}
             onSelect={handleIconSelect}
             currentIcon={(notes.find(n => n._id === selectedListId) as any)?.icon}
+            currentColor={(notes.find(n => n._id === selectedListId) as any)?.iconColor}
           />
         )}
       </Portal>

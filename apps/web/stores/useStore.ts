@@ -665,7 +665,7 @@ export const useStore = create<StoreState>((set, get) => ({
     set(activeTab === 'tasks' ? { selectedTaskListId: id } : { selectedNoteId: id });
   },
 
-  createNote: async (title, parentId = null, type: 'note' | 'task_list' | 'project' = 'note', order?: number, icon?: string) => {
+  createNote: async (title, parentId = null, type: 'note' | 'task_list' | 'project' = 'note', order?: number, icon?: string, iconColor?: string) => {
     set({ isLoading: true, error: null });
     const clientId = crypto.randomUUID();
     try {
@@ -676,7 +676,7 @@ export const useStore = create<StoreState>((set, get) => ({
         },
       ]);
       
-      const newNote = await api.createNote({ title, content: initialContent, parentId, type, order, icon, clientId } as any);
+      const newNote = await api.createNote({ title, content: initialContent, parentId, type, order, icon, iconColor, clientId } as any);
       set((state) => ({
         notes: uniqBy([newNote, ...state.notes], '_id'),
         ...(type === 'task_list' ? { selectedTaskListId: newNote._id } : { selectedNoteId: newNote._id }),
@@ -709,6 +709,7 @@ export const useStore = create<StoreState>((set, get) => ({
           parentId,
           locked: false,
           icon: icon,
+          iconColor: iconColor,
           order: order ?? 0,
           type,
           createdAt: new Date().toISOString(),
@@ -724,7 +725,7 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
 
-  updateNote: async (id, title, content, locked, password, icon, type) => {
+  updateNote: async (id, title, content, locked, password, icon, type, iconColor) => {
     // Optimistic update
     set((state) => ({
       notes: state.notes.map((n) => {
@@ -736,6 +737,7 @@ export const useStore = create<StoreState>((set, get) => ({
                 ...(locked !== undefined ? { locked } : {}),
                 ...(password !== undefined ? { password } : {}),
                 ...(icon !== undefined ? { icon } : {}),
+                ...(iconColor !== undefined ? { iconColor } : {}),
                 ...(type !== undefined ? { type: type as any } : {}),
                 updatedAt: new Date().toISOString()
             };
@@ -761,6 +763,7 @@ export const useStore = create<StoreState>((set, get) => ({
       if (locked !== undefined) payload.locked = locked;
       if (password !== undefined) payload.password = password;
       if (icon !== undefined) payload.icon = icon;
+      if (iconColor !== undefined) payload.iconColor = iconColor;
       if (type !== undefined) payload.type = type;
 
       const updatedNote = await api.updateNote(id, payload);

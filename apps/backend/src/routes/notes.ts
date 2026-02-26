@@ -18,6 +18,7 @@ const noteSchema = Joi.object({
   locked: Joi.alternatives().try(Joi.boolean(), Joi.string().allow('')),
   password: Joi.string().allow(''),
   icon: Joi.string().allow(null, ''),
+  iconColor: Joi.string().allow(null, ''),
   order: Joi.number(),
   type: Joi.string().allow('note', 'task_list', 'project').allow(null, '').required(),
   clientId: Joi.string().allow('').optional(),
@@ -33,6 +34,7 @@ const updateSchema = Joi.object({
   locked: Joi.alternatives().try(Joi.boolean(), Joi.string().allow('')),
   password: Joi.string().allow(''),
   icon: Joi.string().allow(null, ''),
+  iconColor: Joi.string().allow(null, ''),
   order: Joi.number(),
   type: Joi.string().allow(null, ''),
   createdAt: Joi.string().allow(''),
@@ -397,6 +399,7 @@ router.put('/:id', validate(updateSchema), async (req: Request, res: Response, n
         (note as any).updatedAtEnc = value.updatedAt;
       }
       if (value.icon !== undefined) note.icon = value.icon;
+      if (value.iconColor !== undefined) note.iconColor = value.iconColor;
       if (value.order !== undefined) note.order = value.order;
 
       const updatedNote = await note.save();

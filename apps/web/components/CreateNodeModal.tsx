@@ -7,11 +7,12 @@ import { FaFolder } from 'react-icons/fa';
 interface CreateNodeModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onConfirm: (title: string, icon: string) => void;
+    onConfirm: (title: string, icon: string, iconColor?: string) => void;
     type: 'note' | 'task_list' | 'project';
     mode?: 'create' | 'edit';
     initialTitle?: string;
     initialIcon?: string;
+    initialIconColor?: string;
 }
 
 export const CreateNodeModal: React.FC<CreateNodeModalProps> = ({ 
@@ -21,17 +22,20 @@ export const CreateNodeModal: React.FC<CreateNodeModalProps> = ({
     type, 
     mode = 'create',
     initialTitle = '',
-    initialIcon = ''
+    initialIcon = '',
+    initialIconColor = '#2196F3'
 }) => {
     const { t } = useTranslation();
     const [title, setTitle] = useState(initialTitle);
     const [icon, setIcon] = useState<string>(initialIcon);
+    const [iconColor, setIconColor] = useState<string>(initialIconColor);
     const [showIconPicker, setShowIconPicker] = useState(false);
 
     React.useEffect(() => {
         if (isOpen) {
             setTitle(initialTitle);
             setIcon(initialIcon);
+            setIconColor(initialIconColor);
         }
     }, [isOpen]);
 
@@ -39,9 +43,10 @@ export const CreateNodeModal: React.FC<CreateNodeModalProps> = ({
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        onConfirm(title || t('common.untitled'), icon);
+        onConfirm(title || t('common.untitled'), icon, iconColor);
         setTitle('');
         setIcon('');
+        setIconColor('#2196F3');
         onClose();
     };
 
@@ -81,7 +86,7 @@ export const CreateNodeModal: React.FC<CreateNodeModalProps> = ({
                                 onClick={() => setShowIconPicker(true)}
                                 className="p-2 border rounded dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"
                             >
-                                <Icon size={24} />
+                                <Icon size={24} color={iconColor} />
                             </button>
                             {icon && (
                                 <button
@@ -115,11 +120,13 @@ export const CreateNodeModal: React.FC<CreateNodeModalProps> = ({
             
             {showIconPicker && (
                 <IconPicker
-                    onSelect={(selected) => {
+                    onSelect={(selected, color) => {
                         setIcon(selected);
+                        if (color) setIconColor(color);
                         setShowIconPicker(false);
                     }}
                     onClose={() => setShowIconPicker(false)}
+                    currentColor={iconColor}
                 />
             )}
         </div>

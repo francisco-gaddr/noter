@@ -130,6 +130,7 @@ const processApiNote = (note: Note): Note => ({
   content: decrypt(note.content),
   tags: Array.isArray((note as any).tags) ? ((note as any).tags as any[]).map((t) => tryDecryptString(t)) : [],
   icon: (note as any).icon ? tryDecryptString((note as any).icon) : (note as any).icon,
+  iconColor: (note as any).iconColor ? tryDecryptString((note as any).iconColor) : (note as any).iconColor,
   type: normalizeNoteType((note as any).type),
   locked: parseNoteLocked((note as any).locked),
   createdAt: parseNoteDate((note as any).createdAt),
@@ -517,6 +518,7 @@ export const useStore = create<AppState>((set, get) => ({
       locked: data.locked ?? false,
       password: data.password,
       icon: data.icon,
+      iconColor: (data as any).iconColor,
       order: data.order,
       type: data.type || 'note',
       createdAt: new Date().toISOString(),
@@ -541,6 +543,7 @@ export const useStore = create<AppState>((set, get) => ({
         content: encrypt(data.content),
         tags: data.tags?.map((t: string) => encrypt(t)) ?? [],
         icon: data.icon ? encrypt(data.icon) : undefined,
+        iconColor: (data as any).iconColor ? encrypt((data as any).iconColor) : undefined,
         type: data.type ? encrypt(data.type) : encrypt('note'),
         locked: encrypt(String(!!data.locked)),
         createdAt: encrypt(optimisticNote.createdAt),
@@ -618,6 +621,7 @@ export const useStore = create<AppState>((set, get) => ({
       if (data.content) encryptedData.content = encrypt(data.content);
       if (data.tags) encryptedData.tags = data.tags.map((t: string) => encrypt(t));
       if (data.icon) encryptedData.icon = encrypt(data.icon);
+      if ((data as any).iconColor) encryptedData.iconColor = encrypt((data as any).iconColor);
       if (data.type) encryptedData.type = encrypt(data.type);
       if (data.locked !== undefined) encryptedData.locked = encrypt(String(!!data.locked));
       const createdAt = (data as any).createdAt;

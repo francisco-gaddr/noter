@@ -242,8 +242,9 @@ export default function NoteTree({
             <View style={{ width: 24, alignItems: 'center', marginRight: 6 }}>
               {(() => {
                 const iconKey = (item as any).icon as string | undefined;
+                const iconColor = (item as any).iconColor as string | undefined;
                 if (iconKey) {
-                  return <FontAwesome5 name={toFa5(iconKey) as any} size={18} color={theme.colors.onSurface} />;
+                  return <FontAwesome5 name={toFa5(iconKey) as any} size={18} color={iconColor || theme.colors.onSurface} />;
                 }
 
                 if ((item as any).type === 'project') {
