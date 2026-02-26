@@ -33,7 +33,9 @@ const resources = {
         changePassword: 'Change Password',
         logout: 'Logout',
         save: 'Save',
-        cancel: 'Cancel'
+        cancel: 'Cancel',
+        buildId: 'Build ID',
+        buildTime: 'Build time'
       },
       project: {
         label: 'Project Folder',
@@ -237,7 +239,9 @@ const resources = {
         changePassword: 'Byt lösenord',
         logout: 'Logga ut',
         save: 'Spara',
-        cancel: 'Avbryt'
+        cancel: 'Avbryt',
+        buildId: 'Build‑ID',
+        buildTime: 'Build‑tid'
       },
       actions: {
         newNote: 'Ny anteckning',

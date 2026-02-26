@@ -20,9 +20,21 @@ import DOMPurify from 'dompurify';
 type CustomElement = { type: string; children: CustomText[]; url?: string; align?: string; checked?: boolean; html?: string };
 type CustomText = { text: string; bold?: boolean; italic?: boolean; underline?: boolean; code?: boolean };
 
-const sanitizeUrl = (url: string, type: 'link' | 'image' | 'video' = 'link'): string => {
+const normalizeUrl = (url: string, type: 'link' | 'image' | 'video') => {
   if (!url) return '';
   const trimmed = url.trim();
+  if (!trimmed) return '';
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) return trimmed;
+  if (trimmed.startsWith('//')) return `https:${trimmed}`;
+  if (trimmed.startsWith('/') || trimmed.startsWith('#')) return trimmed;
+  if (type === 'image') return trimmed;
+  return `https://${trimmed}`;
+};
+
+const sanitizeUrl = (url: string, type: 'link' | 'image' | 'video' = 'link'): string => {
+  if (!url) return '';
+  const trimmed = normalizeUrl(url, type);
+  if (!trimmed) return '';
   // Always block javascript:
   if (trimmed.toLowerCase().startsWith('javascript:')) return '';
   if (trimmed.toLowerCase().startsWith('vbscript:')) return '';
@@ -45,7 +57,8 @@ const sanitizeUrl = (url: string, type: 'link' | 'image' | 'video' = 'link'): st
 const isTikTokUrl = (url: string): boolean => {
   if (!url) return false;
   try {
-    return /(^|\.)tiktok\.com$/i.test(new URL(url).hostname);
+    const normalized = normalizeUrl(url, 'video');
+    return /(^|\.)tiktok\.com$/i.test(new URL(normalized).hostname);
   } catch {
     return false;
   }
@@ -544,6 +557,11 @@ const slateNodeToHtml = (node: any, depth = 0, visited = new WeakSet<object>()):
       if (html) return sanitizeTikTokHtml(html);
       const url = typeof node.url === 'string' ? node.url : '';
       if (!url) return '';
+      const videoId = extractTikTokId(url);
+      if (videoId) {
+        const safeUrl = sanitizeUrl(url, 'video');
+        return `<div class="video-container"><iframe src="https://www.tiktok.com/embed/v2/${videoId}" data-tiktok-url="${escapeAttr(safeUrl)}" frameborder="0" allow="clipboard-write; encrypted-media; fullscreen" allowfullscreen></iframe></div>`;
+      }
       return `<a href="${escapeAttr(sanitizeUrl(url, 'video'))}">${escapeHtml(url)}</a>`;
     }
     case 'table':
@@ -789,6 +807,11 @@ const htmlToSlateValue = (html: string): Descendant[] => {
         el.getAttribute('src') ||
         (tag === 'video' ? (el.querySelector('source')?.getAttribute('src') ?? '') : '');
       if (!url) return [];
+      const explicitTikTokUrl = el.getAttribute('data-tiktok-url') || el.getAttribute('data-embed-url');
+      const resolvedUrl = explicitTikTokUrl || url;
+      if (isTikTokUrl(resolvedUrl)) {
+        return [{ type: 'tiktok', url: sanitizeUrl(resolvedUrl, 'video'), html: '', children: [{ text: '' }] } as any];
+      }
       return [{ type: 'video', url: sanitizeUrl(url, 'video'), children: [{ text: '' }] } as any];
     }
 
@@ -868,8 +891,15 @@ const extractYouTubeId = (url: string): string => {
   return match?.[1] ?? '';
 };
 
+const extractTikTokId = (url: string): string => {
+  const match = url.match(/video\/(\d+)/);
+  return match?.[1] ?? '';
+};
+
 const fetchTikTokEmbedHtml = async (url: string): Promise<string> => {
-  const response = await fetch(`https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`);
+  const normalized = normalizeUrl(url, 'video');
+  if (!normalized) return '';
+  const response = await fetch(`https://www.tiktok.com/oembed?url=${encodeURIComponent(normalized)}`);
   if (!response.ok) return '';
   const data = await response.json();
   if (!data || typeof data.html !== 'string') return '';
@@ -1725,7 +1755,18 @@ const TikTokEmbed = ({ html, url }: { html?: string; url?: string }) => {
     if (!embedHtml && url && isTikTokUrl(url)) {
       void (async () => {
         const fetched = await fetchTikTokEmbedHtml(url);
-        if (active) setEmbedHtml(fetched);
+        if (!active) return;
+        if (fetched) {
+          setEmbedHtml(fetched);
+          return;
+        }
+        const videoId = extractTikTokId(url);
+        if (videoId) {
+          const safeUrl = sanitizeUrl(url, 'video');
+          setEmbedHtml(
+            `<div class="video-container"><iframe src="https://www.tiktok.com/embed/v2/${videoId}" data-tiktok-url="${safeUrl}" frameborder="0" allow="clipboard-write; encrypted-media; fullscreen" allowfullscreen></iframe></div>`
+          );
+        }
       })();
     }
     return () => {

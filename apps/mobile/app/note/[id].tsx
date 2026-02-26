@@ -69,6 +69,14 @@ export default function NoteEditorScreen() {
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
 
+  const normalizeVideoUrl = (input: string) => {
+    const trimmed = input.trim();
+    if (!trimmed) return '';
+    if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(trimmed)) return trimmed;
+    if (trimmed.startsWith('//')) return `https:${trimmed}`;
+    return `https://${trimmed}`;
+  };
+
   const toSafeHtml = (content: any) => {
     try {
       if (!content) return '';
@@ -78,7 +86,15 @@ export default function NoteEditorScreen() {
       }
       
       const html = tiptapJsonToHtml(content);
-      if (typeof html === 'string' && html.length <= 200000) return html;
+      if (typeof html === 'string' && html.length <= 200000) {
+        const withoutScripts = html.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '');
+        const normalized = withoutScripts.replace(
+          /<blockquote[^>]*class="[^"]*tiktok-embed[^"]*"[^>]*data-video-id="([^"]+)"[^>]*?(?:cite="([^"]+)")?[^>]*>[\s\S]*?<\/blockquote>/gi,
+          (_match, videoId, cite) =>
+            `<div class="video-container"><iframe src="https://www.tiktok.com/embed/v2/${videoId}" data-tiktok-url="${cite || ''}" frameborder="0" allow="clipboard-write; encrypted-media; fullscreen" allowfullscreen></iframe></div>`
+        );
+        return normalized;
+      }
       return '<p>Content too large to display</p>';
     } catch (err) {
       console.warn('Failed to convert content to safe HTML', err);
@@ -452,7 +468,8 @@ export default function NoteEditorScreen() {
 
   const submitVideo = () => {
     if (!videoUrl) return;
-    const url = videoUrl.trim();
+    const url = normalizeVideoUrl(videoUrl);
+    if (!url) return;
     const ytMatch = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
     if (ytMatch) {
       const videoId = ytMatch[1];
@@ -475,7 +492,17 @@ export default function NoteEditorScreen() {
             const response = await fetch(`https://www.tiktok.com/oembed?url=${encodeURIComponent(url)}`);
             const data = await response.json();
             if (data && typeof data.html === 'string') {
-              richText.current?.insertHTML(data.html);
+              const match = data.html.match(/data-video-id="([^"]+)"/);
+              const videoId = match?.[1];
+              if (videoId) {
+                richText.current?.insertHTML(
+                  `<div class="video-container">
+                    <iframe src="https://www.tiktok.com/embed/v2/${videoId}" data-tiktok-url="${url}" frameborder="0" allow="clipboard-write; encrypted-media; fullscreen" allowfullscreen></iframe>
+                  </div>`
+                );
+              } else {
+                richText.current?.insertHTML(data.html);
+              }
               return;
             }
           } catch {}

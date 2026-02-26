@@ -128,6 +128,7 @@ export const db = {
             return 0;
         })(),
         userId: decryptText((n as any).userId, (n as any).userId) || (n as any).userId,
+        clientId: (n as any).clientId ? (decryptText((n as any).clientId, (n as any).clientId) || (n as any).clientId) : undefined,
         locked: (() => {
             const value: any = (n as any).locked;
             if (typeof value === 'boolean') return value;
@@ -143,6 +144,7 @@ export const db = {
             }
             return false;
         })(),
+        password: (n as any).password ? (decryptText((n as any).password, (n as any).password) || (n as any).password) : undefined,
         createdAt: (() => {
             const value: any = (n as any).createdAt;
             if (typeof value !== 'string') return new Date().toISOString();
@@ -192,6 +194,7 @@ export const db = {
             return 0;
         })(),
         userId: decryptText((note as any).userId, (note as any).userId) || (note as any).userId,
+        clientId: (note as any).clientId ? (decryptText((note as any).clientId, (note as any).clientId) || (note as any).clientId) : undefined,
         locked: (() => {
             const value: any = (note as any).locked;
             if (typeof value === 'boolean') return value;
@@ -207,6 +210,7 @@ export const db = {
             }
             return false;
         })(),
+        password: (note as any).password ? (decryptText((note as any).password, (note as any).password) || (note as any).password) : undefined,
         createdAt: (() => {
             const value: any = (note as any).createdAt;
             if (typeof value !== 'string') return new Date().toISOString();
@@ -235,7 +239,9 @@ export const db = {
   async saveNote(note: Note, pendingSync = false): Promise<void> {
     const db = await initDB();
     const encrypted: any = {
-        ...note,
+        _id: note._id,
+        userId: note.userId ? encrypt(note.userId) : note.userId,
+        clientId: note.clientId ? encrypt(note.clientId) : note.clientId,
         title: encrypt(note.title),
         content: encrypt(note.content),
         tags: note.tags?.map(t => encrypt(t)) ?? [],
@@ -243,13 +249,13 @@ export const db = {
         iconColor: note.iconColor ? encrypt(note.iconColor) : undefined,
         parentId: note.parentId ? encrypt(note.parentId) : null,
         order: typeof note.order === 'number' ? encrypt(String(note.order)) : note.order ? encrypt(String(note.order)) : undefined,
-        userId: note.userId ? encrypt(note.userId) : note.userId,
-        clientId: note.clientId ? encrypt(note.clientId) : note.clientId,
         locked: encrypt(String(!!note.locked)),
+        password: note.password ? encrypt(note.password) : note.password,
         createdAt: encrypt(String(note.createdAt)),
         updatedAt: encrypt(String(note.updatedAt)),
         type: note.type ? encrypt(note.type) : note.type,
-        pendingSync: encrypt(String(!!pendingSync))
+        pendingSync: encrypt(String(!!pendingSync)),
+        deleted: (note as any).deleted !== undefined ? encrypt(String(!!(note as any).deleted)) : (note as any).deleted
     };
     await db.put('notes', encrypted);
   },
@@ -307,6 +313,7 @@ export const db = {
             }
             return false;
         })(),
+        password: (n as any).password ? (decryptText((n as any).password, (n as any).password) || (n as any).password) : undefined,
         createdAt: (() => {
             const value: any = (n as any).createdAt;
             if (typeof value !== 'string') return new Date().toISOString();
@@ -363,7 +370,9 @@ export const db = {
   async saveTask(task: Task, pendingSync = false): Promise<void> {
     const db = await initDB();
     const encrypted = {
-        ...task,
+        _id: task._id,
+        userId: task.userId ? encrypt(task.userId) : task.userId,
+        clientId: task.clientId ? encrypt(task.clientId) : task.clientId,
         title: encrypt(task.title),
         description: encrypt(task.description || ''),
         completed: encrypt(String(task.completed)),
@@ -371,12 +380,11 @@ export const db = {
         dueDate: task.dueDate ? encrypt(String(task.dueDate)) : null,
         createdAt: encrypt(String(task.createdAt)),
         updatedAt: encrypt(String(task.updatedAt)),
-        userId: task.userId ? encrypt(task.userId) : task.userId,
         parentNoteId: task.parentNoteId ? encrypt(task.parentNoteId) : null,
         parentId: task.parentId ? encrypt(task.parentId) : null,
         position: typeof task.position === 'number' ? encrypt(String(task.position)) : task.position ? encrypt(String(task.position)) : undefined,
-        clientId: task.clientId ? encrypt(task.clientId) : task.clientId,
-        pendingSync: encrypt(String(!!pendingSync))
+        pendingSync: encrypt(String(!!pendingSync)),
+        deleted: (task as any).deleted !== undefined ? encrypt(String(!!(task as any).deleted)) : (task as any).deleted
     };
     await db.put('tasks', encrypted as any);
   },

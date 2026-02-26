@@ -75,12 +75,14 @@ export const initDatabase = async () => {
       createdAt TEXT,
       updatedAt TEXT,
       userId TEXT,
+      clientId TEXT,
       type TEXT,
       parentId TEXT,
       noteOrder REAL,
       icon TEXT,
       iconColor TEXT,
       locked INTEGER DEFAULT 0,
+      password TEXT,
       isSynced INTEGER DEFAULT 1
     );
     CREATE TABLE IF NOT EXISTS tasks (
@@ -143,6 +145,18 @@ export const initDatabase = async () => {
   
   try {
       await db.execAsync('ALTER TABLE notes ADD COLUMN iconColor TEXT');
+  } catch (e) {
+      // Column likely exists
+  }
+
+  try {
+      await db.execAsync('ALTER TABLE notes ADD COLUMN clientId TEXT');
+  } catch (e) {
+      // Column likely exists
+  }
+
+  try {
+      await db.execAsync('ALTER TABLE notes ADD COLUMN password TEXT');
   } catch (e) {
       // Column likely exists
   }
@@ -231,8 +245,10 @@ export const saveNoteLocal = async (note: Note, isSynced: boolean = true) => {
   const encryptedIconColor = (note as any).iconColor ? encrypt((note as any).iconColor) : null;
   const encryptedType = (note as any).type ? encrypt((note as any).type) : null;
   const encryptedUserId = encryptText(note.userId);
+  const encryptedClientId = note.clientId ? encryptText(note.clientId) : null;
   const encryptedParentId = note.parentId ? encryptText(note.parentId) : null;
   const encryptedOrder = typeof (note as any).order === 'number' ? encryptText((note as any).order) : null;
+  const encryptedPassword = note.password ? encryptText(note.password) : null;
   
   const createdAt = toIsoString(note.createdAt);
   const updatedAt = toIsoString(note.updatedAt);
@@ -242,8 +258,8 @@ export const saveNoteLocal = async (note: Note, isSynced: boolean = true) => {
   const encryptedIsSynced = encryptText(isSynced ? '1' : '0');
 
   await db.runAsync(
-    `INSERT OR REPLACE INTO notes (_id, title, content, tags, createdAt, updatedAt, userId, type, parentId, noteOrder, icon, iconColor, locked, isSynced)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO notes (_id, title, content, tags, createdAt, updatedAt, userId, clientId, type, parentId, noteOrder, icon, iconColor, locked, password, isSynced)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       note._id,
       encryptedTitle,
@@ -252,12 +268,14 @@ export const saveNoteLocal = async (note: Note, isSynced: boolean = true) => {
       encryptedCreatedAt,
       encryptedUpdatedAt,
       encryptedUserId,
+      encryptedClientId,
       encryptedType,
       encryptedParentId,
       encryptedOrder,
       encryptedIcon,
       encryptedIconColor,
       encryptedLocked,
+      encryptedPassword,
       encryptedIsSynced
     ]
   );
@@ -315,8 +333,10 @@ export const getNotesLocal = async (): Promise<Note[]> => {
 
     const iconColor = row.iconColor ? decryptText(row.iconColor, row.iconColor) : undefined;
     const userId = decryptText(row.userId, row.userId) || row.userId;
+    const clientId = row.clientId ? decryptText(row.clientId, row.clientId) : undefined;
     const parentId = row.parentId ? decryptText(row.parentId, row.parentId) : null;
     const order = decryptNumber(row.noteOrder);
+    const password = row.password ? decryptText(row.password, row.password) : undefined;
 
     return {
         _id: row._id,
@@ -326,12 +346,14 @@ export const getNotesLocal = async (): Promise<Note[]> => {
         createdAt: createdAt,
         updatedAt: updatedAt,
         userId: userId,
+        clientId: clientId || undefined,
         type: type,
         parentId: parentId,
         order: order ?? 0,
         icon: icon,
         iconColor: iconColor || undefined,
         locked: locked,
+        password: password || undefined,
     };
   });
   return notes.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());

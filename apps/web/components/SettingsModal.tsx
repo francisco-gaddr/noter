@@ -3,6 +3,7 @@
 import React from 'react';
 import { useStore } from '../stores/useStore';
 import { useTranslation } from 'react-i18next';
+import { buildId, buildTime } from '../lib/buildInfo';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -12,6 +13,10 @@ interface SettingsModalProps {
 export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { language, setLanguage } = useStore();
   const { t } = useTranslation();
+  const formattedBuildTime = (() => {
+    const parsed = new Date(buildTime);
+    return Number.isNaN(parsed.getTime()) ? buildTime : parsed.toLocaleString();
+  })();
 
   if (!isOpen) return null;
 
@@ -34,6 +39,17 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             <option value="sv">Svenska</option>
             <option value="en">English</option>
           </select>
+        </div>
+
+        <div className="mt-4 text-sm text-gray-600 dark:text-gray-300">
+          <div className="flex items-center justify-between">
+            <span>{t('settings.buildId')}</span>
+            <span className="font-mono">{buildId}</span>
+          </div>
+          <div className="flex items-center justify-between">
+            <span>{t('settings.buildTime')}</span>
+            <span>{formattedBuildTime}</span>
+          </div>
         </div>
 
         <div className="mt-6 flex justify-end gap-2">

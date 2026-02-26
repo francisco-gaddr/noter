@@ -40,6 +40,13 @@ export default function SettingsScreen() {
       : (Constants.expoConfig?.android as any)?.versionCode) ||
     'unknown';
 
+  const buildId = (Constants.expoConfig as any)?.extra?.buildId || 'unknown';
+  const buildTime = (Constants.expoConfig as any)?.extra?.buildTime || 'unknown';
+  const formattedBuildTime = (() => {
+    const parsed = new Date(buildTime);
+    return Number.isNaN(parsed.getTime()) ? String(buildTime) : parsed.toLocaleString();
+  })();
+
   useEffect(() => {
     (async () => {
       const savedRaw = await SecureStore.getItemAsync('language');
@@ -237,6 +244,12 @@ export default function SettingsScreen() {
       <View style={styles.version}>
          <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceDisabled }}>
             Version {String(appVersion)} ({String(buildNumber)})
+         </Text>
+         <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceDisabled }}>
+            {t('buildId')}: {String(buildId)}
+         </Text>
+         <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceDisabled }}>
+            {t('buildTime')}: {formattedBuildTime}
          </Text>
       </View>
 
