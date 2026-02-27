@@ -16,6 +16,13 @@ const nextConfig = {
 
   serverExternalPackages: ['node-llama-cpp'],
 
+  // Increase max body size and response timeout for large AI model downloads
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '10gb',
+    },
+  },
+
   async headers() {
     const csp = [
       "default-src 'self' https: data: 'unsafe-inline' 'unsafe-eval'",

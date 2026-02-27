@@ -103,8 +103,6 @@ export default function AIScreen() {
           setLoading(false);
       }
   };
-      }
-  };
 
   const downloadModel = async (model: HFModel) => {
       // For simplicity, download first gguf file found

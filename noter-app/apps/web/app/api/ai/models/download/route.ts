@@ -32,6 +32,14 @@ export async function POST(req: NextRequest) {
     // To support progress, we'd need a separate status endpoint or more complex stream handling.
     // For now, we wait for finish.
     const fileStream = fs.createWriteStream(filePath);
+    
+    // Set a longer timeout or keep-alive if possible. 
+    // But fetch doesn't have timeout option in Node native.
+    // The pipeline will keep going as long as data flows.
+    // However, Nginx/Next.js might kill the request if no response is sent for a while.
+    // We can't easily stream progress back in a POST request while writing to disk without websockets or SSE.
+    // But we can ensure the pipeline is robust.
+    
     // @ts-ignore
     await pipeline(Readable.fromWeb(response.body), fileStream);
 
