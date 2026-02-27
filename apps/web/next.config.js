@@ -1,10 +1,14 @@
 /** @type {import('next').NextConfig} */
-const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '';
-const hasBasePath = basePath.length > 0;
-
 const nextConfig = {
-  basePath: hasBasePath ? basePath : undefined,
-  assetPrefix: hasBasePath ? basePath : undefined,
+  // If the app is hosted at daylited.com/app, we need basePath set to /app
+  // But locally we might want it at root.
+  // We can use an env var, but for this specific fix requested by user, we can hardcode or default it.
+  // The user says "https://daylited.com/app/_next/...", so basePath must be /app.
+  basePath: '/app',
+  assetPrefix: '/app',
+  // Trailing slash is often needed for subpath deployments to handle redirects correctly
+  trailingSlash: true,
+  
   async headers() {
     const csp = [
       "default-src 'self' https: data: 'unsafe-inline' 'unsafe-eval'",
