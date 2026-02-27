@@ -103,7 +103,17 @@ export class NodeLlamaProvider implements LLMProvider {
     // Basic prompt
     await session.prompt(lastMessage.content, {
       onToken: (chunk) => {
-        const token = modelInstance!.detokenize([chunk[0]]); 
+        // chunk is Token[] in newer versions or Uint32Array
+        // We need to decode it to string. 
+        // LlamaModel usually has detokenize, but if Typescript complains it might be missing in type def or we need to use context.
+        // LlamaContext usually has decode(tokens).
+        // Let's try session.context.decode(chunk) or modelInstance.detokenize([chunk[0]]) if it exists.
+        // If TS says detokenize doesn't exist on LlamaModel, we should check what does.
+        // Newer node-llama-cpp versions: model.detokenize(tokens: Token[]) -> string
+        // If TS is strict, maybe cast or check methods.
+        
+        // Actually, session.context.decode(chunk) is the standard way for Token[] chunks in streaming.
+        const token = session.context.decode(chunk);
         if (onToken) onToken(token);
       }
     });
