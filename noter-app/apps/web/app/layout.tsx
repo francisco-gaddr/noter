@@ -4,13 +4,14 @@ import { Inter } from 'next/font/google'
 import { Providers } from './providers'
 import SWRegister from '../components/SWRegister'
 import StoreHydrator from '../components/StoreHydrator'
+import { AISidebar } from '../components/AISidebar'
 
 const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
   title: 'Noter',
   description: 'Secure Notes App',
-  manifest: '/app/manifest.json'
+  manifest: '/manifest.json'
 }
 
 export default function RootLayout({
@@ -24,9 +25,8 @@ export default function RootLayout({
         <Providers>
             <StoreHydrator />
             <SWRegister />
-            <div id="root-app">
-              {children}
-            </div>
+            {children}
+            <AISidebar />
         </Providers>
       </body>
     </html>
