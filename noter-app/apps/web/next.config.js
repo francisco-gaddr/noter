@@ -14,6 +14,8 @@ const nextConfig = {
     NEXT_PUBLIC_BUILD_ID: process.env.BUILD_ID || 'development-' + Math.floor(Math.random() * 10000),
   },
 
+  serverExternalPackages: ['node-llama-cpp'],
+
   async headers() {
     const csp = [
       "default-src 'self' https: data: 'unsafe-inline' 'unsafe-eval'",
