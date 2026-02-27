@@ -105,12 +105,15 @@ export const AISidebar = () => {
 
   const handleSelectModel = async (model: HFModel) => {
       setSelectedModel(model);
+      setLoading(true); // Re-using loading state for search file loading
       try {
           const res = await fetch(`/app/api/ai/models/files?modelId=${model.id}`);
           const data = await res.json();
           setModelFiles(data);
       } catch (e) {
           console.error(e);
+      } finally {
+          setLoading(false);
       }
   };
 
@@ -133,6 +136,24 @@ export const AISidebar = () => {
           alert('Download error');
       } finally {
           setDownloading(null);
+      }
+  };
+
+  const handleDeleteModel = async (filename: string) => {
+      if (!confirm(`Delete ${filename}?`)) return;
+      try {
+          const res = await fetch('/app/api/ai/models/download', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ filename })
+          });
+          if (res.ok) {
+              await fetchLocalModels();
+          } else {
+              alert('Delete failed');
+          }
+      } catch (e) {
+          console.error(e);
       }
   };
 
@@ -353,12 +374,20 @@ export const AISidebar = () => {
                                   <div className="font-bold">{m.name}</div>
                                   <div className="text-xs text-gray-500">{(m.size / 1024 / 1024).toFixed(1)} MB</div>
                               </div>
-                              <button 
-                                onClick={() => setModelPath(m.name)}
-                                className={`px-2 py-1 text-xs rounded ${modelPath === m.name ? 'bg-green-500 text-white' : 'bg-gray-200 dark:bg-gray-700'}`}
-                              >
-                                  {modelPath === m.name ? 'Active' : 'Select'}
-                              </button>
+                              <div className="flex gap-2">
+                                <button 
+                                    onClick={() => setModelPath(m.name)}
+                                    className={`px-2 py-1 text-xs rounded ${modelPath === m.name ? 'bg-green-500 text-white' : 'bg-gray-200 dark:bg-gray-700'}`}
+                                >
+                                    {modelPath === m.name ? 'Active' : 'Select'}
+                                </button>
+                                <button 
+                                    onClick={() => handleDeleteModel(m.name)}
+                                    className="px-2 py-1 text-xs rounded bg-red-500 text-white hover:bg-red-600"
+                                >
+                                    Delete
+                                </button>
+                              </div>
                           </li>
                       ))}
                   </ul>
@@ -371,14 +400,22 @@ export const AISidebar = () => {
                     placeholder="Search GGUF models..."
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleSearch()}
                   />
                   <button 
                     onClick={handleSearch}
-                    className="bg-blue-500 text-white px-3 py-1 rounded text-sm"
+                    disabled={loading}
+                    className="bg-blue-500 text-white px-3 py-1 rounded text-sm disabled:opacity-50"
                   >
-                      Search
+                      {loading ? 'Searching...' : 'Search'}
                   </button>
               </div>
+
+              {loading && !selectedModel && (
+                  <div className="flex justify-center p-4">
+                      <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
+                  </div>
+              )}
 
               {selectedModel ? (
                   <div className="border rounded p-3 bg-gray-50 dark:bg-gray-800">

@@ -165,20 +165,21 @@ const resources = {
 };
 
 const initI18n = async () => {
-  const savedLanguage = await AsyncStorage.getItem('language');
-  const locale = Localization.getLocales()[0]?.languageCode;
-  const language = savedLanguage || (locale === 'sv' ? 'sv' : 'en');
+  let savedLanguage = await AsyncStorage.getItem('user-language');
 
-  i18n
-    .use(initReactI18next)
-    .init({
-      resources,
-      lng: language,
-      fallbackLng: 'en',
-      interpolation: {
-        escapeValue: false,
-      },
-    });
+  if (!savedLanguage) {
+    const locales = Localization.getLocales();
+    savedLanguage = locales && locales.length > 0 ? locales[0].languageCode : 'en';
+  }
+
+  await i18n.use(initReactI18next).init({
+    resources,
+    lng: savedLanguage || 'en',
+    fallbackLng: 'en',
+    interpolation: {
+      escapeValue: false,
+    },
+  });
 };
 
 initI18n();

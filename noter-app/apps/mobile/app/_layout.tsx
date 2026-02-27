@@ -1,3 +1,4 @@
+import 'react-native-get-random-values';
 import '@/utils/polyfill';
 import '../services/i18n';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
