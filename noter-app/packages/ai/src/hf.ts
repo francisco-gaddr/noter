@@ -19,7 +19,7 @@ export class HuggingFaceService {
 
   async searchModels(query: string): Promise<HFModel[]> {
     try {
-      const response = await fetch(`${this.baseUrl}/models?search=${encodeURIComponent(query)}&filter=gguf&sort=downloads&direction=-1&limit=10`);
+      const response = await fetch(`https://huggingface.co/api/models?search=${encodeURIComponent(query)}&filter=gguf&sort=downloads&direction=-1&limit=10`);
       const data = await response.json();
       
       return data.map((model: any) => ({
@@ -38,10 +38,13 @@ export class HuggingFaceService {
 
   async getModelFiles(modelId: string): Promise<HFFile[]> {
     try {
-      const response = await fetch(`${this.baseUrl}/models/${modelId}/tree/main?recursive=true`);
+      const response = await fetch(`https://huggingface.co/api/models/${modelId}/tree/main?recursive=true`);
       const data = await response.json();
       
-      return data
+      // Handle array or object response (HF API can vary)
+      const files = Array.isArray(data) ? data : (data.tree || []);
+
+      return files
         .filter((file: any) => file.path.endsWith('.gguf'))
         .map((file: any) => ({
           filename: file.path,

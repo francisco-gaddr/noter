@@ -13,8 +13,12 @@ const toIsoString = (value: unknown): string => {
 const decryptText = (value: unknown, fallback: string | null = null): string | null => {
   if (value == null) return fallback;
   const raw = typeof value === 'string' ? value : String(value);
+  // Optimization: If raw looks like a valid encrypted string (base64, no spaces), try decrypt
+  // Otherwise return raw. This prevents trying to decrypt already decrypted text or garbage.
+  // For now, simple try/catch.
   try {
-    return decrypt(raw);
+    const decrypted = decrypt(raw);
+    return decrypted === '' && raw !== '' ? raw : decrypted;
   } catch {
     return raw;
   }

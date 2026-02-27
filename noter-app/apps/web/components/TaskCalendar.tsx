@@ -106,6 +106,9 @@ export default function TaskCalendar({ tasks, onTaskClick, onCreateTask }: TaskC
 
     const handleSelectSlot = ({ start }: { start: Date }) => {
         if (onCreateTask) {
+            // Check if start has specific time (not 00:00:00 which usually means "all day" or just date click in month view)
+            // In week/day view, start includes time. In month view, it's 00:00:00.
+            // We pass the full date object.
             onCreateTask(start);
         }
     };

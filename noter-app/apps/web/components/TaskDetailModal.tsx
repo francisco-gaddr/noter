@@ -66,38 +66,74 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
-        if (task) {
-            setTitle(task.title);
-            setDescription(task.description || '');
-            setPriority(task.priority);
-            const parsed = task.dueDate ? new Date(task.dueDate) : null;
-            if (parsed && !isNaN(parsed.getTime())) {
-              setDueDateValue(toLocalDateInput(parsed));
-              const timeValue = toLocalTimeInput(parsed);
-              setDueTimeValue(timeValue === '00:00' ? '' : timeValue);
-            } else {
-              setDueDateValue('');
-              setDueTimeValue('');
-            }
-            setCompleted(task.completed);
-            setSelectedListId(task.parentNoteId || '');
-            setRecurrenceType(task.recurrenceType || 'none');
-            setRecurrenceDays(task.recurrenceDays || []);
-            setReminderEnabled(task.reminderEnabled || false);
-            setReminderOffsetMinutes(task.reminderOffsetMinutes === 10 ? 10 : 0);
+      if (task) {
+        setTitle(task.title);
+        setDescription(task.description || '');
+        setPriority(task.priority || 'medium');
+        if (task.dueDate) {
+          const d = new Date(task.dueDate);
+          if (!isNaN(d.getTime())) {
+            // Local date string YYYY-MM-DD
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            setDueDateValue(`${y}-${m}-${day}`);
+            
+            // Local time string HH:mm
+            const h = String(d.getHours()).padStart(2, '0');
+            const min = String(d.getMinutes()).padStart(2, '0');
+            setDueTimeValue(`${h}:${min}`);
+          }
         } else {
-            // Reset for new task
-            setTitle('');
-            setDescription('');
-            setPriority('low');
-            // Use initialDate if provided, otherwise empty
-            if (initialDate) {
-                const initDate = new Date(initialDate);
-                if (!isNaN(initDate.getTime())) {
-                  setDueDateValue(toLocalDateInput(initDate));
-                  setDueTimeValue('00:00');
-                } else {
-                  setDueDateValue('');
+          setDueDateValue('');
+          setDueTimeValue('');
+        }
+        setCompleted(task.completed);
+        setSelectedListId(task.parentNoteId || '');
+        setRecurrenceType(task.recurrenceType || 'none');
+        setRecurrenceDays(task.recurrenceDays || []);
+        setReminderEnabled(task.reminderEnabled || false);
+        setReminderOffsetMinutes(task.reminderOffsetMinutes === 10 ? 10 : 0);
+      } else {
+        // Reset for new task
+        setTitle('');
+        setDescription('');
+        setPriority('medium');
+        
+        if (initialDate) {
+          const d = new Date(initialDate);
+          if (!isNaN(d.getTime())) {
+            const y = d.getFullYear();
+            const m = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            setDueDateValue(`${y}-${m}-${day}`);
+
+            // Only set time if it's not 00:00:00 (which implies full day or month view click)
+            // But user asked for specific time. Calendar click usually sends time.
+            const h = String(d.getHours()).padStart(2, '0');
+            const min = String(d.getMinutes()).padStart(2, '0');
+            if (h !== '00' || min !== '00') {
+               setDueTimeValue(`${h}:${min}`);
+            } else {
+               // If exactly midnight, maybe default to empty or specific time?
+               // Let's keep empty for now unless user clicked specific time slot.
+               // React Big Calendar sends 00:00 for month view clicks.
+               setDueTimeValue('');
+            }
+          }
+        } else {
+          setDueDateValue('');
+          setDueTimeValue('');
+        }
+        setCompleted(false);
+        setSelectedListId('');
+        setRecurrenceType('none');
+        setRecurrenceDays([]);
+        setReminderEnabled(false);
+        setReminderOffsetMinutes(0);
+      }
+    }
+  }, [isOpen, task, initialDate]);
                   setDueTimeValue('');
                 }
             } else {
