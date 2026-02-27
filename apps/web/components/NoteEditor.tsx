@@ -899,11 +899,16 @@ const extractTikTokId = (url: string): string => {
 const fetchTikTokEmbedHtml = async (url: string): Promise<string> => {
   const normalized = normalizeUrl(url, 'video');
   if (!normalized) return '';
-  const response = await fetch(`https://www.tiktok.com/oembed?url=${encodeURIComponent(normalized)}`);
-  if (!response.ok) return '';
-  const data = await response.json();
-  if (!data || typeof data.html !== 'string') return '';
-  return sanitizeTikTokHtml(data.html);
+  try {
+    const response = await fetch(`https://www.tiktok.com/oembed?url=${encodeURIComponent(normalized)}`);
+    if (!response.ok) return '';
+    const data = await response.json();
+    if (!data || typeof data.html !== 'string') return '';
+    return sanitizeTikTokHtml(data.html);
+  } catch (error) {
+    console.warn('TikTok oEmbed fetch failed:', error);
+    return '';
+  }
 };
 
 const extractTextFromSlateLike = (v: unknown, depth = 0, visited?: WeakSet<object>): string => {

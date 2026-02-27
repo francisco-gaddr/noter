@@ -4,7 +4,7 @@
     "slug": "noter",
     "version": "1.0.1",
     "orientation": "portrait",
-    "icon": "./assets/images/Visuals/appstore.png",
+    "icon": "./assets/images/Visuals/playstore.png",
     "scheme": "noter",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,

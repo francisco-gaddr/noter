@@ -35,7 +35,7 @@ const decryptBool = (value: unknown): boolean => {
   const text = decryptText(value);
   if (text === 'true' || text === '1') return true;
   if (text === 'false' || text === '0') return false;
-  return Boolean(text);
+  return text === 'true';
 };
 
 const hashText = (value: string): string => CryptoJS.SHA256(value).toString();

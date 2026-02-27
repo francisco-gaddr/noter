@@ -506,7 +506,18 @@ export default function NoteEditorScreen() {
               return;
             }
           } catch {}
-          richText.current?.insertVideo(url);
+          
+          const match = url.match(/video\/(\d+)/);
+          if (match && match[1]) {
+             const videoId = match[1];
+             richText.current?.insertHTML(
+               `<div class="video-container">
+                 <iframe src="https://www.tiktok.com/embed/v2/${videoId}" data-tiktok-url="${url}" frameborder="0" allow="clipboard-write; encrypted-media; fullscreen" allowfullscreen></iframe>
+               </div>`
+             );
+          } else {
+             richText.current?.insertVideo(url);
+          }
         })();
       } else {
         richText.current?.insertVideo(url);
