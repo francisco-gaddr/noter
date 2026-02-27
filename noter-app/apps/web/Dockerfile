@@ -1,6 +1,9 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
 
+# Install git and other build dependencies required for node-llama-cpp
+RUN apk add --no-cache git python3 make g++
+
 # Copy only package files first for better caching
 COPY package.json package-lock.json turbo.json ./
 COPY apps/web/package.json ./apps/web/
