@@ -103,6 +103,61 @@ export interface User {
   createdAt: string;
 }
 
+export const ICON_LIST = [
+  // General
+  'FaBriefcase', 'FaDesktop', 'FaCode', 'FaTerminal', 'FaFileCode', 'FaClipboardList', 'FaTasks',
+  'FaChartLine', 'FaChartBar', 'FaChartPie', 'FaMoneyBill', 'FaDollarSign', 'FaEuroSign',
+  'FaBuilding', 'FaIndustry', 'FaWarehouse', 'FaTools', 'FaWrench', 'FaCog', 'FaCogs',
+  
+  // Food
+  'FaUtensils', 'FaCoffee', 'FaPizzaSlice', 'FaHamburger', 'FaIceCream', 'FaAppleAlt', 'FaCarrot',
+  'FaBreadSlice', 'FaCheese', 'FaEgg', 'FaFish', 'FaWineBottle', 'FaWineGlass', 'FaBeer',
+  'FaCookie', 'FaCandyCane', 'FaBirthdayCake', 'FaMortarPestle', 'FaBlender',
+
+  // Lifestyle & Home
+  'FaHome', 'FaCouch', 'FaBed', 'FaBath', 'FaShower', 'FaToilet', 'FaTv', 'FaRadio', 'FaHeadphones',
+  'FaMusic', 'FaGuitar', 'FaDrum', 'FaGamepad', 'FaDice', 'FaChess', 'FaBook', 'FaBookOpen',
+  'FaBookReader', 'FaGraduationCap', 'FaPalette', 'FaPaintBrush', 'FaCamera', 'FaVideo',
+
+  // Planning & Time
+  'FaCalendar', 'FaCalendarAlt', 'FaCalendarCheck', 'FaCalendarDay', 'FaClock', 'FaStopwatch',
+  'FaHourglass', 'FaBell', 'FaAlarmClock', 'FaCheckCircle', 'FaCheckSquare', 'FaList',
+  'FaListAlt', 'FaListOl', 'FaListUl', 'FaClipboard', 'FaClipboardCheck', 'FaStickyNote',
+
+  // Economy
+  'FaMoneyBillWave', 'FaCreditCard', 'FaPiggyBank', 'FaWallet', 'FaHandHoldingUsd', 'FaCoins',
+  'FaGem', 'FaShoppingCart', 'FaShoppingBag', 'FaStore', 'FaTag', 'FaReceipt', 'FaCalculator',
+  'FaChartArea', 'FaExchangeAlt', 'FaPercent',
+
+  // Training & Sports
+  'FaRunning', 'FaWalking', 'FaHiking', 'FaBiking', 'FaSwimmer', 'FaDumbbell', 'FaWeight',
+  'FaHeartbeat', 'FaHeart', 'FaLungs', 'FaBasketballBall', 'FaFootballBall', 'FaBaseballBall',
+  'FaVolleyballBall', 'FaTennisBall', 'FaGolfBall', 'FaSkating', 'FaSkiing', 'FaSnowboarding',
+
+  // Research & Science
+  'FaSearch', 'FaSearchDollar', 'FaSearchLocation', 'FaMicroscope', 'FaFlask', 'FaAtom',
+  'FaDna', 'FaBrain', 'FaBookMedical', 'FaPills', 'FaSyringe', 'FaFirstAid', 'FaHospital',
+  'FaClinicMedical', 'FaUserMd', 'FaStethoscope', 'FaXRay', 'FaAllergies',
+
+  // Health
+  'FaCapsules', 'FaPrescriptionBottle', 'FaBandAid', 'FaCrutch',
+  'FaProcedures', 'FaWheelchair', 'FaBlind', 'FaDeaf', 'FaSignLanguage',
+
+  // Joy & Emotions
+  'FaSmile', 'FaGrin', 'FaGrinBeam', 'FaGrinHearts', 'FaGrinStars', 'FaGrinTears', 'FaLaugh',
+  'FaKiss', 'FaGrinTongue', 'FaGrinTongueWink', 'FaGrinTongueSquint', 'FaMeh', 'FaMehBlank',
+  'FaMehRollingEyes', 'FaFrown', 'FaFrownOpen', 'FaSadTear', 'FaSadCry', 'FaGift', 'FaGifts',
+  'FaGlassCheers', 'FaCrown', 'FaAward', 'FaMedal', 'FaTrophy',
+
+  // Files & Misc
+  'FaFolder', 'FaFolderOpen', 'FaFile', 'FaFileAlt', 'FaFilePdf', 'FaFileImage',
+  'FaStar', 'FaBookmark', 'FaFlag', 'FaUser', 'FaUsers',
+  'FaCheck', 'FaTimes', 'FaExclamation', 'FaInfo', 'FaQuestion',
+  'FaLock', 'FaUnlock', 'FaKey', 'FaTrash', 'FaEdit', 'FaPen',
+  'FaPlus', 'FaMinus', 'FaArrowRight', 'FaArrowLeft',
+  'FaLaptop', 'FaMobile', 'FaTablet', 'FaPlane', 'FaCar', 'FaBus', 'FaBicycle'
+];
+
 export interface AuthResponse {
   user: User;
   token: string;

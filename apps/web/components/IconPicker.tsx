@@ -1,52 +1,13 @@
 import React from 'react';
 import * as FaIcons from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
+import { ICON_LIST } from '@repo/shared';
 
 interface IconPickerProps {
     onSelect: (iconName: string, color?: string) => void;
     onClose: () => void;
     currentColor?: string;
 }
-
-const ICON_KEYS = [
-    'FaBriefcase', 'FaDesktop', 'FaCode', 'FaTerminal', 'FaFileCode', 'FaClipboardList', 'FaTasks',
-    'FaChartLine', 'FaChartBar', 'FaChartPie', 'FaMoneyBill', 'FaDollarSign', 'FaEuroSign',
-    'FaBuilding', 'FaIndustry', 'FaWarehouse', 'FaTools', 'FaWrench', 'FaCog', 'FaCogs',
-    'FaUtensils', 'FaCoffee', 'FaPizzaSlice', 'FaHamburger', 'FaIceCream', 'FaAppleAlt', 'FaCarrot',
-    'FaBreadSlice', 'FaCheese', 'FaEgg', 'FaFish', 'FaWineBottle', 'FaWineGlass', 'FaBeer',
-    'FaCookie', 'FaCandyCane', 'FaBirthdayCake', 'FaMortarPestle', 'FaBlender',
-    'FaHome', 'FaCouch', 'FaBed', 'FaBath', 'FaShower', 'FaToilet', 'FaTv', 'FaRadio', 'FaHeadphones',
-    'FaMusic', 'FaGuitar', 'FaDrum', 'FaGamepad', 'FaDice', 'FaChess', 'FaBook', 'FaBookOpen',
-    'FaBookReader', 'FaGraduationCap', 'FaPalette', 'FaPaintBrush', 'FaCamera', 'FaVideo',
-    'FaCalendar', 'FaCalendarAlt', 'FaCalendarCheck', 'FaCalendarDay', 'FaClock', 'FaStopwatch',
-    'FaHourglass', 'FaBell', 'FaAlarmClock', 'FaCheckCircle', 'FaCheckSquare', 'FaList',
-    'FaListAlt', 'FaListOl', 'FaListUl', 'FaClipboard', 'FaClipboardCheck', 'FaStickyNote',
-    'FaMoneyBillWave', 'FaCreditCard', 'FaPiggyBank', 'FaWallet', 'FaHandHoldingUsd', 'FaCoins',
-    'FaGem', 'FaShoppingCart', 'FaShoppingBag', 'FaStore', 'FaTag', 'FaReceipt', 'FaCalculator',
-    'FaChartArea', 'FaExchangeAlt', 'FaPercent',
-    'FaRunning', 'FaWalking', 'FaHiking', 'FaBiking', 'FaSwimmer', 'FaDumbbell', 'FaWeight',
-    'FaHeartbeat', 'FaHeart', 'FaLungs', 'FaBasketballBall', 'FaFootballBall', 'FaBaseballBall',
-    'FaVolleyballBall', 'FaTennisBall', 'FaGolfBall', 'FaSkating', 'FaSkiing', 'FaSnowboarding',
-    'FaSearch', 'FaSearchDollar', 'FaSearchLocation', 'FaMicroscope', 'FaFlask', 'FaAtom',
-    'FaDna', 'FaBrain', 'FaBookMedical', 'FaPills', 'FaSyringe', 'FaFirstAid', 'FaHospital',
-    'FaClinicMedical', 'FaUserMd', 'FaStethoscope', 'FaXRay', 'FaAllergies',
-    'FaHeart', 'FaHeartbeat', 'FaLungs', 'FaBrain', 'FaEye', 'FaEar', 'FaTooth', 'FaBone',
-    'FaCapsules', 'FaPills', 'FaPrescriptionBottle', 'FaFirstAid', 'FaBandAid', 'FaCrutch',
-    'FaProcedures', 'FaWalking', 'FaWheelchair', 'FaBlind', 'FaDeaf', 'FaSignLanguage',
-    'FaSmile', 'FaGrin', 'FaGrinBeam', 'FaGrinHearts', 'FaGrinStars', 'FaGrinTears', 'FaLaugh',
-    'FaKiss', 'FaGrinTongue', 'FaGrinTongueWink', 'FaGrinTongueSquint', 'FaMeh', 'FaMehBlank',
-    'FaMehRollingEyes', 'FaFrown', 'FaFrownOpen', 'FaSadTear', 'FaSadCry', 'FaGift', 'FaGifts',
-    'FaBirthdayCake', 'FaGlassCheers', 'FaCrown', 'FaAward', 'FaMedal', 'FaTrophy',
-    'FaFile', 'FaFileAlt', 'FaFolder', 'FaFolderOpen', 'FaStar', 'FaHome', 'FaUser', 
-    'FaBookmark', 'FaCheck', 'FaExclamation', 'FaInfo', 'FaQuestion', 'FaLightbulb', 
-    'FaPen', 'FaTrash', 'FaImage', 'FaMap', 'FaGlobe', 'FaLock', 'FaUnlock',
-    'FaBug', 'FaRocket', 'FaPuzzlePiece', 'FaCar', 'FaBus', 'FaPlane', 'FaBicycle',
-    'FaLaptop', 'FaMobileAlt', 'FaTabletAlt', 'FaBookOpen', 'FaCloud', 'FaCloudUploadAlt', 
-    'FaCloudDownloadAlt', 'FaComment', 'FaComments', 'FaEnvelope', 'FaPaperclip', 'FaPaperPlane',
-    'FaLeaf', 'FaTree', 'FaSeedling', 'FaFire', 'FaBolt', 'FaSun', 'FaMoon', 'FaSnowflake',
-    'FaAnchor', 'FaFlag', 'FaMapMarkerAlt', 'FaRoute', 'FaRoad', 'FaTrain', 'FaShip',
-    'FaWifi', 'FaBluetooth', 'FaBatteryFull', 'FaRecycle', 'FaShieldAlt', 'FaKey', 'FaThumbsUp'
-];
 
 export const IconPicker: React.FC<IconPickerProps> = ({ onSelect, onClose, currentColor }) => {
     const { t } = useTranslation();
@@ -70,8 +31,9 @@ export const IconPicker: React.FC<IconPickerProps> = ({ onSelect, onClose, curre
                     ))}
                 </div>
                 <div className="grid grid-cols-6 gap-2">
-                    {ICON_KEYS.map(key => {
+                    {ICON_LIST.map(key => {
                         const Icon = (FaIcons as any)[key];
+                        if (!Icon) return null;
                         return (
                             <button
                                 key={key}

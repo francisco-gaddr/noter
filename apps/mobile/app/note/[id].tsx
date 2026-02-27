@@ -558,48 +558,38 @@ export default function NoteEditorScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <Appbar.Header>
         <Appbar.BackAction onPress={() => router.back()} />
-        {icon && (
-          <Appbar.Action 
-            icon={() => {
-              if (icon.startsWith('Fa')) {
-                const name = icon.startsWith('Fa') ? icon.substring(2) : icon;
-                const fa5Name = name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
-                const IconComponent = require('@expo/vector-icons/FontAwesome5').default;
-                return <IconComponent name={fa5Name as any} size={20} color={iconColor || theme.colors.onSurface} />;
-              }
-              return <MaterialCommunityIcons name="file-document-outline" size={20} color={iconColor || theme.colors.onSurface} />;
-            }}
-            onPress={() => setShowIconPicker(true)}
-          />
-        )}
-        <View style={{ flex: 1, marginHorizontal: 8 }}>
+        <Appbar.Action 
+          icon={() => {
+            const iconName = icon || 'file-document-outline';
+            const color = iconColor || theme.colors.onSurface;
+            
+            if (iconName.startsWith('Fa')) {
+              const name = iconName.startsWith('Fa') ? iconName.substring(2) : iconName;
+              const fa5Name = name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
+              const IconComponent = require('@expo/vector-icons/FontAwesome5').default;
+              return <IconComponent name={fa5Name as any} size={20} color={color} />;
+            }
+            return <MaterialCommunityIcons name={iconName as any} size={20} color={color} />;
+          }}
+          onPress={() => setShowIconPicker(true)}
+        />
+        <View style={{ flex: 1, marginHorizontal: 0 }}>
           <TextInput
             value={title}
             onChangeText={setTitle}
-            placeholder={isNew ? 'Ny anteckning' : 'Anteckningstitel'}
-            style={[
-              styles.titleInput, 
-              { 
+            placeholder={t('noteTitle')}
+            placeholderTextColor={theme.colors.onSurfaceVariant}
+            style={{ 
                 color: theme.colors.onSurface, 
-                fontSize: 20, 
+                fontSize: 18, 
                 fontWeight: '600',
-                textAlign: 'left'
-              }
-            ]}
+                paddingHorizontal: 8,
+                height: 40
+            }}
             onBlur={handleManualSave}
             onSubmitEditing={handleManualSave}
             returnKeyType="done"
           />
-          {lastSaved && (
-            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginTop: -2 }}>
-              Sparad {lastSaved.toLocaleTimeString()}
-            </Text>
-          )}
-          {isSaving && (
-            <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginTop: -2 }}>
-              Sparar...
-            </Text>
-          )}
         </View>
         <Menu
           visible={showMenu}
