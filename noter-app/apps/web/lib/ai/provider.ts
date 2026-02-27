@@ -49,6 +49,19 @@ export class NodeLlamaProvider implements LLMProvider {
     }
   }
 
+  async generateResponse(messages: ChatMessage[], options?: any): Promise<string> {
+    if (!modelInstance || !contextInstance) throw new Error("Model not loaded");
+
+    // Reconstruct basic session for non-streaming response
+    const session = new LlamaChatSession({ context: contextInstance });
+    
+    const lastMessage = messages[messages.length - 1];
+    if (!lastMessage || lastMessage.role !== 'user') return '';
+
+    // Simple prompt without streaming
+    return await session.prompt(lastMessage.content);
+  }
+
   async streamResponse(messages: ChatMessage[], options?: any, onToken?: (token: string) => void): Promise<void> {
     if (!modelInstance || !contextInstance) throw new Error("Model not loaded");
 
