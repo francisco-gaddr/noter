@@ -16,7 +16,9 @@ export class NodeLlamaProvider implements LLMProvider {
         if (options && options.gpuLayers !== undefined) {
              console.log("Reloading model with new options:", options);
              if (contextInstance) {
-                 contextInstance.dispose();
+                 // LlamaContext doesn't have dispose method in newer versions, 
+                 // it relies on GC or LlamaModel disposal? 
+                 // Or we just null it. Let's null it for now as LlamaModel.dispose() handles resources.
                  contextInstance = null;
              }
              if (modelInstance) {

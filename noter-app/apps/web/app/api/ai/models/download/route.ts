@@ -2,6 +2,8 @@ import { NextRequest } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import { pipeline } from 'stream/promises';
+// @ts-ignore
+import { Readable } from 'stream';
 
 const MODELS_DIR = path.join(process.cwd(), 'models');
 
@@ -28,7 +30,7 @@ export async function POST(req: NextRequest) {
 
     const fileStream = fs.createWriteStream(filePath);
     // @ts-ignore
-    await pipeline(response.body, fileStream);
+    await pipeline(Readable.fromWeb(response.body), fileStream);
 
     return new Response(JSON.stringify({ message: 'Download complete', path: filePath }), { status: 200 });
 
