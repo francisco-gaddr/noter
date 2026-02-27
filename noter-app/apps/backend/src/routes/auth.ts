@@ -52,10 +52,14 @@ router.post('/register', validate(registerSchema), async (req, res) => {
 });
 
 // Login
-router.post('/login', validate(loginSchema), async (req, res) => {
+router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
     // Validation handled by middleware
+    
+    if (!username || !password) {
+        return res.status(400).json({ message: 'Username and password are required' });
+    }
 
     const user = await User.findOne({ username });
     if (!user) {
