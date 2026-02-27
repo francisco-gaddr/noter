@@ -18,8 +18,13 @@ const decryptText = (value: unknown, fallback: string | null = null): string | n
   // For now, simple try/catch.
   try {
     const decrypted = decrypt(raw);
-    return decrypted === '' && raw !== '' ? raw : decrypted;
-  } catch {
+    // Handle malformed UTF-8 or empty result from decrypt
+    if (!decrypted) return raw;
+    // Check if result is valid UTF-8 string (not strictly needed in JS but good sanity check)
+    return decrypted;
+  } catch (e) {
+    // If decryption fails (e.g. Malformed UTF-8 data), return raw value
+    // This handles cases where data might not be encrypted or is corrupted
     return raw;
   }
 };

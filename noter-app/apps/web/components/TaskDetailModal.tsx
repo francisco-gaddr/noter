@@ -134,21 +134,6 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
       }
     }
   }, [isOpen, task, initialDate]);
-                  setDueTimeValue('');
-                }
-            } else {
-                setDueDateValue('');
-                setDueTimeValue('');
-            }
-            setCompleted(false);
-            setSelectedListId('');
-            setRecurrenceType('none');
-            setRecurrenceDays([]);
-            setReminderEnabled(false);
-            setReminderOffsetMinutes(0);
-        }
-    }
-  }, [task, isOpen, initialDate]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
