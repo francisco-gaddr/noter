@@ -9,6 +9,11 @@ const nextConfig = {
   // Trailing slash is often needed for subpath deployments to handle redirects correctly
   trailingSlash: true,
   
+  env: {
+    NEXT_PUBLIC_BUILD_TIMESTAMP: new Date().toISOString(),
+    NEXT_PUBLIC_BUILD_ID: process.env.BUILD_ID || 'development-' + Math.floor(Math.random() * 10000),
+  },
+
   async headers() {
     const csp = [
       "default-src 'self' https: data: 'unsafe-inline' 'unsafe-eval'",

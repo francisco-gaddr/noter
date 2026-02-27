@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { Tool } from './index';
+
+export interface Tool {
+  name: string;
+  description: string;
+  parameters: z.ZodType<any>;
+  execute: (args: any) => Promise<any>;
+}
 
 export interface EntityDB {
   createNote: (note: { title: string; content: string }) => Promise<any>;

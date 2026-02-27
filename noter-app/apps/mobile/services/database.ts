@@ -608,11 +608,13 @@ export const saveModelLocal = async (model: AIModel) => {
   const encryptedFilename = encrypt(model.filename);
   const encryptedPath = encrypt(model.path);
   const encryptedQuantization = model.quantization ? encrypt(model.quantization) : null;
+  const encryptedSize = encrypt(String(model.size));
+  const encryptedDownloaded = encrypt(String(model.downloaded));
 
   await db.runAsync(
     `INSERT OR REPLACE INTO models (id, name, filename, path, size, quantization, downloaded)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [model.id, encryptedName, encryptedFilename, encryptedPath, model.size, encryptedQuantization, model.downloaded ? 1 : 0]
+    [model.id, encryptedName, encryptedFilename, encryptedPath, encryptedSize, encryptedQuantization, encryptedDownloaded]
   );
 };
 
@@ -623,9 +625,9 @@ export const getModelsLocal = async (): Promise<AIModel[]> => {
     name: decrypt(row.name),
     filename: decrypt(row.filename),
     path: decrypt(row.path),
-    size: row.size,
+    size: (() => { try { return Number(decrypt(row.size)); } catch { return Number(row.size); } })(),
     quantization: row.quantization ? decrypt(row.quantization) : undefined,
-    downloaded: !!row.downloaded
+    downloaded: (() => { try { return decrypt(row.downloaded) === 'true'; } catch { return Boolean(row.downloaded); } })()
   }));
 };
 

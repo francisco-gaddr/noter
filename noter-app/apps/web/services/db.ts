@@ -162,7 +162,7 @@ export const db = {
                 try {
                     return decrypt(value) === 'true';
                 } catch {
-                    return Boolean(value);
+                    return false;
                 }
             }
             return false;
@@ -228,7 +228,7 @@ export const db = {
                 try {
                     return decrypt(value) === 'true';
                 } catch {
-                    return Boolean(value);
+                    return false;
                 }
             }
             return false;
@@ -526,12 +526,14 @@ export const db = {
 
   async saveModel(model: AIModel): Promise<void> {
     const db = await initDB();
-    const encrypted: AIModel = {
+    const encrypted: any = {
       ...model,
       name: encrypt(model.name),
       filename: encrypt(model.filename),
       path: encrypt(model.path),
-      quantization: model.quantization ? encrypt(model.quantization) : undefined
+      quantization: model.quantization ? encrypt(model.quantization) : undefined,
+      size: encrypt(String(model.size)),
+      downloaded: encrypt(String(model.downloaded))
     };
     await db.put('models', encrypted);
   },
@@ -544,7 +546,9 @@ export const db = {
       name: decrypt(model.name),
       filename: decrypt(model.filename),
       path: decrypt(model.path),
-      quantization: model.quantization ? decrypt(model.quantization) : undefined
+      quantization: model.quantization ? decrypt(model.quantization) : undefined,
+      size: Number(decrypt((model as any).size)),
+      downloaded: decrypt((model as any).downloaded) === 'true'
     }));
   },
 

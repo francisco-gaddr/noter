@@ -5,6 +5,7 @@ import { socket, connectSocket, disconnectSocket } from '../services/socket';
 import { db } from '../services/db';
 import deepmerge from 'deepmerge';
 import { uniqBy } from 'lodash';
+import CryptoJS from 'crypto-js';
 
 type SortOrder = 'date-desc' | 'date-asc' | 'title-asc' | 'title-desc' | 'custom';
 
@@ -217,6 +218,9 @@ interface StoreState {
 
   isAppLocked: boolean;
   setAppLocked: (locked: boolean) => void;
+  appLockPasswordHash: string | null;
+  setAppLockPassword: (password: string) => void;
+  verifyAppLockPassword: (password: string) => boolean;
   autoLockTimeout: number; // in minutes
   setAutoLockTimeout: (minutes: number) => void;
   
@@ -229,7 +233,7 @@ interface StoreState {
   unlockNote: (id: string, password: string) => Promise<boolean>;
   deleteNote: (id: string) => Promise<void>;
   
-  createTask: (title: string, parentNoteId?: string, dueDate?: string | null, options?: { description?: string; priority?: 'low' | 'medium' | 'high'; recurrenceType?: 'none' | 'daily' | 'weekly'; recurrenceDays?: number[]; reminderEnabled?: boolean; reminderOffsetMinutes?: 0 | 10 }) => Promise<void>;
+  createTask: (title: string, parentNoteId?: string, dueDate?: string | null, options?: { description?: string; priority?: 'low' | 'medium' | 'high'; recurrenceType?: 'none' | 'daily' | 'weekly'; recurrenceDays?: number[]; reminderEnabled?: boolean; reminderOffsetMinutes?: number }) => Promise<void>;
   updateTask: (id: string, data: UpdateTaskDto) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
   reorderTasks: (tasks: Task[]) => Promise<void>;
@@ -271,10 +275,11 @@ export const useStore = create<StoreState>((set, get) => ({
         const selectedTaskListId = localStorage.getItem('lastSelectedTaskListId') || null;
         const activeProjectId = localStorage.getItem('activeProjectId') || null;
         const isAppLocked = localStorage.getItem('isAppLocked') === 'true';
+        const appLockPasswordHash = localStorage.getItem('appLockPasswordHash');
         const autoLockTimeout = parseInt(localStorage.getItem('autoLockTimeout') || '15', 10);
 
-        set({ user, token, language, activeTab, selectedNoteId, selectedTaskListId, activeProjectId, isAppLocked, autoLockTimeout, isHydrated: true });
-        if (token) {
+        set({ user, token, language, activeTab, selectedNoteId, selectedTaskListId, activeProjectId, isAppLocked, appLockPasswordHash, autoLockTimeout, isHydrated: true });
+        if (token && !isAppLocked) {
             get().initSocket();
         }
     } catch (e) {
@@ -339,14 +344,45 @@ export const useStore = create<StoreState>((set, get) => ({
   
   activeUsers: {},
   isAppLocked: false,
+  appLockPasswordHash: null,
   autoLockTimeout: 15,
+
+  setAppLockPassword: (password) => {
+      const hash = CryptoJS.SHA256(password).toString();
+      localStorage.setItem('appLockPasswordHash', hash);
+      set({ appLockPasswordHash: hash });
+  },
+
+  verifyAppLockPassword: (password) => {
+      const { appLockPasswordHash } = get();
+      if (!appLockPasswordHash) return false;
+      return CryptoJS.SHA256(password).toString() === appLockPasswordHash;
+  },
 
   setAppLocked: (locked) => {
     if (typeof window !== 'undefined') {
         if (locked) localStorage.setItem('isAppLocked', 'true');
         else localStorage.removeItem('isAppLocked');
     }
-    set({ isAppLocked: locked });
+    if (locked) {
+        // Clear sensitive data from memory to ensure it's not accessible via DevTools/Inspector
+        set({ 
+            isAppLocked: true, 
+            notes: [], 
+            tasks: [], 
+            activeUsers: {},
+            selectedNoteId: null,
+            selectedTaskListId: null,
+            pendingCreated: { notes: {}, tasks: {} }
+        });
+        disconnectSocket();
+    } else {
+        set({ isAppLocked: false });
+        // Re-fetch data
+        get().fetchNotes();
+        get().fetchTasks();
+        get().initSocket();
+    }
   },
 
   setAutoLockTimeout: (minutes) => {
@@ -602,7 +638,7 @@ export const useStore = create<StoreState>((set, get) => ({
                       title: note.title, 
                       content: note.content, 
                       parentId: note.parentId,
-                      order: note.order,
+                      order: Number(note.order ?? 0),
                       icon: note.icon,
                       type: note.type
                   });
@@ -618,11 +654,11 @@ export const useStore = create<StoreState>((set, get) => ({
                   await api.updateNote(note._id, {
                       title: note.title,
                       content: note.content,
-                      locked: note.locked,
+                      locked: Boolean(note.locked),
                       password: noteWithPassword.password,
                       icon: note.icon,
                       type: note.type,
-                      order: note.order
+                      order: Number(note.order ?? 0)
                   });
                   await db.saveNote(note, false);
               }

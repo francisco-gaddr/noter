@@ -385,12 +385,23 @@ export default function TaskList() {
         setNewTaskTitle('');
     };
 
-    const handleCreateTaskWithDate = useCallback(async (date: Date) => {
+    const handleCreateTaskWithDate = useCallback((date: Date) => {
+        setInitialDate(date);
+        setSelectedTask(null);
+        setIsModalOpen(true);
+    }, []);
+
+    const handleCreateFromModal = async (taskData: Omit<Task, '_id' | 'createdAt' | 'updatedAt' | 'userId'>) => {
         const parentId = selectedTaskListId || undefined;
-        if (!parentId) return;
-        const title = t('tasks.newTask') || 'Ny uppgift';
-        await createTask(title, parentId, date.toISOString());
-    }, [createTask, selectedTaskListId, t]);
+        await createTask(taskData.title, parentId, taskData.dueDate || null, {
+            description: taskData.description,
+            priority: taskData.priority,
+            recurrenceType: taskData.recurrenceType,
+            recurrenceDays: taskData.recurrenceDays,
+            reminderEnabled: taskData.reminderEnabled,
+            reminderOffsetMinutes: taskData.reminderOffsetMinutes
+        });
+    };
 
     const toggleComplete = async (task: Task) => {
         await updateTask(task._id, { completed: !task.completed });
@@ -652,10 +663,15 @@ export default function TaskList() {
 
             <TaskDetailModal
                 isOpen={isModalOpen}
-                onClose={() => setIsModalOpen(false)}
+                onClose={() => {
+                    setIsModalOpen(false);
+                    setInitialDate(null); // Reset initialDate on close
+                }}
                 task={selectedTask}
+                initialDate={initialDate}
                 onUpdate={updateTask}
                 onDelete={deleteTask}
+                onCreate={handleCreateFromModal}
             />
         </div>
     );

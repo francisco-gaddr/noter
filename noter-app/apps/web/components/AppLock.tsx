@@ -6,7 +6,7 @@ import { FaLock } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
 
 export default function AppLock() {
-    const { isAppLocked, setAppLocked, user, login, autoLockTimeout } = useStore();
+    const { isAppLocked, setAppLocked, user, login, autoLockTimeout, verifyAppLockPassword } = useStore();
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [mounted, setMounted] = useState(false);
@@ -43,6 +43,16 @@ export default function AppLock() {
 
     const handleUnlock = async (e: React.FormEvent) => {
         e.preventDefault();
+        
+        // Try local hash verification first (supports offline)
+        if (verifyAppLockPassword(password)) {
+            setAppLocked(false);
+            setPassword('');
+            setError('');
+            resetTimer();
+            return;
+        }
+
         if (!user) return;
         
         try {

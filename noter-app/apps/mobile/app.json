@@ -53,7 +53,6 @@
       "expo-notifications",
       "expo-background-fetch",
       "expo-task-manager",
-      "@react-native-community/datetimepicker",
       "./plugins/withCustomEntryPoint",
       "./plugins/withCustomBuildGradle",
       [

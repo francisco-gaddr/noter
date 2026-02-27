@@ -1,11 +1,11 @@
-import { defineConfig } from 'cypress';
+import { defineConfig } from "cypress";
 
 export default defineConfig({
   e2e: {
-    baseUrl: 'http://localhost:3003',
+    baseUrl: "http://localhost:3000/app",
     supportFile: false,
-    video: false,
-    screenshotsFolder: 'cypress/screenshots',
+    setupNodeEvents(on, config) {
+      // implement node event listeners here
+    },
   },
 });
-

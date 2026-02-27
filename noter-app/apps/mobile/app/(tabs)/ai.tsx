@@ -89,10 +89,13 @@ export default function AIScreen() {
       if (!searchQuery) return;
       setIsSearching(true);
       try {
+          console.log('Searching for:', searchQuery);
           const results = await hf.searchModels(searchQuery);
+          console.log('Search results:', results.length);
           setSearchResults(results);
       } catch (e) {
-          console.error(e);
+          console.error('Search failed:', e);
+          alert('Search failed: ' + String(e));
       } finally {
           setIsSearching(false);
       }

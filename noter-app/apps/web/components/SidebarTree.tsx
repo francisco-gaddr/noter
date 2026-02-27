@@ -32,8 +32,12 @@ type NodeDropCollected = { isOver: boolean; canDrop: boolean };
 
 const sortNotes = (nodes: Note[], order: string) => {
     switch (order) {
-        case 'date-desc': return orderBy(nodes, ['updatedAt'], ['desc']);
-        case 'date-asc': return orderBy(nodes, ['updatedAt'], ['asc']);
+        case 'updated-desc': return orderBy(nodes, ['updatedAt'], ['desc']);
+        case 'updated-asc': return orderBy(nodes, ['updatedAt'], ['asc']);
+        case 'created-desc': return orderBy(nodes, ['createdAt'], ['desc']);
+        case 'created-asc': return orderBy(nodes, ['createdAt'], ['asc']);
+        case 'date-desc': return orderBy(nodes, ['updatedAt'], ['desc']); // Backwards compat
+        case 'date-asc': return orderBy(nodes, ['updatedAt'], ['asc']); // Backwards compat
         case 'title-asc': return orderBy(nodes, ['title'], ['asc']);
         case 'title-desc': return orderBy(nodes, ['title'], ['desc']);
         case 'custom': default: return orderBy(nodes, [(n) => (typeof n.order === 'number' ? n.order : 0), 'createdAt'], ['asc', 'desc']);
@@ -80,17 +84,17 @@ const TreeNode = ({ note, allNotes, level, selectedNoteId, sortOrder, onSelect, 
             const ratio = y / rect.height;
             const siblings = allNotes
               .filter(n => (n.parentId || null) === (note.parentId || null))
-              .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-            const targetOrder = note.order ?? 0;
+              .sort((a, b) => Number(a.order ?? 0) - Number(b.order ?? 0));
+            const targetOrder = Number(note.order ?? 0);
             if (ratio < 0.4) {
                 // Insert BEFORE target as sibling
-                const prev = [...siblings].reverse().find(s => (s.order ?? 0) < targetOrder);
-                const newOrder = prev ? ((prev.order ?? 0) + targetOrder) / 2 : targetOrder - 1;
+                const prev = [...siblings].reverse().find(s => Number(s.order ?? 0) < targetOrder);
+                const newOrder = prev ? (Number(prev.order ?? 0) + targetOrder) / 2 : targetOrder - 1;
                 onMove(item.id, note.parentId || null, newOrder);
             } else if (ratio > 0.6) {
                 // Insert AFTER target as sibling
-                const next = siblings.find(s => (s.order ?? 0) > targetOrder);
-                const newOrder = next ? ((next.order ?? 0) + targetOrder) / 2 : targetOrder + 1;
+                const next = siblings.find(s => Number(s.order ?? 0) > targetOrder);
+                const newOrder = next ? (Number(next.order ?? 0) + targetOrder) / 2 : targetOrder + 1;
                 onMove(item.id, note.parentId || null, newOrder);
             } else {
                 // Center: nest inside target
@@ -615,8 +619,10 @@ export default function SidebarTree() {
                         onChange={(e) => setSortOrder(e.target.value as any)}
                         className="w-full text-sm p-1 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 focus:outline-none text-gray-900 dark:text-gray-100"
                     >
-                        <option value="date-desc">{t('sort.newest')}</option>
-                        <option value="date-asc">{t('sort.oldest')}</option>
+                        <option value="updated-desc">{t('sort.updatedDesc') || 'Senast ändrad'}</option>
+                        <option value="updated-asc">{t('sort.updatedAsc') || 'Äldst ändrad'}</option>
+                        <option value="created-desc">{t('sort.createdDesc') || 'Senast skapad'}</option>
+                        <option value="created-asc">{t('sort.createdAsc') || 'Äldst skapad'}</option>
                         <option value="title-asc">{t('sort.titleAsc')}</option>
                         <option value="title-desc">{t('sort.titleDesc')}</option>
                         <option value="custom">{t('sort.custom') || 'Custom'}</option>

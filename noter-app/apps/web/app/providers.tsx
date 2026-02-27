@@ -24,7 +24,7 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'production') {
 }
 
 export function Providers({ children }: { children: React.ReactNode }) {
-  const { language } = useStore()
+  const { language, isAppLocked } = useStore()
 
   useEffect(() => {
     i18n.changeLanguage(language)
@@ -38,7 +38,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
         <ThemeProvider attribute="class">
           <I18nextProvider i18n={i18n}>
             <AppLock />
-            {children}
+            {!isAppLocked && children}
           </I18nextProvider>
         </ThemeProvider>
       )

@@ -9,8 +9,10 @@ import { useStore } from '@/stores/useStore';
 import { API_URL, setApiUrl, getAuthToken } from '@/services/api';
 import { disconnectSocket, initSocket } from '@/services/socket';
 import { BackendUrlDialog } from '@/components/BackendUrlDialog';
+import { useTranslation } from 'react-i18next';
 
 export default function SettingsScreen() {
+  const { t, i18n } = useTranslation();
   const { theme, setTheme } = useThemeContext();
   const setToken = useStore((s) => s.setToken);
   const notificationsEnabled = useStore((s) => s.notificationsEnabled);
@@ -44,6 +46,7 @@ export default function SettingsScreen() {
       const saved = await SecureStore.getItemAsync('language');
       if (saved === 'sv' || saved === 'en') {
         setLanguage(saved);
+        i18n.changeLanguage(saved);
       }
       const savedLockTiming = await SecureStore.getItemAsync('lockTiming');
       if (
@@ -63,6 +66,7 @@ export default function SettingsScreen() {
 
   const saveLanguage = async (lang: 'sv' | 'en') => {
     setLanguage(lang);
+    i18n.changeLanguage(lang);
     try {
       await SecureStore.setItemAsync('language', lang);
     } catch (e) {
@@ -71,11 +75,11 @@ export default function SettingsScreen() {
   };
 
   const lockTimingLabel = (v: typeof lockTiming) => {
-    if (v === 'immediate') return 'Direkt';
-    if (v === '5min') return 'Efter 5 min';
-    if (v === '15min') return 'Efter 15 min';
-    if (v === '30min') return 'Efter 30 min';
-    return 'Efter 1 h';
+    if (v === 'immediate') return t('settings.lockImmediate', 'Direkt');
+    if (v === '5min') return t('settings.lock5min', 'Efter 5 min');
+    if (v === '15min') return t('settings.lock15min', 'Efter 15 min');
+    if (v === '30min') return t('settings.lock30min', 'Efter 30 min');
+    return t('settings.lock1h', 'Efter 1 h');
   };
 
   const saveLockTiming = async (timing: typeof lockTiming) => {
@@ -98,10 +102,10 @@ export default function SettingsScreen() {
         disconnectSocket();
         initSocket(getAuthToken());
         
-        Alert.alert('Inställning sparad', 'Backend-adress har uppdaterats och anslutningen startas om.');
+        Alert.alert(t('common.success'), t('settings.backendUpdated', 'Backend-adress har uppdaterats och anslutningen startas om.'));
       } catch (error) {
         console.error('SettingsScreen: Error saving backend URL:', error);
-        Alert.alert('Fel', 'Kunde inte spara inställningar.');
+        Alert.alert(t('common.error'), t('settings.saveError', 'Kunde inte spara inställningar.'));
       }
     } else {
         console.log('SettingsScreen: URL is empty, ignoring.');
@@ -110,12 +114,12 @@ export default function SettingsScreen() {
 
   const handleLogout = async () => {
     Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
+      t('common.logout'),
+      t('settings.logoutConfirm', 'Are you sure you want to logout?'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Logout',
+          text: t('common.logout'),
           style: 'destructive',
           onPress: async () => {
                await SecureStore.deleteItemAsync('token');
@@ -135,10 +139,10 @@ export default function SettingsScreen() {
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: paperTheme.colors.background }]}>
-      <List.Section title="Appearance">
+      <List.Section title={t('common.appearance')}>
         <List.Item
-          title="Theme"
-          description={`Current: ${theme.charAt(0).toUpperCase() + theme.slice(1)}`}
+          title={t('common.theme')}
+          description={`${t('settings.currentTheme', 'Current')}: ${theme.charAt(0).toUpperCase() + theme.slice(1)}`}
           left={props => <List.Icon {...props} icon="theme-light-dark" />}
           right={() => (
              <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 10 }}>
@@ -152,16 +156,16 @@ export default function SettingsScreen() {
         />
         <View style={styles.hint}>
            <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
-             Tap item to cycle: System → Light → Dark
+             {t('settings.themeHint', 'Tap item to cycle: System → Light → Dark')}
            </Text>
         </View>
       </List.Section>
 
       <Divider />
 
-      <List.Section title="Language">
+      <List.Section title={t('common.language')}>
         <List.Item
-          title="Språk"
+          title={t('common.language')}
           description={language === 'sv' ? 'Svenska' : 'English'}
           left={props => <List.Icon {...props} icon="translate" />}
           right={() => (
@@ -176,33 +180,33 @@ export default function SettingsScreen() {
         />
         <View style={styles.hint}>
            <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
-             Växla språk: Svenska ↔ English (lagras lokalt)
+             {t('settings.languageHint', 'Växla språk: Svenska ↔ English (lagras lokalt)')}
            </Text>
         </View>
       </List.Section>
 
       <Divider />
 
-      <List.Section title="Security">
+      <List.Section title={t('common.security')}>
         <List.Item
-          title="App-lås"
-          description={`Lås: ${lockTimingLabel(lockTiming)}`}
+          title={t('settings.autoLock')}
+          description={`${t('settings.lock', 'Lås')}: ${lockTimingLabel(lockTiming)}`}
           left={props => <List.Icon {...props} icon="lock" />}
           onPress={() => setLockTimingDialogVisible(true)}
         />
         <View style={styles.hint}>
           <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
-            Välj hur snabbt appen ska låsas vid inaktivitet
+            {t('settings.lockHint', 'Välj hur snabbt appen ska låsas vid inaktivitet')}
           </Text>
         </View>
       </List.Section>
 
       <Divider />
 
-      <List.Section title="Notiser">
+      <List.Section title={t('common.notifications')}>
         <List.Item
-          title="Push-notiser"
-          description={notificationsEnabled ? 'På' : 'Av'}
+          title={t('settings.pushNotifications')}
+          description={notificationsEnabled ? t('common.on', 'På') : t('common.off', 'Av')}
           left={props => <List.Icon {...props} icon="bell" />}
           right={() => (
             <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 10 }}>
@@ -215,16 +219,16 @@ export default function SettingsScreen() {
         />
         <View style={styles.hint}>
            <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
-             Slå på för att få påminnelser om tasks
+             {t('settings.notificationsHint', 'Slå på för att få påminnelser om tasks')}
            </Text>
         </View>
       </List.Section>
 
       <Divider />
 
-      <List.Section title="Developer">
+      <List.Section title={t('common.developer')}>
         <List.Item
-          title="Backend URL"
+          title={t('settings.backendUrl')}
           description={backendUrl}
           left={props => <List.Icon {...props} icon="server" />}
           onPress={() => {
@@ -233,16 +237,16 @@ export default function SettingsScreen() {
         />
         <View style={styles.hint}>
           <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
-            Ställ in adress till backend API
+            {t('settings.backendHint', 'Ställ in adress till backend API')}
           </Text>
         </View>
       </List.Section>
 
       <Divider />
 
-      <List.Section title="Account">
+      <List.Section title={t('common.account')}>
         <List.Item
-          title="Logout"
+          title={t('common.logout')}
           left={props => <List.Icon {...props} icon="logout" />}
           onPress={handleLogout}
         />
@@ -250,28 +254,31 @@ export default function SettingsScreen() {
       
       <View style={styles.version}>
          <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceDisabled }}>
-            Version {String(appVersion)} ({String(buildNumber)})
+            {t('common.version')}: {String(appVersion)}
+         </Text>
+         <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceDisabled }}>
+            {t('common.buildId')}: {String(buildNumber)}
          </Text>
       </View>
 
       <Portal>
         {/* App Lock Dialog */}
         <Dialog visible={lockTimingDialogVisible} onDismiss={() => setLockTimingDialogVisible(false)}>
-          <Dialog.Title>Välj tid för autolås</Dialog.Title>
+          <Dialog.Title>{t('settings.selectLockTime', 'Välj tid för autolås')}</Dialog.Title>
           <Dialog.Content>
             <RadioButton.Group onValueChange={value => {
               saveLockTiming(value as any);
               setLockTimingDialogVisible(false);
             }} value={lockTiming}>
-              <RadioButton.Item label="Direkt" value="immediate" />
-              <RadioButton.Item label="Efter 5 min" value="5min" />
-              <RadioButton.Item label="Efter 15 min" value="15min" />
-              <RadioButton.Item label="Efter 30 min" value="30min" />
-              <RadioButton.Item label="Efter 1 h" value="1h" />
+              <RadioButton.Item label={t('settings.lockImmediate', 'Direkt')} value="immediate" />
+              <RadioButton.Item label={t('settings.lock5min', 'Efter 5 min')} value="5min" />
+              <RadioButton.Item label={t('settings.lock15min', 'Efter 15 min')} value="15min" />
+              <RadioButton.Item label={t('settings.lock30min', 'Efter 30 min')} value="30min" />
+              <RadioButton.Item label={t('settings.lock1h', 'Efter 1 h')} value="1h" />
             </RadioButton.Group>
           </Dialog.Content>
           <Dialog.Actions>
-            <Button onPress={() => setLockTimingDialogVisible(false)}>Avbryt</Button>
+            <Button onPress={() => setLockTimingDialogVisible(false)}>{t('common.cancel')}</Button>
           </Dialog.Actions>
         </Dialog>
 

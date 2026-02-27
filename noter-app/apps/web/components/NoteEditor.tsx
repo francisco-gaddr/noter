@@ -10,7 +10,8 @@ import { FaBold, FaItalic, FaUnderline, FaCode, FaListUl, FaListOl, FaQuoteRight
 import * as FaIcons from 'react-icons/fa';
 import { PasswordModal } from './PasswordModal';
 import { IconPicker } from './IconPicker';
-import ReactPlayer from 'react-player';
+import dynamic from 'next/dynamic';
+const ReactPlayer = dynamic(() => import('react-player/lazy'), { ssr: false });
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import TurndownService from 'turndown';
@@ -19,6 +20,18 @@ import DOMPurify from 'dompurify';
 
 type CustomElement = { type: string; children: CustomText[]; url?: string; align?: string; checked?: boolean };
 type CustomText = { text: string; bold?: boolean; italic?: boolean; underline?: boolean; code?: boolean };
+
+const isTikTokUrl = (url: string) => {
+  return url.includes('tiktok.com');
+};
+
+const getTikTokEmbedUrl = (url: string) => {
+  const match = url.match(/video\/(\d+)/);
+  if (match && match[1]) {
+      return `https://www.tiktok.com/embed/v2/${match[1]}`;
+  }
+  return null;
+};
 
 const sanitizeUrl = (url: string, type: 'link' | 'image' | 'video' = 'link'): string => {
   if (!url) return '';
@@ -1465,7 +1478,7 @@ export default function NoteEditor() {
         {showIconPicker && (
              <IconPicker 
                  onSelect={(icon) => {
-                     updateNote(selectedNote._id, currentTitleRef.current, lastSavedContentRef.current, selectedNote.locked, undefined, icon);
+                     updateNote(selectedNote._id, currentTitleRef.current, lastSavedContentRef.current, Boolean(selectedNote.locked), undefined, icon);
                      setShowIconPicker(false);
                  }}
                  onClose={() => setShowIconPicker(false)}
@@ -1673,6 +1686,24 @@ const Element = ({ attributes, children, element }: any) => {
         </div>
       );
     case 'video':
+      const isTikTok = isTikTokUrl(element.url || '');
+      const tikTokEmbedUrl = isTikTok ? getTikTokEmbedUrl(element.url || '') : null;
+
+      if (isTikTok && tikTokEmbedUrl) {
+          return (
+            <div {...attributes} className="my-4">
+              <div contentEditable={false} className="relative pt-[177.77%] bg-gray-100 dark:bg-gray-800 rounded overflow-hidden">
+                <iframe
+                  src={tikTokEmbedUrl}
+                  className="absolute top-0 left-0 w-full h-full"
+                  allowFullScreen
+                  title="TikTok Video"
+                />
+              </div>
+              {children}
+            </div>
+          );
+      }
       return (
         <div {...attributes} className="my-4">
           <div contentEditable={false} className="relative pt-[56.25%] bg-gray-100 dark:bg-gray-800 rounded overflow-hidden">

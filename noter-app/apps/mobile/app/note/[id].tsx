@@ -26,6 +26,7 @@ export default function NoteEditorScreen() {
 
   const [title, setTitle] = useState('');
   const [icon, setIcon] = useState<string>('');
+  const [iconColor, setIconColor] = useState<string | undefined>(undefined);
   const [showIconPicker, setShowIconPicker] = useState(false);
   const [initialHtml, setInitialHtml] = useState(''); // Only used to initialize the editor
   const contentRef = useRef<string>('');
@@ -71,10 +72,12 @@ export default function NoteEditorScreen() {
   // Keep refs updated
   const titleRef = useRef(title);
   const iconRef = useRef(icon);
+  const iconColorRef = useRef(iconColor);
   const selectedParentIdRef = useRef(selectedParentId);
   
   useEffect(() => { titleRef.current = title; }, [title]);
   useEffect(() => { iconRef.current = icon; }, [icon]);
+  useEffect(() => { iconColorRef.current = iconColor; }, [iconColor]);
   useEffect(() => { selectedParentIdRef.current = selectedParentId; }, [selectedParentId]);
   useEffect(() => { isSavingRef.current = isSaving; }, [isSaving]);
 
@@ -87,6 +90,7 @@ export default function NoteEditorScreen() {
       const currentContent = contentRef.current;
       const currentTitle = titleRef.current;
       const currentIcon = iconRef.current;
+      const currentIconColor = iconColorRef.current;
       const currentParentId = selectedParentIdRef.current;
 
       // If it's a new note and empty (no title, no content), don't create it
@@ -110,6 +114,7 @@ export default function NoteEditorScreen() {
              content: currentContent,
              parentId: currentParentId,
              icon: currentIcon,
+             iconColor: currentIconColor,
              type: 'note'
            });
         } else {
@@ -118,7 +123,8 @@ export default function NoteEditorScreen() {
                  title: titleToSave,
                  content: currentContent,
                  parentId: currentParentId,
-                 icon: currentIcon
+                 icon: currentIcon,
+                 iconColor: currentIconColor
                });
             }
         } catch (e) {
@@ -138,11 +144,13 @@ export default function NoteEditorScreen() {
         setShowPasswordModal(true);
         setTitle(existingNote.title);
         setIcon(existingNote.icon || '');
+        setIconColor(existingNote.iconColor);
         setSelectedParentId(existingNote.parentId || null);
       } else {
         const html = tiptapJsonToHtml(existingNote.content);
         setTitle(existingNote.title);
         setIcon(existingNote.icon || '');
+        setIconColor(existingNote.iconColor);
         setInitialHtml(html);
         contentRef.current = html;
         setEditorKey(`editor-${String(id)}-${Date.now()}`);
@@ -154,6 +162,7 @@ export default function NoteEditorScreen() {
     } else if (isNew) {
       setTitle('');
       setIcon('');
+      setIconColor(undefined);
       setInitialHtml('');
       contentRef.current = '';
       setEditorKey(`editor-${String(id ?? 'new')}-${Date.now()}`);
@@ -201,11 +210,12 @@ export default function NoteEditorScreen() {
           content: contentRef.current || '', 
           tags: [], 
           icon,
+          iconColor,
           parentId: selectedParentId
         };
         await createNote(dto);
       } else {
-        const dto: UpdateNoteDto = { title: titleToSave, content: contentRef.current || '', icon, parentId: selectedParentId || undefined };
+        const dto: UpdateNoteDto = { title: titleToSave, content: contentRef.current || '', icon, iconColor, parentId: selectedParentId || undefined };
         await updateNote(id!, dto);
       }
       setLastSaved(new Date());
@@ -402,9 +412,53 @@ export default function NoteEditorScreen() {
     `);
   };
 
+  const getTikTokEmbedUrl = (url: string) => {
+    const match = url.match(/video\/(\d+)/);
+    if (match && match[1]) {
+        return `https://www.tiktok.com/embed/v2/${match[1]}`;
+    }
+    return null;
+  };
+
+  const getYouTubeEmbedUrl = (url: string) => {
+      let videoId = '';
+      const match1 = url.match(/[?&]v=([^&]+)/);
+      if (match1) videoId = match1[1];
+      else {
+          const match2 = url.match(/youtu\.be\/([^?]+)/);
+          if (match2) videoId = match2[1];
+          else {
+             const match3 = url.match(/youtube\.com\/embed\/([^?]+)/);
+             if (match3) videoId = match3[1];
+          }
+      }
+      if (videoId) return `https://www.youtube.com/embed/${videoId}`;
+      return null;
+  };
+
   const submitVideo = () => {
     if (videoUrl) {
-      richText.current?.insertVideo(videoUrl);
+      const tiktokUrl = getTikTokEmbedUrl(videoUrl);
+      if (tiktokUrl) {
+           richText.current?.insertHTML(`
+            <div style="position: relative; padding-top: 177.77%; background: #f0f0f0; border-radius: 8px; overflow: hidden; margin: 16px 0;">
+                <iframe src="${tiktokUrl}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0;" allowfullscreen></iframe>
+            </div>
+            <p><br></p>
+           `);
+      } else {
+          const youtubeUrl = getYouTubeEmbedUrl(videoUrl);
+          if (youtubeUrl) {
+               richText.current?.insertHTML(`
+                <div style="position: relative; padding-top: 56.25%; background: #f0f0f0; border-radius: 8px; overflow: hidden; margin: 16px 0;">
+                    <iframe src="${youtubeUrl}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0;" allowfullscreen></iframe>
+                </div>
+                <p><br></p>
+               `);
+          } else {
+               richText.current?.insertVideo(videoUrl);
+          }
+      }
       setShowVideoModal(false);
       setVideoUrl('');
     }
@@ -441,9 +495,20 @@ export default function NoteEditorScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <Appbar.Header>
         <Appbar.BackAction onPress={() => router.back()} />
-        <Appbar.Content 
-          title={isNew ? 'New Note' : 'Edit Note'} 
-          subtitle={lastSaved ? `Saved ${lastSaved.toLocaleTimeString()}` : (isSaving ? 'Saving...' : '')}
+        <TextInput
+            ref={titleInputRef}
+            style={{ 
+                flex: 1, 
+                fontSize: 20, 
+                color: theme.colors.onSurface,
+                fontWeight: 'bold',
+                marginLeft: 8,
+                backgroundColor: 'transparent'
+            }}
+            value={title}
+            onChangeText={handleTitleChange}
+            placeholder="Title"
+            placeholderTextColor={theme.colors.onSurfaceDisabled}
         />
         <Menu
           visible={showMenu}
@@ -499,34 +564,6 @@ export default function NoteEditorScreen() {
           keyboardShouldPersistTaps="always"
           nestedScrollEnabled
         >
-          <TextInput
-          ref={titleInputRef}
-          style={[styles.titleInput, { color: theme.colors.onSurface }]}
-          placeholder="Title"
-          placeholderTextColor={theme.colors.onSurfaceDisabled}
-          value={title}
-          onChangeText={handleTitleChange}
-          returnKeyType="next"
-          onSubmitEditing={() => {
-            // Small delay to ensure TextInput blur completes and keyboard stays up/transitions
-            setTimeout(() => {
-                const editorRef = richText.current as unknown as {
-                  focusContentEditor?: () => void;
-                  focusContent?: () => void;
-                  focus?: () => void;
-                } | null;
-                if (editorRef?.focusContentEditor) {
-                  editorRef.focusContentEditor();
-                } else if (editorRef?.focusContent) {
-                  editorRef.focusContent();
-                } else if (editorRef?.focus) {
-                  editorRef.focus();
-                }
-            }, 50);
-          }}
-          blurOnSubmit={false}
-          // autoFocus handled by useEffect to avoid re-focus loops
-        />
         <RichEditor
             key={editorKey}
             ref={richText}
@@ -602,11 +639,13 @@ export default function NoteEditorScreen() {
       <IconPickerModal
         visible={showIconPicker}
         onDismiss={() => setShowIconPicker(false)}
-        onSelect={(nextIcon) => {
+        onSelect={(nextIcon, nextColor) => {
           setIcon(nextIcon);
+          setIconColor(nextColor);
           setShowIconPicker(false);
         }}
         currentIcon={icon}
+        currentColor={iconColor}
       />
 
       {/* Video URL Modal */}
