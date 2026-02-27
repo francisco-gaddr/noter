@@ -17,9 +17,9 @@ export interface Conversation {
 }
 
 export interface LLMProvider {
-  generateResponse(messages: ChatMessage[]): Promise<string>;
+  generateResponse(messages: ChatMessage[], options?: any): Promise<string>;
   streamResponse?(messages: ChatMessage[], options?: any, onToken?: (token: string) => void): Promise<void>;
-  loadModel?(modelPath: string): Promise<void>;
+  loadModel?(modelPath: string, options?: { gpuLayers?: number }): Promise<void>;
 }
 
 export class AIAgent {

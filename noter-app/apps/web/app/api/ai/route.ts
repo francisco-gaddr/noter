@@ -7,13 +7,13 @@ const provider = new NodeLlamaProvider();
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { messages, modelPath } = body;
+    const { messages, modelPath, gpuLayers } = body;
 
     if (!modelPath) {
       return new Response(JSON.stringify({ error: 'Model path required' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
 
-    await provider.loadModel(modelPath);
+    await provider.loadModel(modelPath, { gpuLayers: typeof gpuLayers === 'number' ? gpuLayers : undefined });
 
     const stream = new ReadableStream({
       async start(controller) {

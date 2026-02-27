@@ -29,6 +29,8 @@ export const AISidebar = () => {
   const [localModels, setLocalModels] = useState<any[]>([]);
   const [selectedModel, setSelectedModel] = useState<HFModel | null>(null);
   const [modelFiles, setModelFiles] = useState<HFFile[]>([]);
+  const [useGpu, setUseGpu] = useState(false);
+  const [gpuLayers, setGpuLayers] = useState(32);
 
   useEffect(() => {
     fetchLocalModels();
@@ -76,11 +78,13 @@ export const AISidebar = () => {
 
   const fetchLocalModels = async () => {
     try {
-        const res = await fetch('/api/ai/models/download');
-        const data = await res.json();
-        setLocalModels(data);
-        if (data.length > 0 && !modelPath) {
-            setModelPath(data[0].name);
+        const res = await fetch('/app/api/ai/models/download');
+        if (res.ok) {
+            const data = await res.json();
+            setLocalModels(data);
+            if (data.length > 0 && !modelPath) {
+                setModelPath(data[0].name);
+            }
         }
     } catch (e) {
         console.error(e);
@@ -90,7 +94,7 @@ export const AISidebar = () => {
   const handleSearch = async () => {
     if (!searchQuery) return;
     try {
-        const res = await fetch(`/api/ai/models/search?q=${encodeURIComponent(searchQuery)}`);
+        const res = await fetch(`/app/api/ai/models/search?q=${encodeURIComponent(searchQuery)}`);
         const data = await res.json();
         setSearchResults(data);
         setSelectedModel(null);
@@ -102,7 +106,7 @@ export const AISidebar = () => {
   const handleSelectModel = async (model: HFModel) => {
       setSelectedModel(model);
       try {
-          const res = await fetch(`/api/ai/models/files?modelId=${model.id}`);
+          const res = await fetch(`/app/api/ai/models/files?modelId=${model.id}`);
           const data = await res.json();
           setModelFiles(data);
       } catch (e) {
@@ -113,7 +117,7 @@ export const AISidebar = () => {
   const handleDownload = async (url: string, filename: string) => {
       setDownloading(filename);
       try {
-          const res = await fetch('/api/ai/models/download', {
+          const res = await fetch('/app/api/ai/models/download', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ url, filename })
@@ -165,12 +169,13 @@ export const AISidebar = () => {
     try {
       await db.saveMessage(convId, userMsg);
 
-      const response = await fetch('/api/ai', {
+      const response = await fetch('/app/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
             messages: [...messages, userMsg],
-            modelPath: modelPath ? `models/${modelPath}` : ''
+            modelPath: modelPath ? `models/${modelPath}` : '',
+            gpuLayers: useGpu ? gpuLayers : 0
         })
       });
 
@@ -263,11 +268,31 @@ export const AISidebar = () => {
       </div>
       
       {activeTab === 'chat' && (
-        <>
-            <div className="p-2 bg-yellow-50 dark:bg-yellow-900 text-xs text-center border-b">
-                Model: {modelPath || 'None selected'}
-            </div>
-            <div className="flex-1 overflow-auto p-4 space-y-4">
+        <div className="flex-1 flex flex-col h-full overflow-hidden">
+          <div className="p-4 border-b dark:border-gray-700 flex justify-between items-center">
+             <h2 className="text-lg font-semibold">{t('ai.chat')}</h2>
+             <div className="flex items-center gap-2">
+                <label className="text-xs flex items-center gap-1 cursor-pointer">
+                    <input 
+                        type="checkbox" 
+                        checked={useGpu} 
+                        onChange={e => setUseGpu(e.target.checked)}
+                        className="rounded"
+                    />
+                    GPU
+                </label>
+                {useGpu && (
+                    <input 
+                        type="number" 
+                        value={gpuLayers} 
+                        onChange={e => setGpuLayers(Number(e.target.value))}
+                        className="w-12 text-xs p-1 border rounded dark:bg-gray-700"
+                        min="0"
+                    />
+                )}
+             </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
                 {messages.length === 0 && (
                     <div className="text-center text-gray-500 mt-10">
                         Start a conversation...
@@ -312,7 +337,7 @@ export const AISidebar = () => {
                     </button>
                 </div>
             </div>
-        </>
+        </div>
       )}
 
       {activeTab === 'models' && (

@@ -7,10 +7,25 @@ let modelInstance: LlamaModel | null = null;
 let contextInstance: LlamaContext | null = null;
 
 export class NodeLlamaProvider implements LLMProvider {
-  async loadModel(modelPath: string): Promise<void> {
+  async loadModel(modelPath: string, options?: { gpuLayers?: number }): Promise<void> {
+    // If model is already loaded, check if we need to reload with different settings
     if (modelInstance) {
-        // If path is different, we might reload. For now assume single model.
-        return; 
+        // Simple check: if gpuLayers option is provided, we assume user wants to enforce it.
+        // In a real app, we'd check if current config matches.
+        // For now, we dispose and reload if options are passed.
+        if (options && options.gpuLayers !== undefined) {
+             console.log("Reloading model with new options:", options);
+             if (contextInstance) {
+                 contextInstance.dispose();
+                 contextInstance = null;
+             }
+             if (modelInstance) {
+                 modelInstance.dispose();
+                 modelInstance = null;
+             }
+        } else {
+            return;
+        }
     }
 
     if (!fs.existsSync(modelPath)) {
@@ -19,10 +34,11 @@ export class NodeLlamaProvider implements LLMProvider {
 
     try {
       modelInstance = new LlamaModel({
-        modelPath: modelPath
+        modelPath: modelPath,
+        gpuLayers: options?.gpuLayers
       });
       contextInstance = new LlamaContext({ model: modelInstance });
-      console.log("Model loaded successfully from", modelPath);
+      console.log("Model loaded successfully from", modelPath, "with options", options);
     } catch (error) {
       console.error("Failed to load model:", error);
       throw error;
