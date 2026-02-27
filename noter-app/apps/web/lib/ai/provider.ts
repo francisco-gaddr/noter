@@ -8,32 +8,29 @@ let contextInstance: LlamaContext | null = null;
 
 export class NodeLlamaProvider implements LLMProvider {
   async loadModel(modelPath: string, options?: { gpuLayers?: number }): Promise<void> {
-    // If model is already loaded, check if we need to reload with different settings
-    if (modelInstance) {
-        // Simple check: if gpuLayers option is provided, we assume user wants to enforce it.
-        // In a real app, we'd check if current config matches.
-        // For now, we dispose and reload if options are passed.
-        if (options && options.gpuLayers !== undefined) {
-             console.log("Reloading model with new options:", options);
-             if (contextInstance) {
-                 // LlamaContext doesn't have dispose method in newer versions, 
-                 // it relies on GC or LlamaModel disposal? 
-                 // Or we just null it. Let's null it for now as LlamaModel.dispose() handles resources.
-                 contextInstance = null;
-             }
-             if (modelInstance) {
-                 // modelInstance.dispose(); 
-                 // LlamaModel also doesn't expose dispose in all versions, or it might be internal.
-                 // Letting it be GC'd is safer if API changed.
-                 modelInstance = null;
-             }
-        } else {
-            return;
-        }
-    }
-
     if (!fs.existsSync(modelPath)) {
         throw new Error(`Model file not found at ${modelPath}`);
+    }
+    
+    // Only reload if model path changed or we don't have an instance
+    // Or if gpuLayers changed significantly (simplification: just reuse if path matches)
+    // We store the current model path in a static property or closure if needed, 
+    // but for now, let's just assume single model usage or reload if null.
+    
+    if (modelInstance) {
+        // If we want to support switching models, we need to track current path.
+        // For this fix, let's assume we reuse if instance exists to avoid overhead, 
+        // unless we implement full model switching logic.
+        // But the user might switch models in UI.
+        // Let's add a property to track loaded path.
+        // @ts-ignore
+        if (modelInstance._modelPath === modelPath) {
+            return;
+        }
+        
+        // If different model, we must dispose (nullify)
+        contextInstance = null;
+        modelInstance = null;
     }
 
     try {
@@ -41,43 +38,38 @@ export class NodeLlamaProvider implements LLMProvider {
         modelPath: modelPath,
         gpuLayers: options?.gpuLayers
       });
+      // @ts-ignore
+      modelInstance._modelPath = modelPath;
+      
       contextInstance = new LlamaContext({ model: modelInstance });
-      console.log("Model loaded successfully from", modelPath, "with options", options);
+      console.log("Model loaded successfully from", modelPath);
     } catch (error) {
       console.error("Failed to load model:", error);
       throw error;
     }
   }
 
-  async generateResponse(messages: ChatMessage[], options?: any): Promise<string> {
-    if (!modelInstance || !contextInstance) throw new Error("Model not loaded");
-
-    // Create a new session for this request context to handle history properly
-    // TODO: Map ChatMessage[] to LlamaChatSession history format if needed
-    const session = new LlamaChatSession({ context: contextInstance });
-
-    const lastMessage = messages[messages.length - 1];
-    if (!lastMessage || lastMessage.role !== 'user') throw new Error("Last message must be user");
-
-    // We only prompt with the last message for now, assuming history management happens via session
-    // But since we create new session, we lose history unless we preload it.
-    // For MVP, we just prompt.
-    
-    const response = await session.prompt(lastMessage.content);
-    return response;
-  }
-
   async streamResponse(messages: ChatMessage[], options?: any, onToken?: (token: string) => void): Promise<void> {
     if (!modelInstance || !contextInstance) throw new Error("Model not loaded");
 
+    // Create session
     const session = new LlamaChatSession({ context: contextInstance });
-    const lastMessage = messages[messages.length - 1];
     
-    if (!lastMessage || lastMessage.role !== 'user') throw new Error("Last message must be user");
+    // Load history
+    // We need to preload previous messages into the session history state if we want context
+    // LlamaChatSession usually manages its own history if kept alive. 
+    // Since we create new session per request (stateless API), we should ideally replay history.
+    // For now, we just take the last user message to get it working.
+    
+    const lastMessage = messages[messages.length - 1];
+    if (!lastMessage || lastMessage.role !== 'user') return; // Nothing to prompt
 
+    // Basic prompt
     await session.prompt(lastMessage.content, {
       onToken: (chunk) => {
-        const token = session.context.decode(chunk);
+        // chunk is Token[] in newer versions or Uint32Array
+        // We need to decode it to string
+        const token = modelInstance!.detokenize([chunk[0]]); // Decode single token
         if (onToken) onToken(token);
       }
     });
