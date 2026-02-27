@@ -913,19 +913,29 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
 
-  updateNote: async (id, title, content, locked, password, icon, type) => {
+  updateNote: async (id, dataOrTitle, content, locked, password, icon, type, iconColor) => {
+    // Handle overload: if second arg is object, it's Partial<Note>
+    let updates: any = {};
+    if (typeof dataOrTitle === 'object' && dataOrTitle !== null) {
+        updates = dataOrTitle;
+    } else {
+        // Legacy positional arguments
+        if (dataOrTitle !== undefined) updates.title = dataOrTitle;
+        if (content !== undefined) updates.content = content;
+        if (locked !== undefined) updates.locked = locked;
+        if (password !== undefined) updates.password = password;
+        if (icon !== undefined) updates.icon = icon;
+        if (type !== undefined) updates.type = type;
+        if (iconColor !== undefined) updates.iconColor = iconColor;
+    }
+
     // Optimistic update
     set((state) => ({
       notes: state.notes.map((n) => {
         if (n._id === id) {
             return {
                 ...n,
-                ...(title !== undefined ? { title } : {}),
-                ...(content !== undefined ? { content } : {}),
-                ...(locked !== undefined ? { locked } : {}),
-                ...(password !== undefined ? { password } : {}),
-                ...(icon !== undefined ? { icon } : {}),
-                ...(type !== undefined ? { type: type as any } : {}),
+                ...updates,
                 updatedAt: new Date().toISOString()
             };
         }
@@ -944,13 +954,7 @@ export const useStore = create<StoreState>((set, get) => ({
     }
 
     try {
-      const payload: any = {};
-      if (title !== undefined) payload.title = title;
-      if (content !== undefined) payload.content = content;
-      if (locked !== undefined) payload.locked = locked;
-      if (password !== undefined) payload.password = password;
-      if (icon !== undefined) payload.icon = icon;
-      if (type !== undefined) payload.type = type;
+      const payload: any = { ...updates };
       payload.updatedAt = encrypt(new Date().toISOString());
 
       const updatedNote = await api.updateNote(id, payload);
