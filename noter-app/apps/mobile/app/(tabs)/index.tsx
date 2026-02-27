@@ -2,6 +2,7 @@ import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import { StyleSheet, View, TouchableOpacity, Alert } from 'react-native';
 import { FAB, ActivityIndicator, IconButton, Menu, Divider, Text, Button, Avatar, useTheme } from 'react-native-paper';
 import { useRouter, useNavigation, useFocusEffect } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { useStore } from '@/stores/useStore';
 import NoteList from '@/components/NoteList';
 import ProjectSelector from '@/components/ProjectSelector';
@@ -39,6 +40,7 @@ const HeaderProjectIcon = ({ uri, onLongPress, onPress }: { uri?: string, onLong
 };
 
 export default function NotesScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const navigation = useNavigation();
   const theme = useTheme();
@@ -246,7 +248,7 @@ export default function NotesScreen() {
         icon="plus"
         style={styles.fab}
         onPress={handleCreateNote}
-        label="New Note"
+        label={t('note.new')}
       />
     </View>
   );

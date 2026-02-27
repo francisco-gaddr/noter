@@ -65,6 +65,14 @@ export default function TaskCalendar({ tasks, onTaskClick, onCreateTask }: TaskC
     const [date, setDate] = React.useState(new Date());
 
     const components = React.useMemo(() => ({
+      event: ({ event }: any) => {
+          return (
+              <div className="flex flex-col text-xs overflow-hidden h-full">
+                  <div className="font-semibold truncate">{event.title}</div>
+                  <div className="opacity-80 truncate">{format(event.start, 'HH:mm')}</div>
+              </div>
+          );
+      },
       timeSlotWrapper: ({ children, value }: any) => {
         const now = currentTime;
         const isToday = value.getDate() === now.getDate() && 

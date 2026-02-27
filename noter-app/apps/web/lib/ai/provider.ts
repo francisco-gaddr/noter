@@ -57,19 +57,40 @@ export class NodeLlamaProvider implements LLMProvider {
     
     // Load history
     // We need to preload previous messages into the session history state if we want context
-    // LlamaChatSession usually manages its own history if kept alive. 
-    // Since we create new session per request (stateless API), we should ideally replay history.
-    // For now, we just take the last user message to get it working.
+    // Since we create new session per request (stateless API), we recreate the chat history here.
+    // LlamaChatSession supports passing history in constructor or we can feed it manually?
+    // Looking at node-llama-cpp docs, we usually keep the session alive. 
+    // But in stateless API route, we must reconstruct it.
+    
+    // We can pass conversationHistory to LlamaChatSession constructor in newer versions?
+    // Or we rely on the prompt context window.
+    
+    // For now, let's try to reconstruct basic history if available
+    if (messages.length > 1) {
+        // We could manually push messages to session.context or similar if API allows
+        // But standard way in stateless is usually just passing the prompt with context.
+        // LlamaChatSession manages context state.
+        // Ideally we should serialize/deserialize session state, but that's complex.
+        
+        // Alternative: Just format the prompt with history manually if we don't use session state?
+        // But session.prompt handles template formatting.
+        
+        // Let's assume for this MVP we just prompt with the last message, 
+        // OR we can try to replay history?
+        // Replaying is slow. 
+        // Correct way for "chat" is usually keeping stateful session on server (e.g. WebSocket) or sending full context.
+        
+        // If we want context, we might need to feed previous turns.
+        // session.setConversationHistory(messages) ??
+    }
     
     const lastMessage = messages[messages.length - 1];
-    if (!lastMessage || lastMessage.role !== 'user') return; // Nothing to prompt
+    if (!lastMessage || lastMessage.role !== 'user') return; 
 
     // Basic prompt
     await session.prompt(lastMessage.content, {
       onToken: (chunk) => {
-        // chunk is Token[] in newer versions or Uint32Array
-        // We need to decode it to string
-        const token = modelInstance!.detokenize([chunk[0]]); // Decode single token
+        const token = modelInstance!.detokenize([chunk[0]]); 
         if (onToken) onToken(token);
       }
     });

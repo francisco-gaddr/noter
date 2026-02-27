@@ -2,6 +2,7 @@ import React, { useEffect, useCallback, useState, useMemo, useRef } from 'react'
 import { StyleSheet, View, ScrollView, Alert } from 'react-native';
 import { FAB, ActivityIndicator, Menu, IconButton, Divider, useTheme, Chip, Text, TextInput, Button, Portal, Dialog, Avatar } from 'react-native-paper';
 import { useRouter, useFocusEffect, useNavigation, Stack } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { useStore } from '@/stores/useStore';
 import TaskList from '@/components/TaskList';
 import { TaskBoard } from '@/components/TaskBoard';
@@ -41,6 +42,7 @@ const STORAGE_KEY_VIEW = 'last_view_mode';
 const STORAGE_KEY_FILTERS = 'task_filters';
 
 export default function TasksScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const navigation = useNavigation();
   const theme = useTheme();
@@ -453,7 +455,7 @@ export default function TasksScreen() {
         icon="plus"
         style={styles.fab}
         onPress={handleCreateTask}
-        label="New Task"
+        label={t('tasks.new')}
       />
 
       <Portal>

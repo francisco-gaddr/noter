@@ -148,9 +148,15 @@ const TaskItem: React.FC<TaskItemProps> = ({
                 onClick={() => openTaskDetail(task)}
             >
                 <div
-                    className={`text-sm truncate ${task.completed ? 'line-through text-gray-500 dark:text-gray-300' : ''}`}
+                    className={`text-sm truncate flex gap-2 items-center ${task.completed ? 'line-through text-gray-500 dark:text-gray-300' : ''}`}
                 >
-                    {task.title}
+                    <span>{task.title}</span>
+                    {task.dueDate && (
+                        <span className="text-xs text-gray-500 flex items-center gap-1">
+                            <FaCalendar size={10} />
+                            {new Date(task.dueDate).toLocaleString([], { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                    )}
                 </div>
                 {!!task.description?.trim() && (
                     <div
