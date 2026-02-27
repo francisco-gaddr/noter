@@ -244,12 +244,6 @@ export default function AIScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <View style={[styles.tabBar, { backgroundColor: theme.colors.surface }]}>
-          <Button mode={activeTab === 'chat' ? 'contained' : 'text'} onPress={() => setActiveTab('chat')} compact>Chat</Button>
-          <Button mode={activeTab === 'models' ? 'contained' : 'text'} onPress={() => setActiveTab('models')} compact>Models</Button>
-          <Button mode={activeTab === 'history' ? 'contained' : 'text'} onPress={() => setActiveTab('history')} compact>History</Button>
-      </View>
-
       {activeTab === 'chat' && (
         <KeyboardAvoidingView 
           behavior={Platform.OS === "ios" ? "padding" : "height"}

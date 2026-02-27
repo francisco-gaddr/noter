@@ -1224,12 +1224,25 @@ export default function NoteEditor() {
     return false; // No locked ancestors found
   }, [selectedNote, notes]);
 
-  const saveNote = useCallback(
-    debounce((id: string, title: string, content: string) => {
-      updateNote(id, title, content);
-    }, 1000),
-    []
+  const saveNote = useMemo(
+    () => debounce((id: string, title: string, content: string, icon?: string, iconColor?: string) => {
+      // Don't save if nothing changed to reduce freeze
+      // But we don't have previous state here easily without refs.
+      // The debounce helps a lot.
+      // Also ensure we are not saving empty content unnecessarily if it was just loaded.
+      if (id) {
+          updateNote(id, { title, content, icon, iconColor });
+      }
+    }, 2000), // Increased debounce to 2s
+    [updateNote]
   );
+  
+  // Clean up debounce on unmount
+  useEffect(() => {
+      return () => {
+          saveNote.cancel();
+      };
+  }, [saveNote]);
   const saveTitle = useMemo(
     () =>
       debounce((id: string, title: string, content: string) => {

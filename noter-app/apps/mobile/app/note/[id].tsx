@@ -466,9 +466,12 @@ export default function NoteEditorScreen() {
       <Appbar.Header>
         <Appbar.BackAction onPress={() => router.back()} />
         {icon && (
-          <View style={{ justifyContent: 'center', marginLeft: 8 }}>
+          <Pressable
+            onLongPress={() => setShowIconPicker(true)}
+            style={({pressed}) => ({ justifyContent: 'center', marginLeft: 8, opacity: pressed ? 0.7 : 1 })}
+          >
             <FontAwesome5 name={icon.replace(/^Fa/, '').toLowerCase()} size={20} color={iconColor || theme.colors.onSurface} />
-          </View>
+          </Pressable>
         )}
         <TextInput
             ref={titleInputRef}
@@ -624,6 +627,7 @@ export default function NoteEditorScreen() {
         visible={showIconPicker}
         onDismiss={() => setShowIconPicker(false)}
         onSelect={(nextIcon, nextColor) => {
+          console.log('Selected icon:', nextIcon, 'color:', nextColor);
           setIcon(nextIcon);
           setIconColor(nextColor);
           setShowIconPicker(false);
