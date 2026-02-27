@@ -114,7 +114,7 @@ const resources = {
         deleteConfirmTitle: 'Ta bort anteckning',
         deleteConfirmMessage: 'Är du säker på att du vill ta bort denna anteckning?',
         locked: 'Låst anteckning',
-        unlock: 'Lås upp',
+        unlock: 'Lås upp anteckning',
         lock: 'Lås anteckning',
         removeLock: 'Ta bort lås',
         setPassword: 'Välj lösenord',

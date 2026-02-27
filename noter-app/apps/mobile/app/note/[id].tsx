@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { StyleSheet, View, TextInput, Alert, KeyboardAvoidingView, Platform, Modal, ScrollView, Keyboard, Pressable } from 'react-native';
+import { StyleSheet, View, TextInput, Alert, KeyboardAvoidingView, Platform, Modal, ScrollView, Keyboard, Pressable, ActivityIndicator } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Appbar, useTheme, Text, Menu, Button } from 'react-native-paper';
+import { FontAwesome5 } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useStore } from '@/stores/useStore';
 import { CreateNoteDto, UpdateNoteDto } from '@repo/shared';
@@ -412,56 +413,25 @@ export default function NoteEditorScreen() {
     `);
   };
 
-  const getTikTokEmbedUrl = (url: string) => {
-    const match = url.match(/video\/(\d+)/);
-    if (match && match[1]) {
-        return `https://www.tiktok.com/embed/v2/${match[1]}`;
-    }
-    return null;
-  };
-
-  const getYouTubeEmbedUrl = (url: string) => {
-      let videoId = '';
-      const match1 = url.match(/[?&]v=([^&]+)/);
-      if (match1) videoId = match1[1];
-      else {
-          const match2 = url.match(/youtu\.be\/([^?]+)/);
-          if (match2) videoId = match2[1];
-          else {
-             const match3 = url.match(/youtube\.com\/embed\/([^?]+)/);
-             if (match3) videoId = match3[1];
-          }
-      }
-      if (videoId) return `https://www.youtube.com/embed/${videoId}`;
-      return null;
-  };
-
   const submitVideo = () => {
-    if (videoUrl) {
-      const tiktokUrl = getTikTokEmbedUrl(videoUrl);
-      if (tiktokUrl) {
-           richText.current?.insertHTML(`
-            <div style="position: relative; padding-top: 177.77%; background: #f0f0f0; border-radius: 8px; overflow: hidden; margin: 16px 0;">
-                <iframe src="${tiktokUrl}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0;" allowfullscreen></iframe>
-            </div>
-            <p><br></p>
-           `);
-      } else {
-          const youtubeUrl = getYouTubeEmbedUrl(videoUrl);
-          if (youtubeUrl) {
-               richText.current?.insertHTML(`
-                <div style="position: relative; padding-top: 56.25%; background: #f0f0f0; border-radius: 8px; overflow: hidden; margin: 16px 0;">
-                    <iframe src="${youtubeUrl}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0;" allowfullscreen></iframe>
-                </div>
-                <p><br></p>
-               `);
-          } else {
-               richText.current?.insertVideo(videoUrl);
-          }
-      }
-      setShowVideoModal(false);
-      setVideoUrl('');
+    if (!videoUrl) return;
+    let embedUrl = videoUrl;
+    
+    // Simple parsing for youtube/tiktok
+    // YouTube
+    if (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')) {
+      const videoId = videoUrl.includes('v=') ? videoUrl.split('v=')[1]?.split('&')[0] : videoUrl.split('/').pop();
+      embedUrl = `https://www.youtube.com/embed/${videoId}`;
     }
+    // TikTok (requires webview embed usually, or custom iframe)
+    else if (videoUrl.includes('tiktok.com')) {
+      const videoId = videoUrl.split('/video/')[1]?.split('?')[0];
+      if (videoId) embedUrl = `https://www.tiktok.com/embed/v2/${videoId}?lang=en-US`;
+    }
+
+    richText.current?.insertHTML(`<iframe src="${embedUrl}" width="100%" height="300" frameborder="0" allowfullscreen></iframe><br/>`);
+    setVideoUrl('');
+    setShowVideoModal(false);
   };
 
   if (isLocked) {
@@ -495,6 +465,11 @@ export default function NoteEditorScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <Appbar.Header>
         <Appbar.BackAction onPress={() => router.back()} />
+        {icon && (
+          <View style={{ justifyContent: 'center', marginLeft: 8 }}>
+            <FontAwesome5 name={icon.replace(/^Fa/, '').toLowerCase()} size={20} color={iconColor || theme.colors.onSurface} />
+          </View>
+        )}
         <TextInput
             ref={titleInputRef}
             style={{ 
@@ -510,11 +485,20 @@ export default function NoteEditorScreen() {
             placeholder="Title"
             placeholderTextColor={theme.colors.onSurfaceDisabled}
         />
+        {isSaving && <ActivityIndicator size="small" color={theme.colors.primary} style={{ marginRight: 8 }} />}
         <Menu
           visible={showMenu}
           onDismiss={() => setShowMenu(false)}
           anchor={<Appbar.Action icon="dots-vertical" onPress={() => setShowMenu(true)} />}
         >
+          <Menu.Item
+            onPress={() => {
+              setShowMenu(false);
+              setShowIconPicker(true);
+            }}
+            title="Change Icon"
+            leadingIcon="shape-outline"
+          />
           <Menu.Item
             onPress={() => {
               setShowMenu(false);
@@ -526,14 +510,11 @@ export default function NoteEditorScreen() {
           <Menu.Item
             onPress={() => {
               setShowMenu(false);
-              setShowIconPicker(true);
+              setShowVideoModal(true);
             }}
-            title="Change Icon"
-            leadingIcon="shape-outline"
+            title="Insert Video"
+            leadingIcon="video"
           />
-          {!isNew && (
-            <Menu.Item onPress={handleDelete} title="Delete" leadingIcon="delete" />
-          )}
           {!isNew && (
             <Menu.Item 
               onPress={() => { 
@@ -548,6 +529,9 @@ export default function NoteEditorScreen() {
               title={existingNote?.locked ? "Remove Lock" : "Lock Note"} 
               leadingIcon={existingNote?.locked ? "lock-open" : "lock"} 
             />
+          )}
+          {!isNew && (
+            <Menu.Item onPress={handleDelete} title="Delete" leadingIcon="delete" titleStyle={{ color: theme.colors.error }} />
           )}
         </Menu>
         <Appbar.Action icon="check" onPress={handleManualSave} disabled={isSaving} />

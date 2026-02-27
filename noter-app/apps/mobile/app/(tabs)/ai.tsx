@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, FlatList, TextInput, KeyboardAvoidingView, Platform, TouchableOpacity, ScrollView } from 'react-native';
 import { Text, Button, useTheme, IconButton, Modal, Portal, List, ActivityIndicator } from 'react-native-paper';
+import { useNavigation } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { MobileLlamaProvider } from '@/services/ai/provider';
 import { ChatMessage, Conversation, HFModel, HuggingFaceService } from '@repo/ai';
 import * as FileSystem from 'expo-file-system';
@@ -13,9 +15,46 @@ const hf = new HuggingFaceService();
 
 export default function AIScreen() {
   const theme = useTheme();
+  const navigation = useNavigation();
+  const { t } = useTranslation();
   
   // Tabs
   const [activeTab, setActiveTab] = useState<'chat' | 'models' | 'history'>('chat');
+
+  useEffect(() => {
+    navigation.setOptions({
+      headerTitle: () => (
+        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+          <Button 
+            mode={activeTab === 'chat' ? 'contained' : 'text'} 
+            onPress={() => setActiveTab('chat')}
+            compact
+            labelStyle={{ fontSize: 12 }}
+            style={{ marginRight: 4 }}
+          >
+            {t('ai.chat')}
+          </Button>
+          <Button 
+            mode={activeTab === 'models' ? 'contained' : 'text'} 
+            onPress={() => setActiveTab('models')}
+            compact
+            labelStyle={{ fontSize: 12 }}
+            style={{ marginRight: 4 }}
+          >
+            {t('ai.models')}
+          </Button>
+          <Button 
+            mode={activeTab === 'history' ? 'contained' : 'text'} 
+            onPress={() => setActiveTab('history')}
+            compact
+            labelStyle={{ fontSize: 12 }}
+          >
+            {t('ai.history')}
+          </Button>
+        </View>
+      ),
+    });
+  }, [navigation, activeTab, theme]);
 
   // Chat
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
@@ -215,7 +254,7 @@ export default function AIScreen() {
         <KeyboardAvoidingView 
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           style={{ flex: 1 }}
-          keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 80}
         >
           <FlatList
             data={messages}
@@ -241,6 +280,7 @@ export default function AIScreen() {
               onChangeText={setInput}
               returnKeyType="send"
               onSubmitEditing={handleSend}
+              blurOnSubmit={false}
             />
             <Button onPress={handleSend} disabled={loading} mode="contained">
               Send

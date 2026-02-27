@@ -51,13 +51,22 @@ const COMMON_ICONS = [
   'FaGift', 'FaBirthdayCake', 'FaGlassCheers', 'FaCocktail',
   'FaCoffee', 'FaMugHot', 'FaBeer', 'FaWineGlass',
   'FaUtensils', 'FaHamburger', 'FaPizzaSlice', 'FaIceCream',
-  'FaAppleAlt', 'FaCarrot', 'FaPepperHot', 'FaLemon'
+  'FaAppleAlt', 'FaCarrot', 'FaPepperHot', 'FaLemon',
+  'FaHeart', 'FaHeartbeat', 'FaMedkit', 'FaStethoscope',
+  'FaDumbbell', 'FaRunning', 'FaWalking', 'FaSwimmer',
+  'FaBiking', 'FaHiking', 'FaFutbol', 'FaBasketballBall',
+  'FaYinYang', 'FaSpa', 'FaWallet', 'FaPiggyBank',
+  'FaCoins', 'FaReceipt', 'FaTags', 'FaShoppingBag'
 ];
 
 const COLORS = [
-  '#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', 
-  '#3b82f6', '#a855f7', '#ec4899', '#64748b', '#71717a',
-  '#000000', '#ffffff'
+    '#000000', // Default/Black
+    '#EF4444', // Red
+    '#F59E0B', // Orange
+    '#10B981', // Green
+    '#3B82F6', // Blue
+    '#8B5CF6', // Purple
+    '#EC4899', // Pink
 ];
 
 export default function IconPickerModal({ visible, onDismiss, onSelect, currentIcon, currentColor }: IconPickerModalProps) {
