@@ -162,40 +162,6 @@ const resources = {
       }
     },
   },
-      tabs: {
-        notes: 'Anteckningar',
-        tasks: 'Uppgifter',
-        ai: 'AI',
-        settings: 'Inställningar'
-      },
-      ai: {
-        chat: 'Chatt',
-        models: 'Modeller',
-        history: 'Historik',
-        inputPlaceholder: 'Skriv ett meddelande...',
-        searchPlaceholder: 'Sök modeller...',
-        noModels: 'Inga modeller nedladdade',
-        download: 'Ladda ner',
-        downloading: 'Laddar ner...',
-        selectModel: 'Välj modell',
-        newChat: 'Ny chatt',
-        deleteChat: 'Ta bort chatt',
-      },
-      tasks: {
-        new: 'Ny uppgift',
-        edit: 'Redigera uppgift',
-        delete: 'Ta bort uppgift',
-        completed: 'Klar',
-        active: 'Aktiv',
-        priority: 'Prioritet',
-        dueDate: 'Förfallodatum',
-        reminder: 'Påminnelse',
-        recurrence: 'Återkommande',
-        save: 'Spara',
-        cancel: 'Avbryt',
-      }
-    },
-  },
 };
 
 const initI18n = async () => {
