@@ -1,5 +1,5 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
-import { Note, Task, encrypt, decrypt } from '@repo/shared';
+import { Note, Task, Conversation, Message, AIModel, encrypt, decrypt } from '@repo/shared';
 
 interface NoterDB extends DBSchema {
   notes: {
@@ -12,10 +12,24 @@ interface NoterDB extends DBSchema {
     value: Task & { pendingSync?: boolean | string; deleted?: boolean | string };
     indexes: { 'by-updated': string; 'by-note': string };
   };
+  conversations: {
+    key: string;
+    value: Conversation;
+    indexes: { 'by-updated': string };
+  };
+  messages: {
+    key: string;
+    value: Message & { conversationId: string };
+    indexes: { 'by-conversation': string };
+  };
+  models: {
+    key: string;
+    value: AIModel;
+  };
 }
 
 const DB_NAME = 'noter-db';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 let dbPromise: Promise<IDBPDatabase<NoterDB>>;
 
@@ -31,6 +45,15 @@ export const initDB = () => {
             const taskStore = db.createObjectStore('tasks', { keyPath: '_id' });
             taskStore.createIndex('by-updated', 'updatedAt');
             taskStore.createIndex('by-note', 'parentNoteId');
+        }
+        if (oldVersion < 3) {
+            const convStore = db.createObjectStore('conversations', { keyPath: 'id' });
+            convStore.createIndex('by-updated', 'updatedAt');
+            
+            const msgStore = db.createObjectStore('messages', { keyPath: 'id' });
+            msgStore.createIndex('by-conversation', 'conversationId');
+            
+            db.createObjectStore('models', { keyPath: 'id' });
         }
       },
     });
@@ -428,5 +451,105 @@ export const db = {
       pendingSync: true,
       deleted: parseEncryptedBool((t as any).deleted),
     }));
+  },
+
+  // AI Conversations
+
+  async saveConversation(conversation: Conversation): Promise<void> {
+    const db = await initDB();
+    const encrypted: Conversation = {
+      ...conversation,
+      title: encrypt(conversation.title),
+      model: conversation.model ? encrypt(conversation.model) : undefined,
+      createdAt: encrypt(conversation.createdAt),
+      updatedAt: encrypt(conversation.updatedAt),
+    };
+    await db.put('conversations', encrypted);
+  },
+
+  async getConversations(): Promise<Conversation[]> {
+    const db = await initDB();
+    const encrypted = await db.getAllFromIndex('conversations', 'by-updated');
+    return encrypted.map(conv => ({
+      ...conv,
+      title: decrypt(conv.title),
+      model: conv.model ? decrypt(conv.model) : undefined,
+      createdAt: decrypt(conv.createdAt),
+      updatedAt: decrypt(conv.updatedAt),
+      messages: []
+    })).reverse();
+  },
+
+  async deleteConversation(id: string): Promise<void> {
+    const db = await initDB();
+    await db.delete('conversations', id);
+  },
+
+  // AI Messages
+
+  async saveMessage(conversationId: string, message: Message): Promise<void> {
+    const db = await initDB();
+    const encrypted: Message & { conversationId: string } = {
+      ...message,
+      conversationId,
+      role: encrypt(message.role) as any,
+      content: encrypt(message.content),
+      toolCalls: message.toolCalls ? encrypt(JSON.stringify(message.toolCalls)) as any : undefined,
+      toolCallId: message.toolCallId ? encrypt(message.toolCallId) : undefined,
+      createdAt: encrypt(message.createdAt)
+    };
+    await db.put('messages', encrypted);
+  },
+
+  async getMessages(conversationId: string): Promise<Message[]> {
+    const db = await initDB();
+    const encrypted = await db.getAllFromIndex('messages', 'by-conversation', conversationId);
+    return encrypted.map(msg => {
+      let toolCalls = undefined;
+      if (msg.toolCalls) {
+        try {
+          toolCalls = JSON.parse(decrypt(msg.toolCalls as any));
+        } catch {}
+      }
+      return {
+        id: msg.id,
+        role: decrypt(msg.role) as any,
+        content: decrypt(msg.content),
+        toolCalls,
+        toolCallId: msg.toolCallId ? decrypt(msg.toolCallId) : undefined,
+        createdAt: decrypt(msg.createdAt)
+      };
+    }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  },
+
+  // AI Models
+
+  async saveModel(model: AIModel): Promise<void> {
+    const db = await initDB();
+    const encrypted: AIModel = {
+      ...model,
+      name: encrypt(model.name),
+      filename: encrypt(model.filename),
+      path: encrypt(model.path),
+      quantization: model.quantization ? encrypt(model.quantization) : undefined
+    };
+    await db.put('models', encrypted);
+  },
+
+  async getModels(): Promise<AIModel[]> {
+    const db = await initDB();
+    const encrypted = await db.getAll('models');
+    return encrypted.map(model => ({
+      ...model,
+      name: decrypt(model.name),
+      filename: decrypt(model.filename),
+      path: decrypt(model.path),
+      quantization: model.quantization ? decrypt(model.quantization) : undefined
+    }));
+  },
+
+  async deleteModel(id: string): Promise<void> {
+    const db = await initDB();
+    await db.delete('models', id);
   }
 };

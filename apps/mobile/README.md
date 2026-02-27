@@ -88,7 +88,11 @@ Applikationen är under aktiv utveckling. Nedan listas nuvarande status för oli
 3. Bygg en APK (profil `preview`):
    ```bash
    eas build -p android --profile preview
-   ```
+   
+   #Eller: 
+   
+   npx eas build -p android --profile preview
+
 
 Profilen `preview` är konfigurerad för att bygga en APK i [eas.json](file:///f:/Tech/Projekt/Noter/noter-app/apps/mobile/eas.json).
 

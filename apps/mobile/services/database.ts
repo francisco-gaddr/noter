@@ -1,6 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import CryptoJS from 'crypto-js';
-import { Note, Task, encrypt, decrypt } from '@repo/shared';
+import { Note, Task, Conversation, Message, AIModel, encrypt, decrypt } from '@repo/shared';
 
 const db = SQLite.openDatabaseSync('noter.db');
 
@@ -109,6 +109,32 @@ export const initDatabase = async () => {
       timestamp TEXT,
       dedupeKey TEXT,
       dedupeKeyHash TEXT
+    );
+    CREATE TABLE IF NOT EXISTS conversations (
+      id TEXT PRIMARY KEY,
+      title TEXT,
+      model TEXT,
+      createdAt TEXT,
+      updatedAt TEXT
+    );
+    CREATE TABLE IF NOT EXISTS messages (
+      id TEXT PRIMARY KEY,
+      conversationId TEXT,
+      role TEXT,
+      content TEXT,
+      toolCalls TEXT,
+      toolCallId TEXT,
+      createdAt TEXT,
+      FOREIGN KEY(conversationId) REFERENCES conversations(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS models (
+      id TEXT PRIMARY KEY,
+      name TEXT,
+      filename TEXT,
+      path TEXT,
+      size INTEGER,
+      quantization TEXT,
+      downloaded INTEGER
     );
   `);
   
@@ -508,4 +534,101 @@ export const getSyncQueue = async () => {
 
 export const removeFromSyncQueue = async (id: number) => {
   await db.runAsync('DELETE FROM sync_queue WHERE id = ?', [id]);
+};
+
+// AI Conversations & Messages
+
+export const saveConversationLocal = async (conversation: Conversation) => {
+  const encryptedTitle = encrypt(conversation.title);
+  const encryptedModel = conversation.model ? encrypt(conversation.model) : null;
+  const encryptedCreatedAt = encrypt(conversation.createdAt);
+  const encryptedUpdatedAt = encrypt(conversation.updatedAt);
+
+  await db.runAsync(
+    `INSERT OR REPLACE INTO conversations (id, title, model, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?)`,
+    [conversation.id, encryptedTitle, encryptedModel, encryptedCreatedAt, encryptedUpdatedAt]
+  );
+};
+
+export const getConversationsLocal = async (): Promise<Conversation[]> => {
+  const result = await db.getAllAsync<any>('SELECT * FROM conversations ORDER BY updatedAt DESC');
+  return result.map((row: any) => ({
+    id: row.id,
+    title: decrypt(row.title),
+    model: row.model ? decrypt(row.model) : undefined,
+    createdAt: decrypt(row.createdAt),
+    updatedAt: decrypt(row.updatedAt),
+    messages: []
+  }));
+};
+
+export const deleteConversationLocal = async (id: string) => {
+  await db.runAsync('DELETE FROM conversations WHERE id = ?', [id]);
+};
+
+export const saveMessageLocal = async (conversationId: string, message: Message) => {
+  const encryptedRole = encrypt(message.role);
+  const encryptedContent = encrypt(message.content);
+  const encryptedToolCalls = message.toolCalls ? encrypt(JSON.stringify(message.toolCalls)) : null;
+  const encryptedToolCallId = message.toolCallId ? encrypt(message.toolCallId) : null;
+  const encryptedCreatedAt = encrypt(message.createdAt);
+
+  await db.runAsync(
+    `INSERT OR REPLACE INTO messages (id, conversationId, role, content, toolCalls, toolCallId, createdAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [message.id, conversationId, encryptedRole, encryptedContent, encryptedToolCalls, encryptedToolCallId, encryptedCreatedAt]
+  );
+};
+
+export const getMessagesLocal = async (conversationId: string): Promise<Message[]> => {
+  const result = await db.getAllAsync<any>('SELECT * FROM messages WHERE conversationId = ? ORDER BY createdAt ASC', [conversationId]);
+  return result.map((row: any) => {
+    let toolCalls = undefined;
+    if (row.toolCalls) {
+      try {
+        toolCalls = JSON.parse(decrypt(row.toolCalls));
+      } catch {}
+    }
+    return {
+      id: row.id,
+      role: decrypt(row.role) as any,
+      content: decrypt(row.content),
+      toolCalls,
+      toolCallId: row.toolCallId ? decrypt(row.toolCallId) : undefined,
+      createdAt: decrypt(row.createdAt)
+    };
+  });
+};
+
+// AI Models
+
+export const saveModelLocal = async (model: AIModel) => {
+  const encryptedName = encrypt(model.name);
+  const encryptedFilename = encrypt(model.filename);
+  const encryptedPath = encrypt(model.path);
+  const encryptedQuantization = model.quantization ? encrypt(model.quantization) : null;
+
+  await db.runAsync(
+    `INSERT OR REPLACE INTO models (id, name, filename, path, size, quantization, downloaded)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [model.id, encryptedName, encryptedFilename, encryptedPath, model.size, encryptedQuantization, model.downloaded ? 1 : 0]
+  );
+};
+
+export const getModelsLocal = async (): Promise<AIModel[]> => {
+  const result = await db.getAllAsync<any>('SELECT * FROM models');
+  return result.map((row: any) => ({
+    id: row.id,
+    name: decrypt(row.name),
+    filename: decrypt(row.filename),
+    path: decrypt(row.path),
+    size: row.size,
+    quantization: row.quantization ? decrypt(row.quantization) : undefined,
+    downloaded: !!row.downloaded
+  }));
+};
+
+export const deleteModelLocal = async (id: string) => {
+  await db.runAsync('DELETE FROM models WHERE id = ?', [id]);
 };

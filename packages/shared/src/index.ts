@@ -158,6 +158,51 @@ export const ICON_LIST = [
   'FaLaptop', 'FaMobile', 'FaTablet', 'FaPlane', 'FaCar', 'FaBus', 'FaBicycle'
 ];
 
+export interface ToolCall {
+  id: string;
+  type: 'function';
+  function: {
+    name: string;
+    arguments: string;
+  };
+}
+
+export interface Message {
+  id: string;
+  role: 'system' | 'user' | 'assistant' | 'tool';
+  content: string;
+  toolCalls?: ToolCall[];
+  toolCallId?: string;
+  createdAt: string;
+}
+
+export interface Conversation {
+  id: string;
+  title: string;
+  messages: Message[];
+  createdAt: string;
+  updatedAt: string;
+  model?: string;
+}
+
+export interface AIModel {
+  id: string;
+  name: string;
+  filename: string;
+  path: string;
+  size: number;
+  quantization?: string;
+  downloaded: boolean;
+}
+
+export interface MCPService {
+  id: string;
+  name: string;
+  url: string;
+  enabled: boolean;
+  config: Record<string, any>;
+}
+
 export interface AuthResponse {
   user: User;
   token: string;
