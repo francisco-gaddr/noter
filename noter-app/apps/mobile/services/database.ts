@@ -15,8 +15,11 @@ const decryptText = (value: unknown, fallback: string | null = null): string | n
   const raw = typeof value === 'string' ? value : String(value);
   // Optimization: If raw looks like a valid encrypted string (base64, no spaces), try decrypt
   // Otherwise return raw. This prevents trying to decrypt already decrypted text or garbage.
-  // For now, simple try/catch.
   try {
+    // Only attempt decryption if it looks like it might be encrypted (no spaces, length check)
+    // Encrypted strings are usually base64 and longer. Simple heuristic.
+    if (raw.includes(' ') || raw.length < 10) return raw;
+
     const decrypted = decrypt(raw);
     // Handle malformed UTF-8 or empty result from decrypt
     if (!decrypted) return raw;

@@ -22,7 +22,9 @@ export class NodeLlamaProvider implements LLMProvider {
                  contextInstance = null;
              }
              if (modelInstance) {
-                 modelInstance.dispose();
+                 // modelInstance.dispose(); 
+                 // LlamaModel also doesn't expose dispose in all versions, or it might be internal.
+                 // Letting it be GC'd is safer if API changed.
                  modelInstance = null;
              }
         } else {
