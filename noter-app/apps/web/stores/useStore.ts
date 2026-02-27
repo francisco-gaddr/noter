@@ -228,7 +228,7 @@ interface StoreState {
   fetchTasks: (parentNoteId?: string) => Promise<void>;
   selectNote: (id: string | null) => void;
   createNote: (title: string, parentId?: string | null, type?: 'note' | 'task_list' | 'project', order?: number, icon?: string) => Promise<void>;
-  updateNote: (id: string, title?: string, content?: string, locked?: boolean, password?: string, icon?: string, type?: string) => Promise<void>;
+  updateNote: (id: string, dataOrTitle?: string | Partial<Note>, content?: string, locked?: boolean, password?: string, icon?: string, type?: string, iconColor?: string) => Promise<void>;
   moveNote: (id: string, parentId: string | null, order: number) => Promise<void>;
   unlockNote: (id: string, password: string) => Promise<boolean>;
   deleteNote: (id: string) => Promise<void>;
