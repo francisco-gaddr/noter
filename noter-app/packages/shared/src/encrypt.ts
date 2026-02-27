@@ -12,7 +12,7 @@ export const decrypt = (ciphertext: string, key: string = DEFAULT_KEY): string =
     const bytes = CryptoJS.AES.decrypt(ciphertext, key);
     return bytes.toString(CryptoJS.enc.Utf8);
   } catch (e) {
-    console.warn('Decryption failed', e);
+    // console.warn('Decryption failed', e);
     return '';
   }
 };
