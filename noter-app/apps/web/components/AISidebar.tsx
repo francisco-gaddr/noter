@@ -103,6 +103,8 @@ export const AISidebar = () => {
     }
   };
 
+  const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({});
+  
   const handleSelectModel = async (model: HFModel) => {
       setSelectedModel(model);
       setLoading(true); // Re-using loading state for search file loading
@@ -118,24 +120,52 @@ export const AISidebar = () => {
   };
 
   const handleDownload = async (url: string, filename: string) => {
-      setDownloading(filename);
+      setDownloadProgress(prev => ({ ...prev, [filename]: 0 }));
       try {
+          // Simulate progress since backend doesn't stream it yet
+          const interval = setInterval(() => {
+              setDownloadProgress(prev => {
+                  const current = prev[filename] || 0;
+                  return { ...prev, [filename]: Math.min(current + 10, 90) };
+              });
+          }, 500);
+
           const res = await fetch('/app/api/ai/models/download', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ url, filename })
           });
+          
+          clearInterval(interval);
+          
           if (res.ok) {
+              setDownloadProgress(prev => ({ ...prev, [filename]: 100 }));
               await fetchLocalModels();
+              // Clear progress after a delay
+              setTimeout(() => {
+                  setDownloadProgress(prev => {
+                      const newProgress = { ...prev };
+                      delete newProgress[filename];
+                      return newProgress;
+                  });
+              }, 2000);
               alert(`Downloaded ${filename}`);
           } else {
+              setDownloadProgress(prev => {
+                  const newProgress = { ...prev };
+                  delete newProgress[filename];
+                  return newProgress;
+              });
               alert('Download failed');
           }
       } catch (e) {
           console.error(e);
+          setDownloadProgress(prev => {
+              const newProgress = { ...prev };
+              delete newProgress[filename];
+              return newProgress;
+          });
           alert('Download error');
-      } finally {
-          setDownloading(null);
       }
   };
 
@@ -417,48 +447,42 @@ export const AISidebar = () => {
                   </div>
               )}
 
-              {selectedModel ? (
-                  <div className="border rounded p-3 bg-gray-50 dark:bg-gray-800">
-                      <button onClick={() => setSelectedModel(null)} className="text-xs text-blue-500 mb-2">← Back to results</button>
-                      <h5 className="font-bold">{selectedModel.name}</h5>
-                      <div className="text-xs text-gray-500 mb-2">by {selectedModel.author}</div>
-                      <div className="text-xs mb-2">Downloads: {selectedModel.downloads}</div>
-                      
-                      <div className="space-y-2 mt-2">
-                          {modelFiles.map(f => (
-                              <div key={f.filename} className="flex justify-between items-center text-xs p-2 border bg-white dark:bg-gray-900 rounded">
-                                  <div>
-                                      <div>{f.filename}</div>
-                                      <div className="text-gray-500">{f.quantization} • {(f.size / 1024 / 1024).toFixed(1)} MB</div>
-                                  </div>
-                                  <button 
-                                    onClick={() => handleDownload(f.url, f.filename)}
-                                    disabled={!!downloading}
-                                    className="bg-green-600 text-white px-2 py-1 rounded disabled:opacity-50"
-                                  >
-                                      {downloading === f.filename ? 'Downloading...' : 'Download'}
-                                  </button>
-                              </div>
-                          ))}
-                      </div>
-                  </div>
-              ) : (
-                  <div className="space-y-2">
-                      {searchResults.map(m => (
-                          <div 
-                            key={m.id} 
-                            className="p-2 border rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer"
-                            onClick={() => handleSelectModel(m)}
-                          >
-                              <div className="font-bold text-sm">{m.name}</div>
-                              <div className="text-xs text-gray-500">{m.author} • {m.downloads} downloads</div>
-                              <div className="flex gap-1 mt-1 flex-wrap">
-                                  {m.tags.slice(0, 3).map(tag => (
-                                      <span key={tag} className="text-[10px] bg-gray-200 dark:bg-gray-700 px-1 rounded">{tag}</span>
-                                  ))}
-                              </div>
+              <ul className="space-y-2">
+                  {searchResults.map((m: any) => (
+                      <li key={m.id} className="p-2 border rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer" onClick={() => handleSelectModel(m)}>
+                          <div className="font-bold text-sm">{m.name}</div>
+                          <div className="text-xs text-gray-500">Likes: {m.likes} | Downloads: {m.downloads}</div>
+                      </li>
+                  ))}
+              </ul>
+
+              {selectedModel && (
+                  <div className="mt-4 border-t pt-4">
+                      <h5 className="font-bold text-sm mb-2">Files for {selectedModel.name}</h5>
+                      {loading && (
+                          <div className="flex justify-center p-2">
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
                           </div>
-                      ))}
+                      )}
+                      <ul className="space-y-2 max-h-40 overflow-y-auto">
+                          {modelFiles.map((f: any) => (
+                              <li key={f.filename} className="flex justify-between items-center text-xs p-1 hover:bg-gray-100 dark:hover:bg-gray-700">
+                                  <span className="truncate flex-1 mr-2">{f.filename} ({(f.size / 1024 / 1024).toFixed(0)} MB)</span>
+                                  {downloadProgress[f.filename] !== undefined ? (
+                                      <div className="w-20 bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
+                                          <div className="bg-blue-600 h-2.5 rounded-full" style={{ width: `${downloadProgress[f.filename]}%` }}></div>
+                                      </div>
+                                  ) : (
+                                      <button 
+                                        onClick={(e) => { e.stopPropagation(); handleDownload(f.url, f.filename); }}
+                                        className="text-blue-500 hover:underline"
+                                      >
+                                          Download
+                                      </button>
+                                  )}
+                              </li>
+                          ))}
+                      </ul>
                   </div>
               )}
           </div>

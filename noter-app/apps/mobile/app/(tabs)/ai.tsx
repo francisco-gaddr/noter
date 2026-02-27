@@ -88,9 +88,11 @@ export default function AIScreen() {
   const handleSearch = async () => {
       if (!searchQuery) return;
       setIsSearching(true);
+      setLoading(true);
       try {
           console.log('Searching for:', searchQuery);
-          const results = await hf.searchModels(searchQuery);
+          // Use the HF service to search
+          const results = await new HuggingFaceService().searchModels(searchQuery);
           console.log('Search results:', results.length);
           setSearchResults(results);
       } catch (e) {
@@ -98,6 +100,9 @@ export default function AIScreen() {
           alert('Search failed: ' + String(e));
       } finally {
           setIsSearching(false);
+          setLoading(false);
+      }
+  };
       }
   };
 
@@ -210,38 +215,34 @@ export default function AIScreen() {
 
       {activeTab === 'chat' && (
         <KeyboardAvoidingView 
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
           style={{ flex: 1 }}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
         >
-          {messages.length === 0 && (
-              <View style={styles.centerContent}>
-                  <Text variant="bodyLarge" style={{ color: theme.colors.onSurfaceVariant }}>
-                      {activeModel ? 'Ready to chat' : 'Select a model to start'}
-                  </Text>
-              </View>
-          )}
           <FlatList
             data={messages}
-            keyExtractor={(_, i) => i.toString()}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.listContent}
             renderItem={({ item }) => (
               <View style={[
                 styles.message, 
                 item.role === 'user' ? styles.userMessage : styles.assistantMessage,
                 { backgroundColor: item.role === 'user' ? theme.colors.primaryContainer : theme.colors.surfaceVariant }
               ]}>
-                <Text style={{ color: theme.colors.onSurface }}>{item.content}</Text>
+                <Text>{item.content}</Text>
               </View>
             )}
-            contentContainerStyle={styles.listContent}
           />
-          
-          <View style={[styles.inputContainer, { backgroundColor: theme.colors.surface, borderColor: theme.colors.outline }]}>
+          {loading && <ActivityIndicator style={{ margin: 10 }} />}
+          <View style={[styles.inputContainer, { backgroundColor: theme.colors.surface, borderTopColor: theme.colors.outline }]}>
             <TextInput
               style={[styles.input, { color: theme.colors.onSurface, borderColor: theme.colors.outline }]}
+              placeholder="Type a message..."
+              placeholderTextColor={theme.colors.onSurfaceVariant}
               value={input}
               onChangeText={setInput}
-              placeholder="Ask AI..."
-              placeholderTextColor={theme.colors.onSurfaceVariant}
+              returnKeyType="send"
+              onSubmitEditing={handleSend}
             />
             <Button onPress={handleSend} disabled={loading} mode="contained">
               Send

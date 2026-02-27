@@ -53,7 +53,8 @@ const resources = {
         notes: 'Notes',
         tasks: 'Tasks',
         ai: 'AI',
-        settings: 'Settings'
+        settings: 'Settings',
+        search: 'Search'
       },
       ai: {
         chat: 'Chat',
@@ -132,7 +133,8 @@ const resources = {
         notes: 'Anteckningar',
         tasks: 'Uppgifter',
         ai: 'AI',
-        settings: 'Inställningar'
+        settings: 'Inställningar',
+        search: 'Sök'
       },
       ai: {
         chat: 'Chatt',

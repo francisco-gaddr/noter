@@ -13,13 +13,19 @@ export async function POST(req: NextRequest) {
       return new Response(JSON.stringify({ error: 'Model path required' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
 
-    await provider.loadModel(modelPath, { gpuLayers: typeof gpuLayers === 'number' ? gpuLayers : undefined });
+    // Ensure model is loaded before streaming
+    try {
+        await provider.loadModel(modelPath, { gpuLayers: typeof gpuLayers === 'number' ? gpuLayers : undefined });
+    } catch (e: any) {
+        return new Response(JSON.stringify({ error: `Failed to load model: ${e.message}` }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    }
 
+    const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
         try {
           await provider.streamResponse(messages as ChatMessage[], {}, (token) => {
-            controller.enqueue(new TextEncoder().encode(token));
+            controller.enqueue(encoder.encode(token));
           });
           controller.close();
         } catch (error) {

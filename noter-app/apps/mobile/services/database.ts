@@ -18,7 +18,8 @@ const decryptText = (value: unknown, fallback: string | null = null): string | n
   try {
     // Only attempt decryption if it looks like it might be encrypted (no spaces, length check)
     // Encrypted strings are usually base64 and longer. Simple heuristic.
-    if (raw.includes(' ') || raw.length < 10) return raw;
+    // Also skip if it starts with { or [ as it might be JSON (which implies not encrypted string)
+    if (raw.includes(' ') || raw.length < 10 || raw.startsWith('{') || raw.startsWith('[')) return raw;
 
     const decrypted = decrypt(raw);
     // Handle malformed UTF-8 or empty result from decrypt
