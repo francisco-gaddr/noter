@@ -10,7 +10,7 @@ import { API_URL, setApiUrl, getAuthToken } from '@/services/api';
 import { disconnectSocket, initSocket } from '@/services/socket';
 import { BackendUrlDialog } from '@/components/BackendUrlDialog';
 import { useTranslation } from 'react-i18next';
-import { clearLocalData, clearNotesByTypes, clearTasksLocal, clearModelsLocal, clearSyncQueue, getModelsLocal } from '@/services/database';
+import { clearLocalData, clearNotesLocal, clearTasksLocal, clearModelsLocal, clearSyncQueue, getModelsLocal } from '@/services/database';
 import { deleteModel as deleteModelFile } from '@/services/ai/modelService';
 
 export default function SettingsScreen() {
@@ -172,22 +172,24 @@ export default function SettingsScreen() {
         return;
       }
 
-      const noteTypes: Array<'note' | 'project' | 'task_list'> = [];
-      if (clearSelection.notes) noteTypes.push('note');
-      if (clearSelection.projects) noteTypes.push('project');
-      if (clearSelection.taskLists) noteTypes.push('task_list');
-      if (noteTypes.length > 0) {
-        await clearNotesByTypes(noteTypes);
+      const shouldClearNotes = clearSelection.notes || clearSelection.projects || clearSelection.taskLists;
+      const shouldClearTasks = clearSelection.tasks;
+      const shouldClearQueue = shouldClearNotes || shouldClearTasks;
+
+      if (shouldClearNotes) {
+        await clearNotesLocal();
         useStore.setState({ notes: [], error: null });
         setActiveProject(null);
         await fetchNotes();
-        await clearSyncQueue();
       }
 
-      if (clearSelection.tasks) {
+      if (shouldClearTasks) {
         await clearTasksLocal();
         useStore.setState({ tasks: [], error: null });
         await fetchTasks();
+      }
+
+      if (shouldClearQueue) {
         await clearSyncQueue();
       }
 

@@ -739,13 +739,23 @@ export const useStore = create<StoreState>((set, get) => ({
         const validNotes = cachedNotes.filter(n => !(n as any).deleted);
         if (validNotes.length > 0) {
             set({ notes: validNotes, isLoading: false });
+        } else {
+            set({ notes: [], isLoading: false });
         }
     } catch (e) {
         console.error('Failed to load notes from DB', e);
     }
 
     try {
-      const notes = await api.fetchNotes();
+      const withTimeout = <T,>(promise: Promise<T>, ms: number) => {
+        let timeoutId: ReturnType<typeof setTimeout>;
+        const timeout = new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error('Request timed out')), ms);
+        });
+        return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
+      };
+
+      const notes = await withTimeout(api.fetchNotes(), 8000);
       const pendingNotes = await db.getPendingSyncNotes();
       
       const mergedNotes = [...notes];
@@ -765,7 +775,26 @@ export const useStore = create<StoreState>((set, get) => ({
           }
       }
 
-      set({ notes: uniqBy(mergedNotes, '_id'), isLoading: false });
+      const nextNotes = uniqBy(mergedNotes, '_id');
+      set({ notes: nextNotes, isLoading: false });
+      if (typeof window !== 'undefined') {
+        if (nextNotes.length === 0) {
+          localStorage.removeItem('lastSelectedNoteId');
+          localStorage.removeItem('selectedNoteId');
+        } else {
+          const selectedId = get().selectedNoteId;
+          if (selectedId && !nextNotes.some(n => n._id === selectedId)) {
+            localStorage.removeItem('lastSelectedNoteId');
+            localStorage.removeItem('selectedNoteId');
+            set({ selectedNoteId: null });
+          }
+          const activeProjectId = get().activeProjectId;
+          if (activeProjectId && !nextNotes.some(n => n._id === activeProjectId)) {
+            localStorage.removeItem('activeProjectId');
+            set({ activeProjectId: null });
+          }
+        }
+      }
       for (const note of notes) {
           await db.saveNote(note);
       }

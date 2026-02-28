@@ -15,11 +15,9 @@
     "e2e:open": "cypress open"
   },
   "dependencies": {
+    "@repo/ai": "*",
     "@repo/shared": "*",
     "@repo/ui": "*",
-    "@repo/ai": "*",
-    "node-llama-cpp": "^2.8.0",
-    "zod": "^3.22.4",
     "@types/deepmerge": "^2.1.0",
     "@types/react-big-calendar": "^1.16.3",
     "@types/react-sortable-tree": "^0.3.23",
@@ -35,6 +33,7 @@
     "lodash": "^4.17.21",
     "next": "16.1.0",
     "next-themes": "^0.3.0",
+    "node-llama-cpp": "^2.8.0",
     "react": "19.1.0",
     "react-big-calendar": "^1.19.4",
     "react-dnd": "^16.0.1",
@@ -53,6 +52,7 @@
     "turndown": "^7.2.0",
     "workbox-window": "^7.1.0",
     "yup": "^1.4.0",
+    "zod": "^3.22.4",
     "zustand": "^4.5.2"
   },
   "devDependencies": {
@@ -61,6 +61,7 @@
     "@repo/typescript-config": "*",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.1",
+    "@testing-library/user-event": "^14.6.1",
     "@types/crypto-js": "^4.2.2",
     "@types/dompurify": "^3.0.5",
     "@types/html2canvas": "^0.5.35",

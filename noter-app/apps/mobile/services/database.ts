@@ -648,21 +648,8 @@ export const deleteModelLocal = async (id: string) => {
   await db.runAsync('DELETE FROM models WHERE id = ?', [id]);
 };
 
-export const clearNotesByTypes = async (types: Array<'note' | 'project' | 'task_list'>) => {
-  if (types.length === 0) return;
-  const hasNote = types.includes('note');
-  const otherTypes = types.filter(t => t !== 'note');
-  if (hasNote && otherTypes.length === 0) {
-    await db.runAsync(`DELETE FROM notes WHERE type IS NULL OR type = ?`, ['note']);
-    return;
-  }
-  if (hasNote && otherTypes.length > 0) {
-    const placeholders = otherTypes.map(() => '?').join(', ');
-    await db.runAsync(`DELETE FROM notes WHERE type IS NULL OR type = ? OR type IN (${placeholders})`, ['note', ...otherTypes]);
-    return;
-  }
-  const placeholders = types.map(() => '?').join(', ');
-  await db.runAsync(`DELETE FROM notes WHERE type IN (${placeholders})`, types);
+export const clearNotesLocal = async () => {
+  await db.runAsync('DELETE FROM notes');
 };
 
 export const clearTasksLocal = async () => {
