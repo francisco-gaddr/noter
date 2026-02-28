@@ -53,8 +53,15 @@ const TreeNode = React.memo(({ note, allNotes, noteById, childrenMap, level, sel
     const children = childrenMap.get(note._id) || [];
     const hasChildren = children.length > 0;
     const ref = useRef<HTMLDivElement>(null);
+    const [visibleChildrenCount, setVisibleChildrenCount] = useState(50);
+    
+    // Reset visible count when note changes or collapses
+    useEffect(() => {
+        if (!isExpanded) setVisibleChildrenCount(50);
+    }, [isExpanded, note._id]);
 
-    const [{ isDragging }, drag] = useDrag<DragItem, void, { isDragging: boolean }>({
+    const displayedChildren = children.slice(0, visibleChildrenCount);
+    const remainingChildren = children.length - visibleChildrenCount;
         type: 'NOTE',
         item: { id: note._id, type: 'NOTE' },
         collect: (monitor: any) => ({ isDragging: monitor.isDragging() }),
@@ -205,31 +212,47 @@ const TreeNode = React.memo(({ note, allNotes, noteById, childrenMap, level, sel
                 </div>
             </div>
             
-            {isExpanded && children.map(child => {
-                if (ancestors.includes(child._id)) {
-                    console.warn(`Cycle detected in note tree at ${child._id}`);
-                    return null;
-                }
-                return (
-                    <TreeNode 
-                        key={child._id} 
-                        note={child} 
-                        allNotes={allNotes} 
-                        noteById={noteById}
-                        childrenMap={childrenMap}
-                        level={level + 1} 
-                        selectedNoteId={selectedNoteId}
-                        sortOrder={sortOrder}
-                        onSelect={onSelect}
-                        onDelete={onDelete}
-                        onCreateChild={onCreateChild}
-                        onEdit={onEdit}
-                        onIconClick={onIconClick}
-                        onMove={onMove}
-                        ancestors={[...ancestors, note._id]}
-                    />
-                );
-            })}
+            {isExpanded && (
+                <>
+                    {displayedChildren.map(child => {
+                        if (ancestors.includes(child._id)) {
+                            console.warn(`Cycle detected in note tree at ${child._id}`);
+                            return null;
+                        }
+                        return (
+                            <TreeNode 
+                                key={child._id} 
+                                note={child} 
+                                allNotes={allNotes} 
+                                noteById={noteById}
+                                childrenMap={childrenMap}
+                                level={level + 1} 
+                                selectedNoteId={selectedNoteId}
+                                sortOrder={sortOrder}
+                                onSelect={onSelect}
+                                onDelete={onDelete}
+                                onCreateChild={onCreateChild}
+                                onEdit={onEdit}
+                                onIconClick={onIconClick}
+                                onMove={onMove}
+                                ancestors={[...ancestors, note._id]}
+                            />
+                        );
+                    })}
+                    {remainingChildren > 0 && (
+                        <div 
+                            className="pl-8 py-1 text-xs text-blue-500 cursor-pointer hover:underline"
+                            style={{ paddingLeft: `${(level + 1) * 12 + 8}px` }}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setVisibleChildrenCount(prev => prev + 50);
+                            }}
+                        >
+                            {t('common.showMore') || 'Show more'} ({remainingChildren})
+                        </div>
+                    )}
+                </>
+            )}
         </div>
     );
 });

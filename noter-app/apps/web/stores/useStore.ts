@@ -780,7 +780,9 @@ export const useStore = create<StoreState>((set, get) => ({
         return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
       };
 
-      const notes = await withTimeout(api.fetchNotes(), 8000);
+      const encryptedNotes = await withTimeout(api.fetchNotes(), 8000);
+      const notes = await api.decryptNotes(encryptedNotes);
+      
       const pendingNotes = await db.getPendingSyncNotes();
       
       const mergedNotes = [...notes];
@@ -854,7 +856,9 @@ export const useStore = create<StoreState>((set, get) => ({
             set({ isOffline: true, error: 'Offline-läge', isLoading: false });
             return;
         }
-        const tasks = await api.fetchTasks(parentNoteId);
+        const encryptedTasks = await api.fetchTasks(parentNoteId);
+        const tasks = await api.decryptTasks(encryptedTasks);
+        
         const pendingTasks = await db.getPendingSyncTasks();
         
         const currentTasks = get().tasks;

@@ -130,24 +130,40 @@ export const api = {
   },
 
   // Notes
-  async fetchNotes(): Promise<Note[]> {
+  async fetchNotes(): Promise<any[]> {
     const res = await fetch(`${API_URL}/notes`, { headers: getHeaders() });
-    const notes: Note[] = await handleResponse(res);
-    return notes.map(note => {
-      const locked = parseNoteLocked(note.locked);
-      return {
-        ...note,
-        title: locked ? 'Låst anteckning' : decrypt(note.title),
-        content: locked ? '' : decrypt(note.content),
-        tags: locked ? [] : (note.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? []),
-        icon: locked ? undefined : (note.icon ? (() => { try { return decrypt(note.icon) } catch { return note.icon } })() : undefined),
-        type: note.type ? (() => { try { return decrypt(note.type) as any } catch { return note.type } })() : 'note',
-        locked: locked,
-        order: parseNoteOrder((note as any).order),
-        createdAt: decrypt(note.createdAt),
-        updatedAt: decrypt(note.updatedAt),
-      };
-    });
+    return handleResponse(res);
+  },
+
+  async decryptNotes(encryptedNotes: any[]): Promise<Note[]> {
+    const CHUNK_SIZE = 50;
+    const result: Note[] = [];
+    
+    // Process in chunks to avoid blocking the event loop
+    for (let i = 0; i < encryptedNotes.length; i += CHUNK_SIZE) {
+        const chunk = encryptedNotes.slice(i, i + CHUNK_SIZE);
+        
+        // Use a small delay to let the UI breathe if the list is huge
+        if (i > 0) await new Promise(resolve => setTimeout(resolve, 0));
+        
+        const decryptedChunk = chunk.map(note => {
+            const locked = parseNoteLocked(note.locked);
+            return {
+                ...note,
+                title: locked ? 'Låst anteckning' : decrypt(note.title),
+                content: locked ? '' : decrypt(note.content),
+                tags: locked ? [] : (note.tags?.map((t: string) => { try { return decrypt(t) } catch { return t } }) ?? []),
+                icon: locked ? undefined : (note.icon ? (() => { try { return decrypt(note.icon) } catch { return note.icon } })() : undefined),
+                type: note.type ? (() => { try { return decrypt(note.type) as any } catch { return note.type } })() : 'note',
+                locked: locked,
+                order: parseNoteOrder((note as any).order),
+                createdAt: decrypt(note.createdAt),
+                updatedAt: decrypt(note.updatedAt),
+            };
+        });
+        result.push(...decryptedChunk);
+    }
+    return result;
   },
 
   async getNote(id: string): Promise<Note> {
@@ -276,66 +292,80 @@ export const api = {
   },
 
   // Tasks
-  async fetchTasks(parentNoteId?: string): Promise<Task[]> {
+  async fetchTasks(parentNoteId?: string): Promise<any[]> {
     const url = parentNoteId ? `${API_URL}/tasks?parentNoteId=${parentNoteId}` : `${API_URL}/tasks`;
     const res = await fetch(url, { headers: getHeaders() });
-    const tasks: any[] = await handleResponse(res);
-    return tasks.map(task => ({
-      ...task,
-      title: decrypt(task.title),
-      description: decrypt(task.description),
-      completed: parseTaskCompleted(task.completed),
-      priority: parseTaskPriority(task.priority),
-      dueDate: task.dueDate ? (() => {
-        try {
-          const decrypted = decrypt(task.dueDate);
-          const date = new Date(decrypted);
-          return isNaN(date.getTime()) ? null : date;
-        } catch {
-          return null;
-        }
-      })() : null,
-      recurrenceType: task.recurrenceType ? (() => {
-        try {
-          return decrypt(task.recurrenceType) as any;
-        } catch {
-          return 'none' as any;
-        }
-      })() : 'none',
-      recurrenceDays: task.recurrenceDays ? (() => {
-        try {
-          return JSON.parse(decrypt(task.recurrenceDays));
-        } catch {
-          return [];
-        }
-      })() : [],
-      reminderEnabled: task.reminderEnabled ? (() => {
-        try {
-          return decrypt(task.reminderEnabled) === 'true';
-        } catch {
-          return false;
-        }
-      })() : false,
-      reminderOffsetMinutes: task.reminderOffsetMinutes ? (() => {
-        try {
-          const num = Number(decrypt(task.reminderOffsetMinutes));
-          return num === 10 ? 10 : 0;
-        } catch {
-          return 0;
-        }
-      })() : 0,
-      createdAt: decrypt(task.createdAt),
-      updatedAt: decrypt(task.updatedAt),
-      position: task.position ? (() => {
-        try {
-          const decrypted = decrypt(String(task.position));
-          const num = Number(decrypted);
-          return isNaN(num) ? 0 : num;
-        } catch {
-          return 0;
-        }
-      })() : 0,
-    }));
+    return handleResponse(res);
+  },
+
+  async decryptTasks(encryptedTasks: any[]): Promise<Task[]> {
+    const CHUNK_SIZE = 50;
+    const result: Task[] = [];
+
+    for (let i = 0; i < encryptedTasks.length; i += CHUNK_SIZE) {
+        const chunk = encryptedTasks.slice(i, i + CHUNK_SIZE);
+        
+        if (i > 0) await new Promise(resolve => setTimeout(resolve, 0));
+
+        const decryptedChunk = chunk.map(task => ({
+            ...task,
+            title: decrypt(task.title),
+            description: decrypt(task.description),
+            completed: parseTaskCompleted(task.completed),
+            priority: parseTaskPriority(task.priority),
+            dueDate: task.dueDate ? (() => {
+                try {
+                const decrypted = decrypt(task.dueDate);
+                const date = new Date(decrypted);
+                return isNaN(date.getTime()) ? null : date;
+                } catch {
+                return null;
+                }
+            })() : null,
+            recurrenceType: task.recurrenceType ? (() => {
+                try {
+                return decrypt(task.recurrenceType) as any;
+                } catch {
+                return 'none' as any;
+                }
+            })() : 'none',
+            recurrenceDays: task.recurrenceDays ? (() => {
+                try {
+                return JSON.parse(decrypt(task.recurrenceDays));
+                } catch {
+                return [];
+                }
+            })() : [],
+            reminderEnabled: task.reminderEnabled ? (() => {
+                try {
+                return decrypt(task.reminderEnabled) === 'true';
+                } catch {
+                return false;
+                }
+            })() : false,
+            reminderOffsetMinutes: task.reminderOffsetMinutes ? (() => {
+                try {
+                const num = Number(decrypt(task.reminderOffsetMinutes));
+                return num === 10 ? 10 : 0;
+                } catch {
+                return 0;
+                }
+            })() : 0,
+            createdAt: decrypt(task.createdAt),
+            updatedAt: decrypt(task.updatedAt),
+            position: task.position ? (() => {
+                try {
+                const decrypted = decrypt(String(task.position));
+                const num = Number(decrypted);
+                return isNaN(num) ? 0 : num;
+                } catch {
+                return 0;
+                }
+            })() : 0,
+        }));
+        result.push(...decryptedChunk);
+    }
+    return result;
   },
 
   async createTask(data: CreateTaskDto): Promise<Task> {
