@@ -259,13 +259,14 @@ export const api = {
 
     const data = await res.json();
 
-    // Custom handling because verifyLock returns 401 for wrong password
-    if (res.status === 401) {
-         if (data.message === 'Invalid password') {
-             return { success: false, content: '', title: '' }; // Let caller handle boolean check or throw specific error
+    // Handle legacy 401 or new 200 success:false
+    if (res.status === 401 || (res.ok && data.success === false)) {
+         if (data.message === 'Invalid password' || (res.status === 401 && !data.success)) {
+             return { success: false, content: '', title: '' }; 
          }
-         // If it's token related, it might be caught here or by middleware
-         throw new Error(data.message || 'Unauthorized');
+         if (res.status === 401) {
+            throw new Error(data.message || 'Unauthorized');
+         }
     }
     
     if (!res.ok) {
