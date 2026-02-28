@@ -232,7 +232,7 @@ const TreeNode = React.memo(({ note, allNotes, noteById, childrenMap, level, sel
             })}
         </div>
     );
-};
+});
 
 export default function SidebarTree() {
   const { notes, selectedNoteId, selectedTaskListId, selectNote, createNote, deleteNote, fetchNotes, searchQuery, sortOrder, setSortOrder, error, updateNote, moveNote, language, setLanguage, activeTab, setActiveTab, activeProjectId, setActiveProject } = useStore();

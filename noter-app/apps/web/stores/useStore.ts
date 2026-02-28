@@ -820,8 +820,14 @@ export const useStore = create<StoreState>((set, get) => ({
           }
         }
       }
-      for (const note of notes) {
-          await db.saveNote(note);
+
+      // Batch save to DB to prevent UI freezing
+      const chunkSize = 50;
+      for (let i = 0; i < notes.length; i += chunkSize) {
+          const chunk = notes.slice(i, i + chunkSize);
+          await Promise.all(chunk.map(n => db.saveNote(n)));
+          // Yield to event loop
+          await new Promise(resolve => setTimeout(resolve, 0));
       }
     } catch (error: any) {
       set({ error: error.message, isLoading: false });
@@ -886,9 +892,16 @@ export const useStore = create<StoreState>((set, get) => ({
         }
 
         set({ tasks: uniqBy(mergedTasks, '_id'), isLoading: false });
-        for (const task of tasks) {
-            await db.saveTask(task);
+        
+        // Batch save to DB to prevent UI freezing
+        const chunkSize = 50;
+        for (let i = 0; i < tasks.length; i += chunkSize) {
+            const chunk = tasks.slice(i, i + chunkSize);
+            await Promise.all(chunk.map(t => db.saveTask(t)));
+            // Yield to event loop
+            await new Promise(resolve => setTimeout(resolve, 0));
         }
+        
         tasks.forEach(scheduleWebReminder);
     } catch (error: any) {
         set({ error: error.message, isLoading: false });
