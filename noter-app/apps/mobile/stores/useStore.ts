@@ -1402,6 +1402,7 @@ export const useStore = create<AppState>((set, get) => ({
       const response = await fetchWithAuth(`/notes/${id}/verify-lock`, {
         method: 'POST',
         body: JSON.stringify({ password }),
+        skipUnauthorized: true,
       });
       
       const decryptedContent = decrypt(response.content);
@@ -1413,6 +1414,10 @@ export const useStore = create<AppState>((set, get) => ({
 
       return { title: decryptedTitle, content: decryptedContent };
     } catch (error: any) {
+      const status = typeof error?.status === 'number' ? error.status : undefined;
+      if (status === 401 || status === 403) {
+        throw new Error('Incorrect password');
+      }
       throw error;
     }
   },

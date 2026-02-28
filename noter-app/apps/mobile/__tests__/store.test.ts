@@ -105,4 +105,39 @@ describe('Mobile Store', () => {
      expect(state.notes.length).toBe(1);
      expect(state.notes[0]._id).toBe('local_1');
   });
+
+  it('should unlock note content without logging out', async () => {
+    const { fetchWithAuth } = require('../services/api');
+    const noteId = 'locked-1';
+    const encryptedTitle = encrypt('Unlock Title');
+    const encryptedContent = encrypt('Unlock Content');
+
+    useStore.setState({
+      notes: [{ _id: noteId, title: 'Låst anteckning', content: '', locked: true } as any],
+    });
+
+    fetchWithAuth.mockResolvedValueOnce({
+      title: encryptedTitle,
+      content: encryptedContent,
+    });
+
+    const result = await useStore.getState().verifyNoteLock(noteId, 'secret');
+
+    expect(fetchWithAuth).toHaveBeenCalledWith(`/notes/${noteId}/verify-lock`, {
+      method: 'POST',
+      body: JSON.stringify({ password: 'secret' }),
+      skipUnauthorized: true,
+    });
+    expect(result.title).toBe('Unlock Title');
+    expect(result.content).toBe('Unlock Content');
+  });
+
+  it('should reject incorrect note password without clearing session', async () => {
+    const { fetchWithAuth } = require('../services/api');
+    const noteId = 'locked-2';
+
+    fetchWithAuth.mockRejectedValueOnce({ status: 401 });
+
+    await expect(useStore.getState().verifyNoteLock(noteId, 'wrong')).rejects.toThrow('Incorrect password');
+  });
 });

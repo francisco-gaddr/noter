@@ -214,6 +214,51 @@ describe('Performance and Stability Tests', () => {
       expect(screen.getAllByRole('treeitem').length).toBeGreaterThan(0);
     });
 
+    it('should handle many empty notes without freezing', async () => {
+      const largeEmptyNotes = Array.from({ length: 2000 }, (_, i) => ({
+        _id: `note-empty-${i}`,
+        title: '',
+        content: '',
+        parentId: null,
+        locked: false,
+        type: 'note',
+        order: i,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }));
+
+      (useStore as unknown as jest.Mock).mockImplementation((selector) => {
+        const state = {
+          notes: largeEmptyNotes,
+          tasks: [],
+          selectedNoteId: null,
+          selectedTaskListId: null,
+          activeProjectId: null,
+          isLoading: false,
+          error: null,
+          searchQuery: '',
+          sortOrder: 'date-desc',
+          activeTab: 'notes',
+          setActiveTab: jest.fn(),
+          selectNote: jest.fn(),
+          createNote: jest.fn().mockResolvedValue(undefined),
+          updateNote: jest.fn().mockResolvedValue(undefined),
+          deleteNote: jest.fn().mockResolvedValue(undefined),
+          moveNote: jest.fn().mockResolvedValue(undefined),
+          fetchNotes: jest.fn().mockResolvedValue(undefined),
+          setSortOrder: jest.fn(),
+          language: 'sv',
+          setLanguage: jest.fn(),
+        };
+        return selector ? selector(state) : state;
+      });
+
+      const { container } = render(<SidebarTree />);
+      await waitFor(() => {
+        expect(container).toBeInTheDocument();
+      });
+    });
+
     it('should handle rapid note selection without performance issues', async () => {
       render(<SidebarTree />);
       

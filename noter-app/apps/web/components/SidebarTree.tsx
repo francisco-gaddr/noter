@@ -275,17 +275,30 @@ export default function SidebarTree() {
 
   const effectiveSelectedId = activeTab === 'tasks' ? selectedTaskListId : selectedNoteId;
 
+  const noteById = useMemo(() => {
+    return new Map(notes.map((n) => [n._id, n]));
+  }, [notes]);
+
+  const childCountMap = useMemo(() => {
+    const map = new Map<string, number>();
+    notes.forEach((n) => {
+      if (!n.parentId) return;
+      map.set(n.parentId, (map.get(n.parentId) || 0) + 1);
+    });
+    return map;
+  }, [notes]);
+
   const projects = useMemo(() => {
     const set = new Map<string, typeof notes[0]>();
     notes.forEach(n => {
       if ((n as any).type === 'project') set.set(n._id, n);
     });
     notes.forEach(n => {
-      const hasChildren = notes.some(c => c.parentId === n._id);
+      const hasChildren = (childCountMap.get(n._id) || 0) > 0;
       if (hasChildren) set.set(n._id, n);
     });
     return Array.from(set.values()).sort((a, b) => (a.title || '').localeCompare(b.title || ''));
-  }, [notes]);
+  }, [notes, childCountMap]);
 
   const { rootNotes, flatFilteredNotes, sortedFlatNotes } = useMemo(() => {
     if (searchQuery) {
@@ -306,6 +319,7 @@ export default function SidebarTree() {
     }
 
     if (viewMode === 'list') {
+      const belongsCache = new Map<string, boolean>();
       const filtered = notes.filter(n => {
         const noteType = (n as any).type;
         const isTaskList = noteType === 'task_list';
@@ -313,17 +327,22 @@ export default function SidebarTree() {
         if (activeTab === 'tasks') return isTaskList;
         
         if (activeProjectId) {
-             // Deep check if note belongs to project tree
+             const cached = belongsCache.get(n._id);
+             if (cached !== undefined) {
+               return !isTaskList && (n as any).type !== 'project' && cached;
+             }
+
              let parent = n.parentId;
              let belongs = false;
-             if (parent === activeProjectId) belongs = true;
-             while (parent && !belongs) {
+             let steps = 0;
+             while (parent && steps < 100) {
                  if (parent === activeProjectId) { belongs = true; break; }
-                 const p = notes.find(x => x._id === parent);
+                 const p = noteById.get(parent);
                  if (!p) break;
                  parent = p.parentId;
+                 steps += 1;
              }
-             // Show note if it belongs to project tree, but hide the project folders themselves
+             belongsCache.set(n._id, belongs);
              return !isTaskList && (n as any).type !== 'project' && belongs;
         }
         
@@ -335,7 +354,7 @@ export default function SidebarTree() {
 
     // Tree view
     const roots = notes.filter(n => {
-        const parent = n.parentId ? notes.find(p => p._id === n.parentId) : null;
+        const parent = n.parentId ? noteById.get(n.parentId) : null;
         const isRoot = (!n.parentId || !parent || (parent as any)?.type === 'project');
         const noteType = (n as any).type;
         const isTaskList = noteType === 'task_list';
@@ -353,7 +372,7 @@ export default function SidebarTree() {
     });
     return { rootNotes: sortNotes(roots, sortOrder), flatFilteredNotes: [], sortedFlatNotes: [] };
 
-  }, [notes, searchQuery, sortOrder, viewMode, activeTab, activeProjectId, projects]);
+  }, [notes, searchQuery, sortOrder, viewMode, activeTab, activeProjectId, projects, noteById]);
 
   const handleCreateProject = () => {
       setCreateModal({

@@ -193,8 +193,12 @@ export async function register(username: string, password: string) {
   }
 }
 
-export async function fetchWithAuth(endpoint: string, options: RequestInit = {}) {
+export async function fetchWithAuth(
+  endpoint: string,
+  options: (RequestInit & { skipUnauthorized?: boolean }) = {}
+) {
   const url = `${API_URL}${endpoint}`;
+  const { skipUnauthorized, ...fetchOptions } = options;
   
   // If no token in memory, try to get from SecureStore (fallback/recovery)
   if (!authToken) {
@@ -223,19 +227,25 @@ export async function fetchWithAuth(endpoint: string, options: RequestInit = {})
     try {
       console.log(`[API] Requesting: ${options.method || 'GET'} ${url}`);
       const response = await fetch(url, {
-        ...options,
+        ...fetchOptions,
         headers,
       });
 
       if (!response.ok) {
         console.warn(`[API] Error ${response.status} from ${url}`);
         if (response.status === 401) {
-          await SecureStore.deleteItemAsync('token');
-          authToken = null;
-          try {
-            await unauthorizedHandler?.();
-          } catch {}
-          throw new Error('Unauthorized: Session expired or invalid credentials');
+          const err: any = new Error('Unauthorized: Session expired or invalid credentials');
+          err.status = 401;
+          err.url = url;
+          err.method = String(fetchOptions.method || 'GET').toUpperCase();
+          if (!skipUnauthorized) {
+            await SecureStore.deleteItemAsync('token');
+            authToken = null;
+            try {
+              await unauthorizedHandler?.();
+            } catch {}
+          }
+          throw err;
         }
 
         const contentType = response.headers.get('content-type') ?? '';
