@@ -1,16 +1,21 @@
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, Animated } from 'react-native';
-import { Text, useTheme } from 'react-native-paper';
+import { View, StyleSheet, Animated, Pressable } from 'react-native';
+import { IconButton, Text, useTheme } from 'react-native-paper';
 import NetInfo from '@react-native-community/netinfo';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export function NetworkStatus() {
   const [isConnected, setIsConnected] = useState<boolean | null>(true);
+  const [dismissed, setDismissed] = useState(false);
   const theme = useTheme();
   const insets = useSafeAreaInsets();
   const [heightAnim] = useState(new Animated.Value(0));
 
   useEffect(() => {
+    AsyncStorage.getItem('hideOfflineBanner').then(value => {
+      setDismissed(value === 'true');
+    });
     const unsubscribe = NetInfo.addEventListener(state => {
       setIsConnected(state.isConnected);
     });
@@ -20,18 +25,23 @@ export function NetworkStatus() {
 
   useEffect(() => {
     Animated.timing(heightAnim, {
-      toValue: isConnected === false ? 40 + insets.top : 0,
+      toValue: isConnected === false && !dismissed ? 32 + insets.top : 0,
       duration: 300,
       useNativeDriver: false,
     }).start();
-  }, [isConnected, insets.top]);
+  }, [isConnected, dismissed, insets.top]);
 
-  // Don't render anything if connected (or initial null state), but keep in tree for animation
-  if (isConnected === true) return null;
+  useEffect(() => {
+    if (isConnected === true) {
+      setDismissed(false);
+      AsyncStorage.removeItem('hideOfflineBanner');
+    }
+  }, [isConnected]);
+
+  if (isConnected === true || dismissed) return null;
 
   return (
     <Animated.View
-      pointerEvents="none"
       style={[
         styles.container,
         {
@@ -42,8 +52,19 @@ export function NetworkStatus() {
     >
       <View style={[styles.content, { paddingTop: insets.top }]}>
         <Text variant="labelMedium" style={{ color: theme.colors.onError }}>
-          No Internet Connection
+          Offline
         </Text>
+        <Pressable
+          onPress={() => {
+            AsyncStorage.setItem('hideOfflineBanner', 'true');
+            setDismissed(true);
+          }}
+          style={styles.close}
+          accessibilityRole="button"
+          accessibilityLabel="Dölj offline-indikator"
+        >
+          <IconButton icon="close" size={14} iconColor={theme.colors.onError} />
+        </Pressable>
       </View>
     </Animated.View>
   );
@@ -54,17 +75,21 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     alignSelf: 'center', // Center horizontally
-    width: '50%', // Much smaller width
+    width: '40%',
     borderBottomLeftRadius: 12,
     borderBottomRightRadius: 12,
     zIndex: 9999,
     overflow: 'hidden',
   },
   content: {
-    flex: 1,
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingBottom: 4,
+    justifyContent: 'space-between',
+    paddingHorizontal: 8,
+    paddingBottom: 2,
+  },
+  close: {
+    marginLeft: 6,
   },
 });
 

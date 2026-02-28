@@ -289,6 +289,7 @@ export const useStore = create<StoreState>((set, get) => ({
             networkListenersReady = true;
             window.addEventListener('online', () => {
                 set({ isOffline: false, error: null });
+                localStorage.removeItem('hideOfflineIndicator');
                 get().syncOfflineChanges();
                 get().fetchNotes();
                 get().fetchTasks();
@@ -767,6 +768,10 @@ export const useStore = create<StoreState>((set, get) => ({
     }
 
     try {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        set({ isOffline: true, error: 'Offline-läge', isLoading: false });
+        return;
+      }
       const withTimeout = <T,>(promise: Promise<T>, ms: number) => {
         let timeoutId: ReturnType<typeof setTimeout>;
         const timeout = new Promise<never>((_, reject) => {
@@ -831,12 +836,18 @@ export const useStore = create<StoreState>((set, get) => ({
         if (validTasks.length > 0) {
              set({ tasks: validTasks, isLoading: false });
              validTasks.forEach(scheduleWebReminder);
+        } else {
+             set({ tasks: [], isLoading: false });
         }
     } catch (e) {
         console.error('Failed to load tasks from DB', e);
     }
 
     try {
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+            set({ isOffline: true, error: 'Offline-läge', isLoading: false });
+            return;
+        }
         const tasks = await api.fetchTasks(parentNoteId);
         const pendingTasks = await db.getPendingSyncTasks();
         

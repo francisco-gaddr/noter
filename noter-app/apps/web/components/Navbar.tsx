@@ -10,13 +10,25 @@ import { useTranslation } from 'react-i18next';
 export default function Navbar({ onToggleSidebar, isSidebarCollapsed }: { onToggleSidebar?: () => void; isSidebarCollapsed?: boolean }) {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
-  const { searchQuery, setSearchQuery, logout, user, activeTab } = useStore();
+  const { searchQuery, setSearchQuery, logout, user, activeTab, isOffline } = useStore();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [hideOfflineIndicator, setHideOfflineIndicator] = useState(false);
   const { t } = useTranslation();
 
   useEffect(() => {
     setMounted(true);
+    if (typeof window !== 'undefined') {
+      setHideOfflineIndicator(localStorage.getItem('hideOfflineIndicator') === 'true');
+    }
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (!isOffline) {
+      localStorage.removeItem('hideOfflineIndicator');
+      setHideOfflineIndicator(false);
+    }
+  }, [isOffline]);
 
   if (!mounted) return null;
 
@@ -47,6 +59,24 @@ export default function Navbar({ onToggleSidebar, isSidebarCollapsed }: { onTogg
         </div>
       </div>
       <div className="flex items-center gap-4">
+        {isOffline && !hideOfflineIndicator && (
+          <div className="flex items-center gap-2 px-2 py-1 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 text-xs">
+            <span>{t('navbar.offlineIndicator')}</span>
+            <button
+              onClick={() => {
+                if (typeof window !== 'undefined') {
+                  localStorage.setItem('hideOfflineIndicator', 'true');
+                }
+                setHideOfflineIndicator(true);
+              }}
+              aria-label={t('navbar.hideOfflineIndicator')}
+              title={t('navbar.hideOfflineIndicator')}
+              className="text-amber-700 dark:text-amber-200 hover:opacity-80"
+            >
+              ✕
+            </button>
+          </div>
+        )}
         {user && (
             <div className="text-sm mr-2 hidden md:block font-medium">
                 {user.username}

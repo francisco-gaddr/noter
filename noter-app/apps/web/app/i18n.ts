@@ -20,7 +20,9 @@ const resources = {
         openSettings: 'Open settings',
         settingsTitle: 'Settings',
         toggleTheme: 'Toggle theme',
-        logout: 'Logout'
+        logout: 'Logout',
+        offlineIndicator: 'Offline',
+        hideOfflineIndicator: 'Hide offline indicator'
       },
 
 
@@ -227,7 +229,9 @@ const resources = {
         openSettings: 'Öppna inställningar',
         settingsTitle: 'Inställningar',
         toggleTheme: 'Växla tema',
-        logout: 'Logga ut'
+        logout: 'Logga ut',
+        offlineIndicator: 'Offline',
+        hideOfflineIndicator: 'Dölj offline‑indikator'
       },
       settings: {
         title: 'Inställningar',
