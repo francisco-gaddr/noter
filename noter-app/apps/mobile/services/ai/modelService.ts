@@ -3,10 +3,11 @@ import { HFFile, HFModel } from '@repo/ai';
 import { saveModelLocal, deleteModelLocal } from '@/services/database';
 import { v4 as uuidv4 } from 'uuid';
 
-export const MODELS_DIR = RNFS.DocumentDirectoryPath + '/models/';
+export const MODELS_DIR = (RNFS.DocumentDirectoryPath ? RNFS.DocumentDirectoryPath : '') + '/models/';
 
 // Ensure models directory exists
 export const ensureModelsDir = async () => {
+    if (!RNFS.DocumentDirectoryPath) return; // Skip if no FS access
     const exists = await RNFS.exists(MODELS_DIR);
     if (!exists) {
         await RNFS.mkdir(MODELS_DIR);
