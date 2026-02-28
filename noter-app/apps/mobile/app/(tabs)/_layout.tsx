@@ -1,7 +1,7 @@
 import React from 'react';
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Link, Tabs } from 'expo-router';
-import { Pressable } from 'react-native';
+import { View, Pressable } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
 import Colors from '@/constants/Colors';
@@ -35,33 +35,34 @@ export default function TabLayout() {
           title: t('tabs.notes'),
           tabBarIcon: ({ color }) => <TabBarIcon name="sticky-note" color={color} />,
           headerRight: () => (
-            <Link href="/(tabs)/search" asChild>
-              <Pressable>
-                {({ pressed }) => (
-                  <FontAwesome
-                    name="search"
-                    size={20}
-                    color={Colors[colorScheme ?? 'light'].text}
-                    style={{ marginRight: 15, opacity: pressed ? 0.5 : 1 }}
-                  />
-                )}
-              </Pressable>
-            </Link>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Link href="/(tabs)/search" asChild>
+                <Pressable>
+                  {({ pressed }) => (
+                    <FontAwesome
+                      name="search"
+                      size={20}
+                      color={Colors[colorScheme ?? 'light'].text}
+                      style={{ marginRight: 20, opacity: pressed ? 0.5 : 1 }}
+                    />
+                  )}
+                </Pressable>
+              </Link>
+              <Link href="/(tabs)/settings" asChild>
+                <Pressable>
+                  {({ pressed }) => (
+                    <FontAwesome
+                      name="cog"
+                      size={20}
+                      color={Colors[colorScheme ?? 'light'].text}
+                      style={{ marginRight: 15, opacity: pressed ? 0.5 : 1 }}
+                    />
+                  )}
+                </Pressable>
+              </Link>
+            </View>
           ),
-          headerLeft: () => (
-            <Link href="/(tabs)/settings" asChild>
-              <Pressable>
-                {({ pressed }) => (
-                  <FontAwesome
-                    name="cog"
-                    size={20}
-                    color={Colors[colorScheme ?? 'light'].text}
-                    style={{ marginLeft: 15, opacity: pressed ? 0.5 : 1 }}
-                  />
-                )}
-              </Pressable>
-            </Link>
-          ),
+          // Remove headerLeft to avoid confusion or back button conflicts
         }}
       />
       <Tabs.Screen

@@ -256,28 +256,24 @@ export const api = {
       headers: getHeaders(),
       body: JSON.stringify({ password }),
     });
-    // Custom handling because verifyLock returns 401 for wrong password which is different from Unauthorized token
-    if (res.status === 401 && res.url.includes('verify-lock')) {
-         // Check if it's really invalid password or missing token
-         // If token was missing/invalid, middleware would return 401.
-         // But verifyLock endpoint logic returns 401 for wrong password too?
-         // Let's check backend logic.
-         // Backend: if (!isMatch) return res.status(401).json({ message: 'Invalid password' });
-         // Middleware: if (!token) return res.status(401).json({ message: 'No token provided' });
-         // We can check the message.
-         const data = await res.json();
+
+    const data = await res.json();
+
+    // Custom handling because verifyLock returns 401 for wrong password
+    if (res.status === 401) {
          if (data.message === 'Invalid password') {
-             throw new Error('Invalid password');
+             return { success: false, content: '', title: '' }; // Let caller handle boolean check or throw specific error
          }
-         throw new Error('Unauthorized');
+         // If it's token related, it might be caught here or by middleware
+         throw new Error(data.message || 'Unauthorized');
     }
     
     if (!res.ok) {
-       throw new Error('Failed to verify lock');
+       throw new Error(data.message || 'Failed to verify lock');
     }
-    const data = await res.json();
+    
     return {
-      success: data.success,
+      success: true,
       content: decrypt(data.content),
       title: data.title ? decrypt(data.title) : undefined,
     };
