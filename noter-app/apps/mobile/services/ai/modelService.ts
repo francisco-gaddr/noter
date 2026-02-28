@@ -1,16 +1,29 @@
-import * as RNFS from 'react-native-fs';
+import * as FileSystem from 'expo-file-system';
 import { HFFile, HFModel } from '@repo/ai';
 import { saveModelLocal, deleteModelLocal } from '@/services/database';
 import { v4 as uuidv4 } from 'uuid';
+import { Platform } from 'react-native';
 
-export const MODELS_DIR = (RNFS.DocumentDirectoryPath ? RNFS.DocumentDirectoryPath : '') + '/models/';
+// Try to load RNFS safely
+let RNFS: any;
+try {
+  RNFS = require("react-native-fs").default;
+} catch (e) {
+  RNFS = null;
+}
+
+export const MODELS_DIR = (RNFS?.DocumentDirectoryPath ? RNFS.DocumentDirectoryPath : '') + '/models/';
 
 // Ensure models directory exists
 export const ensureModelsDir = async () => {
-    if (!RNFS.DocumentDirectoryPath) return; // Skip if no FS access
-    const exists = await RNFS.exists(MODELS_DIR);
-    if (!exists) {
-        await RNFS.mkdir(MODELS_DIR);
+    if (!RNFS?.DocumentDirectoryPath) return; // Skip if no FS access
+    try {
+        const exists = await RNFS.exists(MODELS_DIR);
+        if (!exists) {
+            await RNFS.mkdir(MODELS_DIR);
+        }
+    } catch (e) {
+        console.warn("Failed to check/create models dir", e);
     }
 };
 

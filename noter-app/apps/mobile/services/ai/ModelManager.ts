@@ -1,11 +1,30 @@
-import RNFS from "react-native-fs";
+import { NativeModules, Platform } from "react-native";
+// Use a try-catch for the import or dynamic require if possible, but in RN static imports are preferred.
+// Instead, we will wrap the usage.
+// However, the error "Cannot read property 'RNFSFileTypeRegular' of null" happens AT IMPORT time inside RNFS.
+// We need to mock RNFS if it's missing.
+
+let RNFS: any;
+try {
+  RNFS = require("react-native-fs").default;
+} catch (e) {
+  console.warn("react-native-fs could not be loaded. Mocking for Expo Go/Web.");
+  RNFS = {
+    DocumentDirectoryPath: null,
+    exists: async () => false,
+    mkdir: async () => {},
+    downloadFile: () => ({ promise: Promise.reject("Native module missing") }),
+    unlink: async () => {},
+  };
+}
+
 import { loadModel, chat } from "./native/MLCModule";
 
 // Safe path getter that handles potential nulls in dev/web environments
 const getModelsDir = () => {
     if (!RNFS || !RNFS.DocumentDirectoryPath) {
         // Fallback or throw if critical
-        console.warn("RNFS not available (likely running in Expo Go or Web). Native modules required.");
+        // Suppress warning on start, only warn when action is taken
         return null;
     }
     return `${RNFS.DocumentDirectoryPath}/models`;
