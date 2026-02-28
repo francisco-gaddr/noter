@@ -259,6 +259,46 @@ describe('Performance and Stability Tests', () => {
       });
     });
 
+    it('should guard against malformed and cyclic notes', async () => {
+      const badNotes: any[] = [
+        { _id: '', title: 'Bad', content: '', parentId: null, locked: false, type: 'note' },
+        { title: 'Missing id', content: '', parentId: null, locked: false, type: 'note' },
+        { _id: 'a', title: 'A', content: '', parentId: 'b', locked: false, type: 'note' },
+        { _id: 'b', title: 'B', content: '', parentId: 'a', locked: false, type: 'note' },
+      ];
+
+      (useStore as unknown as jest.Mock).mockImplementation((selector) => {
+        const state = {
+          notes: badNotes,
+          tasks: [],
+          selectedNoteId: null,
+          selectedTaskListId: null,
+          activeProjectId: null,
+          isLoading: false,
+          error: null,
+          searchQuery: '',
+          sortOrder: 'date-desc',
+          activeTab: 'notes',
+          setActiveTab: jest.fn(),
+          selectNote: jest.fn(),
+          createNote: jest.fn().mockResolvedValue(undefined),
+          updateNote: jest.fn().mockResolvedValue(undefined),
+          deleteNote: jest.fn().mockResolvedValue(undefined),
+          moveNote: jest.fn().mockResolvedValue(undefined),
+          fetchNotes: jest.fn().mockResolvedValue(undefined),
+          setSortOrder: jest.fn(),
+          language: 'sv',
+          setLanguage: jest.fn(),
+        };
+        return selector ? selector(state) : state;
+      });
+
+      const { container } = render(<SidebarTree />);
+      await waitFor(() => {
+        expect(container).toBeInTheDocument();
+      });
+    });
+
     it('should handle rapid note selection without performance issues', async () => {
       render(<SidebarTree />);
       

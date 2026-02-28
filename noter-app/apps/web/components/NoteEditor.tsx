@@ -859,6 +859,10 @@ const normalizeSlateValue = (input: unknown, fallbackText?: string): Descendant[
 
 const contentToSlateValue = (raw: string): Descendant[] => {
   if (!raw) return initialValue;
+  if (raw.length > 2_000_000) {
+    console.warn('Anteckningsinnehåll är för stort, använder fallback');
+    return initialValue;
+  }
   try {
     const parsed = JSON.parse(raw);
     if (parsed && typeof parsed === 'object' && (parsed as any).type === 'doc' && Array.isArray((parsed as any).content)) {

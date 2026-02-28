@@ -47,4 +47,29 @@ describe('Notes CRUD', () => {
     cy.wait('@createNote');
     cy.contains('Min anteckning').should('be.visible');
   });
+
+  it('loads large empty note lists without freezing', () => {
+    const largeNotes = Array.from({ length: 1500 }, (_, i) => ({
+      _id: `note-${i}`,
+      userId: 'user-1',
+      title: '',
+      content: '',
+      parentId: null,
+      locked: false,
+      type: 'note',
+      order: i,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }));
+
+    cy.intercept('GET', '**/notes', {
+      statusCode: 200,
+      body: largeNotes,
+    }).as('getLargeNotes');
+
+    cy.reload();
+    cy.wait('@getLargeNotes');
+    cy.contains('Noter').should('be.visible');
+    cy.get('nav').should('be.visible');
+  });
 });

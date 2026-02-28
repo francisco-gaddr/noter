@@ -16,6 +16,8 @@ import { useTranslation } from 'react-i18next';
 interface TreeNodeProps {
     note: Note;
     allNotes: Note[];
+    noteById: Map<string, Note>;
+    childrenMap: Map<string, Note[]>;
     level: number;
     selectedNoteId: string | null;
     sortOrder: string;
@@ -25,6 +27,7 @@ interface TreeNodeProps {
     onEdit: (e: React.MouseEvent, note: Note) => void;
     onIconClick: (e: React.MouseEvent, note: Note) => void;
     onMove: (dragId: string, parentId: string | null, order?: number) => void;
+    ancestors: string[];
 }
 
 type DragItem = { id: string; type: string };
@@ -44,10 +47,10 @@ const sortNotes = (nodes: Note[], order: string) => {
     }
 };
 
-const TreeNode = ({ note, allNotes, level, selectedNoteId, sortOrder, onSelect, onDelete, onCreateChild, onEdit, onIconClick, onMove }: TreeNodeProps) => {
+const TreeNode = ({ note, allNotes, noteById, childrenMap, level, selectedNoteId, sortOrder, onSelect, onDelete, onCreateChild, onEdit, onIconClick, onMove, ancestors }: TreeNodeProps) => {
     const { t } = useTranslation();
     const [isExpanded, setIsExpanded] = useState(true);
-    const children = sortNotes(allNotes.filter(n => n.parentId === note._id), sortOrder);
+    const children = childrenMap.get(note._id) || [];
     const hasChildren = children.length > 0;
     const ref = useRef<HTMLDivElement>(null);
 
@@ -64,7 +67,7 @@ const TreeNode = ({ note, allNotes, level, selectedNoteId, sortOrder, onSelect, 
             let currentId = note.parentId;
             while (currentId) {
                 if (currentId === item.id) return false;
-                const p = allNotes.find(n => n._id === currentId);
+                const p = noteById.get(currentId);
                 if (!p) break;
                 currentId = p.parentId;
             }
@@ -82,7 +85,8 @@ const TreeNode = ({ note, allNotes, level, selectedNoteId, sortOrder, onSelect, 
             const rect = el.getBoundingClientRect();
             const y = client.y - rect.top;
             const ratio = y / rect.height;
-            const siblings = allNotes
+            const parentKey = note.parentId ?? '__root__';
+            const siblings = (childrenMap.get(parentKey) || [])
               .filter(n => (n.parentId || null) === (note.parentId || null))
               .sort((a, b) => Number(a.order ?? 0) - Number(b.order ?? 0));
             const targetOrder = Number(note.order ?? 0);
@@ -98,7 +102,7 @@ const TreeNode = ({ note, allNotes, level, selectedNoteId, sortOrder, onSelect, 
                 onMove(item.id, note.parentId || null, newOrder);
             } else {
                 // Center: nest inside target
-                const children = allNotes.filter(n => (n.parentId || null) === note._id);
+                const children = childrenMap.get(note._id) || [];
                 const maxOrder = children.reduce((max, n) => (typeof n.order === 'number' && n.order > max ? n.order : max), 0);
                 onMove(item.id, note._id, maxOrder + 1);
             }
@@ -201,22 +205,31 @@ const TreeNode = ({ note, allNotes, level, selectedNoteId, sortOrder, onSelect, 
                 </div>
             </div>
             
-            {isExpanded && children.map(child => (
-                <TreeNode 
-                    key={child._id} 
-                    note={child} 
-                    allNotes={allNotes} 
-                    level={level + 1} 
-                    selectedNoteId={selectedNoteId}
-                    sortOrder={sortOrder}
-                    onSelect={onSelect}
-                    onDelete={onDelete}
-                    onCreateChild={onCreateChild}
-                    onEdit={onEdit}
-                    onIconClick={onIconClick}
-                    onMove={onMove}
-                />
-            ))}
+            {isExpanded && children.map(child => {
+                if (ancestors.includes(child._id)) {
+                    console.warn(`Cycle detected in note tree at ${child._id}`);
+                    return null;
+                }
+                return (
+                    <TreeNode 
+                        key={child._id} 
+                        note={child} 
+                        allNotes={allNotes} 
+                        noteById={noteById}
+                        childrenMap={childrenMap}
+                        level={level + 1} 
+                        selectedNoteId={selectedNoteId}
+                        sortOrder={sortOrder}
+                        onSelect={onSelect}
+                        onDelete={onDelete}
+                        onCreateChild={onCreateChild}
+                        onEdit={onEdit}
+                        onIconClick={onIconClick}
+                        onMove={onMove}
+                        ancestors={[...ancestors, note._id]}
+                    />
+                );
+            })}
         </div>
     );
 };
@@ -275,35 +288,62 @@ export default function SidebarTree() {
 
   const effectiveSelectedId = activeTab === 'tasks' ? selectedTaskListId : selectedNoteId;
 
-  const noteById = useMemo(() => {
-    return new Map(notes.map((n) => [n._id, n]));
+  const { safeNotes, invalidNotesCount } = useMemo(() => {
+    const valid: Note[] = [];
+    let invalid = 0;
+    notes.forEach((n) => {
+      if (n && typeof n._id === 'string' && n._id.length > 0) {
+        valid.push(n);
+      } else {
+        invalid += 1;
+      }
+    });
+    return { safeNotes: valid, invalidNotesCount: invalid };
   }, [notes]);
+
+  const noteById = useMemo(() => {
+    return new Map(safeNotes.map((n) => [n._id, n]));
+  }, [safeNotes]);
 
   const childCountMap = useMemo(() => {
     const map = new Map<string, number>();
-    notes.forEach((n) => {
+    safeNotes.forEach((n) => {
       if (!n.parentId) return;
       map.set(n.parentId, (map.get(n.parentId) || 0) + 1);
     });
     return map;
-  }, [notes]);
+  }, [safeNotes]);
 
   const projects = useMemo(() => {
     const set = new Map<string, typeof notes[0]>();
-    notes.forEach(n => {
+    safeNotes.forEach(n => {
       if ((n as any).type === 'project') set.set(n._id, n);
     });
-    notes.forEach(n => {
+    safeNotes.forEach(n => {
       const hasChildren = (childCountMap.get(n._id) || 0) > 0;
       if (hasChildren) set.set(n._id, n);
     });
     return Array.from(set.values()).sort((a, b) => (a.title || '').localeCompare(b.title || ''));
-  }, [notes, childCountMap]);
+  }, [safeNotes, childCountMap]);
+
+  const childrenMap = useMemo(() => {
+    const map = new Map<string, Note[]>();
+    safeNotes.forEach((n) => {
+      const key = n.parentId ?? '__root__';
+      const arr = map.get(key) || [];
+      arr.push(n);
+      map.set(key, arr);
+    });
+    map.forEach((arr, key) => {
+      map.set(key, sortNotes(arr, sortOrder));
+    });
+    return map;
+  }, [safeNotes, sortOrder]);
 
   const { rootNotes, flatFilteredNotes, sortedFlatNotes } = useMemo(() => {
     if (searchQuery) {
       // Only search when there's actually a search query to avoid unnecessary computation
-      const fuse = new Fuse(notes, {
+      const fuse = new Fuse(safeNotes, {
         keys: ['title', 'content', 'tags'],
         threshold: 0.4,
         includeScore: false
@@ -320,7 +360,7 @@ export default function SidebarTree() {
 
     if (viewMode === 'list') {
       const belongsCache = new Map<string, boolean>();
-      const filtered = notes.filter(n => {
+      const filtered = safeNotes.filter(n => {
         const noteType = (n as any).type;
         const isTaskList = noteType === 'task_list';
         const isProject = noteType === 'project';
@@ -353,7 +393,7 @@ export default function SidebarTree() {
     }
 
     // Tree view
-    const roots = notes.filter(n => {
+    const roots = safeNotes.filter(n => {
         const parent = n.parentId ? noteById.get(n.parentId) : null;
         const isRoot = (!n.parentId || !parent || (parent as any)?.type === 'project');
         const noteType = (n as any).type;
@@ -372,7 +412,7 @@ export default function SidebarTree() {
     });
     return { rootNotes: sortNotes(roots, sortOrder), flatFilteredNotes: [], sortedFlatNotes: [] };
 
-  }, [notes, searchQuery, sortOrder, viewMode, activeTab, activeProjectId, projects, noteById]);
+  }, [safeNotes, searchQuery, sortOrder, viewMode, activeTab, activeProjectId, projects, noteById]);
 
   const handleCreateProject = () => {
       setCreateModal({
@@ -620,6 +660,11 @@ export default function SidebarTree() {
                     {error}
                 </div>
             )}
+            {invalidNotesCount > 0 && (
+                <div className="text-amber-700 dark:text-amber-300 text-xs p-1 bg-amber-100 dark:bg-amber-900/30 rounded">
+                    {t('errors.generic')}: {invalidNotesCount}
+                </div>
+            )}
 
                 <div className="flex items-center gap-2">
                     <button
@@ -691,7 +736,9 @@ export default function SidebarTree() {
                             <TreeNode 
                                 key={note._id} 
                                 note={note} 
-                                allNotes={notes} 
+                                allNotes={safeNotes} 
+                                noteById={noteById}
+                                childrenMap={childrenMap}
                                 level={0} 
                                 selectedNoteId={effectiveSelectedId}
                                 sortOrder={sortOrder}
@@ -701,6 +748,7 @@ export default function SidebarTree() {
                                 onEdit={handleEdit}
                                 onIconClick={handleIconClick}
                                 onMove={handleMove}
+                                ancestors={[note._id]}
                             />
                         ))}
                     </div>
