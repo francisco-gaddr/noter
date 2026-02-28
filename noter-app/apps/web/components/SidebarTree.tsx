@@ -62,6 +62,8 @@ const TreeNode = React.memo(({ note, allNotes, noteById, childrenMap, level, sel
 
     const displayedChildren = children.slice(0, visibleChildrenCount);
     const remainingChildren = children.length - visibleChildrenCount;
+
+    const [{ isDragging }, drag] = useDrag<DragItem, void, { isDragging: boolean }>({
         type: 'NOTE',
         item: { id: note._id, type: 'NOTE' },
         collect: (monitor: any) => ({ isDragging: monitor.isDragging() }),
