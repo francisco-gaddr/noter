@@ -47,7 +47,7 @@ const sortNotes = (nodes: Note[], order: string) => {
     }
 };
 
-const TreeNode = ({ note, allNotes, noteById, childrenMap, level, selectedNoteId, sortOrder, onSelect, onDelete, onCreateChild, onEdit, onIconClick, onMove, ancestors }: TreeNodeProps) => {
+const TreeNode = React.memo(({ note, allNotes, noteById, childrenMap, level, selectedNoteId, sortOrder, onSelect, onDelete, onCreateChild, onEdit, onIconClick, onMove, ancestors }: TreeNodeProps) => {
     const { t } = useTranslation();
     const [isExpanded, setIsExpanded] = useState(true);
     const children = childrenMap.get(note._id) || [];
@@ -694,10 +694,10 @@ export default function SidebarTree() {
                 </div>
             </div>
             
-            <div className="flex-1 overflow-auto p-2">
+            <div className="flex-1 overflow-auto p-2" style={{ contentVisibility: 'auto' }}>
                 {searchQuery || viewMode === 'list' ? (
                     <ul className="space-y-1" role="list" aria-label={t('aria.notesList')}>
-                        {(searchQuery ? flatFilteredNotes : sortedFlatNotes).map(note => (
+                        {(searchQuery ? flatFilteredNotes : sortedFlatNotes).slice(0, 500).map(note => (
                             <li 
                                 key={note._id}
                                 role="listitem"
@@ -713,6 +713,11 @@ export default function SidebarTree() {
                                 </div>
                             </li>
                         ))}
+                        {(searchQuery ? flatFilteredNotes : sortedFlatNotes).length > 500 && (
+                             <div className="text-center text-xs text-gray-500 p-2">
+                                 {t('common.showingFirst500') || 'Showing first 500 items. Refine search to see more.'}
+                             </div>
+                        )}
                     </ul>
                 ) : (
                     <div className="space-y-1" role="tree" aria-label={t('aria.notesTree')}>
@@ -732,7 +737,7 @@ export default function SidebarTree() {
                                 </span>
                             </div>
                         )}
-                        {rootNotes.map(note => (
+                        {rootNotes.slice(0, 200).map(note => (
                             <TreeNode 
                                 key={note._id} 
                                 note={note} 
@@ -751,6 +756,11 @@ export default function SidebarTree() {
                                 ancestors={[note._id]}
                             />
                         ))}
+                         {rootNotes.length > 200 && (
+                             <div className="text-center text-xs text-gray-500 p-2">
+                                 {t('common.showingFirst200') || 'Showing first 200 items'}
+                             </div>
+                        )}
                     </div>
                 )}
                 

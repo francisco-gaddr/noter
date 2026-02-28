@@ -152,7 +152,7 @@ const TaskItem: React.FC<TaskItemProps> = ({
                 >
                     <span>{task.title}</span>
                     {task.dueDate && (
-                        <span className="text-xs text-gray-500 flex items-center gap-1">
+                        <span className="text-xs text-gray-500 dark:text-gray-300 flex items-center gap-1">
                             <FaCalendar size={10} />
                             {new Date(task.dueDate).toLocaleString([], { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                         </span>

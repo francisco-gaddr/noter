@@ -187,6 +187,9 @@ export default function TaskCalendar({ tasks, onTaskClick, onCreateTask }: TaskC
                 selectable
                 onSelectSlot={handleSelectSlot}
                 components={components}
+                formats={{
+                    eventTimeRangeFormat: () => '', // Hide default time range in header
+                }}
                 eventPropGetter={(event) => {
                     const task = event.resource as Task;
                     return {
