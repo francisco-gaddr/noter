@@ -372,15 +372,15 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
 
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Påminnelse</label>
-            <div className="flex items-center gap-2">
+            <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="checkbox"
                 checked={reminderEnabled}
                 onChange={(e) => setReminderEnabled(e.target.checked)}
-                className="w-4 h-4"
+                className="w-4 h-4 cursor-pointer"
               />
-              <span className="text-sm text-gray-700 dark:text-gray-300">Aktivera påminnelse</span>
-            </div>
+              <span className="text-sm text-gray-700 dark:text-gray-300 select-none">Aktivera påminnelse</span>
+            </label>
             {reminderEnabled && (
               <select
                 value={reminderOffsetMinutes}

@@ -50,12 +50,17 @@ export default function TaskCalendar({ tasks, onTaskClick, onCreateTask }: TaskC
             if (!task.dueDate) return null;
             const date = new Date(task.dueDate);
             if (isNaN(date.getTime())) return null;
+            
+            // Default to 1 hour duration to make the box taller (double height)
+            // React Big Calendar defaults to 30 mins if end is missing or same, so 60 mins should double it.
+            const endDate = new Date(date.getTime() + 60 * 60 * 1000);
+
             return {
                 id: task._id,
                 title: task.title,
                 start: date,
-                end: date,
-                allDay: date.getHours() === 0 && date.getMinutes() === 0,
+                end: endDate,
+                allDay: false, // Force time slot rendering
                 resource: task,
             };
         })
