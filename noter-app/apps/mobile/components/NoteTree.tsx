@@ -256,7 +256,7 @@ export default function NoteTree({
           newParentId = prevItem._id;
         } else {
           // Otherwise, it adopts the parent of the item above (becoming a sibling)
-          newParentId = prevItem.parentId;
+          newParentId = prevItem.parentId ?? null;
         }
       }
 

@@ -52,7 +52,7 @@ interface AppState {
   syncOfflineChanges: () => Promise<void>;
 
   // Security
-  verifyNoteLock: (id: string, password: string) => Promise<string>; // Returns decrypted content
+  verifyNoteLock: (id: string, password: string) => Promise<{ title: string; content: string }>;
   
   // Auth
   login: (username: string, password: string) => Promise<void>;
@@ -88,14 +88,16 @@ const parseNoteLocked = (value: unknown): boolean => {
   return false;
 };
 
-const processApiNote = (note: Note): Note => ({
+const processApiNote = (note: Note): Note => {
+  const locked = parseNoteLocked(note.locked);
+  return {
   ...note,
-  title: decrypt(note.title),
-  content: decrypt(note.content),
-  tags: Array.isArray((note as any).tags) ? ((note as any).tags as any[]).map((t) => tryDecryptString(t)) : [],
-  icon: (note as any).icon ? tryDecryptString((note as any).icon) : (note as any).icon,
+  title: locked ? 'Låst anteckning' : decrypt(note.title),
+  content: locked ? '' : decrypt(note.content),
+  tags: locked ? [] : (Array.isArray((note as any).tags) ? ((note as any).tags as any[]).map((t) => tryDecryptString(t)) : []),
+  icon: locked ? undefined : ((note as any).icon ? tryDecryptString((note as any).icon) : (note as any).icon),
   type: (note as any).type ? tryDecryptString((note as any).type) : (note as any).type,
-  locked: parseNoteLocked(note.locked),
+  locked: locked,
   order: (() => {
     const raw = (note as any).order;
     if (typeof raw === 'number') return raw;
@@ -113,7 +115,8 @@ const processApiNote = (note: Note): Note => ({
   })(),
   createdAt: decrypt(note.createdAt),
   updatedAt: decrypt(note.updatedAt),
-});
+  };
+};
 
 const parseTaskCompleted = (value: unknown): boolean => {
   if (typeof value === 'boolean') return value;
@@ -573,7 +576,6 @@ export const useStore = create<AppState>((set, get) => ({
       tags: data.tags ?? [],
       parentId: data.parentId ?? null,
       locked: data.locked ?? false,
-      password: data.password,
       icon: data.icon,
       order: data.order,
       type: data.type || 'note',
@@ -856,8 +858,7 @@ export const useStore = create<AppState>((set, get) => ({
       dueDate: data.dueDate ?? null,
       completed: data.completed || false,
       priority: data.priority || 'medium',
-      parentNoteId: data.parentNoteId ?? null,
-      parentId: data.parentId ?? null,
+      parentNoteId: data.parentNoteId ?? undefined,
       position: data.position ?? 0,
       recurrenceType: data.recurrenceType ?? 'none',
       recurrenceDays: data.recurrenceDays ?? [],
@@ -1403,8 +1404,14 @@ export const useStore = create<AppState>((set, get) => ({
         body: JSON.stringify({ password }),
       });
       
-      // response.content is the encrypted content from the server
-      return decrypt(response.content);
+      const decryptedContent = decrypt(response.content);
+      const decryptedTitle = response.title ? decrypt(response.title) : 'Låst anteckning';
+
+      set(state => ({
+        notes: state.notes.map(n => n._id === id ? { ...n, title: decryptedTitle, content: decryptedContent } : n)
+      }));
+
+      return { title: decryptedTitle, content: decryptedContent };
     } catch (error: any) {
       throw error;
     }

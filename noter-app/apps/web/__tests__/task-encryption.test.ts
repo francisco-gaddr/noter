@@ -240,8 +240,8 @@ describe('Task E2E Encryption Tests', () => {
       const result = await api.fetchTasks();
 
       const first = result[0]!;
-      expect(first.title).toBe('invalid-encrypted-data');
-      expect(first.description).toBe('invalid-encrypted-data');
+      expect(first.title).toBe('');
+      expect(first.description).toBe('');
       expect(first.completed).toBe(false);
       expect(first.priority).toBe('medium');
       expect(first.dueDate).toBe(null);
@@ -274,12 +274,12 @@ describe('Task E2E Encryption Tests', () => {
 
       const first = result[0]!;
       expect(first.title).toBe('Task Title');
-      expect(first.description).toBe(null);
+      expect(first.description).toBe('');
       expect(first.completed).toBe(false);
       expect(first.priority).toBe('medium');
       expect(first.dueDate).toBe(null);
-      expect(first.createdAt).toBe(null);
-      expect(first.updatedAt).toBe(null);
+      expect(first.createdAt).toBe('');
+      expect(first.updatedAt).toBe('');
       expect(first.position).toBe(0);
     });
   });

@@ -137,28 +137,8 @@ export const db = {
   async getAllNotes(): Promise<(Note & { pendingSync?: boolean; deleted?: boolean })[]> {
     const db = await initDB();
     const notes = await db.getAll('notes');
-    return notes.map(n => ({
-        ...n,
-        title: decrypt(n.title),
-        content: decrypt(n.content),
-        tags: n.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? [],
-        icon: n.icon ? (() => { try { return decrypt(n.icon) } catch { return n.icon } })() : undefined,
-        iconColor: n.iconColor ? (() => { try { return decrypt(n.iconColor) } catch { return n.iconColor } })() : undefined,
-        type: n.type ? (() => { try { return decrypt(n.type) as any } catch { return n.type } })() : 'note',
-        parentId: n.parentId ? (() => { try { return decrypt(n.parentId) } catch { return n.parentId } })() : null,
-        order: (() => {
-            const parsed = decryptNumber((n as any).order);
-            if (parsed !== null) return parsed;
-            if (typeof (n as any).order === 'number') return (n as any).order;
-            if (typeof (n as any).order === 'string') {
-                const fallback = Number((n as any).order);
-                return Number.isFinite(fallback) ? fallback : 0;
-            }
-            return 0;
-        })(),
-        userId: decryptText((n as any).userId, (n as any).userId) || (n as any).userId,
-        clientId: (n as any).clientId ? (decryptText((n as any).clientId, (n as any).clientId) || (n as any).clientId) : undefined,
-        locked: (() => {
+    return notes.map(n => {
+        const locked = (() => {
             const value: any = (n as any).locked;
             if (typeof value === 'boolean') return value;
             if (typeof value === 'number') return value === 1;
@@ -172,44 +152,82 @@ export const db = {
                 }
             }
             return false;
-        })(),
-        password: (n as any).password ? (decryptText((n as any).password, (n as any).password) || (n as any).password) : undefined,
-        createdAt: (() => {
-            const value: any = (n as any).createdAt;
-            if (typeof value !== 'string') return new Date().toISOString();
-            try {
-                const decrypted = decrypt(value);
-                return decrypted || value;
-            } catch {
-                return value;
-            }
-        })(),
-        updatedAt: (() => {
-            const value: any = (n as any).updatedAt;
-            if (typeof value !== 'string') return new Date().toISOString();
-            try {
-                const decrypted = decrypt(value);
-                return decrypted || value;
-            } catch {
-                return value;
-            }
-        })(),
-        pendingSync: parseEncryptedBool((n as any).pendingSync),
-        deleted: parseEncryptedBool((n as any).deleted),
-    }));
+        })();
+        return {
+          ...n,
+          title: locked ? 'Låst anteckning' : decrypt(n.title),
+          content: locked ? '' : decrypt(n.content),
+          tags: locked ? [] : (n.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? []),
+          icon: locked ? undefined : (n.icon ? (() => { try { return decrypt(n.icon) } catch { return n.icon } })() : undefined),
+          iconColor: locked ? undefined : (n.iconColor ? (() => { try { return decrypt(n.iconColor) } catch { return n.iconColor } })() : undefined),
+          type: n.type ? (() => { try { return decrypt(n.type) as any } catch { return n.type } })() : 'note',
+          parentId: n.parentId ? (() => { try { return decrypt(n.parentId) } catch { return n.parentId } })() : null,
+          order: (() => {
+              const parsed = decryptNumber((n as any).order);
+              if (parsed !== null) return parsed;
+              if (typeof (n as any).order === 'number') return (n as any).order;
+              if (typeof (n as any).order === 'string') {
+                  const fallback = Number((n as any).order);
+                  return Number.isFinite(fallback) ? fallback : 0;
+              }
+              return 0;
+          })(),
+          userId: decryptText((n as any).userId, (n as any).userId) || (n as any).userId,
+          clientId: (n as any).clientId ? (decryptText((n as any).clientId, (n as any).clientId) || (n as any).clientId) : undefined,
+          locked: locked,
+          password: (n as any).password ? (decryptText((n as any).password, (n as any).password) || (n as any).password) : undefined,
+          createdAt: (() => {
+              const value: any = (n as any).createdAt;
+              if (typeof value !== 'string') return new Date().toISOString();
+              try {
+                  const decrypted = decrypt(value);
+                  return decrypted || value;
+              } catch {
+                  return value;
+              }
+          })(),
+          updatedAt: (() => {
+              const value: any = (n as any).updatedAt;
+              if (typeof value !== 'string') return new Date().toISOString();
+              try {
+                  const decrypted = decrypt(value);
+                  return decrypted || value;
+              } catch {
+                  return value;
+              }
+          })(),
+          pendingSync: parseEncryptedBool((n as any).pendingSync),
+          deleted: parseEncryptedBool((n as any).deleted),
+        };
+    });
   },
 
   async getNote(id: string): Promise<(Note & { pendingSync?: boolean; deleted?: boolean }) | undefined> {
     const db = await initDB();
     const note = await db.get('notes', id);
     if (!note) return undefined;
+    const locked = (() => {
+        const value: any = (note as any).locked;
+        if (typeof value === 'boolean') return value;
+        if (typeof value === 'number') return value === 1;
+        if (typeof value === 'string') {
+            if (value === 'true') return true;
+            if (value === 'false') return false;
+            try {
+                return decrypt(value) === 'true';
+            } catch {
+                return false;
+            }
+        }
+        return false;
+    })();
     return {
         ...note,
-        title: decrypt(note.title),
-        content: decrypt(note.content),
-        tags: note.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? [],
-        icon: note.icon ? (() => { try { return decrypt(note.icon) } catch { return note.icon } })() : undefined,
-        iconColor: note.iconColor ? (() => { try { return decrypt(note.iconColor) } catch { return note.iconColor } })() : undefined,
+        title: locked ? 'Låst anteckning' : decrypt(note.title),
+        content: locked ? '' : decrypt(note.content),
+        tags: locked ? [] : (note.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? []),
+        icon: locked ? undefined : (note.icon ? (() => { try { return decrypt(note.icon) } catch { return note.icon } })() : undefined),
+        iconColor: locked ? undefined : (note.iconColor ? (() => { try { return decrypt(note.iconColor) } catch { return note.iconColor } })() : undefined),
         type: note.type ? (() => { try { return decrypt(note.type) as any } catch { return note.type } })() : 'note',
         parentId: note.parentId ? (() => { try { return decrypt(note.parentId) } catch { return note.parentId } })() : null,
         order: (() => {
@@ -224,21 +242,7 @@ export const db = {
         })(),
         userId: decryptText((note as any).userId, (note as any).userId) || (note as any).userId,
         clientId: (note as any).clientId ? (decryptText((note as any).clientId, (note as any).clientId) || (note as any).clientId) : undefined,
-        locked: (() => {
-            const value: any = (note as any).locked;
-            if (typeof value === 'boolean') return value;
-            if (typeof value === 'number') return value === 1;
-            if (typeof value === 'string') {
-                if (value === 'true') return true;
-                if (value === 'false') return false;
-                try {
-                    return decrypt(value) === 'true';
-                } catch {
-                    return false;
-                }
-            }
-            return false;
-        })(),
+        locked: locked,
         password: (note as any).password ? (decryptText((note as any).password, (note as any).password) || (note as any).password) : undefined,
         createdAt: (() => {
             const value: any = (note as any).createdAt;

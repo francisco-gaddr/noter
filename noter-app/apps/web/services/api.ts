@@ -94,6 +94,21 @@ const parseNoteOrder = (value: unknown): number => {
   return 0;
 };
 
+const parseNoteLocked = (value: unknown): boolean => {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value === 1;
+  if (typeof value === 'string') {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    try {
+      return decrypt(value) === 'true';
+    } catch {
+      return false;
+    }
+  }
+  return false;
+};
+
 export const api = {
   // Auth
   async register(username: string, password: string): Promise<AuthResponse> {
@@ -118,31 +133,35 @@ export const api = {
   async fetchNotes(): Promise<Note[]> {
     const res = await fetch(`${API_URL}/notes`, { headers: getHeaders() });
     const notes: Note[] = await handleResponse(res);
-    return notes.map(note => ({
-      ...note,
-      title: decrypt(note.title),
-      content: decrypt(note.content),
-      tags: note.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? [],
-      icon: note.icon ? (() => { try { return decrypt(note.icon) } catch { return note.icon } })() : undefined,
-      type: note.type ? (() => { try { return decrypt(note.type) as any } catch { return note.type } })() : 'note',
-      locked: note.locked ? decrypt(String(note.locked)) === 'true' : false,
-      order: parseNoteOrder((note as any).order),
-      createdAt: decrypt(note.createdAt),
-      updatedAt: decrypt(note.updatedAt),
-    }));
+    return notes.map(note => {
+      const locked = parseNoteLocked(note.locked);
+      return {
+        ...note,
+        title: locked ? 'Låst anteckning' : decrypt(note.title),
+        content: locked ? '' : decrypt(note.content),
+        tags: locked ? [] : (note.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? []),
+        icon: locked ? undefined : (note.icon ? (() => { try { return decrypt(note.icon) } catch { return note.icon } })() : undefined),
+        type: note.type ? (() => { try { return decrypt(note.type) as any } catch { return note.type } })() : 'note',
+        locked: locked,
+        order: parseNoteOrder((note as any).order),
+        createdAt: decrypt(note.createdAt),
+        updatedAt: decrypt(note.updatedAt),
+      };
+    });
   },
 
   async getNote(id: string): Promise<Note> {
     const res = await fetch(`${API_URL}/notes/${id}`, { headers: getHeaders() });
     const note: Note = await handleResponse(res);
+    const locked = parseNoteLocked(note.locked);
     return {
         ...note,
-        title: decrypt(note.title),
-        content: decrypt(note.content),
-        tags: note.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? [],
-        icon: note.icon ? (() => { try { return decrypt(note.icon) } catch { return note.icon } })() : undefined,
+        title: locked ? 'Låst anteckning' : decrypt(note.title),
+        content: locked ? '' : decrypt(note.content),
+        tags: locked ? [] : (note.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? []),
+        icon: locked ? undefined : (note.icon ? (() => { try { return decrypt(note.icon) } catch { return note.icon } })() : undefined),
         type: note.type ? (() => { try { return decrypt(note.type) as any } catch { return note.type } })() : 'note',
-        locked: note.locked ? decrypt(String(note.locked)) === 'true' : false,
+        locked: locked,
         order: parseNoteOrder((note as any).order),
         createdAt: decrypt(note.createdAt),
         updatedAt: decrypt(note.updatedAt),
@@ -215,7 +234,7 @@ export const api = {
     };
   },
 
-  async verifyLock(id: string, password: string): Promise<{ success: boolean; content: string }> {
+  async verifyLock(id: string, password: string): Promise<{ success: boolean; content: string; title?: string }> {
     const res = await fetch(`${API_URL}/notes/${id}/verify-lock`, {
       method: 'POST',
       headers: getHeaders(),
@@ -244,6 +263,7 @@ export const api = {
     return {
       success: data.success,
       content: decrypt(data.content),
+      title: data.title ? decrypt(data.title) : undefined,
     };
   },
 

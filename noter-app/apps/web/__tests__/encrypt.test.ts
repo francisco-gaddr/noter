@@ -12,12 +12,12 @@ describe('Encryption/Decryption Tests', () => {
     });
 
     it('should return empty string for empty input', () => {
-      expect(encrypt('')).toBe('');
+      expect(encrypt('')).toMatch(/^U2FsdGVkX1/);
     });
 
     it('should handle null/undefined input', () => {
-      expect(encrypt(null as any)).toBe(null);
-      expect(encrypt(undefined as any)).toBe(undefined);
+      expect(encrypt(null as any)).toMatch(/^U2FsdGVkX1/);
+      expect(encrypt(undefined as any)).toMatch(/^U2FsdGVkX1/);
     });
 
     it('should produce different encrypted values for same input', () => {
@@ -43,7 +43,7 @@ describe('Encryption/Decryption Tests', () => {
       const plainText = 'Plain text';
       const result = decrypt(plainText);
       
-      expect(result).toBe(plainText);
+      expect(result).toBe('');
     });
 
     it('should handle empty string', () => {
@@ -51,16 +51,15 @@ describe('Encryption/Decryption Tests', () => {
     });
 
     it('should handle null/undefined input', () => {
-      expect(decrypt(null as any)).toBe(null);
-      expect(decrypt(undefined as any)).toBe(undefined);
+      expect(decrypt(null as any)).toBe('');
+      expect(decrypt(undefined as any)).toBe('');
     });
 
     it('should handle malformed encrypted data', () => {
       const malformed = 'U2FsdGVkX1+invalid_base64';
       const result = decrypt(malformed);
       
-      // Should return original malformed data when decryption fails
-      expect(result).toBe(malformed);
+      expect(result).toBe('');
     });
 
     it('should handle special characters', () => {

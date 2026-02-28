@@ -141,30 +141,19 @@ router.post('/:id/verify-lock', async (req: Request, res: Response, next: NextFu
       return next(new Error('Note not found'));
     }
 
-    // With E2E encryption, lock verification is now handled client-side
-    // This endpoint is deprecated but kept for compatibility
-    // The client will decrypt the locked field and determine if the note is locked
-    
-    // For now, we'll just return the note content if a password is provided
-    // The actual lock logic is handled by the client after decryption
-    if (req.body.password) {
-      // Check if this note has a password set
-      if (targetNote.password) {
-        const isMatch = await bcrypt.compare(req.body.password, targetNote.password);
-        if (isMatch) {
-          res.json({ success: true, content: targetNote.content });
-        } else {
-          res.status(401);
-          next(new Error('Invalid password'));
-        }
-      } else {
-        // No password set, but client requested unlock - this is for compatibility
-        res.json({ success: true, content: targetNote.content });
-      }
-    } else {
-      // No password provided, return content anyway (client will handle encryption)
-      res.json({ success: true, content: targetNote.content });
+    const password = req.body?.password;
+    if (!password || !targetNote.password) {
+      res.status(401);
+      return next(new Error('Invalid password'));
     }
+
+    const isMatch = await bcrypt.compare(password, targetNote.password);
+    if (!isMatch) {
+      res.status(401);
+      return next(new Error('Invalid password'));
+    }
+
+    res.json({ success: true, content: targetNote.content, title: targetNote.title });
   } catch (error) {
     next(error);
   }

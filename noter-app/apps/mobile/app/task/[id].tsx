@@ -105,7 +105,7 @@ export default function TaskEditorScreen() {
       setValue('title', existingTask.title);
       setValue('description', existingTask.description);
       setValue('dueDate', existingTask.dueDate ? new Date(existingTask.dueDate) : null);
-      setValue('priority', existingTask.priority);
+      setValue('priority', existingTask.priority ?? 'medium');
       setValue('completed', existingTask.completed);
       setValue('recurrenceType', existingTask.recurrenceType || 'none');
       setValue('recurrenceDays', existingTask.recurrenceDays || []);
@@ -178,7 +178,7 @@ export default function TaskEditorScreen() {
           dueDate: data.dueDate ? data.dueDate.toISOString() : null,
           priority: data.priority,
           completed: data.completed,
-          parentNoteId: selectedListId || null,
+          parentNoteId: selectedListId || undefined,
           recurrenceType: data.recurrenceType,
           recurrenceDays: data.recurrenceType === 'weekly' ? normalizeDays(data.recurrenceDays) : [],
           reminderEnabled: data.reminderEnabled,
@@ -195,7 +195,7 @@ export default function TaskEditorScreen() {
           dueDate: data.dueDate ? data.dueDate.toISOString() : null,
           priority: data.priority,
           completed: data.completed,
-          parentNoteId: selectedListId || null,
+          parentNoteId: selectedListId || undefined,
           recurrenceType: data.recurrenceType,
           recurrenceDays: data.recurrenceType === 'weekly' ? normalizeDays(data.recurrenceDays) : [],
           reminderEnabled: data.reminderEnabled,
@@ -214,7 +214,7 @@ export default function TaskEditorScreen() {
     setSelectedListId(listId);
     if (!isNew && existingTask) {
       try {
-        await updateTask(existingTask._id, { parentNoteId: listId });
+        await updateTask(existingTask._id, { parentNoteId: listId || undefined });
       } catch (e: any) {
         Alert.alert('Error', e.message || 'Kunde inte uppdatera lista');
       }

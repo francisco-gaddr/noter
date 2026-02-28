@@ -26,7 +26,7 @@ describe('E2E Encryption Tests', () => {
   });
 
   describe('fetchNotes', () => {
-    it('should decrypt locked, createdAt, and updatedAt fields correctly', async () => {
+    it('should mask locked note content and title while keeping metadata', async () => {
       const mockNotes = [
         {
           _id: '1',
@@ -53,12 +53,13 @@ describe('E2E Encryption Tests', () => {
       expect(notes).toHaveLength(1);
       expect(notes[0]).toEqual({
         _id: '1',
-        title: 'Test Note',
-        content: 'Test content',
-        tags: ['tag1', 'tag2'],
-        icon: 'icon',
+        title: 'Låst anteckning',
+        content: '',
+        tags: [],
+        icon: undefined,
         type: 'note',
         locked: true,
+        order: 0,
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-02T00:00:00.000Z',
         parentId: null,
@@ -293,7 +294,7 @@ describe('E2E Encryption Tests', () => {
 
       // Should fallback to original value when decryption fails
       const first = notes[0]!;
-      expect(first.tags).toEqual(['encrypted_malformed']);
+      expect(first.tags).toEqual([]);
       expect(first.locked).toBe(true);
     });
 

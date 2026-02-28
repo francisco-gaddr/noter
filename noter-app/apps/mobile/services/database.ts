@@ -323,25 +323,31 @@ export const saveNoteLocal = async (note: Note, isSynced: boolean = true) => {
 export const getNotesLocal = async (): Promise<Note[]> => {
   const result = await db.getAllAsync<any>('SELECT * FROM notes');
   const notes = result.map(row => {
-    let tags: string[] = [];
-    try {
-        const decryptedTags = decrypt(row.tags);
-        tags = JSON.parse(decryptedTags);
-    } catch {
-        // Fallback for legacy plain JSON
-        try {
-            tags = JSON.parse(row.tags || '[]');
-        } catch {
-            tags = [];
-        }
-    }
+    const createdAt = decryptText(row.createdAt, row.createdAt) || row.createdAt;
+    const updatedAt = decryptText(row.updatedAt, row.updatedAt) || row.updatedAt;
 
+    const locked = decryptBool(row.locked);
+
+    let tags: string[] = [];
     let icon: string | undefined = undefined;
-    if (row.icon) {
+    if (!locked) {
         try {
-            icon = decrypt(row.icon);
+            const decryptedTags = decrypt(row.tags);
+            tags = JSON.parse(decryptedTags);
         } catch {
-            icon = row.icon; // Legacy
+            try {
+                tags = JSON.parse(row.tags || '[]');
+            } catch {
+                tags = [];
+            }
+        }
+
+        if (row.icon) {
+            try {
+                icon = decrypt(row.icon);
+            } catch {
+                icon = row.icon;
+            }
         }
     }
 
@@ -365,11 +371,6 @@ export const getNotesLocal = async (): Promise<Note[]> => {
         }
     }
 
-    const createdAt = decryptText(row.createdAt, row.createdAt) || row.createdAt;
-    const updatedAt = decryptText(row.updatedAt, row.updatedAt) || row.updatedAt;
-
-    const locked = decryptBool(row.locked);
-
     const iconColor = row.iconColor ? decryptText(row.iconColor, row.iconColor) : undefined;
     const userId = decryptText(row.userId, row.userId) || row.userId;
     const clientId = row.clientId ? decryptText(row.clientId, row.clientId) : undefined;
@@ -379,8 +380,8 @@ export const getNotesLocal = async (): Promise<Note[]> => {
 
     return {
         _id: row._id,
-        title: decrypt(row.title),
-        content: decrypt(row.content),
+        title: locked ? 'Låst anteckning' : decrypt(row.title),
+        content: locked ? '' : decrypt(row.content),
         tags: tags,
         createdAt: createdAt,
         updatedAt: updatedAt,
@@ -405,7 +406,7 @@ export const deleteNoteLocal = async (id: string) => {
 export const saveTaskLocal = async (task: Task, isSynced: boolean = true) => {
   const encryptedTitle = encrypt(task.title);
   const encryptedDescription = task.description ? encrypt(task.description) : '';
-  const encryptedPriority = encrypt(task.priority);
+  const encryptedPriority = encrypt(task.priority ?? 'medium');
   const encryptedCompleted = encrypt(String(task.completed));
   
   const createdAt = toIsoString(task.createdAt);
@@ -581,16 +582,17 @@ export const deleteConversationLocal = async (id: string) => {
 };
 
 export const saveMessageLocal = async (conversationId: string, message: Message) => {
+  const messageId = message.id ?? `local_${Date.now()}`;
   const encryptedRole = encrypt(message.role);
   const encryptedContent = encrypt(message.content);
   const encryptedToolCalls = message.toolCalls ? encrypt(JSON.stringify(message.toolCalls)) : null;
   const encryptedToolCallId = message.toolCallId ? encrypt(message.toolCallId) : null;
-  const encryptedCreatedAt = encrypt(message.createdAt);
+  const encryptedCreatedAt = encrypt(message.createdAt ?? new Date().toISOString());
 
   await db.runAsync(
     `INSERT OR REPLACE INTO messages (id, conversationId, role, content, toolCalls, toolCallId, createdAt)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [message.id, conversationId, encryptedRole, encryptedContent, encryptedToolCalls, encryptedToolCallId, encryptedCreatedAt]
+    [messageId, conversationId, encryptedRole, encryptedContent, encryptedToolCalls, encryptedToolCallId, encryptedCreatedAt]
   );
 };
 

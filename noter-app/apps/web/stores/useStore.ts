@@ -7,6 +7,8 @@ import deepmerge from 'deepmerge';
 import { uniqBy } from 'lodash';
 import CryptoJS from 'crypto-js';
 
+let networkListenersReady = false;
+
 type SortOrder = 'date-desc' | 'date-asc' | 'title-asc' | 'title-desc' | 'custom';
 
 const parseTaskCompleted = (value: unknown): boolean => {
@@ -175,18 +177,21 @@ const scheduleWebReminder = (task: Task) => {
   reminderTimers.set(task._id, timeoutId);
 };
 
-const decryptNoteFromSocket = (note: Note): Note => ({
-  ...note,
-  title: decrypt(note.title),
-  content: decrypt(note.content),
-  tags: note.tags?.map(t => { try { return decrypt(t); } catch { return t; } }) ?? [],
-  icon: note.icon ? (() => { try { return decrypt(note.icon); } catch { return note.icon; } })() : undefined,
-  type: note.type ? (() => { try { return decrypt(note.type) as any; } catch { return note.type; } })() : 'note',
-  locked: parseNoteLocked(note.locked),
-  order: parseNoteOrder((note as any).order),
-  createdAt: decrypt(note.createdAt),
-  updatedAt: decrypt(note.updatedAt),
-});
+const decryptNoteFromSocket = (note: Note): Note => {
+  const locked = parseNoteLocked(note.locked);
+  return {
+    ...note,
+    title: locked ? 'Låst anteckning' : decrypt(note.title),
+    content: locked ? '' : decrypt(note.content),
+    tags: locked ? [] : (note.tags?.map(t => { try { return decrypt(t); } catch { return t; } }) ?? []),
+    icon: locked ? undefined : (note.icon ? (() => { try { return decrypt(note.icon); } catch { return note.icon; } })() : undefined),
+    type: note.type ? (() => { try { return decrypt(note.type) as any; } catch { return note.type; } })() : 'note',
+    locked: locked,
+    order: parseNoteOrder((note as any).order),
+    createdAt: decrypt(note.createdAt),
+    updatedAt: decrypt(note.updatedAt),
+  };
+};
 
 interface StoreState {
   user: User | null;
@@ -205,6 +210,7 @@ interface StoreState {
   activeProjectId: string | null;
   setActiveProject: (id: string | null) => void;
   isLoading: boolean;
+  isOffline: boolean;
   error: string | null;
   searchQuery: string;
   sortOrder: SortOrder;
@@ -279,6 +285,19 @@ export const useStore = create<StoreState>((set, get) => ({
         const autoLockTimeout = parseInt(localStorage.getItem('autoLockTimeout') || '15', 10);
 
         set({ user, token, language, activeTab, selectedNoteId, selectedTaskListId, activeProjectId, isAppLocked, appLockPasswordHash, autoLockTimeout, isHydrated: true });
+        if (!networkListenersReady) {
+            networkListenersReady = true;
+            window.addEventListener('online', () => {
+                set({ isOffline: false, error: null });
+                get().syncOfflineChanges();
+                get().fetchNotes();
+                get().fetchTasks();
+            });
+            window.addEventListener('offline', () => {
+                set({ isOffline: true, error: 'Offline-läge' });
+            });
+            set({ isOffline: typeof navigator !== 'undefined' ? !navigator.onLine : false });
+        }
         if (token && !isAppLocked) {
             get().initSocket();
         }
@@ -331,6 +350,7 @@ export const useStore = create<StoreState>((set, get) => ({
   selectedNoteId: null,
   selectedTaskListId: null,
   isLoading: false,
+  isOffline: false,
   error: null,
   searchQuery: '',
   sortOrder: 'date-desc',
@@ -1023,10 +1043,10 @@ export const useStore = create<StoreState>((set, get) => ({
 
   unlockNote: async (id, password) => {
     try {
-      const { success, content } = await api.verifyLock(id, password);
+      const { success, content, title } = await api.verifyLock(id, password);
       if (success) {
         set((state) => ({
-          notes: state.notes.map((n) => (n._id === id ? { ...n, content } : n)) 
+          notes: state.notes.map((n) => (n._id === id ? { ...n, content, ...(title ? { title } : {}) } : n)) 
         }));
         // Update local DB with unlocked content?
         // Maybe unsafe to store unlocked content permanently if it's supposed to be locked?

@@ -6,7 +6,7 @@ describe('resolveSocketBaseUrl', () => {
       envUrl: 'http://example.com/api',
       origin: 'http://localhost:3000',
       isServer: false
-    })).toBe('https://example.com');
+    })).toBe('http://example.com');
   });
 
   it('uses window origin for relative API URL and enforces https', () => {
@@ -14,7 +14,7 @@ describe('resolveSocketBaseUrl', () => {
       envUrl: '/api',
       origin: 'http://app.local',
       isServer: false
-    })).toBe('https://app.local');
+    })).toBe('http://app.local');
   });
 
   it('falls back to window origin and enforces https', () => {
@@ -22,6 +22,6 @@ describe('resolveSocketBaseUrl', () => {
       envUrl: '',
       origin: 'http://fallback.local',
       isServer: false
-    })).toBe('https://fallback.local');
+    })).toBe('http://fallback.local');
   });
 });

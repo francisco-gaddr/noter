@@ -24,3 +24,13 @@ global.structuredClone = (val) => JSON.parse(JSON.stringify(val));
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock')
 );
+
+jest.mock('expo-notifications', () => ({
+  getPermissionsAsync: jest.fn(),
+  requestPermissionsAsync: jest.fn(),
+  setNotificationHandler: jest.fn(),
+  getExpoPushTokenAsync: jest.fn(),
+  addNotificationReceivedListener: jest.fn(),
+  addNotificationResponseReceivedListener: jest.fn(),
+  removeNotificationSubscription: jest.fn(),
+}));

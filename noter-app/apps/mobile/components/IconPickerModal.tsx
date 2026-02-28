@@ -91,8 +91,9 @@ export default function IconPickerModal({ visible, onDismiss, onSelect, currentI
   };
 
   const filteredIcons = React.useMemo(() => {
-    if (!searchQuery) return COMMON_ICONS;
-    return COMMON_ICONS.filter(icon => 
+    const uniqueIcons = Array.from(new Set(COMMON_ICONS));
+    if (!searchQuery) return uniqueIcons;
+    return uniqueIcons.filter(icon => 
       icon.toLowerCase().includes(searchQuery.toLowerCase())
     );
   }, [searchQuery]);
@@ -145,12 +146,12 @@ export default function IconPickerModal({ visible, onDismiss, onSelect, currentI
 
         <ScrollView style={styles.grid} contentContainerStyle={styles.gridContent}>
           <View style={styles.row}>
-            {filteredIcons.map((icon) => {
+            {filteredIcons.map((icon, index) => {
                 const fa5Name = toFa5(icon);
                 const isSelected = selectedIcon === icon;
                 return (
                     <TouchableOpacity
-                        key={icon}
+                        key={`${icon}-${index}`}
                         style={[
                             styles.iconItem,
                             isSelected && { backgroundColor: theme.colors.primaryContainer, borderColor: theme.colors.primary, borderWidth: 2 }

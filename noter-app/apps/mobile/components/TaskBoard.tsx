@@ -45,7 +45,7 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, onTaskPress, onTogg
                                     fontSize: 10, 
                                     color: task.priority === 'high' ? theme.colors.error : task.priority === 'medium' ? theme.colors.tertiary : theme.colors.primary 
                                 }}>
-                                    {task.priority.toUpperCase()}
+                                    {(task.priority ?? 'medium').toUpperCase()}
                                 </Text>
                             </View>
                         </Card.Content>

@@ -158,8 +158,8 @@ describe('E2E Encryption Tests', () => {
 
       const first = result[0]!;
       expect(first.locked).toBe(false);
-      expect(first.createdAt).toBe('invalid-encrypted-data');
-      expect(first.updatedAt).toBe('invalid-encrypted-data');
+      expect(first.createdAt).toBe('');
+      expect(first.updatedAt).toBe('');
     });
 
     it('should handle null/undefined encrypted fields', async () => {
@@ -183,8 +183,8 @@ describe('E2E Encryption Tests', () => {
 
       const first = result[0]!;
       expect(first.locked).toBe(false);
-      expect(first.createdAt).toBe(null);
-      expect(first.updatedAt).toBe(null);
+      expect(first.createdAt).toBe('');
+      expect(first.updatedAt).toBe('');
     });
   });
 

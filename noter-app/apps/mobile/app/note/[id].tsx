@@ -263,10 +263,11 @@ export default function NoteEditorScreen() {
     setUnlockError(null);
     try {
       if (passwordMode === 'unlock') {
-        const decryptedContent = await verifyNoteLock(id!, password);
-        const html = tiptapJsonToHtml(decryptedContent);
+        const result = await verifyNoteLock(id!, password);
+        const html = tiptapJsonToHtml(result.content);
         setInitialHtml(html);
         contentRef.current = html;
+        setTitle(result.title || '');
         setEditorKey(`editor-${String(id)}-${Date.now()}`);
         setIsLocked(false);
         setShowPasswordModal(false);

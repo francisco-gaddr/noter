@@ -1,4 +1,5 @@
 import { useStore } from '../stores/useStore';
+import { encrypt } from '@repo/shared';
 
 // Mocks
 jest.mock('@react-native-community/netinfo', () => ({
@@ -65,6 +66,28 @@ describe('Mobile Store', () => {
     const state = useStore.getState();
     expect(state.notes.length).toBe(1);
     expect(state.notes[0]._id).toBe('1');
+  });
+
+  it('should mask locked notes from API', async () => {
+    const { fetchWithAuth } = require('../services/api');
+    const mockNotes = [
+      { 
+        _id: '1', 
+        title: encrypt('Secret Title'),
+        content: encrypt('Secret Content'),
+        locked: encrypt('true'),
+        updatedAt: encrypt(new Date().toISOString()),
+        createdAt: encrypt(new Date().toISOString()),
+      }
+    ];
+    fetchWithAuth.mockResolvedValueOnce(mockNotes);
+
+    await useStore.getState().fetchNotes();
+
+    const state = useStore.getState();
+    expect(state.notes[0].title).toBe('Låst anteckning');
+    expect(state.notes[0].content).toBe('');
+    expect(state.notes[0].locked).toBe(true);
   });
 
   it('should fetch notes from Local DB when offline', async () => {
