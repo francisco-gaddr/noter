@@ -57,7 +57,7 @@
     "expo-web-browser": "~15.0.10",
     "fuse.js": "^7.1.0",
     "i18n-js": "^4.5.1",
-    "llama.rn": "^0.6.0",
+    "react-native-fs": "^2.20.0",
     "lodash": "^4.17.21",
     "react": "19.1.0",
     "react-dom": "19.1.0",
