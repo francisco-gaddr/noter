@@ -143,14 +143,16 @@ router.post('/:id/verify-lock', async (req: Request, res: Response, next: NextFu
 
     const password = req.body?.password;
     if (!password || !targetNote.password) {
-      res.status(401);
-      return next(new Error('Invalid password'));
+      // Return 200 OK with success: false instead of 401 to prevent frontend logout
+      res.json({ success: false, message: 'Invalid password' });
+      return;
     }
 
     const isMatch = await bcrypt.compare(password, targetNote.password);
     if (!isMatch) {
-      res.status(401);
-      return next(new Error('Invalid password'));
+      // Return 200 OK with success: false instead of 401 to prevent frontend logout
+      res.json({ success: false, message: 'Invalid password' });
+      return;
     }
 
     res.json({ success: true, content: targetNote.content, title: targetNote.title });
