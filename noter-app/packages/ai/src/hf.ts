@@ -19,7 +19,26 @@ export class HuggingFaceService {
 
   async searchModels(query: string): Promise<HFModel[]> {
     try {
-      const response = await fetch(`https://huggingface.co/api/models?search=${encodeURIComponent(query)}&filter=gguf&sort=downloads&direction=-1&limit=10`);
+      // Direct HF API Search for Mobile
+      // Using full URL to avoid any proxy issues
+      const searchUrl = `https://huggingface.co/api/models?search=${encodeURIComponent(query)}&filter=gguf&sort=downloads&direction=-1&limit=20`;
+      
+      console.log('Searching HF:', searchUrl);
+      
+      const response = await fetch(searchUrl, {
+          method: 'GET',
+          headers: {
+              'Accept': 'application/json',
+              // Add simple user agent if needed
+          }
+      });
+      
+      if (!response.ok) {
+          const text = await response.text();
+          console.error('HF API Error:', response.status, text);
+          throw new Error(`HF API Error: ${response.status} ${text}`);
+      }
+
       const data = await response.json();
       
       return data.map((model: any) => ({
@@ -32,7 +51,7 @@ export class HuggingFaceService {
       }));
     } catch (error) {
       console.error('HF Search Error:', error);
-      return [];
+      throw error; 
     }
   }
 

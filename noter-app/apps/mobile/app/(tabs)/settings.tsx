@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, View, Alert, Platform, useWindowDimensions, ScrollView } from 'react-native';
-import { List, Switch, Text, Divider, useTheme, Menu, Dialog, Portal, Button, TextInput, RadioButton } from 'react-native-paper';
+import { List, Switch, Text, Divider, useTheme, Menu, Dialog, Portal, Button, TextInput, RadioButton, Checkbox } from 'react-native-paper';
 import { useThemeContext } from '@/context/ThemeContext';
 import { useRouter } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
@@ -10,11 +10,16 @@ import { API_URL, setApiUrl, getAuthToken } from '@/services/api';
 import { disconnectSocket, initSocket } from '@/services/socket';
 import { BackendUrlDialog } from '@/components/BackendUrlDialog';
 import { useTranslation } from 'react-i18next';
+import { clearLocalData, clearNotesByTypes, clearTasksLocal, clearModelsLocal, clearSyncQueue, getModelsLocal } from '@/services/database';
+import { deleteModel as deleteModelFile } from '@/services/ai/modelService';
 
 export default function SettingsScreen() {
   const { t, i18n } = useTranslation();
   const { theme, setTheme } = useThemeContext();
   const setToken = useStore((s) => s.setToken);
+  const fetchNotes = useStore((s) => s.fetchNotes);
+  const fetchTasks = useStore((s) => s.fetchTasks);
+  const setActiveProject = useStore((s) => s.setActiveProject);
   const notificationsEnabled = useStore((s) => s.notificationsEnabled);
   const setNotificationsEnabled = useStore((s) => s.setNotificationsEnabled);
   const paperTheme = useTheme();
@@ -28,6 +33,18 @@ export default function SettingsScreen() {
   const [backendUrl, setBackendUrl] = useState(API_URL);
   const [tempBackendUrl, setTempBackendUrl] = useState('');
   const [backendUrlDialogVisible, setBackendUrlDialogVisible] = useState(false);
+  const [clearDialogVisible, setClearDialogVisible] = useState(false);
+  const [confirmClearVisible, setConfirmClearVisible] = useState(false);
+  const [clearingLocalData, setClearingLocalData] = useState(false);
+  const [clearSelection, setClearSelection] = useState({
+    all: false,
+    notes: false,
+    projects: false,
+    taskLists: false,
+    tasks: false,
+    aiModels: false,
+  });
+  const hasClearSelection = Object.values(clearSelection).some(Boolean);
 
   const appVersion =
     (Constants as any).nativeAppVersion ||
@@ -137,6 +154,67 @@ export default function SettingsScreen() {
     else setTheme('system');
   };
 
+  const handleClearLocalData = async () => {
+    setClearingLocalData(true);
+    try {
+      if (clearSelection.all) {
+        const models = await getModelsLocal();
+        for (const model of models) {
+          try {
+            await deleteModelFile(model.id, model.path);
+          } catch {}
+        }
+        await clearLocalData();
+        useStore.setState({ notes: [], tasks: [], error: null });
+        setActiveProject(null);
+        await fetchNotes();
+        await fetchTasks();
+        return;
+      }
+
+      const noteTypes: Array<'note' | 'project' | 'task_list'> = [];
+      if (clearSelection.notes) noteTypes.push('note');
+      if (clearSelection.projects) noteTypes.push('project');
+      if (clearSelection.taskLists) noteTypes.push('task_list');
+      if (noteTypes.length > 0) {
+        await clearNotesByTypes(noteTypes);
+        useStore.setState({ notes: [], error: null });
+        setActiveProject(null);
+        await fetchNotes();
+        await clearSyncQueue();
+      }
+
+      if (clearSelection.tasks) {
+        await clearTasksLocal();
+        useStore.setState({ tasks: [], error: null });
+        await fetchTasks();
+        await clearSyncQueue();
+      }
+
+      if (clearSelection.aiModels) {
+        const models = await getModelsLocal();
+        for (const model of models) {
+          try {
+            await deleteModelFile(model.id, model.path);
+          } catch {}
+        }
+        await clearModelsLocal();
+      }
+    } finally {
+      setClearingLocalData(false);
+      setClearDialogVisible(false);
+      setConfirmClearVisible(false);
+      setClearSelection({
+        all: false,
+        notes: false,
+        projects: false,
+        taskLists: false,
+        tasks: false,
+        aiModels: false,
+      });
+    }
+  };
+
   return (
     <ScrollView style={[styles.container, { backgroundColor: paperTheme.colors.background }]}>
       <List.Section title={t('common.appearance')}>
@@ -244,6 +322,22 @@ export default function SettingsScreen() {
 
       <Divider />
 
+      <List.Section title="Lagring">
+        <List.Item
+          title="Rensa lokal lagring"
+          description="Tar bort anteckningar, projekt, tasks och AI-data lokalt"
+          left={props => <List.Icon {...props} icon="database-remove" />}
+          onPress={() => setClearDialogVisible(true)}
+        />
+        <View style={styles.hint}>
+          <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
+            Rensar allt lokalt och hämtar nytt från servern när internet finns.
+          </Text>
+        </View>
+      </List.Section>
+
+      <Divider />
+
       <List.Section title={t('common.account')}>
         <List.Item
           title={t('common.logout')}
@@ -289,6 +383,72 @@ export default function SettingsScreen() {
           currentUrl={backendUrl}
           onSave={handleSaveBackendUrl}
         />
+
+        <Dialog visible={clearDialogVisible} onDismiss={() => setClearDialogVisible(false)}>
+          <Dialog.Title>Välj vad som ska rensas</Dialog.Title>
+          <Dialog.Content>
+            <Checkbox.Item
+              label="Allt"
+              status={clearSelection.all ? 'checked' : 'unchecked'}
+              onPress={() => setClearSelection(prev => ({
+                all: !prev.all,
+                notes: !prev.all,
+                projects: !prev.all,
+                taskLists: !prev.all,
+                tasks: !prev.all,
+                aiModels: !prev.all,
+              }))}
+            />
+            <Checkbox.Item
+              label="Anteckningar"
+              status={clearSelection.notes ? 'checked' : 'unchecked'}
+              onPress={() => setClearSelection(prev => ({ ...prev, all: false, notes: !prev.notes }))}
+            />
+            <Checkbox.Item
+              label="Projektmappar"
+              status={clearSelection.projects ? 'checked' : 'unchecked'}
+              onPress={() => setClearSelection(prev => ({ ...prev, all: false, projects: !prev.projects }))}
+            />
+            <Checkbox.Item
+              label="Tasklistor"
+              status={clearSelection.taskLists ? 'checked' : 'unchecked'}
+              onPress={() => setClearSelection(prev => ({ ...prev, all: false, taskLists: !prev.taskLists }))}
+            />
+            <Checkbox.Item
+              label="Tasks"
+              status={clearSelection.tasks ? 'checked' : 'unchecked'}
+              onPress={() => setClearSelection(prev => ({ ...prev, all: false, tasks: !prev.tasks }))}
+            />
+            <Checkbox.Item
+              label="AI‑modeller"
+              status={clearSelection.aiModels ? 'checked' : 'unchecked'}
+              onPress={() => setClearSelection(prev => ({ ...prev, all: false, aiModels: !prev.aiModels }))}
+            />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setClearDialogVisible(false)}>Avbryt</Button>
+            <Button
+              onPress={() => {
+                setClearDialogVisible(false);
+                setConfirmClearVisible(true);
+              }}
+              disabled={!hasClearSelection}
+            >
+              Nästa
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+
+        <Dialog visible={confirmClearVisible} onDismiss={() => setConfirmClearVisible(false)}>
+          <Dialog.Title>Rensa valda data?</Dialog.Title>
+          <Dialog.Content>
+            <Text>Detta tar bort vald data lokalt och kan inte ångras.</Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setConfirmClearVisible(false)}>Avbryt</Button>
+            <Button onPress={handleClearLocalData} loading={clearingLocalData}>Rensa</Button>
+          </Dialog.Actions>
+        </Dialog>
       </Portal>
     </ScrollView>
   );

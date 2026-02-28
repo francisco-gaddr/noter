@@ -3,6 +3,7 @@
 import React from 'react';
 import { useStore } from '../stores/useStore';
 import { useTranslation } from 'react-i18next';
+import { clearNotesAndTasks } from '../services/db';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -11,7 +12,13 @@ interface SettingsModalProps {
 
 export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { language, setLanguage, autoLockTimeout, setAutoLockTimeout } = useStore();
+  const fetchNotes = useStore((s) => s.fetchNotes);
+  const fetchTasks = useStore((s) => s.fetchTasks);
+  const setActiveTab = useStore((s) => s.setActiveTab);
+  const selectNote = useStore((s) => s.selectNote);
   const { t } = useTranslation();
+  const [showClearConfirm, setShowClearConfirm] = React.useState(false);
+  const [clearing, setClearing] = React.useState(false);
 
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -68,6 +75,59 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         <div className="mt-8 border-t border-gray-200 dark:border-gray-700 pt-4 text-xs text-gray-500 dark:text-gray-400">
             <p>Build ID: {process.env.NEXT_PUBLIC_BUILD_ID}</p>
             <p>Timestamp: {process.env.NEXT_PUBLIC_BUILD_TIMESTAMP}</p>
+        </div>
+
+        <div className="mt-6 border-t border-gray-200 dark:border-gray-700 pt-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium text-gray-700 dark:text-gray-200">Rensa lokal lagring</div>
+              <div className="text-xs text-gray-500 dark:text-gray-400">Tar bort anteckningar, projektmappar, tasks och tasklistor lokalt.</div>
+            </div>
+            <button
+              className="px-3 py-2 rounded bg-red-500 text-white hover:bg-red-600 text-sm"
+              onClick={() => setShowClearConfirm(true)}
+            >
+              Rensa
+            </button>
+          </div>
+          {showClearConfirm && (
+            <div className="mt-3 flex items-center gap-2 text-sm">
+              <span className="text-gray-600 dark:text-gray-300">Är du säker?</span>
+              <button
+                className="px-3 py-1.5 rounded bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-100"
+                onClick={() => setShowClearConfirm(false)}
+              >
+                Avbryt
+              </button>
+              <button
+                className="px-3 py-1.5 rounded bg-red-500 text-white hover:bg-red-600"
+                disabled={clearing}
+                onClick={async () => {
+                  setClearing(true);
+                  try {
+                    await clearNotesAndTasks();
+                    if (typeof window !== 'undefined') {
+                      localStorage.removeItem('selectedNoteId');
+                      localStorage.removeItem('lastSelectedNoteId');
+                      localStorage.removeItem('lastSelectedTaskListId');
+                      localStorage.removeItem('activeTab');
+                      localStorage.removeItem('viewMode');
+                    }
+                    useStore.setState({ notes: [], tasks: [], selectedNoteId: null, selectedTaskListId: null });
+                    selectNote(null as any);
+                    setActiveTab('notes');
+                    await fetchNotes();
+                    await fetchTasks();
+                  } finally {
+                    setClearing(false);
+                    setShowClearConfirm(false);
+                  }
+                }}
+              >
+                Bekräfta
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="mt-6 flex justify-end gap-2">

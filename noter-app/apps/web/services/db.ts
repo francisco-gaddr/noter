@@ -61,6 +61,12 @@ export const initDB = () => {
   return dbPromise;
 };
 
+export const clearNotesAndTasks = async () => {
+  const db = await initDB();
+  await db.clear('notes');
+  await db.clear('tasks');
+};
+
 const parseTaskCompleted = (value: unknown): boolean => {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'number') return value === 1;

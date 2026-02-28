@@ -647,3 +647,43 @@ export const getModelsLocal = async (): Promise<AIModel[]> => {
 export const deleteModelLocal = async (id: string) => {
   await db.runAsync('DELETE FROM models WHERE id = ?', [id]);
 };
+
+export const clearNotesByTypes = async (types: Array<'note' | 'project' | 'task_list'>) => {
+  if (types.length === 0) return;
+  const hasNote = types.includes('note');
+  const otherTypes = types.filter(t => t !== 'note');
+  if (hasNote && otherTypes.length === 0) {
+    await db.runAsync(`DELETE FROM notes WHERE type IS NULL OR type = ?`, ['note']);
+    return;
+  }
+  if (hasNote && otherTypes.length > 0) {
+    const placeholders = otherTypes.map(() => '?').join(', ');
+    await db.runAsync(`DELETE FROM notes WHERE type IS NULL OR type = ? OR type IN (${placeholders})`, ['note', ...otherTypes]);
+    return;
+  }
+  const placeholders = types.map(() => '?').join(', ');
+  await db.runAsync(`DELETE FROM notes WHERE type IN (${placeholders})`, types);
+};
+
+export const clearTasksLocal = async () => {
+  await db.runAsync('DELETE FROM tasks');
+};
+
+export const clearModelsLocal = async () => {
+  await db.runAsync('DELETE FROM models');
+};
+
+export const clearSyncQueue = async () => {
+  await db.runAsync('DELETE FROM sync_queue');
+};
+
+export const clearLocalData = async () => {
+  await db.execAsync(`
+    DELETE FROM notes;
+    DELETE FROM tasks;
+    DELETE FROM sync_queue;
+    DELETE FROM conversations;
+    DELETE FROM messages;
+    DELETE FROM models;
+  `);
+};
