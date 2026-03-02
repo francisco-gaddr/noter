@@ -12,7 +12,7 @@ import { IconPicker } from './IconPicker';
 import { getApiBaseUrl } from '../services/api';
 
 export const AISidebar = () => {
-  const { user } = useStore();
+  const { user, token } = useStore();
   const [isOpen, setIsOpen] = useState(false);
   const [width, setWidth] = useState(300);
   const [isResizing, setIsResizing] = useState(false);
@@ -33,6 +33,7 @@ export const AISidebar = () => {
   const [enableEmojiPicker, setEnableEmojiPicker] = useState(true);
   const [enableAttachments, setEnableAttachments] = useState(true);
   const [collapsedThinking, setCollapsedThinking] = useState<Record<string, boolean>>({});
+  const [collapsedTool, setCollapsedTool] = useState<Record<string, boolean>>({});
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [scrollSignal, setScrollSignal] = useState(0);
   const scrollBottomRef = useRef<HTMLDivElement | null>(null);
@@ -126,6 +127,11 @@ export const AISidebar = () => {
         if (savedEmoji) setEnableEmojiPicker(savedEmoji === 'true');
         const savedAttachments = await getStoredValue('aiEnableAttachments');
         if (savedAttachments) setEnableAttachments(savedAttachments === 'true');
+        const savedWidth = await getStoredValue('aiSidebarWidth');
+        if (savedWidth) {
+          const parsed = Number(savedWidth);
+          if (Number.isFinite(parsed)) setWidth(Math.min(560, Math.max(260, parsed)));
+        }
       })();
     }
   }, [isOpen, user]);
@@ -196,6 +202,10 @@ export const AISidebar = () => {
     setStoredValue('aiEnableAttachments', String(enableAttachments));
     if (!enableAttachments) setAttachments([]);
   }, [enableAttachments]);
+
+  useEffect(() => {
+    setStoredValue('aiSidebarWidth', String(width));
+  }, [width]);
 
   useEffect(() => {
     if (activeProjectId) setStoredValue('aiActiveProjectId', activeProjectId);
@@ -299,6 +309,7 @@ export const AISidebar = () => {
       setConversations(prev => [newConv, ...prev]);
       setCurrentConversationId(newId);
       setMessages([]);
+      setScrollSignal(prev => prev + 1);
   };
 
   const loadConversation = async (id: string) => {
@@ -308,6 +319,7 @@ export const AISidebar = () => {
       const conv = conversations.find(c => c.id === id);
       if (conv?.projectId) setActiveProjectId(conv.projectId);
       else setActiveProjectId(null);
+      setScrollSignal(prev => prev + 1);
   };
 
   const deleteConversation = async (id: string, e: React.MouseEvent) => {
@@ -394,6 +406,72 @@ export const AISidebar = () => {
       return { thinking, rest };
     }
     return { thinking: '', rest: content };
+  };
+
+  const toolIcons: Record<string, string> = {
+    list_notes: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M5 6h14M5 12h14M5 18h10" stroke-width="1.6"/></svg>',
+    get_note: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M6 3h9l5 5v13H6z" stroke-width="1.6"/><path d="M15 3v5h5" stroke-width="1.6"/></svg>',
+    create_note: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M6 3h9l5 5v13H6z" stroke-width="1.6"/><path d="M12 12v6M9 15h6" stroke-width="1.6"/></svg>',
+    update_note: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M6 3h9l5 5v13H6z" stroke-width="1.6"/><path d="M9 15h6" stroke-width="1.6"/></svg>',
+    delete_note: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 14h10l1-14" stroke-width="1.6"/></svg>',
+    list_tasks: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 6h11M9 12h11M9 18h11" stroke-width="1.6"/><path d="M3 6l1.5 1.5L7 5" stroke-width="1.6"/></svg>',
+    get_task: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="4" y="4" width="16" height="16" rx="2" stroke-width="1.6"/><path d="M8 12l2 2 5-5" stroke-width="1.6"/></svg>',
+    create_task: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="4" y="4" width="16" height="16" rx="2" stroke-width="1.6"/><path d="M12 9v6M9 12h6" stroke-width="1.6"/></svg>',
+    update_task: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="4" y="4" width="16" height="16" rx="2" stroke-width="1.6"/><path d="M8 12h8" stroke-width="1.6"/></svg>',
+    delete_task: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 7h16M9 11v6M15 11v6M6 7l1 14h10l1-14" stroke-width="1.6"/></svg>',
+  };
+
+  const toolStatusIcons: Record<string, string> = {
+    success: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M5 12l4 4L19 6" stroke-width="2"/></svg>',
+    error: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M6 6l12 12M18 6l-12 12" stroke-width="2"/></svg>',
+    info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 8h.01M11 12h2v6h-2z" stroke-width="2"/></svg>',
+  };
+
+  const parseToolMessage = (content: string) => {
+    const callMatch = content.match(/^Tool call:\s*([^\s]+)\s*(.*)$/);
+    if (callMatch) return { kind: 'call', tool: callMatch[1], details: callMatch[2].trim(), payload: null };
+    const resultMatch = content.match(/^Tool result:\s*([^\s]+)\s*(.*)$/);
+    if (resultMatch) {
+      const details = resultMatch[2].trim();
+      let payload: any = null;
+      try {
+        payload = details ? JSON.parse(details) : null;
+      } catch {}
+      return { kind: 'result', tool: resultMatch[1], details, payload };
+    }
+    const errorMatch = content.match(/^Tool error:\s*([^\s]+)\s*(.*)$/);
+    if (errorMatch) return { kind: 'error', tool: errorMatch[1], details: errorMatch[2].trim(), payload: null };
+    return { kind: 'tool', tool: 'tool', details: content, payload: null };
+  };
+
+  const getToolStatus = (info: { kind: string; tool: string; payload: any }) => {
+    if (info.kind === 'error') return { label: 'Misslyckades', tone: 'error' };
+    if (info.kind !== 'result') return { label: 'Körs', tone: 'info' };
+    const data = info.payload || {};
+    switch (info.tool) {
+      case 'create_note':
+        return { label: data?.createNote?._id ? 'Anteckning skapad' : 'Skapade anteckning', tone: 'success' };
+      case 'update_note':
+        return { label: data?.updateNote?._id ? 'Anteckning uppdaterad' : 'Uppdaterade anteckning', tone: 'success' };
+      case 'delete_note':
+        return { label: data?.deleteNote ? 'Anteckning borttagen' : 'Borttagning misslyckades', tone: data?.deleteNote ? 'success' : 'error' };
+      case 'list_notes':
+        return { label: `Hittade ${Array.isArray(data?.notes) ? data.notes.length : 0} anteckningar`, tone: 'success' };
+      case 'get_note':
+        return { label: data?.note?._id ? 'Anteckning hämtad' : 'Hämtning misslyckades', tone: data?.note?._id ? 'success' : 'error' };
+      case 'create_task':
+        return { label: data?.createTask?._id ? 'Uppgift skapad' : 'Skapade uppgift', tone: 'success' };
+      case 'update_task':
+        return { label: data?.updateTask?._id ? 'Uppgift uppdaterad' : 'Uppdaterade uppgift', tone: 'success' };
+      case 'delete_task':
+        return { label: data?.deleteTask ? 'Uppgift borttagen' : 'Borttagning misslyckades', tone: data?.deleteTask ? 'success' : 'error' };
+      case 'list_tasks':
+        return { label: `Hittade ${Array.isArray(data?.tasks) ? data.tasks.length : 0} uppgifter`, tone: 'success' };
+      case 'get_task':
+        return { label: data?.task?._id ? 'Uppgift hämtad' : 'Hämtning misslyckades', tone: data?.task?._id ? 'success' : 'error' };
+      default:
+        return { label: 'Klart', tone: 'success' };
+    }
   };
   
   const getRecommendedFile = (files: HFFile[]) => {
@@ -557,6 +635,7 @@ export const AISidebar = () => {
       await db.saveMessage(conversationId, { id: assistantId, role: 'assistant', content: cleaned, createdAt: assistantCreatedRef.current[assistantId] || new Date().toISOString() });
     }
     if (calls.length === 0) return;
+    const summaries: string[] = [];
     for (const call of calls) {
       const toolMsg: ChatMessage = {
         id: uuidv4(),
@@ -564,28 +643,43 @@ export const AISidebar = () => {
         content: `Tool call: ${call.tool} ${JSON.stringify(call.arguments)}`,
         createdAt: new Date().toISOString()
       };
+      setCollapsedTool(prev => ({ ...prev, [toolMsg.id as string]: true }));
       setMessages(prev => [...prev, toolMsg]);
       await db.saveMessage(conversationId, toolMsg);
       try {
         const result = await executeToolCall(call.tool, call.arguments || {});
+        const status = getToolStatus({ kind: 'result', tool: call.tool, payload: result });
+        summaries.push(status.label);
         const resultMsg: ChatMessage = {
           id: uuidv4(),
           role: 'tool',
-          content: `Tool result: ${JSON.stringify(result)}`,
+          content: `Tool result: ${call.tool} ${JSON.stringify(result)}`,
           createdAt: new Date().toISOString()
         };
+        setCollapsedTool(prev => ({ ...prev, [resultMsg.id as string]: true }));
         setMessages(prev => [...prev, resultMsg]);
         await db.saveMessage(conversationId, resultMsg);
       } catch (error: any) {
         const errMsg: ChatMessage = {
           id: uuidv4(),
           role: 'tool',
-          content: `Tool error: ${error?.message || 'Unknown error'}`,
+          content: `Tool error: ${call.tool} ${error?.message || 'Unknown error'}`,
           createdAt: new Date().toISOString()
         };
+        setCollapsedTool(prev => ({ ...prev, [errMsg.id as string]: true }));
         setMessages(prev => [...prev, errMsg]);
         await db.saveMessage(conversationId, errMsg);
       }
+    }
+    if (summaries.length > 0) {
+      const summaryMsg: ChatMessage = {
+        id: uuidv4(),
+        role: 'assistant',
+        content: `Tool calls klara:\n${summaries.map(s => `- ${s}`).join('\n')}`,
+        createdAt: new Date().toISOString()
+      };
+      setMessages(prev => [...prev, summaryMsg]);
+      await db.saveMessage(conversationId, summaryMsg);
     }
   };
 
@@ -648,12 +742,12 @@ export const AISidebar = () => {
   };
 
   const graphQLRequest = async (query: string, variables: Record<string, any>) => {
-    const token = localStorage.getItem('token') || '';
+    const authToken = token || localStorage.getItem('token') || '';
     const res = await fetch(`${getApiBaseUrl()}/graphql`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {})
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
       },
       body: JSON.stringify({ query, variables })
     });
@@ -1322,8 +1416,41 @@ export const AISidebar = () => {
                 {messages.map((msg, i) => {
                     const key = msg.id || `msg-${i}`;
                     const isAssistant = msg.role === 'assistant';
+                    const isTool = msg.role === 'tool';
                     const { thinking, rest } = isAssistant ? parseThinking(msg.content) : { thinking: '', rest: msg.content };
                     const collapsed = collapsedThinking[key] ?? true;
+                    if (isTool) {
+                      const info = parseToolMessage(msg.content);
+                      const toolCollapsed = collapsedTool[key] ?? true;
+                      const iconSvg = toolIcons[info.tool] || toolIcons.list_notes;
+                      const label = info.kind === 'call'
+                        ? `Tool call: ${info.tool}`
+                        : info.kind === 'result'
+                          ? `Tool result: ${info.tool}`
+                          : `Tool error: ${info.tool}`;
+                      const status = getToolStatus(info);
+                      const statusIcon = toolStatusIcons[status.tone] || toolStatusIcons.info;
+                      return (
+                        <div key={key} className="p-3 rounded-lg max-w-[90%] bg-gray-50 dark:bg-gray-800/70 mr-auto border border-gray-200 dark:border-gray-700">
+                          <button
+                            className="w-full text-left text-xs font-semibold text-gray-700 dark:text-gray-200 flex items-center gap-2"
+                            onClick={() => setCollapsedTool(prev => ({ ...prev, [key]: !toolCollapsed }))}
+                          >
+                            <span className="w-4 h-4 text-gray-700 dark:text-gray-200" dangerouslySetInnerHTML={{ __html: iconSvg }} />
+                            {label}
+                          </button>
+                          <div className={`mt-1 text-xs flex items-center gap-2 ${status.tone === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-400'}`}>
+                            <span className="w-3.5 h-3.5" dangerouslySetInnerHTML={{ __html: statusIcon }} />
+                            {status.label}
+                          </div>
+                          {!toolCollapsed && (
+                            <div className="mt-2 text-xs text-gray-600 dark:text-gray-300 whitespace-pre-wrap">
+                              {info.details || '(inga detaljer)'}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
                     return (
                       <div key={key} className={`p-3 rounded-lg max-w-[90%] ${msg.role === 'user' ? 'bg-blue-100 dark:bg-blue-900 ml-auto' : 'bg-gray-100 dark:bg-gray-800 mr-auto'}`}>
                           <div className="text-xs text-gray-500 dark:text-gray-300 mb-1 capitalize">{msg.role}</div>
