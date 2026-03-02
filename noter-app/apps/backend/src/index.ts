@@ -15,6 +15,8 @@ import taskRoutes from './routes/tasks';
 import authRoutes from './routes/auth';
 import { authMiddleware } from './middleware/authMiddleware';
 import { errorHandler } from './middleware/errorMiddleware';
+import { createHandler } from 'graphql-http/lib/use/express';
+import { toolSchema } from './graphql/schema';
 
 dotenv.config();
 
@@ -179,6 +181,10 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/notes', authMiddleware, noteRoutes);
 app.use('/api/tasks', authMiddleware, taskRoutes);
+app.use('/api/graphql', authMiddleware, createHandler({
+  schema: toolSchema,
+  context: (req: any) => ({ userId: (req as any).user?.userId })
+}));
 
 // Error Handler
 app.use(errorHandler);
