@@ -3,6 +3,7 @@ import Note from '../models/Note';
 import Task from '../models/Task';
 import Joi from 'joi';
 import bcrypt from 'bcryptjs';
+import { decrypt } from '@repo/shared';
 import { AuthRequest } from '../middleware/authMiddleware';
 import { validate } from '../middleware/validate';
 import cache from '../services/cache';
@@ -134,7 +135,7 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
 router.post('/:id/verify-lock', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const targetId = req.params.id;
-    const targetNote = await Note.findById(targetId);
+    const targetNote = await Note.findById(targetId).select('+password');
     
     if (!targetNote) {
       res.status(404);
@@ -148,7 +149,15 @@ router.post('/:id/verify-lock', async (req: Request, res: Response, next: NextFu
       return;
     }
 
-    const isMatch = await bcrypt.compare(password, targetNote.password);
+    const decryptedCandidate = decrypt(password);
+    const candidates = [password, decryptedCandidate].filter((v, i, arr) => v && arr.indexOf(v) === i);
+    let isMatch = false;
+    for (const candidate of candidates) {
+      if (await bcrypt.compare(candidate, targetNote.password)) {
+        isMatch = true;
+        break;
+      }
+    }
     if (!isMatch) {
       // Return 200 OK with success: false instead of 401 to prevent frontend logout
       res.json({ success: false, message: 'Invalid password' });
@@ -178,7 +187,9 @@ router.post('/', validate(noteSchema), async (req: Request, res: Response, next:
     }
 
     if (noteData.password) {
-      noteData.password = await bcrypt.hash(noteData.password, 10);
+      const decrypted = decrypt(noteData.password);
+      const rawPassword = decrypted ? decrypted : noteData.password;
+      noteData.password = await bcrypt.hash(rawPassword, 10);
     }
 
     const note = new Note(noteData);
@@ -250,7 +261,9 @@ router.put('/:id', validate(updateSchema), async (req: Request, res: Response, n
       if (value.type !== undefined) note.type = value.type;
       if (value.password !== undefined) {
         if (value.password) {
-            note.password = await bcrypt.hash(value.password, 10);
+            const decrypted = decrypt(value.password);
+            const rawPassword = decrypted ? decrypted : value.password;
+            note.password = await bcrypt.hash(rawPassword, 10);
         } else {
             note.password = '';
         }
