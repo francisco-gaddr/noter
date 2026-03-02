@@ -3,7 +3,7 @@ import Note from '../models/Note';
 import Task from '../models/Task';
 import Joi from 'joi';
 import bcrypt from 'bcryptjs';
-import { decrypt } from '@repo/shared';
+import { decrypt, encrypt } from '@repo/shared';
 import { AuthRequest } from '../middleware/authMiddleware';
 import { validate } from '../middleware/validate';
 import cache from '../services/cache';
@@ -150,7 +150,8 @@ router.post('/:id/verify-lock', async (req: Request, res: Response, next: NextFu
     }
 
     const decryptedCandidate = decrypt(password);
-    const candidates = [password, decryptedCandidate].filter((v, i, arr) => v && arr.indexOf(v) === i);
+    const encryptedCandidate = encrypt(password);
+    const candidates = [password, decryptedCandidate, encryptedCandidate].filter((v, i, arr) => v && arr.indexOf(v) === i);
     let isMatch = false;
     for (const candidate of candidates) {
       if (await bcrypt.compare(candidate, targetNote.password)) {

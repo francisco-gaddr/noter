@@ -53,6 +53,7 @@ interface AppState {
 
   // Security
   verifyNoteLock: (id: string, password: string) => Promise<{ title: string; content: string }>;
+  maskLockedNote: (id: string) => Promise<void>;
   
   // Auth
   login: (username: string, password: string) => Promise<void>;
@@ -668,6 +669,10 @@ export const useStore = create<AppState>((set, get) => ({
         ...(data.type !== undefined ? { type: data.type } : {}),
         updatedAt: new Date().toISOString()
     };
+    if (data.locked === true) {
+        optimisticNote.title = 'Låst anteckning';
+        optimisticNote.content = '';
+    }
 
     // 2. Update State
     set(state => ({
@@ -688,6 +693,7 @@ export const useStore = create<AppState>((set, get) => ({
       if (data.type !== undefined) encryptedData.type = encrypt(data.type);
       if (data.locked !== undefined) encryptedData.locked = encrypt(String(data.locked));
       if (data.order !== undefined) encryptedData.order = encrypt(String(data.order));
+      if (data.password !== undefined) encryptedData.password = data.password;
       // Always update updatedAt
       encryptedData.updatedAt = encrypt(new Date().toISOString());
 
@@ -1405,6 +1411,10 @@ export const useStore = create<AppState>((set, get) => ({
         skipUnauthorized: true,
       });
       
+      if (response?.success === false) {
+        throw new Error('Incorrect password');
+      }
+
       const decryptedContent = decrypt(response.content);
       const decryptedTitle = response.title ? decrypt(response.title) : 'Låst anteckning';
 
@@ -1420,5 +1430,20 @@ export const useStore = create<AppState>((set, get) => ({
       }
       throw error;
     }
+  },
+
+  maskLockedNote: async (id) => {
+    const note = get().notes.find(n => n._id === id);
+    if (!note) return;
+    const masked: Note = {
+      ...note,
+      title: 'Låst anteckning',
+      content: '',
+      locked: true,
+    };
+    set(state => ({
+      notes: state.notes.map(n => n._id === id ? masked : n)
+    }));
+    await Database.saveNoteLocal(masked, true);
   },
 }));

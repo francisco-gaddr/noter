@@ -18,7 +18,7 @@ export default function NoteEditorScreen() {
   const parentId = Array.isArray(params.parentId) ? params.parentId[0] : params.parentId;
   const router = useRouter();
   const theme = useTheme();
-  const { notes, createNote, updateNote, deleteNote, fetchNotes, verifyNoteLock } = useStore();
+  const { notes, createNote, updateNote, deleteNote, fetchNotes, verifyNoteLock, maskLockedNote } = useStore();
   
   const richText = useRef<RichEditor>(null);
   
@@ -37,6 +37,7 @@ export default function NoteEditorScreen() {
 
   // Lock State
   const [isLocked, setIsLocked] = useState(false);
+  const isLockedRef = useRef(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [passwordMode, setPasswordMode] = useState<'unlock' | 'lock'>('unlock');
   const [unlockError, setUnlockError] = useState<string | null>(null);
@@ -81,12 +82,14 @@ export default function NoteEditorScreen() {
   useEffect(() => { iconColorRef.current = iconColor; }, [iconColor]);
   useEffect(() => { selectedParentIdRef.current = selectedParentId; }, [selectedParentId]);
   useEffect(() => { isSavingRef.current = isSaving; }, [isSaving]);
+  useEffect(() => { isLockedRef.current = isLocked; }, [isLocked]);
 
   // Auto-save on unmount
   useEffect(() => {
     return () => {
       // If manually deleted, explicitly saving, or already successfully saved manually, skip
       if (isDeletedRef.current || isSavingRef.current || hasSavedRef.current) return;
+      if (isLockedRef.current) return;
       
       const currentContent = contentRef.current;
       const currentTitle = titleRef.current;
@@ -136,6 +139,14 @@ export default function NoteEditorScreen() {
       save();
     };
   }, []);
+
+  useEffect(() => {
+    return () => {
+      if (!isNew && existingNote?.locked && id) {
+        maskLockedNote(id);
+      }
+    };
+  }, [id, existingNote?.locked, isNew, maskLockedNote]);
 
   useEffect(() => {
     if (!isNew && existingNote) {
