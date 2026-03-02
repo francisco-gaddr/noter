@@ -14,6 +14,19 @@ export interface Conversation {
   updatedAt: string;
   messages: ChatMessage[];
   model?: string;
+  projectId?: string | null;
+  icon?: string;
+  iconColor?: string;
+}
+
+export interface AIProject {
+  id: string;
+  name: string;
+  systemPrompt?: string;
+  icon?: string;
+  iconColor?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface LLMProvider {
