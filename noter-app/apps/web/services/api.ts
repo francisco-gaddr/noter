@@ -11,20 +11,54 @@ export const getUUID = (): string => {
   });
 };
 
+const API_URL_KEY = 'apiBaseUrl';
+
+const normalizeUrl = (value: string) => {
+  let next = value.trim().replace(/\/+$/, '');
+  if (/\/app\/api$/i.test(next)) {
+    next = next.replace(/\/app\/api$/i, '/api');
+  } else if (/\/app$/i.test(next)) {
+    next = next.replace(/\/app$/i, '/api');
+  }
+  return next;
+};
+
+const getStorage = () => {
+  if (typeof globalThis === 'undefined') return null;
+  const storage = (globalThis as any).localStorage;
+  return storage || null;
+};
+
 const getBaseUrl = () => {
-  if (typeof window === 'undefined') return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
-  
+  if (typeof window === 'undefined' && !getStorage()) {
+    return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
+  }
+
+  const storage = getStorage();
+  const stored = storage ? storage.getItem(API_URL_KEY) : null;
+  if (stored) {
+    return normalizeUrl(stored);
+  }
+
   const envUrl = process.env.NEXT_PUBLIC_API_URL;
   // If envUrl is defined but contains localhost, and we are NOT on localhost, 
   // assume we should use relative path to allow Nginx to proxy correctly.
   if (envUrl && (envUrl.includes('localhost') || envUrl.includes('127.0.0.1')) && 
+      typeof window !== 'undefined' &&
       window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
       return '/api';
   }
   return envUrl || '/api';
 };
 
-const API_URL = getBaseUrl();
+export const getApiBaseUrl = () => getBaseUrl();
+
+export const setApiBaseUrl = (url: string) => {
+  const storage = getStorage();
+  if (!storage) return;
+  const trimmed = normalizeUrl(url.trim());
+  storage.setItem(API_URL_KEY, trimmed);
+};
 
 const getHeaders = () => {
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
@@ -112,7 +146,7 @@ const parseNoteLocked = (value: unknown): boolean => {
 export const api = {
   // Auth
   async register(username: string, password: string): Promise<AuthResponse> {
-    const res = await fetch(`${API_URL}/auth/register`, {
+    const res = await fetch(`${getBaseUrl()}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
@@ -121,7 +155,7 @@ export const api = {
   },
 
   async login(username: string, password: string): Promise<AuthResponse> {
-    const res = await fetch(`${API_URL}/auth/login`, {
+    const res = await fetch(`${getBaseUrl()}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
@@ -131,7 +165,7 @@ export const api = {
 
   // Notes
   async fetchNotes(): Promise<any[]> {
-    const res = await fetch(`${API_URL}/notes`, { headers: getHeaders() });
+    const res = await fetch(`${getBaseUrl()}/notes`, { headers: getHeaders() });
     return handleResponse(res);
   },
 
@@ -167,7 +201,7 @@ export const api = {
   },
 
   async getNote(id: string): Promise<Note> {
-    const res = await fetch(`${API_URL}/notes/${id}`, { headers: getHeaders() });
+    const res = await fetch(`${getBaseUrl()}/notes/${id}`, { headers: getHeaders() });
     const note: Note = await handleResponse(res);
     const locked = parseNoteLocked(note.locked);
     return {
@@ -198,20 +232,21 @@ export const api = {
       updatedAt: encrypt(new Date().toISOString()),
     };
     
-    const res = await fetch(`${API_URL}/notes`, {
+    const res = await fetch(`${getBaseUrl()}/notes`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(encryptedData),
     });
     const note: Note = await handleResponse(res);
+    const locked = note.locked ? decrypt(String(note.locked)) === 'true' : false;
     return {
       ...note,
-      title: decrypt(note.title),
-      content: decrypt(note.content),
-      tags: note.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? [],
-      icon: note.icon ? (() => { try { return decrypt(note.icon) } catch { return note.icon } })() : undefined,
+      title: locked ? 'Låst anteckning' : decrypt(note.title),
+      content: locked ? '' : decrypt(note.content),
+      tags: locked ? [] : (note.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? []),
+      icon: locked ? undefined : (note.icon ? (() => { try { return decrypt(note.icon) } catch { return note.icon } })() : undefined),
       type: note.type ? (() => { try { return decrypt(note.type) as any } catch { return note.type } })() : 'note',
-      locked: note.locked ? decrypt(String(note.locked)) === 'true' : false,
+      locked,
       order: parseNoteOrder((note as any).order),
       createdAt: decrypt(note.createdAt),
       updatedAt: decrypt(note.updatedAt),
@@ -227,10 +262,11 @@ export const api = {
     if (data.type !== undefined) encryptedData.type = encrypt(String(data.type)) as any;
     if (data.locked !== undefined) encryptedData.locked = encrypt(String(data.locked));
     if (data.order !== undefined) encryptedData.order = encrypt(String(data.order));
+    if (data.password !== undefined) encryptedData.password = data.password;
     // Always update updatedAt
     encryptedData.updatedAt = encrypt(new Date().toISOString());
 
-    const res = await fetch(`${API_URL}/notes/${id}`, {
+    const res = await fetch(`${getBaseUrl()}/notes/${id}`, {
       method: 'PUT',
       headers: getHeaders(),
       body: JSON.stringify(encryptedData),
@@ -251,7 +287,7 @@ export const api = {
   },
 
   async verifyLock(id: string, password: string): Promise<{ success: boolean; content: string; title?: string }> {
-    const res = await fetch(`${API_URL}/notes/${id}/verify-lock`, {
+    const res = await fetch(`${getBaseUrl()}/notes/${id}/verify-lock`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ password }),
@@ -281,7 +317,7 @@ export const api = {
   },
 
   async deleteNote(id: string): Promise<void> {
-    const res = await fetch(`${API_URL}/notes/${id}`, {
+    const res = await fetch(`${getBaseUrl()}/notes/${id}`, {
       method: 'DELETE',
       headers: getHeaders(),
     });
@@ -290,7 +326,7 @@ export const api = {
 
   // Tasks
   async fetchTasks(parentNoteId?: string): Promise<any[]> {
-    const url = parentNoteId ? `${API_URL}/tasks?parentNoteId=${parentNoteId}` : `${API_URL}/tasks`;
+    const url = parentNoteId ? `${getBaseUrl()}/tasks?parentNoteId=${parentNoteId}` : `${getBaseUrl()}/tasks`;
     const res = await fetch(url, { headers: getHeaders() });
     return handleResponse(res);
   },
@@ -382,7 +418,7 @@ export const api = {
       position: data.position !== undefined ? encrypt(String(data.position)) : encrypt('0'),
     };
     
-    const res = await fetch(`${API_URL}/tasks`, {
+    const res = await fetch(`${getBaseUrl()}/tasks`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(encryptedData),
@@ -470,7 +506,7 @@ export const api = {
     encryptedData.updatedAt = encrypt(new Date().toISOString());
     if (data.position !== undefined) encryptedData.position = encrypt(String(data.position));
 
-    const res = await fetch(`${API_URL}/tasks/${id}`, {
+    const res = await fetch(`${getBaseUrl()}/tasks/${id}`, {
       method: 'PUT',
       headers: getHeaders(),
       body: JSON.stringify(encryptedData),
@@ -535,7 +571,7 @@ export const api = {
   },
 
   async deleteTask(id: string): Promise<void> {
-    const res = await fetch(`${API_URL}/tasks/${id}`, {
+    const res = await fetch(`${getBaseUrl()}/tasks/${id}`, {
       method: 'DELETE',
       headers: getHeaders(),
     });
@@ -547,7 +583,7 @@ export const api = {
       _id: task._id,
       position: encrypt(String(task.position))
     }));
-    const res = await fetch(`${API_URL}/tasks/reorder`, {
+    const res = await fetch(`${getBaseUrl()}/tasks/reorder`, {
       method: 'PUT',
       headers: getHeaders(),
       body: JSON.stringify({ tasks: encryptedTasks }),
@@ -556,7 +592,7 @@ export const api = {
   },
  
    async assignTasksToList(noteId: string): Promise<void> {
-     const res = await fetch(`${API_URL}/tasks/assign-to-list`, {
+     const res = await fetch(`${getBaseUrl()}/tasks/assign-to-list`, {
        method: 'PUT',
        headers: getHeaders(),
        body: JSON.stringify({ noteId }),
