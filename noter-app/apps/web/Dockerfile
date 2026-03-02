@@ -1,8 +1,7 @@
-FROM node:20-alpine AS builder
+FROM node:20-slim AS builder
 WORKDIR /app
 
-# Install git and other build dependencies required for node-llama-cpp
-RUN apk add --no-cache git python3 make g++ cmake linux-headers
+RUN apt-get update && apt-get install -y git python3 build-essential cmake && rm -rf /var/lib/apt/lists/*
 
 # Copy only package files first for better caching
 COPY package.json package-lock.json turbo.json ./
@@ -22,7 +21,7 @@ ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 RUN npx turbo run build --filter=web
 
-FROM node:20-alpine AS runner
+FROM node:20-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
