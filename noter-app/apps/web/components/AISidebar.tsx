@@ -741,8 +741,19 @@ export const AISidebar = () => {
     return { calls, cleaned };
   };
 
+  const resolveAuthToken = async () => {
+    if (token) return token;
+    if (typeof window === 'undefined') return '';
+    const local = localStorage.getItem('token') || localStorage.getItem('auth_token');
+    if (local) return local;
+    const stored = await getStoredValue('token');
+    if (stored) return stored;
+    const legacy = await getStoredValue('auth_token');
+    return legacy || '';
+  };
+
   const graphQLRequest = async (query: string, variables: Record<string, any>) => {
-    const authToken = token || localStorage.getItem('token') || '';
+    const authToken = await resolveAuthToken();
     const res = await fetch(`${getApiBaseUrl()}/graphql`, {
       method: 'POST',
       headers: {
