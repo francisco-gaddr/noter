@@ -1,60 +1,160 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, FlatList, TextInput, KeyboardAvoidingView, Platform, TouchableOpacity, ScrollView } from 'react-native';
-import { Text, Button, useTheme, IconButton, List, ActivityIndicator, ProgressBar } from 'react-native-paper';
+import React, { useState, useEffect, useRef } from 'react';
+import { StyleSheet, View, FlatList, TextInput, KeyboardAvoidingView, Platform, ScrollView, Pressable } from 'react-native';
+import { Text, Button, useTheme, IconButton, List, ActivityIndicator, ProgressBar, Portal, Dialog, TextInput as PaperTextInput } from 'react-native-paper';
 import { useNavigation } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { MobileLlamaProvider } from '@/services/ai/provider';
-import { ChatMessage, Conversation, HFModel } from '@repo/ai';
+import { ChatMessage, Conversation, HFModel, AIProject } from '@repo/ai';
 import { searchHuggingFaceModels, getModelFiles } from '@/services/ai/huggingface';
 import { downloadModel as serviceDownloadModel, getBestQuantization, deleteModel as serviceDeleteModel, cancelDownload as cancelModelDownload } from '@/services/ai/modelService';
-import { saveConversationLocal, getConversationsLocal, deleteConversationLocal, saveMessageLocal, getMessagesLocal, saveModelLocal, getModelsLocal, deleteModelLocal } from '@/services/database';
+import { saveConversationLocal, getConversationsLocal, deleteConversationLocal, saveMessageLocal, getMessagesLocal, getModelsLocal, saveProjectLocal, getProjectsLocal, deleteProjectLocal } from '@/services/database';
+import { combineSystemPrompts } from '@/services/ai/prompt';
+import IconPickerModal from '@/components/IconPickerModal';
+import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import 'react-native-get-random-values';
 import { v4 as uuidv4 } from 'uuid';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const provider = new MobileLlamaProvider();
 
+const ProjectDialog = React.memo(({
+  visible,
+  mode,
+  initialName,
+  initialPrompt,
+  icon,
+  iconColor,
+  onPickIcon,
+  onDelete,
+  onSave,
+  onDismiss,
+}: {
+  visible: boolean;
+  mode: 'create' | 'edit';
+  initialName: string;
+  initialPrompt: string;
+  icon?: string;
+  iconColor?: string;
+  onPickIcon: () => void;
+  onDelete?: () => void;
+  onSave: (name: string, prompt: string) => void;
+  onDismiss: () => void;
+}) => {
+  const theme = useTheme();
+  const [name, setName] = useState(initialName);
+  const [prompt, setPrompt] = useState(initialPrompt);
+
+  useEffect(() => {
+    if (visible) {
+      setName(initialName);
+      setPrompt(initialPrompt);
+    }
+  }, [visible, initialName, initialPrompt]);
+
+  return (
+    <Dialog visible={visible} onDismiss={onDismiss}>
+      <Dialog.Title>{mode === 'create' ? 'Nytt projekt' : 'Redigera projekt'}</Dialog.Title>
+      <Dialog.Content>
+        <PaperTextInput
+          mode="outlined"
+          label="Projektnamn"
+          value={name}
+          onChangeText={setName}
+          autoCorrect={false}
+        />
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12 }}>
+          <Button mode="outlined" onPress={onPickIcon}>
+            Välj ikon
+          </Button>
+          {icon ? (
+            <View style={{ marginLeft: 12 }}>
+              <FontAwesome5
+                name={icon.replace(/^Fa/, '').replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()}
+                size={18}
+                color={iconColor || theme.colors.onSurface}
+              />
+            </View>
+          ) : null}
+        </View>
+        <PaperTextInput
+          mode="outlined"
+          label="Projektprompt"
+          value={prompt}
+          onChangeText={setPrompt}
+          multiline
+          autoCorrect={false}
+          style={{ marginTop: 12 }}
+        />
+      </Dialog.Content>
+      <Dialog.Actions style={{ marginTop: 12 }}>
+        <Button onPress={onDismiss}>Avbryt</Button>
+        {mode === 'edit' ? <Button onPress={onDelete}>Ta bort</Button> : null}
+        <Button mode="contained" onPress={() => onSave(name, prompt)} style={{ marginLeft: 8 }}>
+          {mode === 'create' ? 'Skapa' : 'Spara'}
+        </Button>
+      </Dialog.Actions>
+    </Dialog>
+  );
+});
+
+const ChatDialog = React.memo(({
+  visible,
+  initialName,
+  onPickIcon,
+  onDelete,
+  onSave,
+  onDismiss,
+}: {
+  visible: boolean;
+  initialName: string;
+  onPickIcon: () => void;
+  onDelete: () => void;
+  onSave: (name: string) => void;
+  onDismiss: () => void;
+}) => {
+  const [name, setName] = useState(initialName);
+
+  useEffect(() => {
+    if (visible) {
+      setName(initialName);
+    }
+  }, [visible, initialName]);
+
+  return (
+    <Dialog visible={visible} onDismiss={onDismiss}>
+      <Dialog.Title>Redigera chatt</Dialog.Title>
+      <Dialog.Content>
+        <PaperTextInput
+          mode="outlined"
+          label="Chattnamn"
+          value={name}
+          onChangeText={setName}
+          autoCorrect={false}
+        />
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 12 }}>
+          <Button mode="outlined" onPress={onPickIcon}>
+            Välj ikon
+          </Button>
+        </View>
+      </Dialog.Content>
+      <Dialog.Actions style={{ marginTop: 12 }}>
+        <Button onPress={onDismiss}>Avbryt</Button>
+        <Button onPress={onDelete}>Ta bort</Button>
+        <Button mode="contained" onPress={() => onSave(name)} style={{ marginLeft: 8 }}>
+          Spara
+        </Button>
+      </Dialog.Actions>
+    </Dialog>
+  );
+});
+
 export default function AIScreen() {
   const theme = useTheme();
   const navigation = useNavigation();
   const { t } = useTranslation();
   
-  // Tabs
-  const [activeTab, setActiveTab] = useState<'chat' | 'history'>('chat');
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'downloaded' | 'search' | 'system'>('downloaded');
-
-  useEffect(() => {
-    navigation.setOptions({
-      headerTitle: () => (
-        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-          <Button 
-            mode={activeTab === 'chat' ? 'contained' : 'text'} 
-            onPress={() => setActiveTab('chat')}
-            compact
-            labelStyle={{ fontSize: 12 }}
-            style={{ marginRight: 4 }}
-          >
-            {t('ai.chat')}
-          </Button>
-          <Button 
-            mode={activeTab === 'history' ? 'contained' : 'text'} 
-            onPress={() => setActiveTab('history')}
-            compact
-            labelStyle={{ fontSize: 12 }}
-          >
-            {t('ai.history')}
-          </Button>
-        </View>
-      ),
-      headerRight: () => (
-        <IconButton
-          icon={settingsVisible ? 'close' : 'cog'}
-          onPress={() => setSettingsVisible((prev) => !prev)}
-        />
-      ),
-    });
-  }, [navigation, activeTab, theme, settingsVisible]);
 
   // Chat
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
@@ -62,6 +162,29 @@ export default function AIScreen() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [systemPrompt, setSystemPrompt] = useState('');
+  const [contextInfo, setContextInfo] = useState('');
+  const stopRequestedRef = useRef(false);
+
+  // Projects
+  const [projects, setProjects] = useState<AIProject[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [sidebarVisible, setSidebarVisible] = useState(false);
+  const [projectDialogVisible, setProjectDialogVisible] = useState(false);
+  const [projectDialogMode, setProjectDialogMode] = useState<'create' | 'edit'>('edit');
+  const [projectDialogId, setProjectDialogId] = useState<string | null>(null);
+  const [projectDialogName, setProjectDialogName] = useState('');
+  const [projectDialogPrompt, setProjectDialogPrompt] = useState('');
+  const [projectDialogIcon, setProjectDialogIcon] = useState<string | undefined>();
+  const [projectDialogIconColor, setProjectDialogIconColor] = useState<string | undefined>();
+  const [projectIconPickerVisible, setProjectIconPickerVisible] = useState(false);
+  const [chatDialogVisible, setChatDialogVisible] = useState(false);
+  const [chatDialogId, setChatDialogId] = useState<string | null>(null);
+  const [chatDialogName, setChatDialogName] = useState('');
+  const [chatDialogIcon, setChatDialogIcon] = useState<string | undefined>();
+  const [chatDialogIconColor, setChatDialogIconColor] = useState<string | undefined>();
+  const [chatIconPickerVisible, setChatIconPickerVisible] = useState(false);
+  const [confirmProjectDeleteId, setConfirmProjectDeleteId] = useState<string | null>(null);
+  const [confirmChatDeleteId, setConfirmChatDeleteId] = useState<string | null>(null);
 
   // Models
   const [localModels, setLocalModels] = useState<any[]>([]);
@@ -77,8 +200,32 @@ export default function AIScreen() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
 
   useEffect(() => {
+    navigation.setOptions({
+      headerTitle: () => (
+        <Text variant="titleMedium" style={{ color: theme.colors.onSurface }}>{t('tabs.ai')}</Text>
+      ),
+      headerLeft: () => (
+        <IconButton
+          icon="menu"
+          onPress={() => setSidebarVisible(true)}
+        />
+      ),
+      headerRight: () => (
+        <View style={{ flexDirection: 'row' }}>
+          <IconButton icon="plus" onPress={createNewChat} />
+          <IconButton
+            icon={settingsVisible ? 'close' : 'cog'}
+            onPress={() => setSettingsVisible((prev) => !prev)}
+          />
+        </View>
+      ),
+    });
+  }, [navigation, theme, settingsVisible, activeModel, activeProjectId]);
+
+  useEffect(() => {
     loadModels();
     loadConversations();
+    loadProjects();
     (async () => {
       const saved = await AsyncStorage.getItem('ai_system_prompt');
       if (saved) setSystemPrompt(saved);
@@ -98,6 +245,55 @@ export default function AIScreen() {
       setConversations(convs);
   };
 
+  const loadProjects = async () => {
+      const items = await getProjectsLocal();
+      setProjects(items);
+      if (items.length > 0 && !activeProjectId) {
+          setActiveProjectId(items[0].id);
+      }
+  };
+
+  const formatError = (error: unknown) => {
+      const message = (error as any)?.message ? String((error as any).message) : String(error);
+      if (message.includes('Zip module not available')) return 'Zip-stöd saknas. Bygg en dev‑client.';
+      if (message.includes('Native filesystem not available')) return 'Filsystem saknas. Kör i dev‑client.';
+      if (message.includes('MLCModule')) return 'MLC‑modulen saknas. Bygg om appen.';
+      if (message.includes('Invalid model package')) return 'Modellpaketet är ogiltigt eller saknar filer.';
+      if (message.includes('Conversion failed')) return 'Konvertering misslyckades på servern.';
+      if (message.includes('job not found')) return 'Konverteringsjobb saknas eller har löpt ut.';
+      return message;
+  };
+
+  const getActiveProject = () => projects.find(p => p.id === activeProjectId) || null;
+
+  const buildHistory = (userMsg: ChatMessage) => {
+      const maxChars = 12000;
+      const projectPrompt = getActiveProject()?.systemPrompt || '';
+      const combinedPrompt = combineSystemPrompts(systemPrompt, projectPrompt);
+      const systemMsg = combinedPrompt
+        ? ({ id: 'system', role: 'system', content: combinedPrompt, createdAt: new Date().toISOString() } as ChatMessage)
+        : null;
+
+      let total = systemMsg ? systemMsg.content.length : 0;
+      const base = [...messages, userMsg];
+      const trimmed: ChatMessage[] = [];
+      for (let i = base.length - 1; i >= 0; i -= 1) {
+          const content = base[i].content || '';
+          const nextTotal = total + content.length;
+          if (nextTotal > maxChars && trimmed.length > 0) break;
+          total = nextTotal;
+          trimmed.unshift(base[i]);
+      }
+
+      if (trimmed.length === 0) {
+          trimmed.push(userMsg);
+          total = (systemMsg ? systemMsg.content.length : 0) + userMsg.content.length;
+      }
+
+      setContextInfo(`${total} tecken`);
+      return systemMsg ? [systemMsg, ...trimmed] : trimmed;
+  };
+
   const formatSearchSize = (size?: number | null) => {
       if (size === undefined) return 'Size: ...';
       if (typeof size === 'number') return `Size: ${(size / 1024 / 1024 / 1024).toFixed(2)} GB`;
@@ -112,20 +308,25 @@ export default function AIScreen() {
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           messages: [],
-          model: activeModel || undefined
+          model: activeModel || undefined,
+          projectId: activeProjectId || undefined
       };
       await saveConversationLocal(newConv);
       setConversations(prev => [newConv, ...prev]);
       setCurrentConversationId(newId);
       setMessages([]);
-      setActiveTab('chat');
   };
 
   const loadChat = async (id: string) => {
       const msgs = await getMessagesLocal(id);
       setMessages(msgs);
       setCurrentConversationId(id);
-      setActiveTab('chat');
+      const conv = conversations.find(c => c.id === id);
+      if (conv?.projectId) {
+        setActiveProjectId(conv.projectId || null);
+      } else {
+        setActiveProjectId(null);
+      }
   };
 
   const deleteChat = async (id: string) => {
@@ -134,6 +335,110 @@ export default function AIScreen() {
       if (currentConversationId === id) {
           setCurrentConversationId(null);
           setMessages([]);
+      }
+  };
+
+  const openProjectDialog = (project: AIProject) => {
+      setProjectDialogMode('edit');
+      setProjectDialogId(project.id);
+      setProjectDialogName(project.name);
+      setProjectDialogPrompt(project.systemPrompt || '');
+      setProjectDialogIcon(project.icon);
+      setProjectDialogIconColor(project.iconColor);
+      setProjectDialogVisible(true);
+  };
+
+  const openNewProjectDialog = () => {
+      setProjectDialogMode('create');
+      setProjectDialogId(null);
+      setProjectDialogName('');
+      setProjectDialogPrompt('');
+      setProjectDialogIcon(undefined);
+      setProjectDialogIconColor(undefined);
+      setProjectDialogVisible(true);
+  };
+
+  const openChatDialog = (chat: Conversation) => {
+      setChatDialogId(chat.id);
+      setChatDialogName(chat.title);
+      setChatDialogIcon(chat.icon);
+      setChatDialogIconColor(chat.iconColor);
+      setChatDialogVisible(true);
+  };
+
+  const handleSaveProjectDialog = async (nameInput: string, promptInput: string) => {
+      const name = nameInput.trim();
+      if (!name) return;
+      if (projectDialogMode === 'create') {
+          const project: AIProject = {
+              id: uuidv4(),
+              name,
+              systemPrompt: promptInput,
+              icon: projectDialogIcon,
+              iconColor: projectDialogIconColor,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString()
+          };
+          await saveProjectLocal(project);
+          setProjects(prev => [project, ...prev]);
+          setActiveProjectId(project.id);
+          setProjectDialogVisible(false);
+          return;
+      }
+      if (!projectDialogId) return;
+      const proj = projects.find(p => p.id === projectDialogId);
+      if (!proj) return;
+      const updated: AIProject = {
+          ...proj,
+          name,
+          systemPrompt: promptInput,
+          icon: projectDialogIcon,
+          iconColor: projectDialogIconColor,
+          updatedAt: new Date().toISOString()
+      };
+      await saveProjectLocal(updated);
+      setProjects(prev => prev.map(p => p.id === updated.id ? updated : p));
+      setProjectDialogVisible(false);
+  };
+
+  const handleSaveChatDialog = async (nameInput: string) => {
+      if (!chatDialogId) return;
+      const conv = conversations.find(c => c.id === chatDialogId);
+      if (!conv) return;
+      const trimmed = nameInput.trim();
+      const updated: Conversation = {
+          ...conv,
+          title: trimmed || conv.title,
+          icon: chatDialogIcon,
+          iconColor: chatDialogIconColor,
+          updatedAt: new Date().toISOString()
+      };
+      await saveConversationLocal(updated);
+      setConversations(prev => prev.map(c => c.id === updated.id ? updated : c));
+      setChatDialogVisible(false);
+  };
+
+  const confirmDeleteProject = async () => {
+      if (!confirmProjectDeleteId) return;
+      await handleDeleteProject(confirmProjectDeleteId);
+      setConfirmProjectDeleteId(null);
+  };
+
+  const confirmDeleteChat = async () => {
+      if (!confirmChatDeleteId) return;
+      await deleteChat(confirmChatDeleteId);
+      setConfirmChatDeleteId(null);
+  };
+
+  const handleSelectProject = (projectId: string | null) => {
+      setActiveProjectId(projectId);
+  };
+
+  const handleDeleteProject = async (projectId: string) => {
+      await deleteProjectLocal(projectId);
+      setProjects(prev => prev.filter(p => p.id !== projectId));
+      if (activeProjectId === projectId) {
+          setActiveProjectId(null);
       }
   };
 
@@ -212,7 +517,7 @@ export default function AIScreen() {
         });
       } catch (e) {
           console.error(e);
-          alert('Download failed: ' + String(e));
+          alert('Download failed: ' + formatError(e));
           setDownloadProgress(prev => {
               const newP = { ...prev };
               delete newP[model.id];
@@ -277,7 +582,8 @@ export default function AIScreen() {
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
             messages: [],
-            model: activeModel
+            model: activeModel,
+            projectId: activeProjectId || undefined
         };
         await saveConversationLocal(newConv);
         setConversations(prev => [newConv, ...prev]);
@@ -296,6 +602,7 @@ export default function AIScreen() {
     setMessages(prev => [...prev, userMsg]);
     setInput('');
     setLoading(true);
+    stopRequestedRef.current = false;
 
     try {
       await saveMessageLocal(conversationId, userMsg);
@@ -309,14 +616,13 @@ export default function AIScreen() {
       };
       setMessages(prev => [...prev, assistantMsg]);
 
-      const history = systemPrompt
-        ? ([{ id: 'system', role: 'system', content: systemPrompt, createdAt: new Date().toISOString() } as ChatMessage, ...messages, userMsg] as ChatMessage[])
-        : [...messages, userMsg];
+      const history = buildHistory(userMsg);
       let streamed = false;
       let fullContent = '';
 
       try {
-          await provider.streamResponse(history, {}, (token) => {
+          await provider.streamResponse(history, { streamDelayMs: 10, shouldStop: () => stopRequestedRef.current }, (token) => {
+              if (stopRequestedRef.current) return;
               streamed = true;
               fullContent += token;
               setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
@@ -325,7 +631,7 @@ export default function AIScreen() {
           console.error(streamError);
       }
 
-      if (!streamed) {
+      if (!streamed && !stopRequestedRef.current) {
           const response = await provider.generateResponse(history);
           fullContent = response;
           setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
@@ -335,14 +641,161 @@ export default function AIScreen() {
       await saveMessageLocal(conversationId, savedMsg);
     } catch (error) {
       console.error(error);
-      setMessages(prev => [...prev, { id: uuidv4(), role: 'system', content: 'Error: ' + String(error), createdAt: new Date().toISOString() }]);
+      setMessages(prev => [...prev, { id: uuidv4(), role: 'system', content: 'Fel: ' + formatError(error), createdAt: new Date().toISOString() }]);
     } finally {
       setLoading(false);
     }
   };
 
+  const handleStop = () => {
+    stopRequestedRef.current = true;
+    setLoading(false);
+    setMessages(prev => [...prev, { id: uuidv4(), role: 'system', content: 'Svar avbrutet', createdAt: new Date().toISOString() }]);
+  };
+
+  const visibleConversations = activeProjectId
+    ? conversations.filter(c => c.projectId === activeProjectId)
+    : conversations;
+
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      {sidebarVisible && (
+        <View style={styles.sidebarOverlay}>
+          <View style={[styles.sidebar, { backgroundColor: theme.colors.surface }]}>
+            <Text variant="titleMedium" style={{ marginBottom: 8, color: theme.colors.onSurface }}>
+              Projekt
+            </Text>
+            <View style={{ flexDirection: 'row', marginBottom: 12 }}>
+              <Button mode="contained" onPress={openNewProjectDialog}>
+                Nytt projekt
+              </Button>
+            </View>
+            <ScrollView style={{ flex: 1 }}>
+              <List.Item
+                title="Alla"
+                onPress={() => handleSelectProject(null)}
+                left={() => <List.Icon icon="folder" />}
+                right={() => activeProjectId ? null : <List.Icon icon="check" />}
+              />
+              {projects.map((project) => (
+                <List.Item
+                  key={project.id}
+                  title={project.name}
+                  onPress={() => handleSelectProject(project.id)}
+                  onLongPress={() => openProjectDialog(project)}
+                  left={() => (
+                    project.icon ? (
+                      <View style={{ justifyContent: 'center', marginLeft: 6 }}>
+                        <FontAwesome5 name={project.icon.replace(/^Fa/, '').replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()} size={18} color={project.iconColor || theme.colors.onSurface} />
+                      </View>
+                    ) : (
+                      <List.Icon icon="folder-outline" />
+                    )
+                  )}
+                  right={() => (
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      {activeProjectId === project.id && <List.Icon icon="check" />}
+                    </View>
+                  )}
+                />
+              ))}
+              <Text variant="titleMedium" style={{ marginTop: 16, marginBottom: 8, color: theme.colors.onSurface }}>
+                Chattar
+              </Text>
+              {visibleConversations.length === 0 ? (
+                <Text style={{ color: theme.colors.onSurfaceVariant, marginBottom: 8 }}>Inga chattar</Text>
+              ) : (
+                visibleConversations.map((conv) => (
+                  <List.Item
+                    key={conv.id}
+                    title={conv.title || 'Ny chatt'}
+                    onPress={() => {
+                      loadChat(conv.id);
+                      setSidebarVisible(false);
+                    }}
+                    onLongPress={() => openChatDialog(conv)}
+                    left={() => (
+                      conv.icon ? (
+                        <View style={{ justifyContent: 'center', marginLeft: 6 }}>
+                          <FontAwesome5 name={conv.icon.replace(/^Fa/, '').replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()} size={18} color={conv.iconColor || theme.colors.onSurface} />
+                        </View>
+                      ) : (
+                        <List.Icon icon="message-text-outline" />
+                      )
+                    )}
+                    right={() => null}
+                  />
+                ))
+              )}
+            </ScrollView>
+          </View>
+          <Pressable style={styles.sidebarBackdrop} onPress={() => setSidebarVisible(false)} />
+        </View>
+      )}
+      <Portal>
+        <ProjectDialog
+          visible={projectDialogVisible}
+          mode={projectDialogMode}
+          initialName={projectDialogName}
+          initialPrompt={projectDialogPrompt}
+          icon={projectDialogIcon}
+          iconColor={projectDialogIconColor}
+          onPickIcon={() => setProjectIconPickerVisible(true)}
+          onDelete={projectDialogId ? () => setConfirmProjectDeleteId(projectDialogId) : undefined}
+          onSave={handleSaveProjectDialog}
+          onDismiss={() => setProjectDialogVisible(false)}
+        />
+        <ChatDialog
+          visible={chatDialogVisible}
+          initialName={chatDialogName}
+          onPickIcon={() => setChatIconPickerVisible(true)}
+          onDelete={() => chatDialogId && setConfirmChatDeleteId(chatDialogId)}
+          onSave={handleSaveChatDialog}
+          onDismiss={() => setChatDialogVisible(false)}
+        />
+        <Dialog visible={!!confirmProjectDeleteId} onDismiss={() => setConfirmProjectDeleteId(null)}>
+          <Dialog.Title>Ta bort projekt</Dialog.Title>
+          <Dialog.Content>
+            <Text>Vill du ta bort projektmappen?</Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setConfirmProjectDeleteId(null)}>Avbryt</Button>
+            <Button mode="contained" onPress={confirmDeleteProject}>Ta bort</Button>
+          </Dialog.Actions>
+        </Dialog>
+        <Dialog visible={!!confirmChatDeleteId} onDismiss={() => setConfirmChatDeleteId(null)}>
+          <Dialog.Title>Ta bort chatt</Dialog.Title>
+          <Dialog.Content>
+            <Text>Vill du ta bort chatten?</Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setConfirmChatDeleteId(null)}>Avbryt</Button>
+            <Button mode="contained" onPress={confirmDeleteChat}>Ta bort</Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
+      <IconPickerModal
+        visible={projectIconPickerVisible}
+        onDismiss={() => setProjectIconPickerVisible(false)}
+        currentIcon={projectDialogIcon}
+        currentColor={projectDialogIconColor}
+        onSelect={(icon, color) => {
+          setProjectDialogIcon(icon);
+          setProjectDialogIconColor(color);
+          setProjectIconPickerVisible(false);
+        }}
+      />
+      <IconPickerModal
+        visible={chatIconPickerVisible}
+        onDismiss={() => setChatIconPickerVisible(false)}
+        currentIcon={chatDialogIcon}
+        currentColor={chatDialogIconColor}
+        onSelect={(icon, color) => {
+          setChatDialogIcon(icon);
+          setChatDialogIconColor(color);
+          setChatIconPickerVisible(false);
+        }}
+      />
       {settingsVisible ? (
         <View style={{ flex: 1, padding: 16 }}>
               <View style={{ flexDirection: 'row', marginBottom: 12 }}>
@@ -481,7 +934,6 @@ export default function AIScreen() {
         </View>
       ) : (
         <>
-          {activeTab === 'chat' && (
             <KeyboardAvoidingView 
               behavior={Platform.OS === "ios" ? "padding" : "height"}
               style={{ flex: 1 }}
@@ -513,6 +965,11 @@ export default function AIScreen() {
                   </View>
                 </View>
               )}
+              {contextInfo ? (
+                <Text style={{ color: theme.colors.onSurfaceVariant, paddingHorizontal: 12, paddingBottom: 6 }}>
+                  Kontext: {contextInfo}
+                </Text>
+              ) : null}
               <View style={[styles.inputContainer, { backgroundColor: theme.colors.surface, borderTopColor: theme.colors.outline }]}>
                 <TextInput
                   style={[styles.input, { color: theme.colors.onSurface, borderColor: theme.colors.outline }]}
@@ -528,33 +985,19 @@ export default function AIScreen() {
                   onSubmitEditing={handleSend}
                   blurOnSubmit={false}
                 />
-                <Button onPress={handleSend} disabled={loading} mode="contained">
-                  Send
-                </Button>
+                {loading ? (
+                  <IconButton
+                    icon="stop"
+                    onPress={handleStop}
+                  />
+                ) : (
+                  <IconButton
+                    icon="send"
+                    onPress={handleSend}
+                  />
+                )}
               </View>
             </KeyboardAvoidingView>
-          )}
-
-          {activeTab === 'history' && (
-              <View style={{ flex: 1, padding: 16 }}>
-                  <Button mode="contained" onPress={createNewChat} style={{ marginBottom: 16 }}>+ New Chat</Button>
-                  <FlatList 
-                    data={conversations}
-                    keyExtractor={item => item.id}
-                    renderItem={({ item }) => (
-                        <TouchableOpacity onPress={() => loadChat(item.id)}>
-                            <View style={[styles.historyItem, { borderColor: theme.colors.outline }]}>
-                                <View style={{ flex: 1 }}>
-                                    <Text style={{ color: theme.colors.onSurface, fontWeight: 'bold' }}>{item.title}</Text>
-                                    <Text style={{ color: theme.colors.onSurfaceVariant }}>{new Date(item.updatedAt).toLocaleDateString()}</Text>
-                                </View>
-                                <IconButton icon="delete" onPress={() => deleteChat(item.id)} />
-                            </View>
-                        </TouchableOpacity>
-                    )}
-                  />
-              </View>
-          )}
         </>
       )}
     </View>
@@ -572,8 +1015,10 @@ const styles = StyleSheet.create({
   bubble: { padding: 12, borderRadius: 16, maxWidth: '80%' },
   userBubble: { borderTopRightRadius: 6 },
   assistantBubble: { borderTopLeftRadius: 6 },
-  inputContainer: { padding: 16, flexDirection: 'row', alignItems: 'flex-end', borderTopWidth: 1 },
-  input: { flex: 1, borderWidth: 1, borderRadius: 16, padding: 10, marginRight: 8, minHeight: 40, maxHeight: 120 },
+  inputContainer: { padding: 8, flexDirection: 'row', alignItems: 'center', borderTopWidth: 1 },
+  input: { flex: 1, borderWidth: 1, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 6, marginRight: 6, minHeight: 36, maxHeight: 80 },
   modelItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 12, borderBottomWidth: 1, marginBottom: 8 },
-  historyItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 12, borderBottomWidth: 1, marginBottom: 8 }
+  sidebarOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: 10, flexDirection: 'row' },
+  sidebarBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)' },
+  sidebar: { width: 320, padding: 16 }
 });

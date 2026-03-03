@@ -40,6 +40,9 @@ export const AISidebar = () => {
   const assistantSaveRef = useRef<Record<string, number>>({});
   const assistantConvRef = useRef<Record<string, string>>({});
   const assistantCreatedRef = useRef<Record<string, string>>({});
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const stopRequestedRef = useRef(false);
+  const activeChatIdRef = useRef<string | null>(null);
   
   // History State
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -267,6 +270,7 @@ export const AISidebar = () => {
     });
     const unsubscribeTokens = (window as any).mlc.onChatToken((data: any) => {
       if (!data?.chatId || !data?.token) return;
+      if (stopRequestedRef.current && activeChatIdRef.current === data.chatId) return;
       setMessages(prev => {
         let nextContent = '';
         const updated = prev.map(m => {
@@ -1024,6 +1028,20 @@ export const AISidebar = () => {
       }
   };
 
+  const handleStop = async () => {
+    stopRequestedRef.current = true;
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    if (isElectron && aiProvider === 'mlc' && activeChatIdRef.current) {
+      try {
+        await (window as any).mlc.cancelChat({ chatId: activeChatIdRef.current });
+      } catch {}
+    }
+    setLoading(false);
+  };
+
   const handleSend = async () => {
     if ((!input.trim() && attachments.length === 0) || loading) return;
     if (aiProvider === 'lmstudio' && !lmSelectedModel) {
@@ -1071,6 +1089,7 @@ export const AISidebar = () => {
         createdAt: new Date().toISOString()
     };
 
+    stopRequestedRef.current = false;
     setMessages(prev => [...prev, userMsg]);
     setInput('');
     setAttachments([]);
@@ -1091,6 +1110,7 @@ export const AISidebar = () => {
               content: '',
               createdAt: new Date().toISOString()
           };
+          activeChatIdRef.current = assistantMsg.id as string;
           assistantConvRef.current[assistantMsg.id as string] = convId;
           assistantCreatedRef.current[assistantMsg.id as string] = assistantMsg.createdAt as string;
           setCollapsedThinking(prev => ({ ...prev, [assistantMsg.id as string]: true }));
@@ -1099,9 +1119,12 @@ export const AISidebar = () => {
           const baseUrl = normalizeLmStudioBaseUrl(lmBaseUrl || 'http://localhost:1234');
           const startTime = Date.now();
           let tokenCount = 0;
+          const controller = new AbortController();
+          abortControllerRef.current = controller;
           const res = await fetch(`${baseUrl}/api/v1/chat`, {
             method: 'POST',
             headers: buildLmStudioHeaders(lmToken || undefined),
+            signal: controller.signal,
             body: JSON.stringify({
               model: lmSelectedModel,
               input: promptText,
@@ -1125,7 +1148,9 @@ export const AISidebar = () => {
                   await saveAssistantProgress(convId, assistantMsg.id as string, finalText);
               }
               await db.saveMessage(convId, { ...assistantMsg, content: finalText });
-              await handleToolCalls(convId, assistantMsg.id as string, finalText || '');
+              if (!stopRequestedRef.current) {
+                await handleToolCalls(convId, assistantMsg.id as string, finalText || '');
+              }
             }
             return;
           }
@@ -1136,10 +1161,12 @@ export const AISidebar = () => {
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
+            if (stopRequestedRef.current) break;
             const chunk = decoder.decode(value);
             const split = splitSseBuffer(buffer, chunk);
             buffer = split.buffer;
             for (const line of split.lines) {
+              if (stopRequestedRef.current) break;
               const trimmed = line.trim();
               if (!trimmed.startsWith('data:')) continue;
               const payload = trimmed.replace(/^data:\s*/, '');
@@ -1161,7 +1188,9 @@ export const AISidebar = () => {
           }
 
           await db.saveMessage(convId, { ...assistantMsg, content: fullText });
-          await handleToolCalls(convId, assistantMsg.id as string, fullText);
+          if (!stopRequestedRef.current) {
+            await handleToolCalls(convId, assistantMsg.id as string, fullText);
+          }
           return;
       }
 
@@ -1172,6 +1201,7 @@ export const AISidebar = () => {
               content: '',
               createdAt: new Date().toISOString()
           };
+          activeChatIdRef.current = assistantMsg.id as string;
           assistantConvRef.current[assistantMsg.id as string] = convId;
           assistantCreatedRef.current[assistantMsg.id as string] = assistantMsg.createdAt as string;
           setCollapsedThinking(prev => ({ ...prev, [assistantMsg.id as string]: true }));
@@ -1185,9 +1215,12 @@ export const AISidebar = () => {
           return;
       }
 
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
       const response = await fetch('/app/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
         body: JSON.stringify({
             messages: history,
             modelPath: modelPath ? `models/${modelPath}` : '',
@@ -1210,6 +1243,7 @@ export const AISidebar = () => {
           createdAt: new Date().toISOString()
       };
 
+      activeChatIdRef.current = assistantMsg.id as string;
       assistantConvRef.current[assistantMsg.id as string] = convId;
       assistantCreatedRef.current[assistantMsg.id as string] = assistantMsg.createdAt as string;
       setCollapsedThinking(prev => ({ ...prev, [assistantMsg.id as string]: true }));
@@ -1219,6 +1253,7 @@ export const AISidebar = () => {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        if (stopRequestedRef.current) break;
         const text = new TextDecoder().decode(value);
         fullContent += text;
 
@@ -1230,12 +1265,18 @@ export const AISidebar = () => {
       }
 
       await db.saveMessage(convId, { ...assistantMsg, content: fullContent });
-      await handleToolCalls(convId, assistantMsg.id as string, fullContent);
+      if (!stopRequestedRef.current) {
+        await handleToolCalls(convId, assistantMsg.id as string, fullContent);
+      }
 
     } catch (error: any) {
-      console.error(error);
-      setMessages(prev => [...prev, { id: uuidv4(), role: 'system', content: 'Error: ' + error.message, createdAt: new Date().toISOString() }]);
+      if (!stopRequestedRef.current) {
+        console.error(error);
+        setMessages(prev => [...prev, { id: uuidv4(), role: 'system', content: 'Error: ' + error.message, createdAt: new Date().toISOString() }]);
+      }
     } finally {
+      abortControllerRef.current = null;
+      activeChatIdRef.current = null;
       setLoading(false);
     }
   };
@@ -1565,14 +1606,24 @@ export const AISidebar = () => {
                           Clear Chat
                       </button>
                     </div>
-                    <button 
-                        className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:opacity-50 transition-colors"
-                        onClick={handleSend}
-                        disabled={loading || ((!input.trim() && attachments.length === 0)) || (aiProvider === 'mlc' ? !modelPath : !lmSelectedModel)}
-                        data-testid="ai-chat-send"
-                    >
-                        Send
-                    </button>
+                    {loading ? (
+                      <button
+                          className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 transition-colors"
+                          onClick={handleStop}
+                          data-testid="ai-chat-stop"
+                      >
+                          Stop
+                      </button>
+                    ) : (
+                      <button 
+                          className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:opacity-50 transition-colors"
+                          onClick={handleSend}
+                          disabled={(!input.trim() && attachments.length === 0) || (aiProvider === 'mlc' ? !modelPath : !lmSelectedModel)}
+                          data-testid="ai-chat-send"
+                      >
+                          Send
+                      </button>
+                    )}
                 </div>
             </div>
         </div>

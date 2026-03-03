@@ -1,0 +1,277 @@
+const fs = require('fs');
+const path = require('path');
+const { spawn } = require('child_process');
+const { Readable } = require('stream');
+const { pipeline } = require('stream/promises');
+
+const ensureDir = (dir) => {
+  fs.mkdirSync(dir, { recursive: true });
+};
+
+const isMock = process.env.MLC_MOCK === '1';
+
+const getModelsRoot = (baseDir) => path.join(baseDir, 'mlc_models');
+const getIndexPath = (baseDir) => path.join(getModelsRoot(baseDir), 'index.json');
+
+const readIndex = (baseDir) => {
+  try {
+    const raw = fs.readFileSync(getIndexPath(baseDir), 'utf8');
+    const data = JSON.parse(raw);
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+};
+
+const writeIndex = (baseDir, data) => {
+  ensureDir(getModelsRoot(baseDir));
+  fs.writeFileSync(getIndexPath(baseDir), JSON.stringify(data, null, 2));
+};
+
+const resolveQuant = (quant) => {
+  const q = String(quant || 'Q4_K_M').toUpperCase();
+  const map = {
+    Q4_K_M: 'q4f16_1',
+    Q5_K_M: 'q5f16_1',
+    Q4_0: 'q4f16_1',
+    Q5_0: 'q5f16_1',
+    Q8_0: 'q8f16_1',
+  };
+  return map[q] || 'q4f16_1';
+};
+
+const extractQuant = (filename) => {
+  const match = String(filename || '').match(/(q\d_[0-9a-z_]+|f16|f32)/i);
+  return match ? match[1].toUpperCase() : undefined;
+};
+
+const downloadFile = async (url, dest, onProgress) => {
+  const res = await fetch(url);
+  if (!res.ok || !res.body) throw new Error('Download failed');
+  const total = Number(res.headers.get('content-length') || 0);
+  ensureDir(path.dirname(dest));
+  const fileStream = fs.createWriteStream(dest);
+  let received = 0;
+  const nodeStream = Readable.fromWeb(res.body);
+  nodeStream.on('data', (chunk) => {
+    received += chunk.length;
+    if (total > 0) onProgress(Math.min(0.4, received / total * 0.4));
+  });
+  await pipeline(nodeStream, fileStream);
+};
+
+const runCommand = (cmd, args, onStdout) => new Promise((resolve, reject) => {
+  const proc = spawn(cmd, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+  proc.stdout.on('data', (data) => {
+    if (onStdout) onStdout(data.toString());
+  });
+  proc.stderr.on('data', (data) => {
+    if (onStdout) onStdout(data.toString());
+  });
+  proc.on('error', reject);
+  proc.on('close', (code) => {
+    if (code === 0) resolve();
+    else reject(new Error(`${cmd} exited with ${code}`));
+  });
+  return proc;
+});
+
+const ensureModelDir = (baseDir, modelId, quant) => {
+  const safeId = String(modelId).replace(/[^\w.-]+/g, '_');
+  const dir = path.join(getModelsRoot(baseDir), safeId, String(quant || 'Q4_K_M').toUpperCase());
+  ensureDir(dir);
+  return dir;
+};
+
+const getModels = (baseDir) => readIndex(baseDir);
+
+const downloadAndConvert = async (baseDir, payload, onProgress) => {
+  const modelId = payload?.modelId;
+  const ggufUrl = payload?.ggufUrl;
+  const quant = payload?.quant || 'Q4_K_M';
+  const target = payload?.target || 'cuda';
+  if (!modelId || !ggufUrl) throw new Error('modelId and ggufUrl required');
+
+  const models = readIndex(baseDir);
+  const existing = models.find((m) => m.modelId === modelId && m.quant === quant);
+  if (existing) return existing;
+
+  const tempDir = path.join(baseDir, 'mlc_tmp', `${Date.now()}`);
+  ensureDir(tempDir);
+  const ggufPath = path.join(tempDir, 'model.gguf');
+  const outDir = ensureModelDir(baseDir, modelId, quant);
+
+  if (onProgress) onProgress(0.05);
+  if (isMock) {
+    if (onProgress) onProgress(0.6);
+    const entry = {
+      id: `${modelId}:${quant}`,
+      modelId,
+      quant: String(quant || 'Q4_K_M').toUpperCase(),
+      path: outDir,
+      target,
+      createdAt: new Date().toISOString(),
+    };
+    const updated = [entry, ...models.filter((m) => m.id !== entry.id)];
+    writeIndex(baseDir, updated);
+    if (onProgress) onProgress(1);
+    return entry;
+  }
+  await downloadFile(ggufUrl, ggufPath, onProgress || (() => {}));
+
+  if (onProgress) onProgress(0.5);
+  let usedTarget = target;
+  try {
+    await runCommand('mlc_llm', ['convert', ggufPath, '--quantization', resolveQuant(quant), '--target', target, '-o', outDir]);
+  } catch (error) {
+    if (target !== 'cpu') {
+      usedTarget = 'cpu';
+      await runCommand('mlc_llm', ['convert', ggufPath, '--quantization', resolveQuant(quant), '--target', 'cpu', '-o', outDir]);
+    } else {
+      throw error;
+    }
+  }
+
+  const configPath = path.join(outDir, 'mlc-chat-config.json');
+  if (!fs.existsSync(configPath)) throw new Error('Invalid model package');
+
+  const entry = {
+    id: `${modelId}:${quant}`,
+    modelId,
+    quant: String(quant || 'Q4_K_M').toUpperCase(),
+    path: outDir,
+    target: usedTarget,
+    createdAt: new Date().toISOString(),
+  };
+  const updated = [entry, ...models.filter((m) => m.id !== entry.id)];
+  writeIndex(baseDir, updated);
+  if (onProgress) onProgress(1);
+  return entry;
+};
+
+const deleteModel = (baseDir, id) => {
+  const models = readIndex(baseDir);
+  const model = models.find((m) => m.id === id);
+  if (!model) return false;
+  fs.rmSync(model.path, { recursive: true, force: true });
+  writeIndex(baseDir, models.filter((m) => m.id !== id));
+  return true;
+};
+
+const chatProcesses = new Map();
+
+const runChatCommand = (chatId, args, onToken) => new Promise((resolve, reject) => {
+  const proc = spawn('mlc_llm', args, { stdio: ['pipe', 'pipe', 'pipe'] });
+  if (chatId) chatProcesses.set(chatId, proc);
+  proc.stdout.on('data', (data) => {
+    if (onToken) onToken(data.toString());
+  });
+  proc.stderr.on('data', (data) => {
+    if (onToken) onToken(data.toString());
+  });
+  proc.on('error', (err) => {
+    if (chatId) chatProcesses.delete(chatId);
+    reject(err);
+  });
+  proc.on('close', (code) => {
+    if (chatId) chatProcesses.delete(chatId);
+    if (code === 0) resolve(true);
+    else reject(new Error(`mlc_llm exited with ${code}`));
+  });
+});
+
+const runChat = async (_baseDir, payload, onToken) => {
+  const modelPath = payload?.modelPath;
+  const prompt = payload?.prompt || '';
+  const chatId = payload?.chatId;
+  if (!modelPath) throw new Error('modelPath required');
+  if (isMock) {
+    if (onToken) onToken(`Mock: ${prompt}`);
+    return true;
+  }
+  const args = ['chat', modelPath, '--prompt', prompt];
+  try {
+    await runChatCommand(chatId, args, onToken);
+  } catch (error) {
+    await runChatCommand(chatId, [...args, '--device', 'cpu'], onToken);
+  }
+  return true;
+};
+
+const cancelChat = (chatId) => {
+  if (!chatId) return false;
+  const proc = chatProcesses.get(chatId);
+  if (!proc) return false;
+  try {
+    proc.kill('SIGTERM');
+  } catch {}
+  chatProcesses.delete(chatId);
+  return true;
+};
+
+const searchModels = async (query) => {
+  const url = `https://huggingface.co/api/models?search=${encodeURIComponent(query)}&filter=gguf&sort=downloads&direction=-1&limit=20`;
+  const res = await fetch(url, {
+    headers: { 'User-Agent': 'noter-electron' },
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Search failed (${res.status}) ${text}`);
+  }
+  const data = await res.json();
+  return data.map((m) => ({
+    id: m.id,
+    name: m.id?.split('/')?.[1] || m.id,
+    author: m.author || m.id?.split('/')?.[0] || '',
+    downloads: m.downloads || 0,
+    likes: m.likes || 0,
+    tags: m.tags || [],
+  }));
+};
+
+const getModelFiles = async (modelId) => {
+  const headers = { 'User-Agent': 'noter-electron' };
+  const treeUrl = `https://huggingface.co/api/models/${encodeURIComponent(modelId)}/tree/main?recursive=true`;
+  const treeRes = await fetch(treeUrl, { headers });
+  if (treeRes.ok) {
+    const data = await treeRes.json();
+    const files = Array.isArray(data) ? data : (data.tree || []);
+    return files
+      .filter((f) => String(f?.path || '').endsWith('.gguf'))
+      .map((f) => ({
+        filename: f.path,
+        size: f.size || 0,
+        url: `https://huggingface.co/${modelId}/resolve/main/${f.path}`,
+        quantization: extractQuant(f.path),
+      }));
+  }
+
+  const modelUrl = `https://huggingface.co/api/models/${encodeURIComponent(modelId)}`;
+  const modelRes = await fetch(modelUrl, { headers });
+  if (!modelRes.ok) {
+    const text = await modelRes.text().catch(() => '');
+    throw new Error(`Files fetch failed (${modelRes.status}) ${text}`);
+  }
+  const data = await modelRes.json();
+  const files = Array.isArray(data?.siblings) ? data.siblings : [];
+  return files
+    .filter((f) => String(f?.rfilename || '').endsWith('.gguf'))
+    .map((f) => ({
+      filename: f.rfilename,
+      size: f.size || 0,
+      url: `https://huggingface.co/${modelId}/resolve/main/${f.rfilename}`,
+      quantization: extractQuant(f.rfilename),
+    }));
+};
+
+module.exports = {
+  getModels,
+  downloadAndConvert,
+  deleteModel,
+  runChat,
+  cancelChat,
+  resolveQuant,
+  ensureModelDir,
+  searchModels,
+  getModelFiles,
+};

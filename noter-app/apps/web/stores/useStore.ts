@@ -9,6 +9,13 @@ import CryptoJS from 'crypto-js';
 
 let networkListenersReady = false;
 
+const setElectronToken = (value: string | null) => {
+  if (typeof window === 'undefined') return;
+  const mlc = (window as any).mlc;
+  if (!mlc?.setSetting) return;
+  mlc.setSetting('token', value);
+};
+
 type SortOrder = 'date-desc' | 'date-asc' | 'title-asc' | 'title-desc' | 'custom';
 
 const parseTaskCompleted = (value: unknown): boolean => {
@@ -285,6 +292,7 @@ export const useStore = create<StoreState>((set, get) => ({
         const autoLockTimeout = parseInt(localStorage.getItem('autoLockTimeout') || '15', 10);
 
         set({ user, token, language, activeTab, selectedNoteId, selectedTaskListId, activeProjectId, isAppLocked, appLockPasswordHash, autoLockTimeout, isHydrated: true });
+        if (token) setElectronToken(token);
         if (!networkListenersReady) {
             networkListenersReady = true;
             window.addEventListener('online', () => {
@@ -314,6 +322,7 @@ export const useStore = create<StoreState>((set, get) => ({
         localStorage.setItem('token', token);
         localStorage.setItem('user', JSON.stringify(user));
         set({ user, token });
+        setElectronToken(token);
         await get().fetchNotes();
         await get().fetchTasks();
         get().initSocket();
@@ -329,6 +338,7 @@ export const useStore = create<StoreState>((set, get) => ({
         localStorage.setItem('token', token);
         localStorage.setItem('user', JSON.stringify(user));
         set({ user, token });
+        setElectronToken(token);
         await get().fetchNotes();
         await get().fetchTasks();
         get().initSocket();
@@ -341,6 +351,7 @@ export const useStore = create<StoreState>((set, get) => ({
   logout: () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    setElectronToken(null);
     disconnectSocket();
     set({ user: null, token: null, notes: [], tasks: [], selectedNoteId: null, selectedTaskListId: null, isAppLocked: false });
   },
@@ -1006,13 +1017,19 @@ export const useStore = create<StoreState>((set, get) => ({
         if (iconColor !== undefined) updates.iconColor = iconColor;
     }
 
+    const stateUpdates = { ...updates };
+    if (updates.locked === true) {
+        stateUpdates.title = 'Låst anteckning';
+        stateUpdates.content = '';
+    }
+
     // Optimistic update
     set((state) => ({
       notes: state.notes.map((n) => {
         if (n._id === id) {
             return {
                 ...n,
-                ...updates,
+                ...stateUpdates,
                 updatedAt: new Date().toISOString()
             };
         }
