@@ -1408,6 +1408,7 @@ function NoteEditorContent() {
   const handleLock = async (password: string) => {
     if (!selectedNote) return;
     await updateNote(selectedNote._id, currentTitleRef.current, lastSavedContentRef.current, true, password);
+    setIsUnlockedLocally(false);
     setIsLocking(false);
   };
 
@@ -1476,7 +1477,8 @@ function NoteEditorContent() {
         </p>
         <button
           onClick={() => setIsPasswordModalOpen(true)}
-          className="px-6 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+          className="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+          data-testid="note-unlock-button"
         >
           {t('noteEditor.unlockNote')}
         </button>
@@ -1540,6 +1542,7 @@ function NoteEditorContent() {
               type="text"
               value={title}
               onChange={onTitleChange}
+              data-testid="note-title-input"
               className="text-4xl font-bold bg-transparent border-none outline-none placeholder-gray-400 text-gray-900 dark:text-gray-100 flex-1 min-w-0"
               placeholder={t('common.untitled')}
             />
@@ -1587,6 +1590,7 @@ function NoteEditorContent() {
             }}
             className="p-2 text-gray-600 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
             title={selectedNote.locked ? t('noteEditor.unlockRemovePassword') : t('noteEditor.lockNote')}
+            data-testid="note-lock-toggle"
           >
             {selectedNote.locked ? <FaUnlock size={20} /> : <FaLock size={20} />}
           </button>

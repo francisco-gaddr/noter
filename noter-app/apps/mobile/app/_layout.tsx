@@ -142,6 +142,7 @@ function RootLayoutNav() {
                 <Stack.Screen name="auth/login" options={{ headerShown: false }} />
                 <Stack.Screen name="auth/register" options={{ headerShown: false }} />
                 <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
+                <Stack.Screen name="note/[id]" options={{ headerShown: false }} />
               </Stack>
             </AppLock>
           </CustomErrorBoundary>

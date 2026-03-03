@@ -4,7 +4,7 @@ import { Inter } from 'next/font/google'
 import { Providers } from './providers'
 import SWRegister from '../components/SWRegister'
 import StoreHydrator from '../components/StoreHydrator'
-import { AISidebar } from '../components/AISidebar'
+import AuthenticatedAISidebar from '../components/AuthenticatedAISidebar'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -26,7 +26,7 @@ export default function RootLayout({
             <StoreHydrator />
             <SWRegister />
             {children}
-            <AISidebar />
+            <AuthenticatedAISidebar />
         </Providers>
       </body>
     </html>

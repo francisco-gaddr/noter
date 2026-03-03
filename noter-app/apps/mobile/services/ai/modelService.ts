@@ -1,8 +1,8 @@
-import * as FileSystem from 'expo-file-system';
 import { HFFile, HFModel } from '@repo/ai';
 import { saveModelLocal, deleteModelLocal } from '@/services/database';
 import { v4 as uuidv4 } from 'uuid';
-import { Platform } from 'react-native';
+import { downloadCompiledModel, getModelDir, getPlatformTarget } from './ModelDownloader';
+import { requestModelConversion, getConversionStatus, getCompiledModelUrl } from './huggingface';
 
 // Try to load RNFS safely
 let RNFS: any;
@@ -12,20 +12,7 @@ try {
   RNFS = null;
 }
 
-export const MODELS_DIR = (RNFS?.DocumentDirectoryPath ? RNFS.DocumentDirectoryPath : '') + '/models/';
-
-// Ensure models directory exists
-export const ensureModelsDir = async () => {
-    if (!RNFS?.DocumentDirectoryPath) return; // Skip if no FS access
-    try {
-        const exists = await RNFS.exists(MODELS_DIR);
-        if (!exists) {
-            await RNFS.mkdir(MODELS_DIR);
-        }
-    } catch (e) {
-        console.warn("Failed to check/create models dir", e);
-    }
-};
+export const MODELS_DIR = RNFS?.DocumentDirectoryPath ? `${RNFS.DocumentDirectoryPath}/mlc_models/` : '';
 
 export const getBestQuantization = (files: HFFile[]): HFFile | undefined => {
     // Priority list for mobile (balance size/performance)
@@ -57,46 +44,63 @@ export const downloadModel = async (
     file: HFFile, 
     onProgress?: (percent: number) => void
 ): Promise<string> => {
-    await ensureModelsDir();
-    const destination = MODELS_DIR + file.filename.split('/').pop();
+    const platform = getPlatformTarget();
+    const modelDir = getModelDir(model.id, file.quantization);
+    if (!modelDir) {
+        throw new Error('Native filesystem not available');
+    }
+    const exists = await RNFS.exists(modelDir);
+    if (!exists) {
+        const { jobId } = await requestModelConversion({
+            modelId: model.id,
+            ggufUrl: file.url,
+            quantization: file.quantization,
+            platform
+        });
 
-    const exists = await RNFS.exists(destination);
-    if (exists) {
-        return destination;
+        const maxAttempts = 120;
+        let outputUrl: string | undefined;
+        for (let i = 0; i < maxAttempts; i += 1) {
+            const status = await getConversionStatus(jobId);
+            if (typeof status.progress === 'number') {
+                onProgress?.(Math.min(0.9, Math.max(0, status.progress)));
+            }
+            if (status.status === 'completed') {
+                outputUrl = status.outputUrl;
+                break;
+            }
+            if (status.status === 'failed') {
+                throw new Error(status.message || 'Conversion failed');
+            }
+            await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+
+        if (!outputUrl) {
+            const compiled = await getCompiledModelUrl({
+                modelId: model.id,
+                quantization: file.quantization,
+                platform
+            });
+            outputUrl = compiled.url;
+        }
+
+        await downloadCompiledModel(outputUrl, model.id, file.quantization, (p) => {
+            onProgress?.(0.9 + p * 0.1);
+        });
     }
 
-    const download = RNFS.downloadFile({
-        fromUrl: file.url,
-        toFile: destination,
-        background: true,
-        discretionary: true,
-        progress: (res) => {
-            const percent = res.bytesWritten / res.contentLength;
-            if (onProgress) onProgress(percent);
-        }
+    const filename = (file.quantization ? `${file.quantization}.zip` : 'model.zip');
+    await saveModelLocal({
+        id: uuidv4(),
+        name: model.name,
+        filename: filename,
+        path: modelDir,
+        size: file.size,
+        downloaded: true,
+        quantization: file.quantization
     });
 
-    try {
-        const result = await download.promise;
-        if (result.statusCode !== 200) throw new Error("Download failed");
-        
-        // Save metadata
-        await saveModelLocal({
-            id: uuidv4(),
-            name: model.name,
-            filename: file.filename,
-            path: destination, // Use file path
-            size: file.size,
-            downloaded: true,
-            quantization: file.quantization
-        });
-        
-        return destination;
-    } catch (error) {
-        // Cleanup partial file
-        await RNFS.unlink(destination).catch(() => {});
-        throw error;
-    }
+    return modelDir;
 };
 
 export const deleteModel = async (id: string, path: string) => {

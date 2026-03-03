@@ -115,7 +115,15 @@ export default function NotesScreen() {
         </View>
       ),
       headerRight: () => (
-        <View style={{ flexDirection: 'row' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <IconButton
+            icon="magnify"
+            onPress={() => router.push('/(tabs)/search')}
+          />
+          <IconButton
+            icon="cog"
+            onPress={() => router.push('/(tabs)/settings')}
+          />
           <Menu
             visible={sortMenuVisible}
             onDismiss={() => setSortMenuVisible(false)}

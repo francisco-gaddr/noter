@@ -2,12 +2,15 @@ import React, { useState } from 'react';
 import { useStore } from '../stores/useStore';
 import { useTranslation } from 'react-i18next';
 import { useForm } from 'react-hook-form';
+import { FaCog } from 'react-icons/fa';
+import ApiUrlModal from './ApiUrlModal';
 
 export default function Auth() {
   const { login, register } = useStore();
   const { t } = useTranslation();
   const [isLogin, setIsLogin] = useState(true);
   const [serverError, setServerError] = useState('');
+  const [isApiModalOpen, setIsApiModalOpen] = useState(false);
   
   const { register: formRegister, handleSubmit, formState: { errors, isSubmitting }, reset } = useForm({
     defaultValues: {
@@ -37,7 +40,16 @@ export default function Auth() {
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-gray-100 dark:bg-gray-900">
-      <div className="p-8 bg-white dark:bg-gray-800 rounded shadow-md w-96">
+      <div className="p-8 bg-white dark:bg-gray-800 rounded shadow-md w-96 relative">
+        <button
+          onClick={() => setIsApiModalOpen(true)}
+          className="absolute top-3 right-3 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
+          aria-label="API settings"
+          title="API settings"
+          type="button"
+        >
+          <FaCog />
+        </button>
         <h2 className="text-2xl font-bold mb-6 text-gray-800 dark:text-gray-100 text-center">
           {isLogin ? t('auth.login') : t('auth.register')}
         </h2>
@@ -92,6 +104,7 @@ export default function Auth() {
           </button>
         </div>
       </div>
+      <ApiUrlModal isOpen={isApiModalOpen} onClose={() => setIsApiModalOpen(false)} />
     </div>
   );
 }

@@ -1,6 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import CryptoJS from 'crypto-js';
-import { Note, Task, Conversation, Message, AIModel, encrypt, decrypt } from '@repo/shared';
+import { Note, Task, Conversation, Message, AIModel, AIProject, encrypt, decrypt } from '@repo/shared';
 
 const db = SQLite.openDatabaseSync('noter.db');
 
@@ -127,6 +127,9 @@ export const initDatabase = async () => {
       id TEXT PRIMARY KEY,
       title TEXT,
       model TEXT,
+      projectId TEXT,
+      icon TEXT,
+      iconColor TEXT,
       createdAt TEXT,
       updatedAt TEXT
     );
@@ -148,6 +151,15 @@ export const initDatabase = async () => {
       size INTEGER,
       quantization TEXT,
       downloaded INTEGER
+    );
+    CREATE TABLE IF NOT EXISTS ai_projects (
+      id TEXT PRIMARY KEY,
+      name TEXT,
+      systemPrompt TEXT,
+      icon TEXT,
+      iconColor TEXT,
+      createdAt TEXT,
+      updatedAt TEXT
     );
   `);
   
@@ -189,6 +201,30 @@ export const initDatabase = async () => {
   }
 
   try {
+      await db.execAsync('ALTER TABLE conversations ADD COLUMN icon TEXT');
+  } catch (e) {
+      // Column likely exists
+  }
+
+  try {
+      await db.execAsync('ALTER TABLE conversations ADD COLUMN iconColor TEXT');
+  } catch (e) {
+      // Column likely exists
+  }
+
+  try {
+      await db.execAsync('ALTER TABLE ai_projects ADD COLUMN icon TEXT');
+  } catch (e) {
+      // Column likely exists
+  }
+
+  try {
+      await db.execAsync('ALTER TABLE ai_projects ADD COLUMN iconColor TEXT');
+  } catch (e) {
+      // Column likely exists
+  }
+
+  try {
       await db.execAsync('ALTER TABLE notes ADD COLUMN clientId TEXT');
   } catch (e) {
       // Column likely exists
@@ -214,6 +250,12 @@ export const initDatabase = async () => {
 
   try {
       await db.execAsync('ALTER TABLE tasks ADD COLUMN parentId TEXT');
+  } catch (e) {
+      // Column likely exists
+  }
+
+  try {
+      await db.execAsync('ALTER TABLE conversations ADD COLUMN projectId TEXT');
   } catch (e) {
       // Column likely exists
   }
@@ -555,13 +597,16 @@ export const removeFromSyncQueue = async (id: number) => {
 export const saveConversationLocal = async (conversation: Conversation) => {
   const encryptedTitle = encrypt(conversation.title);
   const encryptedModel = conversation.model ? encrypt(conversation.model) : null;
+  const encryptedProjectId = conversation.projectId ? encrypt(conversation.projectId) : null;
+  const encryptedIcon = conversation.icon ? encrypt(conversation.icon) : null;
+  const encryptedIconColor = conversation.iconColor ? encrypt(conversation.iconColor) : null;
   const encryptedCreatedAt = encrypt(conversation.createdAt);
   const encryptedUpdatedAt = encrypt(conversation.updatedAt);
 
   await db.runAsync(
-    `INSERT OR REPLACE INTO conversations (id, title, model, createdAt, updatedAt)
-     VALUES (?, ?, ?, ?, ?)`,
-    [conversation.id, encryptedTitle, encryptedModel, encryptedCreatedAt, encryptedUpdatedAt]
+    `INSERT OR REPLACE INTO conversations (id, title, model, projectId, icon, iconColor, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [conversation.id, encryptedTitle, encryptedModel, encryptedProjectId, encryptedIcon, encryptedIconColor, encryptedCreatedAt, encryptedUpdatedAt]
   );
 };
 
@@ -571,6 +616,9 @@ export const getConversationsLocal = async (): Promise<Conversation[]> => {
     id: row.id,
     title: decrypt(row.title),
     model: row.model ? decrypt(row.model) : undefined,
+    projectId: row.projectId ? decrypt(row.projectId) : undefined,
+    icon: row.icon ? decrypt(row.icon) : undefined,
+    iconColor: row.iconColor ? decrypt(row.iconColor) : undefined,
     createdAt: decrypt(row.createdAt),
     updatedAt: decrypt(row.updatedAt),
     messages: []
@@ -650,6 +698,40 @@ export const deleteModelLocal = async (id: string) => {
   await db.runAsync('DELETE FROM models WHERE id = ?', [id]);
 };
 
+// AI Projects
+
+export const saveProjectLocal = async (project: AIProject) => {
+  const encryptedName = encrypt(project.name);
+  const encryptedPrompt = project.systemPrompt ? encrypt(project.systemPrompt) : null;
+  const encryptedIcon = project.icon ? encrypt(project.icon) : null;
+  const encryptedIconColor = project.iconColor ? encrypt(project.iconColor) : null;
+  const encryptedCreatedAt = encrypt(project.createdAt);
+  const encryptedUpdatedAt = encrypt(project.updatedAt);
+  await db.runAsync(
+    `INSERT OR REPLACE INTO ai_projects (id, name, systemPrompt, icon, iconColor, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [project.id, encryptedName, encryptedPrompt, encryptedIcon, encryptedIconColor, encryptedCreatedAt, encryptedUpdatedAt]
+  );
+};
+
+export const getProjectsLocal = async (): Promise<AIProject[]> => {
+  const result = await db.getAllAsync<any>('SELECT * FROM ai_projects ORDER BY updatedAt DESC');
+  return result.map((row: any) => ({
+    id: row.id,
+    name: decrypt(row.name),
+    systemPrompt: row.systemPrompt ? decrypt(row.systemPrompt) : undefined,
+    icon: row.icon ? decrypt(row.icon) : undefined,
+    iconColor: row.iconColor ? decrypt(row.iconColor) : undefined,
+    createdAt: decrypt(row.createdAt),
+    updatedAt: decrypt(row.updatedAt),
+  }));
+};
+
+export const deleteProjectLocal = async (id: string) => {
+  await db.runAsync('DELETE FROM ai_projects WHERE id = ?', [id]);
+  await db.runAsync('UPDATE conversations SET projectId = NULL WHERE projectId = ?', [id]);
+};
+
 export const clearNotesLocal = async () => {
   await db.runAsync('DELETE FROM notes');
 };
@@ -660,6 +742,10 @@ export const clearTasksLocal = async () => {
 
 export const clearModelsLocal = async () => {
   await db.runAsync('DELETE FROM models');
+};
+
+export const clearProjectsLocal = async () => {
+  await db.runAsync('DELETE FROM ai_projects');
 };
 
 export const clearSyncQueue = async () => {
@@ -674,5 +760,6 @@ export const clearLocalData = async () => {
     DELETE FROM conversations;
     DELETE FROM messages;
     DELETE FROM models;
+    DELETE FROM ai_projects;
   `);
 };

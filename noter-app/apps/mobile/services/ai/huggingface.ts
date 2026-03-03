@@ -1,7 +1,7 @@
 import { HFModel, HFFile } from '@repo/ai';
 import { API_URL } from '@/services/api';
 
-const resolveWebBaseUrl = () => {
+export const resolveWebBaseUrl = () => {
     const envUrl = process.env.EXPO_PUBLIC_WEB_URL;
     if (envUrl) return envUrl.replace(/\/$/, '');
     const apiUrl = API_URL.replace(/\/$/, '');
@@ -73,6 +73,59 @@ export const getModelFiles = async (modelId: string): Promise<HFFile[]> => {
     } catch (error) {
         throw error;
     }
+};
+
+export const getCompiledModelUrl = async (params: {
+    modelId: string;
+    quantization?: string;
+    platform: 'iphone' | 'android';
+}): Promise<{ url: string; filename: string }> => {
+    const webBase = resolveWebBaseUrl();
+    const quant = (params.quantization || 'Q4_K_M').toUpperCase();
+    const url = `${webBase}/api/ai/models/compiled?modelId=${encodeURIComponent(params.modelId)}&quant=${encodeURIComponent(quant)}&platform=${params.platform}`;
+    const data = await fetchJson(url);
+    if (!data?.url || !data?.filename) {
+        throw new Error('Invalid compiled model response');
+    }
+    return { url: data.url, filename: data.filename };
+};
+
+export const requestModelConversion = async (params: {
+    modelId: string;
+    ggufUrl: string;
+    quantization?: string;
+    platform: 'iphone' | 'android';
+}): Promise<{ jobId: string }> => {
+    const webBase = resolveWebBaseUrl();
+    const quant = (params.quantization || 'Q4_K_M').toUpperCase();
+    const res = await fetch(`${webBase}/api/ai/models/convert`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            modelId: params.modelId,
+            ggufUrl: params.ggufUrl,
+            quant: quant,
+            platform: params.platform
+        })
+    });
+    if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status} ${text.substring(0, 100)}`);
+    }
+    const data = await res.json();
+    if (!data?.jobId) throw new Error('Invalid conversion response');
+    return { jobId: data.jobId };
+};
+
+export const getConversionStatus = async (jobId: string): Promise<{
+    status: 'queued' | 'downloading' | 'converting' | 'zipping' | 'completed' | 'failed';
+    progress?: number;
+    outputUrl?: string;
+    message?: string;
+}> => {
+    const webBase = resolveWebBaseUrl();
+    const url = `${webBase}/api/ai/models/convert?jobId=${encodeURIComponent(jobId)}`;
+    return fetchJson(url);
 };
 
 const extractQuantization = (filename: string): string | undefined => {

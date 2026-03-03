@@ -41,6 +41,20 @@ const STORAGE_KEY_LIST = 'last_selected_list_id';
 const STORAGE_KEY_VIEW = 'last_view_mode';
 const STORAGE_KEY_FILTERS = 'task_filters';
 
+const parseTaskDate = (value: unknown): Date | null => {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value === 'string') {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      const [y, m, d] = value.split('-').map(Number);
+      return new Date(y, m - 1, d);
+    }
+    const parsed = new Date(value);
+    if (!isNaN(parsed.getTime())) return parsed;
+  }
+  return null;
+};
+
 export default function TasksScreen() {
   const { t } = useTranslation();
   const router = useRouter();
@@ -175,8 +189,8 @@ export default function TasksScreen() {
     // Date Filter
     if (filterDateRange.start && filterDateRange.end) {
         result = result.filter(t => {
-            if (!t.dueDate) return false;
-            const d = new Date(t.dueDate);
+            const d = parseTaskDate(t.dueDate);
+            if (!d) return false;
             return d >= filterDateRange.start! && d <= filterDateRange.end!;
         });
     }

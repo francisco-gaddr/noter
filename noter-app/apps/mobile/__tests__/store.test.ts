@@ -140,4 +140,35 @@ describe('Mobile Store', () => {
 
     await expect(useStore.getState().verifyNoteLock(noteId, 'wrong')).rejects.toThrow('Incorrect password');
   });
+
+  it('should send password on lock update and mask content', async () => {
+    const { fetchWithAuth } = require('../services/api');
+    const noteId = 'note-1';
+    const encryptedTitle = encrypt('Test Title');
+    const encryptedContent = encrypt('Test Content');
+    const encryptedTrue = encrypt('true');
+
+    useStore.setState({
+      notes: [{ _id: noteId, title: 'Test Title', content: 'Test Content', locked: false } as any],
+    });
+
+    fetchWithAuth.mockResolvedValueOnce({
+      _id: noteId,
+      title: encryptedTitle,
+      content: encryptedContent,
+      locked: encryptedTrue,
+      createdAt: encrypt(new Date().toISOString()),
+      updatedAt: encrypt(new Date().toISOString()),
+    });
+
+    await useStore.getState().updateNote(noteId, { locked: true, password: 'secret' });
+
+    const body = JSON.parse(fetchWithAuth.mock.calls[0][1].body);
+    expect(body.password).toBe('secret');
+
+    const state = useStore.getState();
+    const updated = state.notes.find(n => n._id === noteId);
+    expect(updated?.title).toBe('Låst anteckning');
+    expect(updated?.content).toBe('');
+  });
 });

@@ -26,6 +26,20 @@ function addDays(d: Date, days: number) {
   return date;
 }
 
+function parseDueDate(value: unknown): Date | null {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value === 'string') {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      const [y, m, d] = value.split('-').map(Number);
+      return new Date(y, m - 1, d);
+    }
+    const parsed = new Date(value);
+    if (!isNaN(parsed.getTime())) return parsed;
+  }
+  return null;
+}
+
 function dateKey(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
@@ -133,8 +147,9 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
   const days = useMemo(() => getDaysForMode(), [getDaysForMode]);
   
   const columnWidth = useMemo(() => {
-    if (mode === 'day') return Dimensions.get('window').width - 64; // Minus hour column width
-    return Math.floor(Dimensions.get('window').width / 7);
+    const width = Dimensions.get('window').width;
+    if (mode === 'day') return width - 64;
+    return Math.floor((width - 64) / 7);
   }, [mode]);
 
   const positioned = useMemo(() => {
@@ -145,9 +160,9 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
         map[key] = [];
       }
       for (const t of tasks) {
-        if (!t.dueDate) continue;
-        const d = new Date(t.dueDate);
-        const key = dateKey(d);
+        const parsed = parseDueDate(t.dueDate);
+        if (!parsed) continue;
+        const key = dateKey(parsed);
         if (map[key]) map[key].push(t);
       }
       return map;
@@ -213,8 +228,9 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
   const markedDates = useMemo(() => {
     const marked: any = {};
     tasks.forEach(t => {
-      if (t.dueDate) {
-        const dateStr = dateKey(new Date(t.dueDate));
+      const parsed = parseDueDate(t.dueDate);
+      if (parsed) {
+        const dateStr = dateKey(parsed);
         marked[dateStr] = { ...(marked[dateStr] || {}), marked: true, dotColor: theme.colors.primary };
       }
     });
@@ -261,8 +277,9 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
 
     const groups = new Map<string, Task[]>();
     for (const task of tasks) {
-      if (!task.dueDate) continue;
-      const d = new Date(task.dueDate);
+      const parsed = parseDueDate(task.dueDate);
+      if (!parsed) continue;
+      const d = new Date(parsed);
       d.setHours(0, 0, 0, 0);
       if (d < start || d > end) continue;
       const key = dateKey(d);
@@ -281,8 +298,8 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
     const keys = Array.from(groups.keys()).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
     return keys.map((key) => {
       const data = (groups.get(key) || []).slice().sort((a, b) => {
-        const ta = a.dueDate ? new Date(a.dueDate).getTime() : 0;
-        const tb = b.dueDate ? new Date(b.dueDate).getTime() : 0;
+        const ta = parseDueDate(a.dueDate)?.getTime() ?? 0;
+        const tb = parseDueDate(b.dueDate)?.getTime() ?? 0;
         return ta - tb;
       });
       return { title: key, data };

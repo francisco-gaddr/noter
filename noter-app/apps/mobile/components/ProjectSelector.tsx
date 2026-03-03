@@ -86,13 +86,51 @@ const CreateProjectInput = React.memo(({
   );
 });
 
+const RenameProjectInput = React.memo(({
+  visible,
+  initialName,
+  onCancel,
+  onSave,
+}: {
+  visible: boolean;
+  initialName: string;
+  onCancel: () => void;
+  onSave: (name: string) => void;
+}) => {
+  const [name, setName] = useState(initialName);
+
+  React.useEffect(() => {
+    if (visible) {
+      setName(initialName);
+    }
+  }, [visible, initialName]);
+
+  if (!visible) return null;
+
+  return (
+    <View style={{ gap: 15 }}>
+      <TextInput
+        label="Name"
+        value={name}
+        onChangeText={setName}
+        mode="outlined"
+        autoCorrect={false}
+        autoFocus
+      />
+      <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10 }}>
+        <Button onPress={onCancel}>Cancel</Button>
+        <Button mode="contained" onPress={() => onSave(name)}>Save</Button>
+      </View>
+    </View>
+  );
+});
+
 export default function ProjectSelector({ visible, onDismiss, onSelect, selectedProjectId }: ProjectSelectorProps) {
   const { notes, activeProjectId, setActiveProject, createNote, updateNote, deleteNote } = useStore();
   const theme = useTheme();
   
   const [isCreating, setIsCreating] = useState(false);
   const [editingProject, setEditingProject] = useState<Note | null>(null);
-  const [editName, setEditName] = useState('');
   
   // Menu state for long press
   const [menuVisible, setMenuVisible] = useState(false);
@@ -148,12 +186,11 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
     }
   };
 
-  const handleUpdate = async () => {
-    if (!editingProject || !editName.trim()) return;
+  const handleUpdate = async (nameInput: string) => {
+    if (!editingProject || !nameInput.trim()) return;
     try {
-      await updateNote(editingProject._id, { title: editName, type: 'project' });
+      await updateNote(editingProject._id, { title: nameInput.trim(), type: 'project' });
       setEditingProject(null);
-      setEditName('');
     } catch (e) {
       console.error(e);
       alert('Failed to update project');
@@ -256,16 +293,13 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
             <Dialog visible={!!editingProject} onDismiss={() => setEditingProject(null)}>
                 <Dialog.Title>Rename Project</Dialog.Title>
                 <Dialog.Content>
-                    <TextInput
-                        label="Name"
-                        value={editName}
-                        onChangeText={setEditName}
+                    <RenameProjectInput
+                      visible={!!editingProject}
+                      initialName={editingProject?.title || ''}
+                      onCancel={() => setEditingProject(null)}
+                      onSave={handleUpdate}
                     />
                 </Dialog.Content>
-                <Dialog.Actions>
-                    <Button onPress={() => setEditingProject(null)}>Cancel</Button>
-                    <Button onPress={handleUpdate}>Save</Button>
-                </Dialog.Actions>
             </Dialog>
         </Portal>
 
@@ -296,7 +330,6 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
                     setMenuAnchor(null);
                     if (selectedProjectForMenu) {
                         setEditingProject(selectedProjectForMenu);
-                        setEditName(selectedProjectForMenu.title);
                     }
                 }} 
                 title="Rename" 

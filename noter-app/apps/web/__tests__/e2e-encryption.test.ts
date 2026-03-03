@@ -100,7 +100,8 @@ describe('E2E Encryption Tests', () => {
         json: async () => mockResponse,
       } as Response);
 
-      const result = await api.fetchNotes();
+      const encrypted = await api.fetchNotes();
+      const result = await api.decryptNotes(encrypted);
 
       const first = result[0]!;
       const second = result[1]!;
@@ -128,7 +129,8 @@ describe('E2E Encryption Tests', () => {
         json: async () => mockResponse,
       } as Response);
 
-      const result = await api.fetchNotes();
+      const encrypted = await api.fetchNotes();
+      const result = await api.decryptNotes(encrypted);
 
       const first = result[0]!;
       expect(first.createdAt).toBe(now);
@@ -154,7 +156,8 @@ describe('E2E Encryption Tests', () => {
         json: async () => mockResponse,
       } as Response);
 
-      const result = await api.fetchNotes();
+      const encrypted = await api.fetchNotes();
+      const result = await api.decryptNotes(encrypted);
 
       const first = result[0]!;
       expect(first.locked).toBe(false);
@@ -179,7 +182,8 @@ describe('E2E Encryption Tests', () => {
         json: async () => mockResponse,
       } as Response);
 
-      const result = await api.fetchNotes();
+      const encrypted = await api.fetchNotes();
+      const result = await api.decryptNotes(encrypted);
 
       const first = result[0]!;
       expect(first.locked).toBe(false);

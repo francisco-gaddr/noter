@@ -183,7 +183,8 @@ describe('Task E2E Encryption Tests', () => {
         json: async () => mockResponse,
       } as Response);
 
-      const result = await api.fetchTasks();
+      const encrypted = await api.fetchTasks();
+      const result = await api.decryptTasks(encrypted);
 
       const first = result[0]!;
       expect(first.title).toBe('Task Title');
@@ -237,7 +238,8 @@ describe('Task E2E Encryption Tests', () => {
         json: async () => mockResponse,
       } as Response);
 
-      const result = await api.fetchTasks();
+      const encrypted = await api.fetchTasks();
+      const result = await api.decryptTasks(encrypted);
 
       const first = result[0]!;
       expect(first.title).toBe('');
@@ -270,7 +272,8 @@ describe('Task E2E Encryption Tests', () => {
         json: async () => mockResponse,
       } as Response);
 
-      const result = await api.fetchTasks();
+      const encrypted = await api.fetchTasks();
+      const result = await api.decryptTasks(encrypted);
 
       const first = result[0]!;
       expect(first.title).toBe('Task Title');

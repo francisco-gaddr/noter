@@ -4,6 +4,8 @@ import React from 'react';
 import { useStore } from '../stores/useStore';
 import { useTranslation } from 'react-i18next';
 import { clearNotesAndTasks } from '../services/db';
+import ApiUrlModal from './ApiUrlModal';
+import { FaCog } from 'react-icons/fa';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -19,6 +21,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { t } = useTranslation();
   const [showClearConfirm, setShowClearConfirm] = React.useState(false);
   const [clearing, setClearing] = React.useState(false);
+  const [isApiModalOpen, setIsApiModalOpen] = React.useState(false);
 
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -36,7 +39,18 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="relative bg-white dark:bg-gray-900 rounded-lg shadow-xl w-full max-w-md p-6">
-        <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-100">{t('settings.title')}</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-100">{t('settings.title')}</h2>
+          <button
+            onClick={() => setIsApiModalOpen(true)}
+            className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
+            aria-label="API settings"
+            title="API settings"
+            type="button"
+          >
+            <FaCog />
+          </button>
+        </div>
         
         <div className="mt-4">
           <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
@@ -140,6 +154,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           </button>
         </div>
       </div>
+      <ApiUrlModal isOpen={isApiModalOpen} onClose={() => setIsApiModalOpen(false)} />
     </div>
   );
 }

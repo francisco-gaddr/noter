@@ -152,7 +152,7 @@ export async function login(username: string, password: string) {
 
     const data = await response.json();
     if (data.token) {
-      await SecureStore.setItemAsync('auth_token', data.token);
+      await SecureStore.setItemAsync('token', data.token);
       authToken = data.token;
       
       // Initialize socket with new token
@@ -203,6 +203,12 @@ export async function fetchWithAuth(
   // If no token in memory, try to get from SecureStore (fallback/recovery)
   if (!authToken) {
     authToken = await SecureStore.getItemAsync('token');
+    if (!authToken) {
+      authToken = await SecureStore.getItemAsync('auth_token');
+      if (authToken) {
+        await SecureStore.setItemAsync('token', authToken);
+      }
+    }
   }
 
   const headers: Record<string, string> = {

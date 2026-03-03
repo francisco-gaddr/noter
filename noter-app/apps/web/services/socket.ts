@@ -1,4 +1,5 @@
 import { io } from 'socket.io-client';
+import { getApiBaseUrl } from './api';
 
 const stripApiSuffix = (url: string) => url.replace(/\/api\/?$/, '');
 
@@ -7,32 +8,42 @@ const normalizeHttp = (url: string) => {
   return `https://${url}`;
 };
 
+const toSocketUrl = (httpBase: string) => {
+  if (httpBase.startsWith('https://')) return httpBase.replace('https://', 'wss://');
+  if (httpBase.startsWith('http://')) return httpBase.replace('http://', 'ws://');
+  return `wss://${httpBase}`;
+};
+
 export const resolveSocketBaseUrl = (options?: {
   envUrl?: string;
   origin?: string;
   isServer?: boolean;
+  apiBaseUrl?: string;
 }) => {
-  const envUrl = options?.envUrl ?? process.env.NEXT_PUBLIC_API_URL;
   const isServer = options?.isServer ?? typeof window === 'undefined';
+  const apiBaseUrl = options?.apiBaseUrl ?? (isServer ? process.env.NEXT_PUBLIC_API_URL : getApiBaseUrl());
+
+  if (apiBaseUrl) {
+    if (apiBaseUrl.startsWith('/')) {
+      if (isServer) return toSocketUrl('https://localhost:3001');
+      const origin = options?.origin ?? window.location.origin;
+      return toSocketUrl(normalizeHttp(origin));
+    }
+    const normalized = normalizeHttp(stripApiSuffix(apiBaseUrl));
+    return toSocketUrl(normalized);
+  }
 
   if (isServer) {
-    if (!envUrl) return 'https://localhost:3001';
-    if (envUrl.startsWith('http')) return stripApiSuffix(envUrl);
-    return 'https://localhost:3001';
+    return toSocketUrl('https://localhost:3001');
   }
 
   const origin = options?.origin ?? window.location.origin;
-  if (envUrl) {
-    if (envUrl.startsWith('http')) return stripApiSuffix(envUrl);
-    return normalizeHttp(origin);
-  }
-
-  return normalizeHttp(origin);
+  return toSocketUrl(normalizeHttp(origin));
 };
 
-const socketBaseUrl = resolveSocketBaseUrl();
+let socketBaseUrl = resolveSocketBaseUrl();
 
-export const socket = io(socketBaseUrl, {
+export let socket = io(socketBaseUrl, {
   autoConnect: false,
   reconnection: true,
   reconnectionAttempts: Infinity,
@@ -41,11 +52,28 @@ export const socket = io(socketBaseUrl, {
   timeout: 10000,
   path: '/socket.io/',
   transports: ['websocket', 'polling'],
-  secure: socketBaseUrl.startsWith('https://'),
+  secure: socketBaseUrl.startsWith('wss://'),
   withCredentials: true,
 });
 
 export const connectSocket = () => {
+  const nextBaseUrl = resolveSocketBaseUrl();
+  if (nextBaseUrl !== socketBaseUrl) {
+    socketBaseUrl = nextBaseUrl;
+    socket.disconnect();
+    socket = io(socketBaseUrl, {
+      autoConnect: false,
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000,
+      timeout: 10000,
+      path: '/socket.io/',
+      transports: ['websocket', 'polling'],
+      secure: socketBaseUrl.startsWith('wss://'),
+      withCredentials: true,
+    });
+  }
   if (typeof window !== 'undefined') {
     const token = localStorage.getItem('token');
     (socket as any).auth = { token };

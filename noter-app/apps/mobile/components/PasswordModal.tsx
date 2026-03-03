@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button, Dialog, Portal, TextInput, HelperText } from 'react-native-paper';
 
 interface PasswordModalProps {
@@ -20,6 +20,12 @@ export default function PasswordModal({
 }: PasswordModalProps) {
   const [password, setPassword] = useState('');
 
+  useEffect(() => {
+    if (!visible) {
+      setPassword('');
+    }
+  }, [visible]);
+
   const handleSubmit = () => {
     onSubmit(password);
     // Don't clear password immediately in case of error, let parent handle
@@ -35,6 +41,7 @@ export default function PasswordModal({
             value={password}
             onChangeText={setPassword}
             secureTextEntry
+            autoCorrect={false}
             autoFocus
             error={!!error}
             onSubmitEditing={handleSubmit}

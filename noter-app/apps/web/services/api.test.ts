@@ -1,5 +1,5 @@
 import { encrypt, decrypt } from '@repo/shared';
-import { api } from './api';
+import { api, setApiBaseUrl } from './api';
 
 // Mock the fetch function
 global.fetch = jest.fn();
@@ -11,7 +11,11 @@ const localStorageMock = {
   removeItem: jest.fn(),
   clear: jest.fn(),
 };
-global.localStorage = localStorageMock as any;
+Object.defineProperty(globalThis, 'localStorage', {
+  value: localStorageMock,
+  writable: true,
+  configurable: true,
+});
 
 // Mock the shared encryption functions
 jest.mock('@repo/shared', () => ({
@@ -23,6 +27,11 @@ describe('E2E Encryption Tests', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     localStorageMock.getItem.mockReturnValue('test-token');
+  });
+
+  it('normalizes stored api base url', () => {
+    setApiBaseUrl('https://daylited.com/app/api');
+    expect(localStorageMock.setItem).toHaveBeenCalledWith('apiBaseUrl', 'https://daylited.com/api');
   });
 
   describe('fetchNotes', () => {
@@ -48,7 +57,8 @@ describe('E2E Encryption Tests', () => {
         json: async () => mockNotes,
       });
 
-      const notes = await api.fetchNotes();
+      const encryptedNotes = await api.fetchNotes();
+      const notes = await api.decryptNotes(encryptedNotes);
 
       expect(notes).toHaveLength(1);
       expect(notes[0]).toEqual({
@@ -90,7 +100,8 @@ describe('E2E Encryption Tests', () => {
         json: async () => mockNotes,
       });
 
-      const notes = await api.fetchNotes();
+      const encryptedNotes = await api.fetchNotes();
+      const notes = await api.decryptNotes(encryptedNotes);
 
       const first = notes[0]!;
       expect(first.locked).toBe(false);
@@ -115,7 +126,8 @@ describe('E2E Encryption Tests', () => {
         json: async () => mockNotes,
       });
 
-      const notes = await api.fetchNotes();
+      const encryptedNotes = await api.fetchNotes();
+      const notes = await api.decryptNotes(encryptedNotes);
 
       const first = notes[0]!;
       expect(first.locked).toBe(false);
@@ -203,6 +215,7 @@ describe('E2E Encryption Tests', () => {
         title: 'Updated Note',
         content: 'Updated content',
         locked: true,
+        password: 'secret',
       };
 
       const mockResponse = {
@@ -228,6 +241,7 @@ describe('E2E Encryption Tests', () => {
       const requestBody = JSON.parse(fetchCall[1].body);
       
       expect(requestBody.locked).toBe('encrypted_true');
+      expect(requestBody.password).toBe('secret');
 
       // Verify the response was decrypted
       expect(note.locked).toBe(true);
@@ -290,7 +304,8 @@ describe('E2E Encryption Tests', () => {
         json: async () => mockNotes,
       });
 
-      const notes = await api.fetchNotes();
+      const encryptedNotes = await api.fetchNotes();
+      const notes = await api.decryptNotes(encryptedNotes);
 
       // Should fallback to original value when decryption fails
       const first = notes[0]!;

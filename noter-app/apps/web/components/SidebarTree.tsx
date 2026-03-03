@@ -181,7 +181,7 @@ const TreeNode = React.memo(({ note, allNotes, noteById, childrenMap, level, sel
                     )}
                 </div>
 
-                <span className={`truncate flex-1 font-medium ${isLocked ? 'text-gray-600 dark:text-gray-400' : 'text-gray-900 dark:text-gray-100'}`}>{note.title || t('common.untitled')}</span>
+                <span className={`truncate flex-1 font-medium ${isLocked ? 'text-gray-700 dark:text-gray-300' : 'text-gray-900 dark:text-gray-100'}`}>{note.title || t('common.untitled')}</span>
                 
                 <div className="opacity-0 group-hover:opacity-100 flex gap-1">
                     <button
@@ -621,11 +621,12 @@ export default function SidebarTree() {
 
       {activeTab === 'notes' && (
         <div className="p-4 pb-0">
-            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">
+            <label htmlFor="project-select" className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
                 {t('project.label') || 'Project Folder'}
             </label>
             <div className="flex gap-2">
                 <select
+                    id="project-select"
                     value={activeProjectId || ''}
                     onChange={(e) => setActiveProject(e.target.value || null)}
                     className="flex-1 p-2 text-sm border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 outline-none"

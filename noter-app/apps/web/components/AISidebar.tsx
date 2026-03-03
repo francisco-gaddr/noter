@@ -85,6 +85,7 @@ export const AISidebar = () => {
   const [lmSelectedModel, setLmSelectedModel] = useState<string>('');
   const [lmLoading, setLmLoading] = useState(false);
   const [lmError, setLmError] = useState<string | null>(null);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   const getStoredValue = async (key: string) => {
     if (typeof window === 'undefined') return null;
@@ -97,6 +98,7 @@ export const AISidebar = () => {
 
   const setStoredValue = (key: string, value: string | null) => {
     if (typeof window === 'undefined') return;
+    console.log('[AISidebar] Saving Setting:', key, value);
     if (isElectron && (window as any).mlc?.setSetting) {
       (window as any).mlc.setSetting(key, value);
     }
@@ -105,121 +107,120 @@ export const AISidebar = () => {
   };
 
   useEffect(() => {
-    if (!user) return;
+    // Load settings once on mount (or when user logs in/isElectron known)
     if (typeof window === 'undefined') return;
+    
+    let mounted = true;
     (async () => {
+      console.log('[AISidebar] Loading Settings...');
       const savedProvider = await getStoredValue('aiProvider');
-      if (savedProvider === 'lmstudio' || savedProvider === 'mlc') setAiProvider(savedProvider);
+      if (mounted && (savedProvider === 'lmstudio' || savedProvider === 'mlc')) setAiProvider(savedProvider);
+      
       const savedLmBase = await getStoredValue('lmstudioBaseUrl');
-      if (savedLmBase) setLmBaseUrl(normalizeLmStudioBaseUrl(savedLmBase));
+      if (mounted && savedLmBase) setLmBaseUrl(normalizeLmStudioBaseUrl(savedLmBase));
+      
       const savedLmToken = await getStoredValue('lmstudioToken');
-      if (savedLmToken) setLmToken(savedLmToken);
+      if (mounted && savedLmToken) setLmToken(savedLmToken);
+      
       const savedLmModel = await getStoredValue('lmstudioModel');
-      if (savedLmModel) setLmSelectedModel(savedLmModel);
+      if (mounted && savedLmModel) setLmSelectedModel(savedLmModel);
+      
       const savedSystemPrompt = await getStoredValue('aiSystemPrompt');
-      if (savedSystemPrompt) setSystemPrompt(savedSystemPrompt);
+      if (mounted && savedSystemPrompt) setSystemPrompt(savedSystemPrompt);
+      
       const savedProjectId = await getStoredValue('aiActiveProjectId');
-      if (savedProjectId) setActiveProjectId(savedProjectId);
+      if (mounted && savedProjectId) setActiveProjectId(savedProjectId);
+      
       const savedShowThinking = await getStoredValue('aiShowThinking');
-      if (savedShowThinking) setShowThinking(savedShowThinking === 'true');
+      if (mounted && savedShowThinking) setShowThinking(savedShowThinking === 'true');
+      
       const savedShowTps = await getStoredValue('aiShowTokensPerSecond');
-      if (savedShowTps) setShowTokensPerSecond(savedShowTps === 'true');
+      if (mounted && savedShowTps) setShowTokensPerSecond(savedShowTps === 'true');
+      
       const savedAutoScroll = await getStoredValue('aiAutoScroll');
-      if (savedAutoScroll) setAutoScrollOnSend(savedAutoScroll === 'true');
+      if (mounted && savedAutoScroll) setAutoScrollOnSend(savedAutoScroll === 'true');
+      
       const savedEmoji = await getStoredValue('aiEnableEmoji');
-      if (savedEmoji) setEnableEmojiPicker(savedEmoji === 'true');
+      if (mounted && savedEmoji) setEnableEmojiPicker(savedEmoji === 'true');
+      
       const savedAttachments = await getStoredValue('aiEnableAttachments');
-      if (savedAttachments) setEnableAttachments(savedAttachments === 'true');
+      if (mounted && savedAttachments) setEnableAttachments(savedAttachments === 'true');
+      
       const savedWidth = await getStoredValue('aiSidebarWidth');
-      if (savedWidth) {
+      if (mounted && savedWidth) {
         const parsed = Number(savedWidth);
         if (Number.isFinite(parsed)) setWidth(Math.min(560, Math.max(260, parsed)));
       }
+      if (mounted) {
+          setSettingsLoaded(true);
+          console.log('[AISidebar] Settings Loaded');
+      }
     })();
-  }, [user]);
+    return () => { mounted = false; };
+  }, [user]); // Re-load if user changes (login/logout)
 
   useEffect(() => {
-    if (!user || !isOpen) return;
-    fetchLocalModels();
-    loadConversations();
-    loadProjects();
-  }, [isOpen, user]);
-
-  useEffect(() => {
-    if (!isResizing) return;
-    const handleMove = (e: MouseEvent) => {
-      const next = window.innerWidth - e.clientX;
-      const clamped = Math.min(560, Math.max(260, next));
-      setWidth(clamped);
-    };
-    const handleUp = () => setIsResizing(false);
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleUp);
-    return () => {
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleUp);
-    };
-  }, [isResizing]);
-
-  useEffect(() => {
-    if (!user) {
-      setConversations([]);
-      setMessages([]);
-      setCurrentConversationId(null);
-    }
-  }, [user]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (!settingsLoaded) return;
     setStoredValue('aiProvider', aiProvider);
-  }, [aiProvider]);
+  }, [aiProvider, settingsLoaded]);
 
   useEffect(() => {
+    if (!settingsLoaded) return;
     persistLmStudioSettings({ baseUrl: lmBaseUrl });
-  }, [lmBaseUrl]);
+  }, [lmBaseUrl, settingsLoaded]);
 
   useEffect(() => {
+    if (!settingsLoaded) return;
     persistLmStudioSettings({ token: lmToken });
-  }, [lmToken]);
+  }, [lmToken, settingsLoaded]);
 
   useEffect(() => {
+    if (!settingsLoaded) return;
     if (lmSelectedModel) persistLmStudioSettings({ model: lmSelectedModel });
-  }, [lmSelectedModel]);
+  }, [lmSelectedModel, settingsLoaded]);
 
   useEffect(() => {
+    if (!settingsLoaded) return;
     setStoredValue('aiSystemPrompt', systemPrompt);
-  }, [systemPrompt]);
+  }, [systemPrompt, settingsLoaded]);
 
   useEffect(() => {
+    if (!settingsLoaded) return;
     setStoredValue('aiShowThinking', String(showThinking));
-  }, [showThinking]);
+  }, [showThinking, settingsLoaded]);
 
   useEffect(() => {
+    if (!settingsLoaded) return;
     setStoredValue('aiShowTokensPerSecond', String(showTokensPerSecond));
-  }, [showTokensPerSecond]);
+  }, [showTokensPerSecond, settingsLoaded]);
 
   useEffect(() => {
+    if (!settingsLoaded) return;
     setStoredValue('aiAutoScroll', String(autoScrollOnSend));
-  }, [autoScrollOnSend]);
+  }, [autoScrollOnSend, settingsLoaded]);
 
   useEffect(() => {
+    if (!settingsLoaded) return;
     setStoredValue('aiEnableEmoji', String(enableEmojiPicker));
     if (!enableEmojiPicker) setEmojiOpen(false);
-  }, [enableEmojiPicker]);
+  }, [enableEmojiPicker, settingsLoaded]);
 
   useEffect(() => {
+    if (!settingsLoaded) return;
     setStoredValue('aiEnableAttachments', String(enableAttachments));
     if (!enableAttachments) setAttachments([]);
-  }, [enableAttachments]);
+  }, [enableAttachments, settingsLoaded]);
 
   useEffect(() => {
+    if (!settingsLoaded) return;
     setStoredValue('aiSidebarWidth', String(width));
-  }, [width]);
+  }, [width, settingsLoaded]);
 
   useEffect(() => {
+    if (!settingsLoaded) return;
     if (activeProjectId) setStoredValue('aiActiveProjectId', activeProjectId);
     else setStoredValue('aiActiveProjectId', null);
-  }, [activeProjectId]);
+  }, [activeProjectId, settingsLoaded]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -645,13 +646,16 @@ export const AISidebar = () => {
     }).join('\n');
   };
 
-  const handleToolCalls = async (conversationId: string, assistantId: string, assistantText: string) => {
+  const processToolCalls = async (conversationId: string, assistantId: string, assistantText: string): Promise<ChatMessage[]> => {
     const { calls, cleaned } = extractToolCalls(assistantText);
+    const newMessages: ChatMessage[] = [];
+
     if (cleaned !== assistantText) {
       setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: cleaned } : m));
       await db.saveMessage(conversationId, { id: assistantId, role: 'assistant', content: cleaned, createdAt: assistantCreatedRef.current[assistantId] || new Date().toISOString() });
     }
-    if (calls.length === 0) return;
+    if (calls.length === 0) return [];
+    
     const summaries: string[] = [];
     for (const call of calls) {
       const toolMsg: ChatMessage = {
@@ -663,6 +667,8 @@ export const AISidebar = () => {
       setCollapsedTool(prev => ({ ...prev, [toolMsg.id as string]: true }));
       setMessages(prev => [...prev, toolMsg]);
       await db.saveMessage(conversationId, toolMsg);
+      newMessages.push(toolMsg);
+
       try {
         const result = await executeToolCall(call.tool, call.arguments || {});
         const status = getToolStatus({ kind: 'result', tool: call.tool, payload: result });
@@ -676,6 +682,7 @@ export const AISidebar = () => {
         setCollapsedTool(prev => ({ ...prev, [resultMsg.id as string]: true }));
         setMessages(prev => [...prev, resultMsg]);
         await db.saveMessage(conversationId, resultMsg);
+        newMessages.push(resultMsg);
       } catch (error: any) {
         const errMsg: ChatMessage = {
           id: uuidv4(),
@@ -686,6 +693,7 @@ export const AISidebar = () => {
         setCollapsedTool(prev => ({ ...prev, [errMsg.id as string]: true }));
         setMessages(prev => [...prev, errMsg]);
         await db.saveMessage(conversationId, errMsg);
+        newMessages.push(errMsg);
       }
     }
     if (summaries.length > 0) {
@@ -698,6 +706,203 @@ export const AISidebar = () => {
       setMessages(prev => [...prev, summaryMsg]);
       await db.saveMessage(conversationId, summaryMsg);
     }
+    return newMessages;
+  };
+
+  const fetchAIStream = async (history: ChatMessage[], assistantMsg: ChatMessage, convId: string): Promise<string> => {
+    const promptText = buildPromptText(history);
+    
+    if (aiProvider === 'lmstudio') {
+        const baseUrl = normalizeLmStudioBaseUrl(lmBaseUrl || 'http://localhost:1234');
+        const startTime = Date.now();
+        let tokenCount = 0;
+        const controller = new AbortController();
+        abortControllerRef.current = controller;
+        const res = await fetch(`${baseUrl}/api/v1/chat`, {
+          method: 'POST',
+          headers: buildLmStudioHeaders(lmToken || undefined),
+          signal: controller.signal,
+          body: JSON.stringify({
+            model: lmSelectedModel,
+            input: promptText,
+            stream: true
+          })
+        });
+
+        if (!res.ok) {
+          const text = await res.text().catch(() => '');
+          throw new Error(text || 'LM Studio chat failed');
+        }
+
+        const reader = res.body?.getReader();
+        if (!reader) {
+          const data = await res.json().catch(() => null);
+          if (data) {
+            const { delta, nextText } = extractLmStudioText(data, '');
+            const finalText = nextText || delta;
+            if (finalText) {
+              setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: finalText } : m));
+                await saveAssistantProgress(convId, assistantMsg.id as string, finalText);
+            }
+            return finalText || '';
+          }
+          return '';
+        }
+
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let fullText = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (stopRequestedRef.current) break;
+          const chunk = decoder.decode(value);
+          const split = splitSseBuffer(buffer, chunk);
+          buffer = split.buffer;
+          for (const line of split.lines) {
+            if (stopRequestedRef.current) break;
+            const trimmed = line.trim();
+            if (!trimmed.startsWith('data:')) continue;
+            const payload = trimmed.replace(/^data:\s*/, '');
+            if (payload === '[DONE]') break;
+            try {
+              const json = JSON.parse(payload);
+              const { delta, nextText } = extractLmStudioText(json, fullText);
+              if (delta) {
+                fullText = nextText;
+                const tokens = delta.split(/\s+/).filter(Boolean).length;
+                tokenCount += tokens;
+                const seconds = Math.max((Date.now() - startTime) / 1000, 0.1);
+                setLmTokensPerSecond(Number((tokenCount / seconds).toFixed(2)));
+                setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: fullText } : m));
+                await saveAssistantProgress(convId, assistantMsg.id as string, fullText);
+              }
+            } catch {}
+          }
+        }
+        return fullText;
+    }
+
+    if (isElectron) {
+        await (window as any).mlc.chat({
+            chatId: assistantMsg.id,
+            modelPath,
+            prompt: promptText
+        });
+        // Electron MLC updates messages via 'mlc:chat-token' listener in useEffect
+        // But we need to return the full text here.
+        // The listener updates state 'messages'.
+        // We can wait until it's done?
+        // Actually, mlc.chat is a promise that resolves when done?
+        // Based on main.js: `return runChat(..., (token) => broadcast(...))`
+        // runChat awaits the python script.
+        // But runChat doesn't return the text.
+        // We need to capture the text from the state or a ref.
+        // The useEffect listener updates `setMessages` and `assistantSaveRef`.
+        // We can check `assistantSaveRef`? No, that's a timestamp.
+        // We can rely on the fact that when `mlc.chat` resolves, the generation is done.
+        // But we need the content.
+        // We can fetch the message from DB? Or ref?
+        // We can use a promise wrapper around the event listener?
+        // Actually, the listener updates `messages` state.
+        // We can access the latest content via `assistantConvRef` mapping to `convId`? No.
+        
+        // Hack: The listener updates `messages`. We can't easily get the return value here synchronously.
+        // But `runAIGeneration` needs it to pass to `processToolCalls`.
+        // We can fetch the message from DB after `mlc.chat` resolves.
+        // `saveAssistantProgress` saves to DB.
+        
+        const storedMsg = await db.getMessages(convId);
+        const myMsg = storedMsg.find(m => m.id === assistantMsg.id);
+        return myMsg?.content || '';
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    const response = await fetch('/app/api/ai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+          messages: history,
+          modelPath: modelPath ? `models/${modelPath}` : '',
+          gpuLayers: useGpu ? gpuLayers : 0
+      })
+    });
+
+    if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed');
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) return '';
+
+    let fullContent = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (stopRequestedRef.current) break;
+      const text = new TextDecoder().decode(value);
+      fullContent += text;
+
+      setMessages(prev => {
+          const last = prev[prev.length - 1];
+          return [...prev.slice(0, -1), { ...last, content: fullContent }];
+      });
+      await saveAssistantProgress(convId, assistantMsg.id as string, fullContent);
+    }
+    return fullContent;
+  };
+
+  const runAIGeneration = async (convId: string, initialHistory: ChatMessage[]) => {
+      let currentHistory = [...initialHistory];
+      let iterations = 0;
+      const maxIterations = 5;
+
+      while (iterations < maxIterations && !stopRequestedRef.current) {
+          iterations++;
+          
+          const assistantMsg: ChatMessage = {
+              id: uuidv4(),
+              role: 'assistant',
+              content: '',
+              createdAt: new Date().toISOString()
+          };
+          
+          activeChatIdRef.current = assistantMsg.id as string;
+          assistantConvRef.current[assistantMsg.id as string] = convId;
+          assistantCreatedRef.current[assistantMsg.id as string] = assistantMsg.createdAt as string;
+          setCollapsedThinking(prev => ({ ...prev, [assistantMsg.id as string]: true }));
+          setMessages(prev => [...prev, assistantMsg]);
+          
+          try {
+              const fullText = await fetchAIStream(currentHistory, assistantMsg, convId);
+              await db.saveMessage(convId, { ...assistantMsg, content: fullText });
+              
+              const newToolMessages = await processToolCalls(convId, assistantMsg.id as string, fullText);
+              
+              if (newToolMessages.length === 0) {
+                  break;
+              }
+              
+              // Add to history for next iteration
+              // Use the fullText (which might contain the raw tool calls)
+              // and the tool results.
+              currentHistory = [...currentHistory, { ...assistantMsg, content: fullText }, ...newToolMessages];
+              
+          } catch (error: any) {
+              if (!stopRequestedRef.current) {
+                console.error(error);
+                setMessages(prev => [...prev, { id: uuidv4(), role: 'system', content: 'Error: ' + error.message, createdAt: new Date().toISOString() }]);
+              }
+              break;
+          }
+      }
+      
+      abortControllerRef.current = null;
+      activeChatIdRef.current = null;
+      setLoading(false);
   };
 
   const buildAttachmentText = () => {
@@ -761,29 +966,84 @@ export const AISidebar = () => {
   };
 
   const resolveAuthToken = async () => {
-    if (token) return token;
-    if (typeof window === 'undefined') return '';
-    const local = localStorage.getItem('token') || localStorage.getItem('auth_token') || sessionStorage.getItem('token') || sessionStorage.getItem('auth_token');
-    if (local) return local;
-    const stored = await getStoredValue('token');
-    if (stored) return stored;
+    // 1. Try Zustand store state directly to avoid closure staleness
+    const stateToken = useStore.getState().token;
+    if (stateToken) return stateToken;
+    
+    // 2. Try localStorage/sessionStorage
+    if (typeof window !== 'undefined') {
+        const local = localStorage.getItem('token') || localStorage.getItem('auth_token') || sessionStorage.getItem('token') || sessionStorage.getItem('auth_token');
+        if (local) return local;
+    }
+
+    // 3. Try Electron settings (async) via bridge
+    if (isElectron && (window as any).mlc?.getSetting) {
+        const stored = await (window as any).mlc.getSetting('token');
+        if (stored) return stored;
+    }
+    
+    // 4. Try legacy setting
     const legacy = await getStoredValue('auth_token');
     return legacy || '';
   };
 
   const resolveGraphqlUrl = () => {
-    const cleaned = getApiBaseUrl().replace(/\/+$/, '');
-    const base = cleaned.replace(/\/graphql$/i, '');
+    const cleaned = getApiBaseUrl().trim().replace(/^[`'"]+|[`'"]+$/g, '').trim().replace(/\/+$/, '');
+    // Ensure we don't double up on /api or /graphql
+    let base = cleaned;
+    if (base.endsWith('/graphql')) base = base.replace(/\/graphql$/, '');
+    
+    // If we have a full URL like https://daylited.com/app/api, we want https://daylited.com/api/graphql
+    if (base.includes('/app/api')) {
+        return `${base.replace('/app/api', '/api')}/graphql`;
+    }
+    
+    // Default fallback
     if (base.endsWith('/api')) return `${base}/graphql`;
-    if (base.endsWith('/app')) return `${base.replace(/\/app$/, '/api')}/graphql`;
-    if (base.endsWith('/app/api')) return `${base.replace(/\/app\/api$/, '/api')}/graphql`;
-    if (base.startsWith('/')) return `${base}/graphql`;
     return `${base}/api/graphql`;
   };
 
+  const decodeJwtPayload = (token: string) => {
+      try {
+          const parts = token.split('.');
+          if (parts.length !== 3) return null;
+          return JSON.parse(atob(parts[1]));
+      } catch {
+          return null;
+      }
+  };
+
   const graphQLRequest = async (query: string, variables: Record<string, any>) => {
-    const authToken = await resolveAuthToken();
-    const res = await fetch(resolveGraphqlUrl(), {
+    let authToken = await resolveAuthToken();
+    // Sanitize token: remove quotes if present, trim whitespace
+    if (authToken) {
+        authToken = authToken.trim().replace(/^["']|["']$/g, '');
+    }
+    
+    const url = resolveGraphqlUrl();
+    
+    // Debug info
+    const payload = authToken ? decodeJwtPayload(authToken) : null;
+    const isExpired = payload?.exp ? new Date(payload.exp * 1000).getTime() < Date.now() : false;
+
+    console.log('[AISidebar] GraphQL Request:', {
+        url,
+        hasToken: !!authToken,
+        tokenPrefix: authToken ? authToken.substring(0, 10) + '...' : 'N/A',
+        tokenPayload: payload,
+        isExpired,
+        query: query.substring(0, 50).replace(/\n/g, ' ')
+    });
+
+    if (isExpired) {
+        console.warn('[AISidebar] Token appears to be expired!');
+    }
+    
+    if (payload && !payload.userId) {
+        console.error('[AISidebar] Token missing userId claim!', payload);
+    }
+
+    const res = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -791,8 +1051,12 @@ export const AISidebar = () => {
       },
       body: JSON.stringify({ query, variables })
     });
+    
     const json = await res.json();
-    if (json.errors?.length) throw new Error(json.errors[0]?.message || 'GraphQL error');
+    if (json.errors?.length) {
+        console.error('[AISidebar] GraphQL Errors:', JSON.stringify(json.errors, null, 2));
+        throw new Error(json.errors[0]?.message || 'GraphQL error');
+    }
     return json.data;
   };
 
@@ -1142,183 +1406,12 @@ export const AISidebar = () => {
     try {
       await db.saveMessage(convId, userMsg);
       const history = buildHistory(userMsg);
-      const promptText = buildPromptText(history);
-
-      if (aiProvider === 'lmstudio') {
-          const assistantMsg: ChatMessage = {
-              id: uuidv4(),
-              role: 'assistant',
-              content: '',
-              createdAt: new Date().toISOString()
-          };
-          activeChatIdRef.current = assistantMsg.id as string;
-          assistantConvRef.current[assistantMsg.id as string] = convId;
-          assistantCreatedRef.current[assistantMsg.id as string] = assistantMsg.createdAt as string;
-          setCollapsedThinking(prev => ({ ...prev, [assistantMsg.id as string]: true }));
-          setMessages(prev => [...prev, assistantMsg]);
-
-          const baseUrl = normalizeLmStudioBaseUrl(lmBaseUrl || 'http://localhost:1234');
-          const startTime = Date.now();
-          let tokenCount = 0;
-          const controller = new AbortController();
-          abortControllerRef.current = controller;
-          const res = await fetch(`${baseUrl}/api/v1/chat`, {
-            method: 'POST',
-            headers: buildLmStudioHeaders(lmToken || undefined),
-            signal: controller.signal,
-            body: JSON.stringify({
-              model: lmSelectedModel,
-              input: promptText,
-              stream: true
-            })
-          });
-
-          if (!res.ok) {
-            const text = await res.text().catch(() => '');
-            throw new Error(text || 'LM Studio chat failed');
-          }
-
-          const reader = res.body?.getReader();
-          if (!reader) {
-            const data = await res.json().catch(() => null);
-            if (data) {
-              const { delta, nextText } = extractLmStudioText(data, '');
-              const finalText = nextText || delta;
-              if (finalText) {
-                setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: finalText } : m));
-                  await saveAssistantProgress(convId, assistantMsg.id as string, finalText);
-              }
-              await db.saveMessage(convId, { ...assistantMsg, content: finalText });
-              if (!stopRequestedRef.current) {
-                await handleToolCalls(convId, assistantMsg.id as string, finalText || '');
-              }
-            }
-            return;
-          }
-
-          const decoder = new TextDecoder();
-          let buffer = '';
-          let fullText = '';
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            if (stopRequestedRef.current) break;
-            const chunk = decoder.decode(value);
-            const split = splitSseBuffer(buffer, chunk);
-            buffer = split.buffer;
-            for (const line of split.lines) {
-              if (stopRequestedRef.current) break;
-              const trimmed = line.trim();
-              if (!trimmed.startsWith('data:')) continue;
-              const payload = trimmed.replace(/^data:\s*/, '');
-              if (payload === '[DONE]') break;
-              try {
-                const json = JSON.parse(payload);
-                const { delta, nextText } = extractLmStudioText(json, fullText);
-                if (delta) {
-                  fullText = nextText;
-                  const tokens = delta.split(/\s+/).filter(Boolean).length;
-                  tokenCount += tokens;
-                  const seconds = Math.max((Date.now() - startTime) / 1000, 0.1);
-                  setLmTokensPerSecond(Number((tokenCount / seconds).toFixed(2)));
-                  setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: fullText } : m));
-                  await saveAssistantProgress(convId, assistantMsg.id as string, fullText);
-                }
-              } catch {}
-            }
-          }
-
-          await db.saveMessage(convId, { ...assistantMsg, content: fullText });
-          if (!stopRequestedRef.current) {
-            await handleToolCalls(convId, assistantMsg.id as string, fullText);
-          }
-          return;
-      }
-
-      if (isElectron) {
-          const assistantMsg: ChatMessage = {
-              id: uuidv4(),
-              role: 'assistant',
-              content: '',
-              createdAt: new Date().toISOString()
-          };
-          activeChatIdRef.current = assistantMsg.id as string;
-          assistantConvRef.current[assistantMsg.id as string] = convId;
-          assistantCreatedRef.current[assistantMsg.id as string] = assistantMsg.createdAt as string;
-          setCollapsedThinking(prev => ({ ...prev, [assistantMsg.id as string]: true }));
-          setMessages(prev => [...prev, assistantMsg]);
-          await (window as any).mlc.chat({
-              chatId: assistantMsg.id,
-              modelPath,
-              prompt: promptText
-          });
-          await db.saveMessage(convId, { ...assistantMsg, content: assistantMsg.content });
-          return;
-      }
-
-      const controller = new AbortController();
-      abortControllerRef.current = controller;
-      const response = await fetch('/app/api/ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        signal: controller.signal,
-        body: JSON.stringify({
-            messages: history,
-            modelPath: modelPath ? `models/${modelPath}` : '',
-            gpuLayers: useGpu ? gpuLayers : 0
-        })
-      });
-
-      if (!response.ok) {
-          const err = await response.json();
-          throw new Error(err.error || 'Failed');
-      }
-
-      const reader = response.body?.getReader();
-      if (!reader) return;
-
-      const assistantMsg: ChatMessage = {
-          id: uuidv4(),
-          role: 'assistant',
-          content: '',
-          createdAt: new Date().toISOString()
-      };
-
-      activeChatIdRef.current = assistantMsg.id as string;
-      assistantConvRef.current[assistantMsg.id as string] = convId;
-      assistantCreatedRef.current[assistantMsg.id as string] = assistantMsg.createdAt as string;
-      setCollapsedThinking(prev => ({ ...prev, [assistantMsg.id as string]: true }));
-      setMessages(prev => [...prev, assistantMsg]);
-      let fullContent = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (stopRequestedRef.current) break;
-        const text = new TextDecoder().decode(value);
-        fullContent += text;
-
-        setMessages(prev => {
-            const last = prev[prev.length - 1];
-            return [...prev.slice(0, -1), { ...last, content: fullContent }];
-        });
-        await saveAssistantProgress(convId, assistantMsg.id as string, fullContent);
-      }
-
-      await db.saveMessage(convId, { ...assistantMsg, content: fullContent });
-      if (!stopRequestedRef.current) {
-        await handleToolCalls(convId, assistantMsg.id as string, fullContent);
-      }
-
+      await runAIGeneration(convId, history);
     } catch (error: any) {
-      if (!stopRequestedRef.current) {
         console.error(error);
         setMessages(prev => [...prev, { id: uuidv4(), role: 'system', content: 'Error: ' + error.message, createdAt: new Date().toISOString() }]);
-      }
     } finally {
-      abortControllerRef.current = null;
-      activeChatIdRef.current = null;
-      setLoading(false);
+        setLoading(false);
     }
   };
 

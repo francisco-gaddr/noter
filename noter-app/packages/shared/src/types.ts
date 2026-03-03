@@ -126,6 +126,16 @@ export interface Message {
   toolCallId?: string;
 }
 
+export interface AIProject {
+  id: string;
+  name: string;
+  systemPrompt?: string;
+  icon?: string;
+  iconColor?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Conversation {
   id: string;
   title: string;
@@ -133,4 +143,7 @@ export interface Conversation {
   updatedAt: string;
   messages: Message[];
   model?: string;
+  projectId?: string | null;
+  icon?: string;
+  iconColor?: string;
 }

@@ -1,27 +1,35 @@
 import { resolveSocketBaseUrl } from './socket';
 
 describe('resolveSocketBaseUrl', () => {
-  it('converts http API URL to https and strips /api', () => {
+  it('converts http API URL to ws and strips /api', () => {
     expect(resolveSocketBaseUrl({
-      envUrl: 'http://example.com/api',
+      apiBaseUrl: 'http://example.com/api',
       origin: 'http://localhost:3000',
       isServer: false
-    })).toBe('http://example.com');
+    })).toBe('ws://example.com');
   });
 
-  it('uses window origin for relative API URL and enforces https', () => {
+  it('converts https API URL to wss and strips /api', () => {
     expect(resolveSocketBaseUrl({
-      envUrl: '/api',
+      apiBaseUrl: 'https://daylited.com/api',
+      origin: 'http://localhost:3000',
+      isServer: false
+    })).toBe('wss://daylited.com');
+  });
+
+  it('uses window origin for relative API URL and maps to ws', () => {
+    expect(resolveSocketBaseUrl({
+      apiBaseUrl: '/api',
       origin: 'http://app.local',
       isServer: false
-    })).toBe('http://app.local');
+    })).toBe('ws://app.local');
   });
 
-  it('falls back to window origin and enforces https', () => {
+  it('falls back to window origin and maps to ws', () => {
     expect(resolveSocketBaseUrl({
-      envUrl: '',
+      apiBaseUrl: '',
       origin: 'http://fallback.local',
       isServer: false
-    })).toBe('http://fallback.local');
+    })).toBe('ws://fallback.local');
   });
 });

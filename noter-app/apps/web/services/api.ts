@@ -14,7 +14,7 @@ export const getUUID = (): string => {
 const API_URL_KEY = 'apiBaseUrl';
 
 const normalizeUrl = (value: string) => {
-  let next = value.trim().replace(/\/+$/, '');
+  let next = value.trim().replace(/^[`'"]+|[`'"]+$/g, '').trim().replace(/\/+$/, '');
   if (/\/app\/api$/i.test(next)) {
     next = next.replace(/\/app\/api$/i, '/api');
   } else if (/\/app$/i.test(next)) {

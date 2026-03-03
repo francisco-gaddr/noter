@@ -16,3 +16,10 @@ export async function chat(prompt: string) {
   }
   return MLCModule.generate(prompt);
 }
+
+export async function unloadModel() {
+  if (!MLCModule) return;
+  if (typeof MLCModule.unloadModel === 'function') {
+      return MLCModule.unloadModel();
+  }
+}

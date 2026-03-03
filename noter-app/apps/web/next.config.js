@@ -26,7 +26,7 @@ const nextConfig = {
   async headers() {
     const csp = [
       "default-src 'self' https: data: 'unsafe-inline' 'unsafe-eval'",
-      "connect-src 'self' https: wss:",
+      "connect-src 'self' https: http: wss: ws:",
       "img-src 'self' https: data: blob:",
       "style-src 'self' 'unsafe-inline' https:",
       "font-src 'self' https: data:",

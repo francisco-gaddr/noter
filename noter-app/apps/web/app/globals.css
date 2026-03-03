@@ -16,6 +16,11 @@
   }
 }
 
+body.ai-sidebar-open {
+  padding-right: var(--ai-sidebar-width, 0px);
+  transition: padding-right 0.3s ease;
+}
+
 /* Fix React Big Calendar Event Text Color */
 .rbc-event, .rbc-event-content {
   color: #000000 !important;

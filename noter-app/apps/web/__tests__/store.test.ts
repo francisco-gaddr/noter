@@ -85,6 +85,31 @@ describe('Web Store', () => {
     expect(connectSocket).toHaveBeenCalled();
   });
 
+  it('should mask content when locking and send password', async () => {
+    const { api } = require('../services/api');
+    useStore.setState({
+      notes: [{ _id: 'note-1', title: 'Titel', content: 'Innehåll', locked: false } as any],
+    });
+
+    api.updateNote.mockResolvedValueOnce({
+      _id: 'note-1',
+      title: 'Låst anteckning',
+      content: '',
+      locked: true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    await act(async () => {
+      await useStore.getState().updateNote('note-1', 'Titel', 'Innehåll', true, 'secret');
+    });
+
+    const state = useStore.getState();
+    expect(state.notes[0].title).toBe('Låst anteckning');
+    expect(state.notes[0].content).toBe('');
+    expect(api.updateNote).toHaveBeenCalledWith('note-1', expect.objectContaining({ locked: true, password: 'secret' }));
+  });
+
   it('should create a note', async () => {
       const { api } = require('../services/api');
       const newNote = { _id: '123', title: 'New Note', content: '', type: 'note' };
