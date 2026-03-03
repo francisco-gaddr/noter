@@ -102,41 +102,44 @@ export const AISidebar = () => {
   };
 
   useEffect(() => {
+    if (!user) return;
+    if (typeof window === 'undefined') return;
+    (async () => {
+      const savedProvider = await getStoredValue('aiProvider');
+      if (savedProvider === 'lmstudio' || savedProvider === 'mlc') setAiProvider(savedProvider);
+      const savedLmBase = await getStoredValue('lmstudioBaseUrl');
+      if (savedLmBase) setLmBaseUrl(normalizeLmStudioBaseUrl(savedLmBase));
+      const savedLmToken = await getStoredValue('lmstudioToken');
+      if (savedLmToken) setLmToken(savedLmToken);
+      const savedLmModel = await getStoredValue('lmstudioModel');
+      if (savedLmModel) setLmSelectedModel(savedLmModel);
+      const savedSystemPrompt = await getStoredValue('aiSystemPrompt');
+      if (savedSystemPrompt) setSystemPrompt(savedSystemPrompt);
+      const savedProjectId = await getStoredValue('aiActiveProjectId');
+      if (savedProjectId) setActiveProjectId(savedProjectId);
+      const savedShowThinking = await getStoredValue('aiShowThinking');
+      if (savedShowThinking) setShowThinking(savedShowThinking === 'true');
+      const savedShowTps = await getStoredValue('aiShowTokensPerSecond');
+      if (savedShowTps) setShowTokensPerSecond(savedShowTps === 'true');
+      const savedAutoScroll = await getStoredValue('aiAutoScroll');
+      if (savedAutoScroll) setAutoScrollOnSend(savedAutoScroll === 'true');
+      const savedEmoji = await getStoredValue('aiEnableEmoji');
+      if (savedEmoji) setEnableEmojiPicker(savedEmoji === 'true');
+      const savedAttachments = await getStoredValue('aiEnableAttachments');
+      if (savedAttachments) setEnableAttachments(savedAttachments === 'true');
+      const savedWidth = await getStoredValue('aiSidebarWidth');
+      if (savedWidth) {
+        const parsed = Number(savedWidth);
+        if (Number.isFinite(parsed)) setWidth(Math.min(560, Math.max(260, parsed)));
+      }
+    })();
+  }, [user]);
+
+  useEffect(() => {
     if (!user || !isOpen) return;
     fetchLocalModels();
     loadConversations();
     loadProjects();
-    if (typeof window !== 'undefined') {
-      (async () => {
-        const savedProvider = await getStoredValue('aiProvider');
-        if (savedProvider === 'lmstudio' || savedProvider === 'mlc') setAiProvider(savedProvider);
-        const savedLmBase = await getStoredValue('lmstudioBaseUrl');
-        if (savedLmBase) setLmBaseUrl(normalizeLmStudioBaseUrl(savedLmBase));
-        const savedLmToken = await getStoredValue('lmstudioToken');
-        if (savedLmToken) setLmToken(savedLmToken);
-        const savedLmModel = await getStoredValue('lmstudioModel');
-        if (savedLmModel) setLmSelectedModel(savedLmModel);
-        const savedSystemPrompt = await getStoredValue('aiSystemPrompt');
-        if (savedSystemPrompt) setSystemPrompt(savedSystemPrompt);
-        const savedProjectId = await getStoredValue('aiActiveProjectId');
-        if (savedProjectId) setActiveProjectId(savedProjectId);
-        const savedShowThinking = await getStoredValue('aiShowThinking');
-        if (savedShowThinking) setShowThinking(savedShowThinking === 'true');
-        const savedShowTps = await getStoredValue('aiShowTokensPerSecond');
-        if (savedShowTps) setShowTokensPerSecond(savedShowTps === 'true');
-        const savedAutoScroll = await getStoredValue('aiAutoScroll');
-        if (savedAutoScroll) setAutoScrollOnSend(savedAutoScroll === 'true');
-        const savedEmoji = await getStoredValue('aiEnableEmoji');
-        if (savedEmoji) setEnableEmojiPicker(savedEmoji === 'true');
-        const savedAttachments = await getStoredValue('aiEnableAttachments');
-        if (savedAttachments) setEnableAttachments(savedAttachments === 'true');
-        const savedWidth = await getStoredValue('aiSidebarWidth');
-        if (savedWidth) {
-          const parsed = Number(savedWidth);
-          if (Number.isFinite(parsed)) setWidth(Math.min(560, Math.max(260, parsed)));
-        }
-      })();
-    }
   }, [isOpen, user]);
 
   useEffect(() => {
@@ -721,6 +724,8 @@ export const AISidebar = () => {
       '- create_task(title, description?, dueDate?, priority?, parentNoteId?, parentId?, recurrenceType?, recurrenceDays?, reminderEnabled?, reminderOffsetMinutes?)',
       '- update_task(id, updates)',
       '- delete_task(id)',
+      'Om ett tool kräver id och du saknar det: gör först list_* för att hitta id.',
+      'Skicka aldrig id:null i tool calls.',
       'Om användaren ber dig ändra data ska du göra nödvändiga tool calls.',
       'Efter tool calls ska du beskriva resultatet för användaren.'
     ].join('\n');
@@ -756,9 +761,18 @@ export const AISidebar = () => {
     return legacy || '';
   };
 
+  const resolveGraphqlUrl = () => {
+    const base = getApiBaseUrl().replace(/\/+$/, '');
+    if (base.endsWith('/api')) return `${base}/graphql`;
+    if (base.endsWith('/app')) return `${base.replace(/\/app$/, '/api')}/graphql`;
+    if (base.endsWith('/app/api')) return `${base.replace(/\/app\/api$/, '/api')}/graphql`;
+    if (base.startsWith('/')) return `${base}/graphql`;
+    return `${base}/api/graphql`;
+  };
+
   const graphQLRequest = async (query: string, variables: Record<string, any>) => {
     const authToken = await resolveAuthToken();
-    const res = await fetch(`${getApiBaseUrl()}/graphql`, {
+    const res = await fetch(resolveGraphqlUrl(), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -772,6 +786,10 @@ export const AISidebar = () => {
   };
 
   const executeToolCall = async (tool: string, args: Record<string, any>) => {
+    const requireId = (value: any) => {
+      if (!value) throw new Error(`Tool ${tool} kräver id`);
+      return value;
+    };
     switch (tool) {
       case 'list_notes': {
         const query = `query($parentId:String,$type:String){notes(parentId:$parentId,type:$type){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
@@ -779,7 +797,7 @@ export const AISidebar = () => {
       }
       case 'get_note': {
         const query = `query($id:String!){note(id:$id){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
-        return graphQLRequest(query, { id: args.id });
+        return graphQLRequest(query, { id: requireId(args.id) });
       }
       case 'create_note': {
         const query = `mutation($input:NoteInput!){createNote(input:$input){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
@@ -787,11 +805,12 @@ export const AISidebar = () => {
       }
       case 'update_note': {
         const query = `mutation($id:String!,$input:NoteInput!){updateNote(id:$id,input:$input){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
-        return graphQLRequest(query, { id: args.id, input: args.updates || {} });
+        if (!args.updates || Object.keys(args.updates).length === 0) throw new Error('update_note kräver updates');
+        return graphQLRequest(query, { id: requireId(args.id), input: args.updates || {} });
       }
       case 'delete_note': {
         const query = `mutation($id:String!){deleteNote(id:$id)}`;
-        return graphQLRequest(query, { id: args.id });
+        return graphQLRequest(query, { id: requireId(args.id) });
       }
       case 'list_tasks': {
         const query = `query($parentNoteId:String,$completed:Boolean){tasks(parentNoteId:$parentNoteId,completed:$completed){_id title description dueDate completed priority parentNoteId parentId recurrenceType recurrenceDays reminderEnabled reminderOffsetMinutes createdAt updatedAt}}`;
@@ -799,7 +818,7 @@ export const AISidebar = () => {
       }
       case 'get_task': {
         const query = `query($id:String!){task(id:$id){_id title description dueDate completed priority parentNoteId parentId recurrenceType recurrenceDays reminderEnabled reminderOffsetMinutes createdAt updatedAt}}`;
-        return graphQLRequest(query, { id: args.id });
+        return graphQLRequest(query, { id: requireId(args.id) });
       }
       case 'create_task': {
         const query = `mutation($input:TaskInput!){createTask(input:$input){_id title description dueDate completed priority parentNoteId parentId recurrenceType recurrenceDays reminderEnabled reminderOffsetMinutes createdAt updatedAt}}`;
@@ -807,11 +826,12 @@ export const AISidebar = () => {
       }
       case 'update_task': {
         const query = `mutation($id:String!,$input:TaskInput!){updateTask(id:$id,input:$input){_id title description dueDate completed priority parentNoteId parentId recurrenceType recurrenceDays reminderEnabled reminderOffsetMinutes createdAt updatedAt}}`;
-        return graphQLRequest(query, { id: args.id, input: args.updates || {} });
+        if (!args.updates || Object.keys(args.updates).length === 0) throw new Error('update_task kräver updates');
+        return graphQLRequest(query, { id: requireId(args.id), input: args.updates || {} });
       }
       case 'delete_task': {
         const query = `mutation($id:String!){deleteTask(id:$id)}`;
-        return graphQLRequest(query, { id: args.id });
+        return graphQLRequest(query, { id: requireId(args.id) });
       }
       default:
         throw new Error(`Unknown tool: ${tool}`);
