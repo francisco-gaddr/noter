@@ -934,6 +934,14 @@ export const AISidebar = () => {
       '- create_note(title, content?, tags?, parentId?, type?, locked?, password?, icon?, iconColor?, order?)',
       '- update_note(id, updates)',
       '- delete_note(id)',
+      '- list_projects(parentId?)',
+      '- create_project(title, content?, tags?, parentId?, locked?, password?, icon?, iconColor?, order?)',
+      '- update_project(id, updates)',
+      '- delete_project(id)',
+      '- list_tasklists(parentId?)',
+      '- create_tasklist(title, content?, tags?, parentId?, locked?, password?, icon?, iconColor?, order?)',
+      '- update_tasklist(id, updates)',
+      '- delete_tasklist(id)',
       '- list_tasks(parentNoteId?, completed?)',
       '- get_task(id)',
       '- create_task(title, description?, dueDate?, priority?, parentNoteId?, parentId?, recurrenceType?, recurrenceDays?, reminderEnabled?, reminderOffsetMinutes?)',
@@ -941,6 +949,7 @@ export const AISidebar = () => {
       '- delete_task(id)',
       'Om ett tool kräver id och du saknar det: gör först list_* för att hitta id.',
       'Skicka aldrig id:null i tool calls.',
+      'Projektmappar och tasklistor är anteckningar med type="project" respektive type="task_list".',
       'Om användaren ber dig ändra data ska du göra nödvändiga tool calls.',
       'Efter tool calls ska du beskriva resultatet för användaren.'
     ].join('\n');
@@ -1084,6 +1093,40 @@ export const AISidebar = () => {
         return graphQLRequest(query, { id: requireId(args.id), input: args.updates || {} });
       }
       case 'delete_note': {
+        const query = `mutation($id:String!){deleteNote(id:$id)}`;
+        return graphQLRequest(query, { id: requireId(args.id) });
+      }
+      case 'list_projects': {
+        const query = `query($parentId:String,$type:String){notes(parentId:$parentId,type:$type){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
+        return graphQLRequest(query, { parentId: args.parentId ?? null, type: 'project' });
+      }
+      case 'create_project': {
+        const query = `mutation($input:NoteInput!){createNote(input:$input){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
+        return graphQLRequest(query, { input: { ...args, type: 'project' } });
+      }
+      case 'update_project': {
+        const query = `mutation($id:String!,$input:NoteInput!){updateNote(id:$id,input:$input){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
+        if (!args.updates || Object.keys(args.updates).length === 0) throw new Error('update_project kräver updates');
+        return graphQLRequest(query, { id: requireId(args.id), input: { ...args.updates } });
+      }
+      case 'delete_project': {
+        const query = `mutation($id:String!){deleteNote(id:$id)}`;
+        return graphQLRequest(query, { id: requireId(args.id) });
+      }
+      case 'list_tasklists': {
+        const query = `query($parentId:String,$type:String){notes(parentId:$parentId,type:$type){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
+        return graphQLRequest(query, { parentId: args.parentId ?? null, type: 'task_list' });
+      }
+      case 'create_tasklist': {
+        const query = `mutation($input:NoteInput!){createNote(input:$input){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
+        return graphQLRequest(query, { input: { ...args, type: 'task_list' } });
+      }
+      case 'update_tasklist': {
+        const query = `mutation($id:String!,$input:NoteInput!){updateNote(id:$id,input:$input){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
+        if (!args.updates || Object.keys(args.updates).length === 0) throw new Error('update_tasklist kräver updates');
+        return graphQLRequest(query, { id: requireId(args.id), input: { ...args.updates } });
+      }
+      case 'delete_tasklist': {
         const query = `mutation($id:String!){deleteNote(id:$id)}`;
         return graphQLRequest(query, { id: requireId(args.id) });
       }

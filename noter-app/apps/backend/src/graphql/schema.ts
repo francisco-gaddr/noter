@@ -183,9 +183,12 @@ const QueryType = new GraphQLObjectType({
         const userId = requireUser(context.userId);
         const filter: any = { userId };
         if (args.parentId !== undefined) filter.parentId = args.parentId || null;
-        if (args.type) filter.type = encryptText(args.type);
         const notes = await Note.find(filter).sort({ createdAt: -1 });
-        return notes.map(toNote);
+        const mapped = notes.map(toNote);
+        if (args.type) {
+          return mapped.filter((note) => note.type === args.type);
+        }
+        return mapped;
       }
     },
     task: {
@@ -208,9 +211,12 @@ const QueryType = new GraphQLObjectType({
         const userId = requireUser(context.userId);
         const filter: any = { userId };
         if (args.parentNoteId !== undefined) filter.parentNoteId = args.parentNoteId || null;
-        if (args.completed !== undefined) filter.completed = encryptText(String(args.completed));
         const tasks = await Task.find(filter).sort({ createdAt: -1 });
-        return tasks.map(toTask);
+        const mapped = tasks.map(toTask);
+        if (args.completed !== undefined) {
+          return mapped.filter((task) => task.completed === args.completed);
+        }
+        return mapped;
       }
     }
   }

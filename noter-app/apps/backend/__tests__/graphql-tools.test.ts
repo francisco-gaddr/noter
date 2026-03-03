@@ -107,6 +107,56 @@ describe('GraphQL Tool Calls', () => {
     expect(deleteRes.body.data.deleteNote).toBe(true);
   });
 
+  it('supports project folders and task lists via note type', async () => {
+    const projectRes = await request(app)
+      .post('/api/graphql')
+      .set('Authorization', 'Bearer demo-token')
+      .send({
+        query: 'mutation($input:NoteInput!){createNote(input:$input){_id title type}}',
+        variables: { input: { title: 'Project A', type: 'project' } }
+      });
+    if (projectRes.body.errors?.length) {
+      throw new Error(JSON.stringify(projectRes.body.errors));
+    }
+
+    const taskListRes = await request(app)
+      .post('/api/graphql')
+      .set('Authorization', 'Bearer demo-token')
+      .send({
+        query: 'mutation($input:NoteInput!){createNote(input:$input){_id title type}}',
+        variables: { input: { title: 'Tasks A', type: 'task_list' } }
+      });
+    if (taskListRes.body.errors?.length) {
+      throw new Error(JSON.stringify(taskListRes.body.errors));
+    }
+
+    const listProjects = await request(app)
+      .post('/api/graphql')
+      .set('Authorization', 'Bearer demo-token')
+      .send({
+        query: 'query($type:String){notes(type:$type){_id title type}}',
+        variables: { type: 'project' }
+      });
+
+    if (listProjects.body.errors?.length) {
+      throw new Error(JSON.stringify(listProjects.body.errors));
+    }
+    expect(listProjects.body.data.notes.length).toBe(1);
+
+    const listTaskLists = await request(app)
+      .post('/api/graphql')
+      .set('Authorization', 'Bearer demo-token')
+      .send({
+        query: 'query($type:String){notes(type:$type){_id title type}}',
+        variables: { type: 'task_list' }
+      });
+
+    if (listTaskLists.body.errors?.length) {
+      throw new Error(JSON.stringify(listTaskLists.body.errors));
+    }
+    expect(listTaskLists.body.data.notes.length).toBe(1);
+  });
+
   it('creates, reads, updates and deletes tasks', async () => {
     const createRes = await request(app)
       .post('/api/graphql')
