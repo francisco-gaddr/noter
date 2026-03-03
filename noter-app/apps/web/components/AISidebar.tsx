@@ -25,6 +25,8 @@ export const AISidebar = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [inputHistory, setInputHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
   const [attachments, setAttachments] = useState<Array<{ id: string; name: string; type: string; size: number; content: string; encoding: 'text' | 'base64' }>>([]);
   const [lmTokensPerSecond, setLmTokensPerSecond] = useState<number | null>(null);
   const [showThinking, setShowThinking] = useState(true);
@@ -40,6 +42,7 @@ export const AISidebar = () => {
   const assistantSaveRef = useRef<Record<string, number>>({});
   const assistantConvRef = useRef<Record<string, string>>({});
   const assistantCreatedRef = useRef<Record<string, string>>({});
+  const draftInputRef = useRef('');
   const abortControllerRef = useRef<AbortController | null>(null);
   const stopRequestedRef = useRef(false);
   const activeChatIdRef = useRef<string | null>(null);
@@ -480,6 +483,13 @@ export const AISidebar = () => {
         return { label: 'Klart', tone: 'success' };
     }
   };
+
+  const formatTime = (value?: string) => {
+    if (!value) return '';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
   
   const getRecommendedFile = (files: HFFile[]) => {
     const priorities = ['Q4_K_M', 'Q5_K_M', 'Q4_0', 'Q5_0', 'Q8_0'];
@@ -753,7 +763,7 @@ export const AISidebar = () => {
   const resolveAuthToken = async () => {
     if (token) return token;
     if (typeof window === 'undefined') return '';
-    const local = localStorage.getItem('token') || localStorage.getItem('auth_token');
+    const local = localStorage.getItem('token') || localStorage.getItem('auth_token') || sessionStorage.getItem('token') || sessionStorage.getItem('auth_token');
     if (local) return local;
     const stored = await getStoredValue('token');
     if (stored) return stored;
@@ -762,7 +772,8 @@ export const AISidebar = () => {
   };
 
   const resolveGraphqlUrl = () => {
-    const base = getApiBaseUrl().replace(/\/+$/, '');
+    const cleaned = getApiBaseUrl().replace(/\/+$/, '');
+    const base = cleaned.replace(/\/graphql$/i, '');
     if (base.endsWith('/api')) return `${base}/graphql`;
     if (base.endsWith('/app')) return `${base.replace(/\/app$/, '/api')}/graphql`;
     if (base.endsWith('/app/api')) return `${base.replace(/\/app\/api$/, '/api')}/graphql`;
@@ -1102,6 +1113,16 @@ export const AISidebar = () => {
     }
 
     const attachmentText = buildAttachmentText();
+    const trimmedInput = input.trim();
+    if (trimmedInput) {
+      setInputHistory(prev => {
+        const last = prev[prev.length - 1];
+        if (last === trimmedInput) return prev;
+        return [...prev, trimmedInput];
+      });
+      setHistoryIndex(-1);
+      draftInputRef.current = '';
+    }
     const userMsg: ChatMessage = { 
         id: uuidv4(),
         role: 'user', 
@@ -1525,7 +1546,10 @@ export const AISidebar = () => {
                     }
                     return (
                       <div key={key} className={`p-3 rounded-lg max-w-[90%] ${msg.role === 'user' ? 'bg-blue-100 dark:bg-blue-900 ml-auto' : 'bg-gray-100 dark:bg-gray-800 mr-auto'}`}>
-                          <div className="text-xs text-gray-500 dark:text-gray-300 mb-1 capitalize">{msg.role}</div>
+                          <div className="text-xs text-gray-500 dark:text-gray-300 mb-1 flex items-center justify-between">
+                            <span className="capitalize">{msg.role}</span>
+                            <span>{formatTime(msg.createdAt)}</span>
+                          </div>
                           {isAssistant && showThinking && thinking && (
                             <div className="mb-2 border border-purple-200 dark:border-purple-700 rounded">
                               <button
@@ -1555,9 +1579,32 @@ export const AISidebar = () => {
                     rows={3}
                     placeholder="Type a message..."
                     value={input}
-                    onChange={e => setInput(e.target.value)}
+                    onChange={e => {
+                      setInput(e.target.value);
+                      if (historyIndex !== -1) setHistoryIndex(-1);
+                    }}
                     data-testid="ai-chat-input"
                     onKeyDown={e => {
+                        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                          if (inputHistory.length === 0) return;
+                          e.preventDefault();
+                          if (historyIndex === -1) draftInputRef.current = input;
+                          if (e.key === 'ArrowUp') {
+                            const nextIndex = historyIndex === -1 ? inputHistory.length - 1 : Math.max(0, historyIndex - 1);
+                            setHistoryIndex(nextIndex);
+                            setInput(inputHistory[nextIndex] || '');
+                          } else {
+                            const nextIndex = historyIndex + 1;
+                            if (nextIndex >= inputHistory.length) {
+                              setHistoryIndex(-1);
+                              setInput(draftInputRef.current);
+                            } else {
+                              setHistoryIndex(nextIndex);
+                              setInput(inputHistory[nextIndex] || '');
+                            }
+                          }
+                          return;
+                        }
                         if (e.key === 'Enter' && !e.shiftKey) {
                             e.preventDefault();
                             handleSend();
