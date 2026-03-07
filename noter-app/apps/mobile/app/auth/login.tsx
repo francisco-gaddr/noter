@@ -5,6 +5,7 @@ import { Link, useRouter } from 'expo-router';
 import { useStore } from '@/stores/useStore';
 import { API_URL, setApiUrl } from '@/services/api';
 import { BackendUrlDialog } from '@/components/BackendUrlDialog';
+import { useTranslation } from 'react-i18next';
 
 export default function LoginScreen() {
   const [username, setUsername] = useState('');
@@ -15,22 +16,22 @@ export default function LoginScreen() {
   const router = useRouter();
   const { login } = useStore();
   const theme = useTheme();
+  const { t } = useTranslation();
 
   // Settings state
   const [showSettings, setShowSettings] = useState(false);
-  const [tempApiUrl, setTempApiUrl] = useState(API_URL);
   const [activeApiUrl, setActiveApiUrl] = useState(API_URL);
 
   useEffect(() => {
-    setTempApiUrl(API_URL);
     setActiveApiUrl(API_URL);
   }, [showSettings]);
 
   const handleLogin = async () => {
-    if (!username || !password) return;
+    const normalizedUsername = username.trim().toLowerCase();
+    if (!normalizedUsername || !password) return;
     setLoading(true);
     try {
-      await login(username, password);
+      await login(normalizedUsername, password);
       router.replace('/(tabs)');
     } catch (error: any) {
       console.error(error);
@@ -41,17 +42,16 @@ export default function LoginScreen() {
     }
   };
 
-  const handleSaveSettings = async () => {
-      await setApiUrl(tempApiUrl);
-      setActiveApiUrl(tempApiUrl);
+  const handleSaveSettings = async (url: string) => {
+      await setApiUrl(url);
+      setActiveApiUrl(url);
       setShowSettings(false);
-      // alert('Server URL updated. You may need to restart the app if issues persist.');
   };
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <Surface style={styles.card} elevation={2}>
-        <Text variant="headlineMedium" style={styles.title}>Welcome Back</Text>
+        <Text variant="headlineMedium" style={styles.title}>{t('auth.welcomeBack')}</Text>
         {errorVisible && errorMessage ? (
           <Text variant="bodySmall" style={{ color: theme.colors.error, marginBottom: 10 }}>
             {errorMessage}
@@ -59,7 +59,7 @@ export default function LoginScreen() {
         ) : null}
         
         <TextInput
-          label="Username"
+          label={t('auth.username')}
           value={username}
           onChangeText={setUsername}
           autoCapitalize="none"
@@ -67,7 +67,7 @@ export default function LoginScreen() {
         />
         
         <TextInput
-          label="Password"
+          label={t('auth.password')}
           value={password}
           onChangeText={setPassword}
           secureTextEntry
@@ -80,7 +80,7 @@ export default function LoginScreen() {
           loading={loading}
           style={styles.button}
         >
-          Login
+          {t('auth.login')}
         </Button>
 
         <Button 
@@ -88,7 +88,7 @@ export default function LoginScreen() {
           onPress={() => router.push('/auth/register' as any)} 
           style={styles.textButton}
         >
-          Don't have an account? Sign up
+          {t('auth.signupPrompt')}
         </Button>
 
         <IconButton 
@@ -98,7 +98,7 @@ export default function LoginScreen() {
         />
         
         <Text variant="bodySmall" style={{ marginTop: 10, color: theme.colors.outline, textAlign: 'center' }}>
-          Server: {activeApiUrl}
+          {t('auth.serverLabel')}: {activeApiUrl}
         </Text>
       </Surface>
 

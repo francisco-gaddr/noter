@@ -3,6 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import { Text, TextInput, Button, Surface, useTheme, Snackbar } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/stores/useStore';
+import { useTranslation } from 'react-i18next';
 
 export default function RegisterScreen() {
   const [username, setUsername] = useState('');
@@ -15,27 +16,34 @@ export default function RegisterScreen() {
   const router = useRouter();
   const { register } = useStore();
   const theme = useTheme();
+  const { t } = useTranslation();
 
   const handleRegister = async () => {
-    if (!username || !password) {
-        setErrorMessage('Please fill in all fields');
+    const normalizedUsername = username.trim().toLowerCase();
+    if (!normalizedUsername || !password) {
+        setErrorMessage(t('auth.fillAllFields'));
+        setErrorVisible(true);
+        return;
+    }
+    if (password.length < 8) {
+        setErrorMessage(t('auth.passwordMinLength'));
         setErrorVisible(true);
         return;
     }
     if (password !== confirmPassword) {
-        setErrorMessage('Passwords do not match');
+        setErrorMessage(t('auth.passwordsNoMatch'));
         setErrorVisible(true);
         return;
     }
 
     setLoading(true);
     try {
-      await register(username, password);
+      await register(normalizedUsername, password);
       // Register usually logs in automatically or returns token, handled in store.
       // If successful, router should redirect via _layout auth guard.
     } catch (error: any) {
       console.error(error);
-      setErrorMessage(error.message || 'Registration failed');
+      setErrorMessage(error.message || t('auth.registrationFailed'));
       setErrorVisible(true);
     } finally {
       setLoading(false);
@@ -45,10 +53,10 @@ export default function RegisterScreen() {
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <Surface style={styles.card} elevation={2}>
-        <Text variant="headlineMedium" style={styles.title}>Create Account</Text>
+        <Text variant="headlineMedium" style={styles.title}>{t('auth.createAccount')}</Text>
         
         <TextInput
-          label="Username"
+          label={t('auth.username')}
           value={username}
           onChangeText={setUsername}
           autoCapitalize="none"
@@ -56,7 +64,7 @@ export default function RegisterScreen() {
         />
         
         <TextInput
-          label="Password"
+          label={t('auth.password')}
           value={password}
           onChangeText={setPassword}
           secureTextEntry
@@ -64,7 +72,7 @@ export default function RegisterScreen() {
         />
 
         <TextInput
-          label="Confirm Password"
+          label={t('auth.confirmPassword')}
           value={confirmPassword}
           onChangeText={setConfirmPassword}
           secureTextEntry
@@ -77,7 +85,7 @@ export default function RegisterScreen() {
           loading={loading}
           style={styles.button}
         >
-          Sign Up
+          {t('auth.signup')}
         </Button>
 
         <Button 
@@ -85,7 +93,7 @@ export default function RegisterScreen() {
           onPress={() => router.back()} 
           style={styles.textButton}
         >
-          Already have an account? Login
+          {t('auth.alreadyHaveAccount')}
         </Button>
       </Surface>
 
@@ -93,7 +101,7 @@ export default function RegisterScreen() {
         visible={errorVisible}
         onDismiss={() => setErrorVisible(false)}
         action={{
-          label: 'OK',
+          label: t('common.ok'),
           onPress: () => setErrorVisible(false),
         }}
       >

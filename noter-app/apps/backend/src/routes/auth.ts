@@ -5,23 +5,28 @@ import Joi from 'joi';
 import User from '../models/User';
 import { AuthResponse } from '@repo/shared';
 import { validate } from '../middleware/validate';
+import { getJwtSecret, getJwtSignOptions } from '../utils/security';
 
 const router = express.Router();
 
 const registerSchema = Joi.object({
-  username: Joi.string().alphanum().min(3).max(30).required(),
-  password: Joi.string().min(6).required()
+  username: Joi.string().trim().alphanum().min(3).max(30).required(),
+  password: Joi.string().min(8).max(128).required()
 });
 
 const loginSchema = Joi.object({
-  username: Joi.string().required(),
+  username: Joi.string().trim().required(),
   password: Joi.string().required()
 });
+
+const BCRYPT_ROUNDS = Math.max(10, Number.parseInt(process.env.BCRYPT_ROUNDS || '12', 10) || 12);
+const DUMMY_HASH = '$2b$12$90hPdzA7y6QAYnltj7LjY.BM7rjOADfVv8BfS7kqkQxB7MlMijH7e';
 
 // Register
 router.post('/register', validate(registerSchema), async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const username = String(req.body.username || '').trim().toLowerCase();
+    const password = String(req.body.password || '');
     // Validation handled by middleware
 
     const existingUser = await User.findOne({ username });
@@ -29,12 +34,11 @@ router.post('/register', validate(registerSchema), async (req, res) => {
       return res.status(400).json({ message: 'Username already exists' });
     }
 
-    const passwordHash = await bcrypt.hash(password, 10);
+    const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
     const newUser = new User({ username, passwordHash });
     await newUser.save();
 
-    const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
-    const token = jwt.sign({ userId: newUser._id }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ userId: newUser._id }, getJwtSecret(), getJwtSignOptions());
     
     const response: AuthResponse = {
       user: {
@@ -46,23 +50,19 @@ router.post('/register', validate(registerSchema), async (req, res) => {
     };
 
     res.status(201).json(response);
-  } catch (error) {
-    res.status(500).json({ message: 'Error registering user', error });
+  } catch {
+    res.status(500).json({ message: 'Error registering user' });
   }
 });
 
 // Login
-router.post('/login', async (req, res) => {
+router.post('/login', validate(loginSchema), async (req, res) => {
   try {
-    const { username, password } = req.body;
-    // Validation handled by middleware
-    
-    if (!username || !password) {
-        return res.status(400).json({ message: 'Username and password are required' });
-    }
-
+    const username = String(req.body.username || '').trim().toLowerCase();
+    const password = String(req.body.password || '');
     const user = await User.findOne({ username });
     if (!user) {
+      await bcrypt.compare(password, DUMMY_HASH);
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
@@ -71,8 +71,7 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
-    const token = jwt.sign({ userId: user._id }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ userId: user._id }, getJwtSecret(), getJwtSignOptions());
 
     const response: AuthResponse = {
       user: {
@@ -84,8 +83,8 @@ router.post('/login', async (req, res) => {
     };
 
     res.json(response);
-  } catch (error) {
-    res.status(500).json({ message: 'Error logging in', error });
+  } catch {
+    res.status(500).json({ message: 'Error logging in' });
   }
 });
 

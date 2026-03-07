@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import { getJwtSecret, getJwtVerifyOptions, isDemoTokenEnabled } from '../utils/security';
 
 export interface AuthRequest extends Request {
   user?: { userId: string };
@@ -60,13 +61,15 @@ export const authMiddleware = (req: AuthRequest, res: Response, next: NextFuncti
   }
 
   if (token === 'demo-token') {
-    req.user = { userId: 'demo-user-id' };
-    return next();
+    if (isDemoTokenEnabled()) {
+      req.user = { userId: 'demo-user-id' };
+      return next();
+    }
+    return res.status(401).json({ message: 'Token is not valid' });
   }
 
   try {
-    const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, getJwtSecret(), getJwtVerifyOptions());
     const userId = getUserIdFromDecodedToken(decoded);
     if (!userId) {
       return res.status(401).json({ message: 'Token is not valid' });

@@ -13,24 +13,40 @@ import logger from './utils/logger';
 import noteRoutes from './routes/notes';
 import taskRoutes from './routes/tasks';
 import authRoutes from './routes/auth';
+import aiModelRoutes from './routes/aiModels';
 import { authMiddleware, getBearerTokenFromRequestLike, getUserIdFromDecodedToken } from './middleware/authMiddleware';
 import { errorHandler } from './middleware/errorMiddleware';
 import { createHandler } from 'graphql-http/lib/use/express';
 import { toolSchema } from './graphql/schema';
+import { getAllowedOrigins, getJwtSecret, getJwtVerifyOptions, isDemoTokenEnabled } from './utils/security';
 
 dotenv.config();
 
 const app = express();
 const server = http.createServer(app);
 const port = parseInt(process.env.PORT || '3001', 10);
+const allowedOrigins = getAllowedOrigins();
+const isProduction = process.env.NODE_ENV === 'production';
 
 app.set('trust proxy', 1);
 
+const corsOptions: cors.CorsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.length === 0 && !isProduction) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    return callback(new Error('CORS origin not allowed'));
+  },
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  credentials: true,
+};
+
 // Security & Performance Middleware
 app.use(helmet());
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(compression());
 app.use(mongoSanitize()); // Prevent NoSQL injection
+app.use(express.json({ limit: '1mb' }));
 
 // Rate Limiting
 const limiter = rateLimit({
@@ -44,17 +60,23 @@ const limiter = rateLimit({
 // Apply rate limiting to all requests
 app.use(limiter);
 
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: 'Too many authentication attempts, please try again later.'
+});
+
 const io = new Server(server, {
   cors: {
-    origin: true,
+    origin: allowedOrigins.length === 0 && !isProduction ? true : allowedOrigins,
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true
   },
   pingInterval: 25000,
   pingTimeout: 20000
 });
-
-const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey';
 
 // Track users in rooms
 // socketId -> User info
@@ -67,12 +89,16 @@ io.use((socket, next) => {
     return;
   }
   if (token === 'demo-token') {
-    (socket.data as any).userId = 'demo-user-id';
-    next();
+    if (isDemoTokenEnabled()) {
+      (socket.data as any).userId = 'demo-user-id';
+      next();
+      return;
+    }
+    next(new Error('Unauthorized'));
     return;
   }
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, getJwtSecret(), getJwtVerifyOptions());
     const userId = getUserIdFromDecodedToken(decoded);
     if (!userId) {
       next(new Error('Unauthorized'));
@@ -93,12 +119,14 @@ io.on('connection', (socket) => {
   }
 
   socket.on('note:join', ({ noteId, user }) => {
+    if (typeof noteId !== 'string' || noteId.trim().length === 0 || noteId.length > 128) return;
     if (userId && user?._id && user._id !== userId) return;
-    socket.join(noteId);
+    const safeNoteId = noteId.trim();
+    socket.join(safeNoteId);
     socketUsers.set(socket.id, user);
     
     // Get all users in this room
-    const clients = io.sockets.adapter.rooms.get(noteId);
+    const clients = io.sockets.adapter.rooms.get(safeNoteId);
     const users: any[] = [];
     if (clients) {
         clients.forEach(clientId => {
@@ -113,16 +141,18 @@ io.on('connection', (socket) => {
             }
         });
     }
-    io.to(noteId).emit('note:active-users', { noteId, users });
+    io.to(safeNoteId).emit('note:active-users', { noteId: safeNoteId, users });
   });
 
   socket.on('note:leave', ({ noteId, user }) => {
-    socket.leave(noteId);
+    if (typeof noteId !== 'string' || noteId.trim().length === 0 || noteId.length > 128) return;
+    const safeNoteId = noteId.trim();
+    socket.leave(safeNoteId);
     // We don't remove from socketUsers yet because they might be in other rooms? 
     // Actually usually one note at a time.
     // But let's just re-calculate users in room.
     
-    const clients = io.sockets.adapter.rooms.get(noteId);
+    const clients = io.sockets.adapter.rooms.get(safeNoteId);
     const users: any[] = [];
     if (clients) {
         clients.forEach(clientId => {
@@ -132,7 +162,7 @@ io.on('connection', (socket) => {
             }
         });
     }
-    io.to(noteId).emit('note:active-users', { noteId, users });
+    io.to(safeNoteId).emit('note:active-users', { noteId: safeNoteId, users });
   });
 
   socket.on('disconnecting', () => {
@@ -171,9 +201,6 @@ io.on('connection', (socket) => {
 // Make io accessible to routes
 app.set('io', io);
 
-app.use(cors());
-app.use(express.json());
-
 app.get('/', (req, res) => {
   res.send('Noter Backend Running');
 });
@@ -183,9 +210,10 @@ app.get('/api/health', (req, res) => {
 });
 
 // Routes
-app.use('/api/auth', authRoutes);
+app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/notes', authMiddleware, noteRoutes);
 app.use('/api/tasks', authMiddleware, taskRoutes);
+app.use('/api/ai/models', aiModelRoutes);
 app.use('/api/graphql', authMiddleware, createHandler({
   schema: toolSchema,
   context: (req: any) => {
@@ -194,12 +222,11 @@ app.use('/api/graphql', authMiddleware, createHandler({
     if (!userId && token === 'demo-token') userId = 'demo-user-id';
     if (!userId && token) {
       try {
-        const secret = process.env.JWT_SECRET || 'supersecretkey';
-        const decoded = jwt.verify(token, secret);
+        const decoded = jwt.verify(token, getJwtSecret(), getJwtVerifyOptions());
         userId = getUserIdFromDecodedToken(decoded);
       } catch {}
     }
-    return { userId };
+    return { userId, io: req?.app?.get('io') };
   }
 }));
 

@@ -10,6 +10,9 @@ import { authMiddleware, getBearerTokenFromRequestLike, getUserIdFromDecodedToke
 import Note from '../src/models/Note';
 import Task from '../src/models/Task';
 
+jest.setTimeout(120000);
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-jwt-secret';
+
 jest.mock('../src/services/cache', () => ({
   get: jest.fn(),
   set: jest.fn(),
@@ -26,7 +29,7 @@ app.use('/api/graphql', authMiddleware, createHandler({
     if (!userId && token === 'demo-token') userId = 'demo-user-id';
     if (!userId && token) {
       try {
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'supersecretkey');
+        const decoded = jwt.verify(token, process.env.JWT_SECRET as string);
         userId = getUserIdFromDecodedToken(decoded);
       } catch {}
     }
@@ -37,7 +40,7 @@ app.use('/api/graphql', authMiddleware, createHandler({
 describe('GraphQL Tool Calls', () => {
   let mongoServer: MongoMemoryServer;
   const signToken = (payload: Record<string, string>) =>
-    jwt.sign(payload, process.env.JWT_SECRET || 'supersecretkey', { expiresIn: '1h' });
+    jwt.sign(payload, process.env.JWT_SECRET as string, { expiresIn: '1h' });
 
   beforeAll(async () => {
     mongoServer = await MongoMemoryServer.create();

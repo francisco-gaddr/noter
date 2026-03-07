@@ -5,17 +5,35 @@ import * as SecureStore from 'expo-secure-store';
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
 
+const runtimeDevMode =
+  (typeof __DEV__ !== 'undefined' ? Boolean(__DEV__) : true) && process.env.NODE_ENV !== 'production';
+
+const logDebug = (...args: unknown[]) => {
+  if (runtimeDevMode) console.log(...args);
+};
+
+const normalizeApiUrl = (input: string) => {
+  const trimmed = input.trim();
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+  const parsed = new URL(withProtocol);
+  const normalizedPath = parsed.pathname.endsWith('/api') || parsed.pathname.endsWith('/api/')
+    ? parsed.pathname
+    : `${parsed.pathname.replace(/\/$/, '')}/api`;
+  const protocol = parsed.protocol.toLowerCase();
+  const host = parsed.hostname.toLowerCase();
+  const isLocalHost = host === 'localhost' || host === '127.0.0.1' || host === '10.0.2.2';
+  if (!runtimeDevMode && protocol === 'http:' && !isLocalHost) {
+    throw new Error('Endast HTTPS är tillåtet utanför utvecklingsläge');
+  }
+  return `${parsed.protocol}//${parsed.host}${normalizedPath.replace(/\/$/, '')}`;
+};
+
 // Function to get the API URL dynamically
 const getApiUrl = () => {
   // NOTE: We intentionally ignore EXPO_PUBLIC_API_URL on Android if it's localhost
   // to avoid issues on physical devices/emulators where localhost refers to the device itself.
   if (process.env.EXPO_PUBLIC_API_URL) {
-    const envUrl = process.env.EXPO_PUBLIC_API_URL;
-    if (Platform.OS === 'android' && (envUrl.includes('localhost') || envUrl.includes('127.0.0.1'))) {
-       console.log('Ignoring EXPO_PUBLIC_API_URL (localhost) on Android to detect correct LAN IP');
-    } else {
-       return envUrl;
-    }
+    return process.env.EXPO_PUBLIC_API_URL;
   }
 
   // Try multiple Expo host hints
@@ -25,7 +43,7 @@ const getApiUrl = () => {
     (Constants as any).manifest?.debuggerHost, // e.g. 192.168.x.x:19000
   ];
 
-  console.log('Host candidates:', hostCandidates);
+  logDebug('Host candidates:', hostCandidates);
 
   for (const candidate of hostCandidates) {
     if (candidate && typeof candidate === 'string') {
@@ -66,45 +84,28 @@ const getApiUrl = () => {
 export let API_URL = getApiUrl();
 
 export const setApiUrl = async (url: string) => {
-  // Validate URL format roughly
-  if (!url.startsWith('http')) {
-      url = `http://${url}`;
-  }
-  // Ensure it ends with /api if not present, but be careful not to double it
-  if (!url.endsWith('/api') && !url.endsWith('/api/')) {
-      url = url.replace(/\/$/, '') + '/api';
-  }
-  // Remove trailing slash
-  url = url.replace(/\/$/, '');
-
-  API_URL = url;
+  API_URL = normalizeApiUrl(url);
   try {
-    await SecureStore.setItemAsync('custom_api_url', url);
+    await SecureStore.setItemAsync('custom_api_url', API_URL);
   } catch (e) {
     console.warn('Failed to save custom API URL', e);
   }
-  console.log('API_URL updated to:', API_URL);
+  logDebug('API_URL updated to:', API_URL);
 };
 
 export const initApiUrl = async () => {
     try {
         const stored = await SecureStore.getItemAsync('custom_api_url');
     if (stored) {
-      // Sanity check: If stored is localhost/127.0.0.1 but we are on Android, ignore it to allow smart default
-      if (Platform.OS === 'android' && (stored.includes('localhost') || stored.includes('127.0.0.1'))) {
-        console.log('Ignoring stored localhost/127.0.0.1 API URL on Android, reverting to smart default');
-        await SecureStore.deleteItemAsync('custom_api_url');
-      } else {
-        API_URL = stored;
-        console.log('API_URL loaded from storage:', API_URL);
-      }
+      API_URL = normalizeApiUrl(stored);
+      logDebug('API_URL loaded from storage:', API_URL);
     }
     } catch (e) {
         console.warn('Failed to load custom API URL', e);
     }
 };
 
-console.log('API_URL configured as:', API_URL);
+logDebug('API_URL configured as:', API_URL);
 
 let authToken: string | null = null;
 let unauthorizedHandler: null | (() => void | Promise<void>) = null;
@@ -168,7 +169,7 @@ export async function login(username: string, password: string) {
 export async function register(username: string, password: string) {
   const url = `${API_URL}/auth/register`;
   try {
-    console.log(`[API] Registering user: ${username} to ${url}`);
+    logDebug(`[API] Registering user: ${username} to ${url}`);
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -231,11 +232,20 @@ export async function fetchWithAuth(
 
   for (let attempt = 0; attempt < maxRetries; attempt += 1) {
     try {
-      console.log(`[API] Requesting: ${options.method || 'GET'} ${url}`);
-      const response = await fetch(url, {
-        ...fetchOptions,
-        headers,
-      });
+      logDebug(`[API] Requesting: ${options.method || 'GET'} ${url}`);
+      const timeoutMs = 15000;
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), timeoutMs);
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          ...fetchOptions,
+          headers,
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeout);
+      }
 
       if (!response.ok) {
         console.warn(`[API] Error ${response.status} from ${url}`);
@@ -290,12 +300,12 @@ export async function fetchWithAuth(
           continue;
         }
 
-        console.error(`[API] Server error details:`, body);
+        logDebug(`[API] Server error details:`, body);
         throw err;
       }
 
       const data = await response.json();
-      console.log(
+      logDebug(
         `[API] Success from ${url}`,
         Array.isArray(data) ? `(Array length: ${data.length})` : '(Object)'
       );
@@ -323,7 +333,7 @@ export async function fetchWithAuth(
 3. The API URL is correct (Settings > API URL).`;
       }
 
-      console.error(
+      logDebug(
         `[API] Network/Logic failed to ${url}`,
         status ? `${status} ${message}` : message
       );

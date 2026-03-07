@@ -1,0 +1,42 @@
+jest.mock('expo-secure-store', () => ({
+  getItemAsync: jest.fn(),
+  setItemAsync: jest.fn(),
+  deleteItemAsync: jest.fn(),
+}));
+
+jest.mock('react-native', () => ({
+  Platform: { OS: 'ios', select: (v: any) => v.ios || v.default },
+}));
+
+jest.mock('expo-constants', () => ({
+  expoConfig: {},
+  appOwnership: 'guest',
+}));
+
+describe('API URL security', () => {
+  const setNodeEnv = (value?: string) => {
+    if (value === undefined) {
+      Object.defineProperty(process.env, 'NODE_ENV', { value: undefined, writable: true, configurable: true });
+      return;
+    }
+    Object.defineProperty(process.env, 'NODE_ENV', { value, writable: true, configurable: true });
+  };
+
+  afterEach(() => {
+    jest.resetModules();
+    setNodeEnv(undefined);
+  });
+
+  it('normalizes api url with /api suffix', async () => {
+    setNodeEnv('development');
+    const api = require('../services/api');
+    await api.setApiUrl('https://example.com');
+    expect(api.API_URL).toBe('https://example.com/api');
+  });
+
+  it('rejects insecure non-local http url in production mode', async () => {
+    setNodeEnv('production');
+    const api = require('../services/api');
+    await expect(api.setApiUrl('http://example.com')).rejects.toThrow('HTTPS');
+  });
+});
