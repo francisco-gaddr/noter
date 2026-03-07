@@ -39,6 +39,10 @@ Denna arkitektur möjliggör lokal AI på mobilen genom att använda **GGUF-mode
 ### Fas 4: Optimering & Polering (🚧 Nästa steg)
 - [ ] **Minneshantering:** Se till att modellen laddas ur när appen går till bakgrunden.
 - [ ] **Prompt Templates:** Mer avancerad hantering av olika chat templates.
+- [x] **Android native MLC-konverteringsbrygga:** Reflektionsbaserad integration mot MLC SDK-klasser.
+- [x] **Device-E2E för lokal konvertering:** Android instrumenteringstest som validerar att `mlc-chat-config.json` skapas.
+- [x] **AI-bakgrundsläge:** Inställning i AI-systemfliken för att tillåta pågående AI-generering i bakgrunden.
+- [x] **Tydlig stoppkontroll i chatten:** Separat stop-knapp visas under pågående generering.
 
 ## Verifiering (Så här testar du)
 
@@ -57,3 +61,23 @@ Denna arkitektur möjliggör lokal AI på mobilen genom att använda **GGUF-mode
 
 1.  **Bygg om appen:** Eftersom vi lagt till native-logik kan du behöva köra `npx expo run:android` eller `npx expo run:ios` igen.
 2.  **Testa minne:** Om appen kraschar vid laddning av stora modeller (7B), testa mindre modeller (TinyLlama 1.1B) eller se över `n_ctx` i `provider.ts`.
+
+## Device-E2E (Android lokal konvertering)
+
+1.  Bygg dev client med native-modulen och MLC SDK inkluderad.
+2.  Placera en test-GGUF på enhetens filsystem.
+3.  Kör instrumentering:
+    ```bash
+    npm run test:android:mlc-device-e2e
+    ```
+4.  För att köra faktisk konvertering, sätt instrumentation arguments:
+    - `mlcInputPath`
+    - `mlcOutputPath`
+    - `mlcQuantization` (valfritt, default `Q4_K_M`)
+
+## AI i bakgrunden (mobil)
+
+1.  Öppna **AI → Systemprompt**.
+2.  Slå på **Tillåt AI-arbete i bakgrunden**.
+3.  Starta en AI-generering och lås skärmen eller lägg appen i bakgrunden.
+4.  För att avbryta pågående generering, använd **Stoppa generering** i chatten.

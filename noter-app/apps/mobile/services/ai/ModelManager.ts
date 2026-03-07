@@ -15,6 +15,7 @@ try {
 
 import { loadModel, chat, unloadModel } from "./native/MLCModule";
 import { downloadCompiledModel } from "./ModelDownloader";
+import { isAiBackgroundWorkEnabled } from "./runtimeSettings";
 
 class ModelManager {
   currentModelPath: string | null = null;
@@ -56,6 +57,14 @@ export const modelManager = new ModelManager();
 
 AppState.addEventListener('change', (state) => {
   if (state === 'background') {
-    modelManager.unload().catch(() => {});
+    isAiBackgroundWorkEnabled()
+      .then((enabled) => {
+        if (!enabled) {
+          modelManager.unload().catch(() => {});
+        }
+      })
+      .catch(() => {
+        modelManager.unload().catch(() => {});
+      });
   }
 });
