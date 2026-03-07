@@ -8,8 +8,8 @@ import com.facebook.react.bridge.ReactMethod
 import java.io.File
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
-import com.facebook.react.bridge.Promise
 
+class MLCModule(private val reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
     private var engine: Any? = null
     private var generateMethod: Method? = null
 
@@ -17,17 +17,18 @@ import com.facebook.react.bridge.Promise
         "ai.mlc.mlcllm.MLCEngine",
         "ai.mlc.mlcllm.ChatModule"
     )
+
     private val converterCandidates = listOf(
         "ai.mlc.mlcllm.MLCConverter",
         "ai.mlc.mlcllm.ModelConverter",
         "ai.mlc.mlcllm.converter.MLCConverter",
         "ai.mlc.mlcllm.converter.ModelConverter"
     )
-class MLCModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
 
     override fun getName(): String {
         return "MLCModule"
     }
+
     private fun findMethod(clazz: Class<*>, vararg names: String): Method? {
         return clazz.methods.firstOrNull { method -> names.any { it == method.name } }
     }
@@ -59,15 +60,15 @@ class MLCModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaMod
         }
     }
 
-
     @ReactMethod
+    fun loadModel(path: String) {
         val engineClass = loadFirstClass(engineCandidates)
         val created = engineClass.constructors.firstNotNullOfOrNull { constructor ->
             val params = constructor.parameterTypes
             try {
                 when {
                     params.size == 1 && params[0] == String::class.java -> constructor.newInstance(path)
-                    params.size == 1 && ReactApplicationContext::class.java.isAssignableFrom(params[0]) -> constructor.newInstance(reactApplicationContext)
+                    params.size == 1 && ReactApplicationContext::class.java.isAssignableFrom(params[0]) -> constructor.newInstance(reactContext)
                     params.isEmpty() -> constructor.newInstance()
                     else -> null
                 }
@@ -88,10 +89,10 @@ class MLCModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaMod
             ?: throw IllegalStateException("No generation method found in MLCEngine")
         engine = created
         generateMethod = generator
-        println("Loading model from: $path")
     }
 
     @ReactMethod
+    fun generate(prompt: String, promise: Promise) {
         val currentEngine = engine
         val currentMethod = generateMethod
         if (currentEngine == null || currentMethod == null) {
@@ -174,5 +175,5 @@ class MLCModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaMod
         } catch (e: Throwable) {
             promise.reject("self_test_failed", e.message, e)
         }
-        promise.resolve("Response from Native Android (MLC placeholder): $prompt")
     }
+}
