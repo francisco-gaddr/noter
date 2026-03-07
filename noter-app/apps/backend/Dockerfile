@@ -7,7 +7,7 @@ COPY apps/backend/package.json ./apps/backend/
 COPY packages/ ./packages/
 
 # Install dependencies with cache
-RUN npm ci
+RUN npm ci --include=dev
 
 # Build shared packages first
 RUN npx turbo run build --filter=@repo/shared
