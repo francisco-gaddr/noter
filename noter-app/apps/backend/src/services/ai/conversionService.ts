@@ -3,7 +3,6 @@ import path from 'path';
 import os from 'os';
 import { spawn } from 'child_process';
 import { pipeline } from 'stream/promises';
-import archiver from 'archiver';
 import { ensureDir, getCompiledUrl, getModelDir, getModelsBaseDir, getZipPath } from './mlcStorage';
 
 export type ConversionStatus = 'queued' | 'downloading' | 'converting' | 'zipping' | 'completed' | 'failed';
@@ -68,7 +67,14 @@ const zipDirectory = async (sourceDir: string, zipPath: string) => {
   await ensureDir(path.dirname(zipPath));
   return new Promise<void>((resolve, reject) => {
     const output = require('fs').createWriteStream(zipPath);
-    const archive = archiver('zip', { zlib: { level: 9 } });
+    let archiverLib: any;
+    try {
+      archiverLib = require('archiver');
+    } catch {
+      reject(new Error('archiver module missing'));
+      return;
+    }
+    const archive = archiverLib('zip', { zlib: { level: 9 } });
     output.on('close', () => resolve());
     archive.on('error', reject);
     archive.pipe(output);
