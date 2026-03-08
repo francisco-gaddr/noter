@@ -1,5 +1,7 @@
 import express from 'express';
 import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
 import cors from 'cors';
 import mongoose from 'mongoose';
 import http from 'http';
@@ -20,7 +22,17 @@ import { createHandler } from 'graphql-http/lib/use/express';
 import { toolSchema } from './graphql/schema';
 import { getAllowedOrigins, getJwtSecret, getJwtVerifyOptions, isDemoTokenEnabled } from './utils/security';
 
-dotenv.config();
+const dotenvPath = process.env.DOTENV_PATH;
+if (dotenvPath) {
+  dotenv.config({ path: dotenvPath });
+} else {
+  const candidate = path.join(process.cwd(), 'apps', 'backend', '.env');
+  if (fs.existsSync(candidate)) {
+    dotenv.config({ path: candidate });
+  } else {
+    dotenv.config();
+  }
+}
 
 const app = express();
 const server = http.createServer(app);

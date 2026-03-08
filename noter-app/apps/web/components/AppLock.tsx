@@ -6,7 +6,7 @@ import { FaLock } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
 
 export default function AppLock() {
-    const { isAppLocked, setAppLocked, user, login, autoLockTimeout, verifyAppLockPassword } = useStore();
+    const { isAppLocked, setAppLocked, user, login, logout, autoLockTimeout, verifyAppLockPassword } = useStore();
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [mounted, setMounted] = useState(false);
@@ -53,7 +53,10 @@ export default function AppLock() {
             return;
         }
 
-        if (!user) return;
+        if (!user) {
+            setError(t('appLock.incorrectPassword'));
+            return;
+        }
         
         try {
             await login(user.username, password);
@@ -101,6 +104,13 @@ export default function AppLock() {
                         className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 rounded font-bold transition-colors"
                     >
                         {t('appLock.unlock')}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={logout}
+                        className="w-full py-3 px-4 bg-gray-700 hover:bg-gray-600 rounded font-bold transition-colors"
+                    >
+                        {t('navbar.logout')}
                     </button>
                 </form>
             </div>
