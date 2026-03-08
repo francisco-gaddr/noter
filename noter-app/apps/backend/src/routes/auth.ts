@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import Joi from 'joi';
 import User from '../models/User';
+import logger from '../utils/logger';
 import { AuthResponse } from '@repo/shared';
 import { validate } from '../middleware/validate';
 import { getJwtSecret, getJwtSignOptions } from '../utils/security';
@@ -50,8 +51,10 @@ router.post('/register', validate(registerSchema), async (req, res) => {
     };
 
     res.status(201).json(response);
-  } catch {
-    res.status(500).json({ message: 'Error registering user' });
+  } catch (error: any) {
+    logger.error('Auth register failed', { error: error?.message || String(error) });
+    const message = error?.message?.includes('JWT_SECRET') ? 'Auth configuration error' : 'Error registering user';
+    res.status(500).json({ message });
   }
 });
 
@@ -83,8 +86,10 @@ router.post('/login', validate(loginSchema), async (req, res) => {
     };
 
     res.json(response);
-  } catch {
-    res.status(500).json({ message: 'Error logging in' });
+  } catch (error: any) {
+    logger.error('Auth login failed', { error: error?.message || String(error) });
+    const message = error?.message?.includes('JWT_SECRET') ? 'Auth configuration error' : 'Error logging in';
+    res.status(500).json({ message });
   }
 });
 
