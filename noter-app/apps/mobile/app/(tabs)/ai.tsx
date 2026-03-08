@@ -860,6 +860,14 @@ export default function AIScreen() {
           setCurrentConversationId(null);
           setMessages([]);
       }
+      if (chatDialogId === id) {
+          setChatDialogVisible(false);
+          setChatDialogId(null);
+          setChatDialogName('');
+          setChatDialogIcon(undefined);
+          setChatDialogIconColor(undefined);
+          setChatIconPickerVisible(false);
+      }
   };
 
   const openProjectDialog = (project: AIProject) => {
@@ -954,6 +962,7 @@ export default function AIScreen() {
       if (!confirmChatDeleteId) return;
       await deleteChat(confirmChatDeleteId);
       setConfirmChatDeleteId(null);
+      setChatDialogVisible(false);
   };
 
   const handleSelectProject = (projectId: string | null) => {

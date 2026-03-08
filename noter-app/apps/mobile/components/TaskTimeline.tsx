@@ -650,6 +650,7 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
                         backgroundColor:
                           section.title === todayKey ? theme.colors.primary : theme.colors.background,
                         borderBottomColor: (theme.colors as any).outlineVariant || theme.colors.outline || 'rgba(0,0,0,0.08)',
+                        borderTopColor: (theme.colors as any).outlineVariant || theme.colors.outline || 'rgba(0,0,0,0.08)',
                       },
                     ]}
                   >
@@ -732,6 +733,7 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: 6,
     borderBottomWidth: StyleSheet.hairlineWidth,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
   emptyDate: {
     height: 15,
