@@ -41,7 +41,16 @@ export const getAllowedOrigins = () => {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
-  if (list.length > 0) return list;
-  if (appEnv === 'production') return [];
-  return ['http://localhost:3000', 'http://localhost:8081', 'http://127.0.0.1:3000'];
+  const defaults = [
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://localhost:8081',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:3001',
+    'https://daylited.com',
+    'https://www.daylited.com',
+  ];
+  if (list.length > 0) return Array.from(new Set([...list, ...defaults]));
+  if (appEnv === 'production') return defaults;
+  return defaults;
 };
