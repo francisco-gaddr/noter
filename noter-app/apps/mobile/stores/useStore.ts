@@ -10,6 +10,8 @@ import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { scheduleTaskReminder, cancelTaskReminder, cancelAllTaskReminders } from '../services/notifications';
 
+let wasOffline = false;
+
 interface AppState {
   notes: Note[];
   tasks: Task[];
@@ -47,6 +49,7 @@ interface AppState {
   updateTask: (id: string, data: UpdateTaskDto) => Promise<Task>;
   deleteTask: (id: string) => Promise<void>;
   reorderTasks: (tasks: Task[]) => Promise<void>;
+  backgroundRefresh: () => Promise<void>;
   
   // Offline Sync
   syncOfflineChanges: () => Promise<void>;
@@ -184,6 +187,19 @@ const getNextRecurringDueDate = (task: Task): string | null => {
   return null;
 };
 
+const parseReminderOffsets = (value: string): number[] => {
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) {
+      return parsed.filter((v) => typeof v === 'number');
+    }
+  } catch {
+  }
+  const num = Number(value);
+  if (!Number.isNaN(num)) return [num];
+  return [];
+};
+
 const processApiTask = (task: any): Task => ({
   ...(task as Task),
   title: decrypt(task.title),
@@ -194,7 +210,7 @@ const processApiTask = (task: any): Task => ({
   recurrenceType: task.recurrenceType ? (() => { try { return decrypt(task.recurrenceType) as any } catch { return 'none' as any } })() : 'none',
   recurrenceDays: task.recurrenceDays ? (() => { try { return JSON.parse(decrypt(task.recurrenceDays)) } catch { return [] } })() : [],
   reminderEnabled: task.reminderEnabled ? (() => { try { return decrypt(task.reminderEnabled) === 'true' } catch { return false } })() : false,
-  reminderOffsetMinutes: task.reminderOffsetMinutes ? (() => { try { const num = Number(decrypt(task.reminderOffsetMinutes)); return num === 10 ? 10 : 0 } catch { return 0 } })() : 0,
+  reminderOffsetMinutes: task.reminderOffsetMinutes ? (() => { try { return parseReminderOffsets(decrypt(task.reminderOffsetMinutes)); } catch { return []; } })() : [],
   createdAt: decrypt(task.createdAt),
   updatedAt: decrypt(task.updatedAt),
   position: task.position ? (() => {
@@ -210,6 +226,7 @@ const processApiTask = (task: any): Task => ({
 const processLocalTask = (task: Task): Task => ({
   ...task,
   dueDate: task.dueDate ?? null,
+  reminderOffsetMinutes: Array.isArray(task.reminderOffsetMinutes) ? task.reminderOffsetMinutes : [],
 });
 
 const shouldFallbackToOffline = (error: unknown) => {
@@ -304,7 +321,14 @@ export const useStore = create<AppState>((set, get) => ({
       const isOffline = !state.isConnected;
       set({ isOffline });
       if (!isOffline) {
+        if (wasOffline) {
+          get().fetchNotes();
+          get().fetchTasks();
+        }
+        wasOffline = false;
         get().syncOfflineChanges();
+      } else {
+        wasOffline = true;
       }
     });
 
@@ -481,18 +505,8 @@ export const useStore = create<AppState>((set, get) => ({
       });
     });
 
-    // Set up periodic health check
-    const healthCheckInterval = setInterval(() => {
-      const isConnected = (socket as any).connected;
-      if (!isConnected) {
-        console.log('WebSocket health check failed, triggering HTTP fallback sync');
-        get().syncViaHttp();
-      }
-    }, 30000); // Check every 30 seconds
-
-    // Clean up interval when socket disconnects
-    socket.on('disconnect', () => {
-      clearInterval(healthCheckInterval);
+    socket.on('connect', () => {
+      get().syncViaHttp();
     });
   },
 
@@ -849,6 +863,38 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
+  backgroundRefresh: async () => {
+    try {
+      const netState = await NetInfo.fetch();
+      if (!netState.isConnected) return;
+
+      const notes = await fetchWithAuth('/notes');
+      const decryptedNotes = notes.map(processApiNote);
+      for (const note of decryptedNotes) {
+        await Database.saveNoteLocal(note, true);
+      }
+      set({ notes: decryptedNotes });
+
+      const tasks = await fetchWithAuth('/tasks');
+      const decryptedTasks = tasks.map(processApiTask);
+      for (const task of decryptedTasks) {
+        await Database.saveTaskLocal(task, true);
+      }
+      const state = get();
+      const serverClientIds = new Set(decryptedTasks.map((t: any) => t.clientId).filter(Boolean));
+      const localOnlyTasks = state.tasks.filter(t => t._id.startsWith('local_task_') && !serverClientIds.has((t as any).clientId));
+      const mergedTasks = [...decryptedTasks, ...localOnlyTasks];
+      set({ tasks: mergedTasks });
+      if (get().notificationsEnabled) {
+        for (const task of mergedTasks) {
+          await scheduleTaskReminder(task);
+        }
+      }
+    } catch (error) {
+      console.error('Background refresh failed', error);
+    }
+  },
+
   createTask: async (data) => {
     // Optimistic Update Pattern
     set({ isLoading: true, error: null });
@@ -856,6 +902,9 @@ export const useStore = create<AppState>((set, get) => ({
     const tempId = `local_task_${Date.now()}`;
     
     // 1. Prepare optimistic task
+    const reminderOffsets = data.reminderEnabled
+      ? (Array.isArray(data.reminderOffsetMinutes) && data.reminderOffsetMinutes.length > 0 ? data.reminderOffsetMinutes : [0])
+      : [];
     const optimisticTask: Task = {
       _id: tempId,
       userId: 'me', // Placeholder, will be replaced by backend or ignored locally
@@ -869,7 +918,7 @@ export const useStore = create<AppState>((set, get) => ({
       recurrenceType: data.recurrenceType ?? 'none',
       recurrenceDays: data.recurrenceDays ?? [],
       reminderEnabled: data.reminderEnabled ?? false,
-      reminderOffsetMinutes: data.reminderOffsetMinutes ?? 0,
+      reminderOffsetMinutes: reminderOffsets,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       clientId, 
@@ -899,7 +948,7 @@ export const useStore = create<AppState>((set, get) => ({
         recurrenceType: data.recurrenceType ? encrypt(data.recurrenceType) : '',
         recurrenceDays: data.recurrenceDays ? encrypt(JSON.stringify(data.recurrenceDays)) : '',
         reminderEnabled: data.reminderEnabled !== undefined ? encrypt(String(data.reminderEnabled)) : '',
-        reminderOffsetMinutes: data.reminderOffsetMinutes !== undefined ? encrypt(String(data.reminderOffsetMinutes)) : '',
+        reminderOffsetMinutes: data.reminderEnabled ? encrypt(JSON.stringify(reminderOffsets)) : '',
         createdAt: encrypt(new Date().toISOString()),
         updatedAt: encrypt(new Date().toISOString()),
         position: data.position !== undefined ? encrypt(String(data.position)) : encrypt('0'),
@@ -987,7 +1036,9 @@ export const useStore = create<AppState>((set, get) => ({
     if (data.recurrenceType !== undefined) optimisticTask.recurrenceType = data.recurrenceType;
     if (data.recurrenceDays !== undefined) optimisticTask.recurrenceDays = data.recurrenceDays;
     if (data.reminderEnabled !== undefined) optimisticTask.reminderEnabled = data.reminderEnabled;
-    if (data.reminderOffsetMinutes !== undefined) optimisticTask.reminderOffsetMinutes = data.reminderOffsetMinutes;
+    if (data.reminderOffsetMinutes !== undefined) {
+      optimisticTask.reminderOffsetMinutes = Array.isArray(data.reminderOffsetMinutes) ? data.reminderOffsetMinutes : [];
+    }
     optimisticTask.updatedAt = new Date().toISOString();
 
     const shouldCreateNext = data.completed === true && !currentTask.completed;
@@ -1043,8 +1094,11 @@ export const useStore = create<AppState>((set, get) => ({
       if (data.reminderEnabled !== undefined) {
         encryptedData.reminderEnabled = encrypt(String(data.reminderEnabled));
       }
-      if (data.reminderOffsetMinutes !== undefined) {
-        encryptedData.reminderOffsetMinutes = encrypt(String(data.reminderOffsetMinutes));
+      if (data.reminderOffsetMinutes !== undefined || data.reminderEnabled !== undefined) {
+        const offsets = data.reminderEnabled
+          ? (Array.isArray(data.reminderOffsetMinutes) && data.reminderOffsetMinutes.length > 0 ? data.reminderOffsetMinutes : [0])
+          : [];
+        encryptedData.reminderOffsetMinutes = offsets.length > 0 ? encrypt(JSON.stringify(offsets)) : '';
       }
       encryptedData.updatedAt = encrypt(new Date().toISOString());
       if (data.position !== undefined) encryptedData.position = encrypt(String(data.position));

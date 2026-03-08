@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useStore } from '../stores/useStore';
-import { FaLock } from 'react-icons/fa';
+import { FaLock, FaSignOutAlt } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
 
 export default function AppLock() {
@@ -78,7 +78,15 @@ export default function AppLock() {
 
     return (
         <div role="main" aria-label="App Lock" className="fixed inset-0 z-[100] bg-gray-900 flex flex-col items-center justify-center text-white">
-            <div className="bg-gray-800 p-8 rounded-lg shadow-2xl w-full max-w-md text-center">
+            <div className="bg-gray-800 p-8 rounded-lg shadow-2xl w-full max-w-md text-center relative">
+                <button
+                    type="button"
+                    onClick={logout}
+                    aria-label={t('navbar.logout')}
+                    className="absolute left-3 top-3 p-2 rounded hover:bg-gray-700 text-gray-300 hover:text-white transition-colors"
+                >
+                    <FaSignOutAlt size={14} />
+                </button>
                 <div className="mb-6 flex justify-center">
                     <div className="p-4 bg-blue-600 rounded-full">
                         <FaLock size={48} />
@@ -104,13 +112,6 @@ export default function AppLock() {
                         className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 rounded font-bold transition-colors"
                     >
                         {t('appLock.unlock')}
-                    </button>
-                    <button
-                        type="button"
-                        onClick={logout}
-                        className="w-full py-3 px-4 bg-gray-700 hover:bg-gray-600 rounded font-bold transition-colors"
-                    >
-                        {t('navbar.logout')}
                     </button>
                 </form>
             </div>

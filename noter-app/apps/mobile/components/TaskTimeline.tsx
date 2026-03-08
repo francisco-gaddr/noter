@@ -1,14 +1,16 @@
-import React, { useMemo, useState, useRef, useCallback } from 'react';
+import React, { useMemo, useState, useRef, useCallback, useEffect } from 'react';
 import { View, Text, StyleSheet, Dimensions, Alert, TouchableOpacity, SectionList } from 'react-native';
 import { IconButton, useTheme, Chip, Button } from 'react-native-paper';
 import { Task } from '@repo/shared';
 import { PanGestureHandler, PanGestureHandlerGestureEvent, ScrollView } from 'react-native-gesture-handler';
 import { useStore } from '@/stores/useStore';
 import { Calendar } from 'react-native-calendars';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // --- Utils ---
 
 const SLOT_HEIGHT = 48; // px per hour
+const STORAGE_KEY_CALENDAR_MODE = 'task_calendar_mode';
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -29,15 +31,42 @@ function addDays(d: Date, days: number) {
 function parseDueDate(value: unknown): Date | null {
   if (!value) return null;
   if (value instanceof Date) return value;
+  if (typeof value === 'number') {
+    const parsed = new Date(value);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  }
   if (typeof value === 'string') {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-      const [y, m, d] = value.split('-').map(Number);
+    if (/^\d+$/.test(value)) {
+      const parsed = new Date(Number(value));
+      return isNaN(parsed.getTime()) ? null : parsed;
+    }
+    const assumedDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value) || /T00:00:00(?:\.000)?Z$/.test(value);
+    if (assumedDateOnly) {
+      const datePart = value.split('T')[0];
+      const [y, m, d] = datePart.split('-').map(Number);
       return new Date(y, m - 1, d);
     }
     const parsed = new Date(value);
-    if (!isNaN(parsed.getTime())) return parsed;
+    if (!isNaN(parsed.getTime())) {
+      if (!/[T ]\d{2}:\d{2}/.test(value)) {
+        parsed.setHours(0, 0, 0, 0);
+      }
+      return parsed;
+    }
   }
   return null;
+}
+
+function hasExplicitTime(value: unknown) {
+  if (typeof value !== 'string') return false;
+  return /[T ]\d{2}:\d{2}/.test(value) && !/T00:00:00(?:\.000)?Z$/.test(value);
+}
+
+function getTaskHour(task: Task) {
+  const parsed = parseDueDate(task.dueDate);
+  if (!parsed) return null;
+  if (!hasExplicitTime(task.dueDate)) return 0;
+  return parsed.getHours();
 }
 
 function dateKey(d: Date) {
@@ -101,6 +130,25 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
   const [mode, setMode] = useState<ViewMode>('week');
   const [selectedDate, setSelectedDate] = useState(new Date()); // For Day/Week anchor
   const todayKey = dateKey(new Date());
+  const timeScrollRef = useRef<ScrollView>(null);
+  const agendaRef = useRef<SectionList<any>>(null);
+
+  useEffect(() => {
+    const loadMode = async () => {
+      try {
+        const stored = await AsyncStorage.getItem(STORAGE_KEY_CALENDAR_MODE);
+        if (stored === 'day' || stored === 'week' || stored === 'month' || stored === 'agenda') {
+          setMode(stored);
+        }
+      } catch {
+      }
+    };
+    loadMode();
+  }, []);
+
+  useEffect(() => {
+    AsyncStorage.setItem(STORAGE_KEY_CALENDAR_MODE, mode);
+  }, [mode]);
   
   // State for dragging in TimeGrid
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -109,10 +157,32 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
   
   // Update current time line every minute
   const [now, setNow] = useState(new Date());
-  React.useEffect(() => {
+  useEffect(() => {
     const interval = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    AsyncStorage.getItem('task_timeline_mode')
+      .then((stored) => {
+        if (stored === 'day' || stored === 'week' || stored === 'month' || stored === 'agenda') {
+          setMode(stored);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    AsyncStorage.setItem('task_timeline_mode', mode).catch(() => {});
+  }, [mode]);
+
+  useEffect(() => {
+    if (mode !== 'day' && mode !== 'week') return;
+    requestAnimationFrame(() => {
+      const y = Math.max(getCurrentTimePosition() - SLOT_HEIGHT * 1.5, 0);
+      timeScrollRef.current?.scrollTo({ y, animated: false });
+    });
+  }, [mode, selectedDate]);
 
   // Memoized styles/theme for Calendar
   const calendarTheme = useMemo(() => ({
@@ -162,7 +232,9 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
       for (const t of tasks) {
         const parsed = parseDueDate(t.dueDate);
         if (!parsed) continue;
-        const key = dateKey(parsed);
+        const normalized = new Date(parsed);
+        normalized.setHours(0, 0, 0, 0);
+        const key = dateKey(normalized);
         if (map[key]) map[key].push(t);
       }
       return map;
@@ -176,7 +248,7 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
     const { translationX, translationY, state } = (e as any).nativeEvent || {};
     if (!draggingId && state === 2 /* ACTIVE */) {
       setDraggingId(task._id);
-      const due = task.dueDate ? new Date(task.dueDate as any) : new Date();
+      const due = parseDueDate(task.dueDate) || new Date();
       const hourIndex = clamp(due.getHours(), 0, 23);
       let dayIndex = 0;
       if (mode === 'week') {
@@ -267,12 +339,12 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
   }, [tasks, selectedDate, theme, todayKey]);
 
   const agendaSections = useMemo(() => {
-    const center = new Date(selectedDate);
-    center.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-    const start = new Date(center);
-    start.setDate(start.getDate() - 30);
-    const end = new Date(center);
+    const start = new Date(today);
+    start.setDate(start.getDate() - 7);
+    const end = new Date(today);
     end.setDate(end.getDate() + 90);
 
     const groups = new Map<string, Task[]>();
@@ -288,8 +360,6 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
       groups.set(key, current);
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
     if (today >= start && today <= end) {
       const key = dateKey(today);
       if (!groups.has(key)) groups.set(key, []);
@@ -304,7 +374,28 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
       });
       return { title: key, data };
     });
-  }, [tasks, selectedDate]);
+  }, [tasks]);
+
+  useEffect(() => {
+    if (mode !== 'agenda') return;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const idx = agendaSections.findIndex((section) => section.title === dateKey(today));
+    const targetIndex = idx >= 0 ? idx : 0;
+    const runScroll = () => {
+      agendaRef.current?.scrollToLocation({
+        sectionIndex: targetIndex,
+        itemIndex: 0,
+        viewPosition: 0,
+        viewOffset: 12,
+        animated: false,
+      });
+    };
+    requestAnimationFrame(() => {
+      runScroll();
+      setTimeout(runScroll, 0);
+    });
+  }, [mode, agendaSections]);
 
   // --- Renderers ---
 
@@ -351,7 +442,7 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
 
   const renderTimeGrid = () => (
     <View style={styles.gridWrapper}>
-      <ScrollView style={{ flex: 1 }}>
+      <ScrollView ref={timeScrollRef} style={{ flex: 1 }}>
         <View style={{ flexDirection: 'row' }}>
           <View style={styles.hoursCol}>
             {HOURS.map((h) => (
@@ -430,10 +521,18 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
                   )}
 
                   {dayTasks.map((t) => {
-                    const hour = new Date(t.dueDate as any).getHours();
+                    const parsed = parseDueDate(t.dueDate);
+                    if (!parsed) return null;
+                    const hour = getTaskHour(t);
+                    if (hour === null) return null;
+                    const timeLabel = hasExplicitTime(t.dueDate)
+                      ? parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                      : '00:00';
                     return (
                       <PanGestureHandler key={t._id} onGestureEvent={onPan(t)} onEnded={onPanEnd(t)}>
-                        <View
+                        <TouchableOpacity
+                          activeOpacity={0.8}
+                          onPress={() => onTaskPress(t)}
                           style={[
                             styles.taskCard,
                             {
@@ -445,15 +544,14 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
                         >
                           <Text
                             numberOfLines={1}
-                            onPress={() => onTaskPress(t)}
                             style={{ color: theme.colors.onSurface, fontWeight: '600' }}
                           >
                             {t.title}
                           </Text>
                           <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: 12 }}>
-                            {new Date(t.dueDate as any).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                            {timeLabel}
                           </Text>
-                        </View>
+                        </TouchableOpacity>
                       </PanGestureHandler>
                     );
                   })}
@@ -530,8 +628,20 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
       {mode === 'agenda' && (
           <View style={{ flex: 1 }}>
               <SectionList
+                ref={agendaRef}
                 sections={agendaSections}
                 keyExtractor={(item) => item._id}
+                onScrollToIndexFailed={(info) => {
+                  const targetIndex = Math.max(0, Math.min(info.highestMeasuredFrameIndex, agendaSections.length - 1));
+                  requestAnimationFrame(() => {
+                    agendaRef.current?.scrollToLocation({
+                      sectionIndex: targetIndex,
+                      itemIndex: 0,
+                      viewPosition: 0,
+                      animated: false,
+                    });
+                  });
+                }}
                 renderSectionHeader={({ section }) => (
                   <View
                     style={[
@@ -539,23 +649,30 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
                       {
                         backgroundColor:
                           section.title === todayKey ? theme.colors.primary : theme.colors.background,
+                        borderBottomColor: (theme.colors as any).outlineVariant || theme.colors.outline || 'rgba(0,0,0,0.08)',
                       },
                     ]}
                   >
                     <Text style={{ color: section.title === todayKey ? theme.colors.onPrimary : theme.colors.onBackground, fontWeight: '700' }}>{formatAgendaHeader(section.title)}</Text>
                   </View>
                 )}
-                renderItem={({ item }) => (
-                  <TouchableOpacity
-                    style={[styles.agendaItem, { backgroundColor: theme.colors.surface }]}
-                    onPress={() => onTaskPress(item)}
-                  >
-                    <Text style={{ color: theme.colors.onSurface, fontSize: 16, fontWeight: 'bold' }}>{item.title}</Text>
-                    <Text style={{ color: theme.colors.onSurfaceVariant }}>
-                      {item.completed ? 'Klar' : 'Pågående'}
-                    </Text>
-                  </TouchableOpacity>
-                )}
+                renderItem={({ item }) => {
+                  const parsed = parseDueDate(item.dueDate);
+                  return (
+                    <TouchableOpacity
+                      style={[styles.agendaItem, { backgroundColor: theme.colors.surface }]}
+                      onPress={() => onTaskPress(item)}
+                    >
+                      <Text style={{ color: theme.colors.onSurface, fontSize: 16, fontWeight: 'bold' }}>{item.title}</Text>
+                      <Text style={{ color: theme.colors.onSurfaceVariant }}>
+                        {parsed ? parsed.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}
+                      </Text>
+                      <Text style={{ color: theme.colors.onSurfaceVariant }}>
+                        {item.completed ? 'Klar' : 'Pågående'}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                }}
                 ListEmptyComponent={
                   <View style={styles.emptyDate}>
                     <Text style={{ color: theme.colors.onSurfaceDisabled }}>Inga uppgifter</Text>
@@ -614,6 +731,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingTop: 10,
     paddingBottom: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth,
   },
   emptyDate: {
     height: 15,

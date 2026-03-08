@@ -41,8 +41,8 @@ export const initSocket = (token?: string | null) => {
   console.log('Connecting socket to:', baseUrl);
 
   socket = io(baseUrl, {
-    transports: ['websocket', 'polling'],
-    autoConnect: true,
+    transports: ['websocket'],
+    autoConnect: false,
     reconnection: true,
     reconnectionAttempts: Infinity,
     reconnectionDelay: 1000,
