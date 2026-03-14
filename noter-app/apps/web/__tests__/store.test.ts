@@ -88,6 +88,27 @@ describe('Web Store', () => {
     expect(connectSocket).toHaveBeenCalled();
   });
 
+  it('should persist sort order in localStorage', () => {
+    act(() => {
+      useStore.getState().setSortOrder('title-asc');
+    });
+
+    expect(localStorage.getItem('sortOrder')).toBe('title-asc');
+    expect(useStore.getState().sortOrder).toBe('title-asc');
+  });
+
+  it('should restore sort order from localStorage on hydrate', () => {
+    localStorage.setItem('sortOrder', 'title-desc');
+    localStorage.setItem('user', JSON.stringify({ _id: '1', username: 'test' }));
+    localStorage.setItem('token', 'abc');
+
+    act(() => {
+      useStore.getState().hydrate();
+    });
+
+    expect(useStore.getState().sortOrder).toBe('title-desc');
+  });
+
   it('should ignore stale isAppLocked flag on hydrate when no app lock password is configured', () => {
     localStorage.setItem('user', JSON.stringify({ _id: '1', username: 'test' }));
     localStorage.setItem('token', 'abc');
