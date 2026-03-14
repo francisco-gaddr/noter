@@ -20,5 +20,10 @@ describe('API hardening integration', () => {
       .set('Authorization', 'Bearer demo-token');
     expect(res.status).toBe(400);
   });
+
+  it('registers ai sync route under /api/ai/sync', async () => {
+    const res = await request(app).get('/api/ai/sync/pull');
+    expect([401, 403]).toContain(res.status);
+  });
 });
 

@@ -1,3 +1,5 @@
+import { decrypt } from '@repo/shared';
+
 export type SecurityNote = {
   _id: string;
   parentId?: string | null;
@@ -12,7 +14,15 @@ export type SecurityNote = {
 const parseLockedFlag = (value: unknown): boolean => {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'number') return value === 1;
-  if (typeof value === 'string') return value === 'true';
+  if (typeof value === 'string') {
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    try {
+      return decrypt(value) === 'true';
+    } catch {
+      return false;
+    }
+  }
   return false;
 };
 

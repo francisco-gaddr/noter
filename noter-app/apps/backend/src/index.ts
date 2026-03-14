@@ -16,6 +16,8 @@ import noteRoutes from './routes/notes';
 import taskRoutes from './routes/tasks';
 import authRoutes from './routes/auth';
 import aiModelRoutes from './routes/aiModels';
+import aiSyncRoutes from './routes/aiSync';
+import mcpRoutes from './routes/mcp';
 import { authMiddleware, getBearerTokenFromRequestLike, getUserIdFromDecodedToken } from './middleware/authMiddleware';
 import { errorHandler } from './middleware/errorMiddleware';
 import { blockSuspiciousRequestPatterns, enforceJsonApiRequests } from './middleware/requestSecurity';
@@ -256,6 +258,8 @@ app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/notes', authMiddleware, noteRoutes);
 app.use('/api/tasks', authMiddleware, taskRoutes);
 app.use('/api/ai/models', aiModelRoutes);
+app.use('/api/ai/sync', authMiddleware, aiSyncRoutes);
+app.use('/api/mcp', apiSensitiveLimiter, authMiddleware, mcpRoutes);
 app.use('/api/graphql', apiSensitiveLimiter);
 app.use('/api/graphql', (req, res, next) => {
   if (!isProduction) return next();
