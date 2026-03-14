@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { Note, Task, UpdateTaskDto, User, decrypt, encrypt } from '@repo/shared';
-import { api, getUUID, setApiBaseUrl, setApiToken } from '../services/api';
+import { api, getApiBaseUrl, getUUID, setApiBaseUrl, setApiToken } from '../services/api';
 import { socket, connectSocket, disconnectSocket, setSocketToken } from '../services/socket';
 import { db } from '../services/db';
 import deepmerge from 'deepmerge';
@@ -9,6 +9,21 @@ import CryptoJS from 'crypto-js';
 import { buildSecurityNoteMap, findBlockingLockedAncestor } from '../services/ai/security';
 
 let networkListenersReady = false;
+
+const shouldLogElectronDataDebug = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  if (window.location.protocol !== 'file:') return false;
+  try {
+    return localStorage.getItem('debugElectronDataFlow') === '1';
+  } catch {
+    return false;
+  }
+};
+
+const logElectronDataDebug = (stage: string, payload: Record<string, unknown>) => {
+  if (!shouldLogElectronDataDebug()) return;
+  console.info('[ElectronDataDebug]', stage, payload);
+};
 
 const setElectronToken = (value: string | null) => {
   if (typeof window === 'undefined') return;
@@ -411,6 +426,13 @@ export const useStore = create<StoreState>((set, get) => ({
                 (window as any).mlc.getSetting('apiUrl').catch(() => null),
                 (window as any).mlc.getSetting('backendUrl').catch(() => null),
             ]).then(([storedToken, storedUser, storedApiBaseUrl, storedApiUrl, storedBackendUrl]) => {
+                logElectronDataDebug('bootstrap-settings', {
+                    hasStoredToken: Boolean(storedToken),
+                    hasStoredUser: Boolean(storedUser),
+                    hasStoredApiBaseUrl: Boolean(storedApiBaseUrl),
+                    hasStoredApiUrl: Boolean(storedApiUrl),
+                    hasStoredBackendUrl: Boolean(storedBackendUrl),
+                });
                 if (storedToken && !token) {
                     localStorage.setItem('token', String(storedToken));
                 }
@@ -421,6 +443,11 @@ export const useStore = create<StoreState>((set, get) => ({
                 const apiBaseCandidate = storedApiBaseUrl || storedApiUrl || storedBackendUrl;
                 if (apiBaseCandidate && typeof apiBaseCandidate === 'string') {
                     setApiBaseUrl(apiBaseCandidate);
+                    logElectronDataDebug('bootstrap-api-base-applied', {
+                        apiBaseHost: (() => {
+                            try { return new URL(getApiBaseUrl()).host; } catch { return 'invalid-url'; }
+                        })(),
+                    });
                 }
                 if (storedToken && !token) {
                     set({ token: String(storedToken) });
@@ -939,11 +966,22 @@ export const useStore = create<StoreState>((set, get) => ({
       set({ isLoading: false });
       return;
     }
+    logElectronDataDebug('fetchNotes-start', {
+      hasToken: Boolean(get().token),
+      hasUser: Boolean(get().user),
+      apiBaseHost: (() => {
+        try { return new URL(getApiBaseUrl()).host; } catch { return 'invalid-url'; }
+      })(),
+    });
     set({ isLoading: true, error: null });
     try {
         const cachedNotes = await db.getAllNotes();
         const validNotesRaw = cachedNotes.filter(n => !(n as any).deleted);
         const validNotes = materializeNotesFromEncrypted(validNotesRaw as any, new Set(get().unlockedProtectedNoteIds));
+        logElectronDataDebug('fetchNotes-cache-loaded', {
+          cachedCount: cachedNotes.length,
+          validCachedCount: validNotes.length,
+        });
         if (validNotes.length > 0) {
             set({ notes: validNotes, isLoading: false });
         } else {
@@ -967,6 +1005,10 @@ export const useStore = create<StoreState>((set, get) => ({
       const encryptedNotes = await withTimeout(api.fetchNotes(), 8000);
       const safeEncryptedNotes = Array.isArray(encryptedNotes) ? encryptedNotes : [];
       const notes = materializeNotesFromEncrypted(safeEncryptedNotes as any, new Set(get().unlockedProtectedNoteIds));
+      logElectronDataDebug('fetchNotes-server-loaded', {
+        encryptedCount: safeEncryptedNotes.length,
+        materializedCount: notes.length,
+      });
       
       const pendingNotes = await db.getPendingSyncNotes();
       
@@ -989,6 +1031,16 @@ export const useStore = create<StoreState>((set, get) => ({
 
       const nextNotesRaw = uniqBy(mergedNotes, '_id');
       const nextNotes = materializeNotesFromEncrypted(nextNotesRaw as any, new Set(get().unlockedProtectedNoteIds));
+      const typeCounts = nextNotes.reduce((acc: Record<string, number>, note: any) => {
+        const t = normalizeNoteType(note?.type);
+        acc[t] = (acc[t] ?? 0) + 1;
+        return acc;
+      }, {});
+      logElectronDataDebug('fetchNotes-merged', {
+        mergedCount: nextNotes.length,
+        typeCounts,
+        activeProjectId: get().activeProjectId || null,
+      });
       set({ notes: nextNotes, isLoading: false });
       if (typeof window !== 'undefined') {
         if (nextNotes.length === 0) {
@@ -1018,6 +1070,10 @@ export const useStore = create<StoreState>((set, get) => ({
           await new Promise(resolve => setTimeout(resolve, 0));
       }
     } catch (error: any) {
+      logElectronDataDebug('fetchNotes-error', {
+        message: error?.message || 'unknown-error',
+        name: error?.name || 'Error',
+      });
       set({ error: error.message, isLoading: false });
     }
   },
