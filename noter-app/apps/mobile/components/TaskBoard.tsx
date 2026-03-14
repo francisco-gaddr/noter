@@ -2,6 +2,7 @@ import React from 'react';
 import { View, StyleSheet, ScrollView, Text, Dimensions, TouchableOpacity } from 'react-native';
 import { Task } from '@repo/shared';
 import { useTheme, Card, Checkbox, IconButton } from 'react-native-paper';
+import { formatTaskDueLabel } from '@/utils/date';
 
 interface TaskBoardProps {
   tasks: Task[];
@@ -35,7 +36,18 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, onTaskPress, onTogg
                             </View>
                             {task.dueDate && (
                                 <Text style={{ color: theme.colors.secondary, fontSize: 12, marginTop: 4 }}>
-                                    {new Date(task.dueDate).toLocaleDateString()}
+                                    {(() => {
+                                      const d = new Date(task.dueDate as any);
+                                      if (isNaN(d.getTime())) return '';
+                                      const label = formatTaskDueLabel(d, {
+                                        locale: 'sv-SE',
+                                        todayLabel: 'Idag',
+                                        tomorrowLabel: 'Imorgon',
+                                        yesterdayLabel: 'Igår',
+                                        timePrefix: 'kl',
+                                      });
+                                      return `${task.reminderEnabled ? '⏰ ' : ''}${label}`;
+                                    })()}
                                 </Text>
                             )}
                              <View style={[styles.priorityBadge, { 

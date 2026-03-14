@@ -101,6 +101,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
         setTitle('');
         setDescription('');
         setPriority('medium');
+        const shouldDefaultReminder = Boolean(initialDate);
         
         if (initialDate) {
           const d = new Date(initialDate);
@@ -131,7 +132,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
         setSelectedListId(defaultListId || '');
         setRecurrenceType('none');
         setRecurrenceDays([]);
-        setReminderEnabled(false);
+        setReminderEnabled(shouldDefaultReminder);
         setReminderOffsetMinutes([0]);
       }
     }

@@ -351,9 +351,12 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
               />
             </View>
 
-            <Button mode="outlined" onPress={() => setIsCreating(true)} icon="plus" style={styles.createBtn}>
-              New Project
-            </Button>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 }}>
+              <Button mode="outlined" onPress={() => setIsCreating(true)} icon="plus">
+                New Project
+              </Button>
+              <Button onPress={onDismiss}>Close</Button>
+            </View>
           </>
         )}
 
@@ -461,7 +464,7 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
           </Dialog.Actions>
         </Dialog>
 
-        <Button onPress={onDismiss} style={{ marginTop: 10 }}>Close</Button>
+        {isCreating ? <Button onPress={onDismiss} style={{ marginTop: 10 }}>Close</Button> : null}
 
         {selectedProjectForMenu && (
             <IconPickerModal

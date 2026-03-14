@@ -1,8 +1,9 @@
 import React from 'react';
 import { Task } from '@repo/shared';
 import { useTranslation } from 'react-i18next';
-import { FaCheckCircle, FaRegCircle } from 'react-icons/fa';
+import { FaBell, FaCheckCircle, FaRegCircle } from 'react-icons/fa';
 import { useDrag, useDrop } from 'react-dnd';
+import { formatTaskDueLabel } from '../lib/formatTaskDue';
 
 interface TaskBoardProps {
     tasks: Task[];
@@ -53,9 +54,17 @@ const DraggableTaskCard = ({ task, onClick, onStatusChange }: { task: Task, onCl
                         {task.dueDate && (() => {
                             const d = new Date(task.dueDate);
                             if (isNaN(d.getTime())) return null;
+                            const locale = typeof navigator !== 'undefined' ? navigator.language : 'sv-SE';
                             return (
-                                <span className="text-[10px] text-gray-500 dark:text-gray-400">
-                                    {d.toLocaleDateString()}
+                                <span className="text-[10px] text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                                    {task.reminderEnabled ? <FaBell size={10} /> : null}
+                                    {formatTaskDueLabel(d, {
+                                        locale,
+                                        todayLabel: 'Idag',
+                                        tomorrowLabel: 'Imorgon',
+                                        yesterdayLabel: 'Igår',
+                                        timePrefix: 'kl',
+                                    })}
                                 </span>
                             );
                         })()}

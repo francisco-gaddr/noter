@@ -6,6 +6,8 @@ import { useTranslation } from 'react-i18next';
 import { clearNotesAndTasks } from '../services/db';
 import ApiUrlModal from './ApiUrlModal';
 import { FaCog } from 'react-icons/fa';
+import { WHATS_NEW_ENTRIES } from '@repo/shared';
+import { getDefaultHotkeys } from '../lib/hotkeys';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -22,6 +24,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [showClearConfirm, setShowClearConfirm] = React.useState(false);
   const [clearing, setClearing] = React.useState(false);
   const [isApiModalOpen, setIsApiModalOpen] = React.useState(false);
+  const [whatsNewOpen, setWhatsNewOpen] = React.useState(true);
 
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -65,6 +68,44 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             <option value="sv">Svenska</option>
             <option value="en">English</option>
           </select>
+        </div>
+
+        <div className="mt-4">
+          <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">Kortkommandon</h3>
+          <div className="space-y-1 text-xs text-gray-600 dark:text-gray-300">
+            {Object.entries(getDefaultHotkeys()).map(([key, value]) => (
+              <div key={key} className="flex items-center justify-between border border-gray-200 dark:border-gray-700 rounded px-2 py-1">
+                <span>{key}</span>
+                <span className="font-semibold">{value}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <button
+            type="button"
+            onClick={() => setWhatsNewOpen((prev) => !prev)}
+            className="w-full text-left text-sm font-medium text-gray-600 dark:text-gray-300 mb-2"
+          >
+            What&apos;s New
+          </button>
+          {whatsNewOpen && (
+            <div className="max-h-40 overflow-y-auto space-y-2">
+              {WHATS_NEW_ENTRIES.map((entry) => (
+                <div key={`${entry.version}-${entry.build}`} className="border border-gray-200 dark:border-gray-700 rounded p-2">
+                  <div className="text-xs font-semibold text-gray-700 dark:text-gray-200">
+                    v{entry.version} ({entry.build}) • {entry.date}
+                  </div>
+                  <ul className="mt-1 text-xs text-gray-600 dark:text-gray-300 list-disc pl-4 space-y-0.5">
+                    {entry.highlights.map((item, idx) => (
+                      <li key={`${entry.version}-${idx}`}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="mt-4">

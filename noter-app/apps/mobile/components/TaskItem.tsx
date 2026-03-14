@@ -4,6 +4,7 @@ import { Text, Checkbox, TouchableRipple, useTheme, Chip, IconButton } from 'rea
 import { Task } from '@repo/shared';
 import * as Haptics from 'expo-haptics';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
+import { formatTaskDueLabel } from '@/utils/date';
 
 interface TaskItemProps {
   task: Task;
@@ -123,10 +124,15 @@ export const TaskItem: React.FC<TaskItemProps> = ({
                 <Text variant="labelSmall" style={styles.date}>
                   {(() => {
                     const d = new Date(task.dueDate as any);
-                    const hasTime = d.getHours() !== 0 || d.getMinutes() !== 0;
-                    return hasTime
-                      ? `${d.toLocaleDateString()} ${d.toLocaleTimeString()}`
-                      : d.toLocaleDateString();
+                    if (isNaN(d.getTime())) return '';
+                    const label = formatTaskDueLabel(d, {
+                      locale: 'sv-SE',
+                      todayLabel: 'Idag',
+                      tomorrowLabel: 'Imorgon',
+                      yesterdayLabel: 'Igår',
+                      timePrefix: 'kl',
+                    });
+                    return `${task.reminderEnabled ? '⏰ ' : ''}${label}`;
                   })()}
                 </Text>
               )}

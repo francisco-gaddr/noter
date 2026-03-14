@@ -1605,9 +1605,12 @@ export const useStore = create<AppState>((set, get) => ({
       const decryptedTitle = response.title ? decrypt(response.title) : 'Låst anteckning';
 
       const effectiveUnlockId = response.unlockedId || id;
+      const unlockIds = response.unlockedId && response.unlockedId !== id
+        ? [id, response.unlockedId]
+        : [effectiveUnlockId];
       set(state => ({
         notes: state.notes.map(n => n._id === id ? { ...n, title: decryptedTitle, content: decryptedContent } : n),
-        unlockedProtectedNoteIds: Array.from(new Set([...state.unlockedProtectedNoteIds, effectiveUnlockId])),
+        unlockedProtectedNoteIds: Array.from(new Set([...state.unlockedProtectedNoteIds, ...unlockIds])),
       }));
       await get().fetchNotes();
 

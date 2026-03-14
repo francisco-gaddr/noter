@@ -273,7 +273,7 @@ const TreeNode = React.memo(({ note, allNotes, noteById, childrenMap, level, sel
 });
 
 export default function SidebarTree() {
-  const { notes, selectedNoteId, selectedTaskListId, selectNote, createNote, deleteNote, fetchNotes, searchQuery, sortOrder, setSortOrder, error, updateNote, moveNote, unlockNote, language, setLanguage, activeTab, setActiveTab, activeProjectId, setActiveProject, unlockedProtectedNoteIds } = useStore();
+  const { notes, tasks, selectedNoteId, selectedTaskListId, selectNote, createNote, deleteNote, fetchNotes, searchQuery, sortOrder, setSortOrder, error, updateNote, moveNote, unlockNote, language, setLanguage, activeTab, setActiveTab, activeProjectId, setActiveProject, unlockedProtectedNoteIds } = useStore();
   const [viewMode, setViewMode] = useState<'tree' | 'list'>('tree');
   const [iconPickerNote, setIconPickerNote] = useState<Note | null>(null);
   const [createModal, setCreateModal] = useState<{ isOpen: boolean; type: 'note' | 'task_list' | 'project'; parentId: string | null }>({ isOpen: false, type: 'note', parentId: null });
@@ -361,6 +361,14 @@ export default function SidebarTree() {
     return map;
   }, [safeNotes]);
 
+  const inferredTaskListIds = useMemo(() => {
+    const ids = new Set<string>();
+    tasks.forEach((task: any) => {
+      if (task?.parentNoteId) ids.add(String(task.parentNoteId));
+    });
+    return ids;
+  }, [tasks]);
+
   const projects = useMemo(() => {
     const set = new Map<string, typeof notes[0]>();
     safeNotes.forEach(n => {
@@ -406,7 +414,7 @@ export default function SidebarTree() {
       const matches = fuse.search(searchQuery).map(res => res.item);
       const filtered = matches.filter(n => {
         const noteType = normalizeNoteType((n as any).type);
-        const isTaskList = noteType === 'task_list';
+        const isTaskList = noteType === 'task_list' || inferredTaskListIds.has(n._id);
         const base = activeTab === 'tasks' ? isTaskList : !isTaskList;
         return base && isReadable(n);
       });
@@ -417,7 +425,7 @@ export default function SidebarTree() {
       const belongsCache = new Map<string, boolean>();
       const filtered = safeNotes.filter(n => {
         const noteType = normalizeNoteType((n as any).type);
-        const isTaskList = noteType === 'task_list';
+        const isTaskList = noteType === 'task_list' || inferredTaskListIds.has(n._id);
         if (activeTab === 'tasks') return isTaskList && isReadable(n);
         
         if (activeProjectId) {
@@ -451,7 +459,7 @@ export default function SidebarTree() {
         const parent = n.parentId ? noteById.get(n.parentId) : null;
         const isRoot = (!n.parentId || !parent || isProjectType((parent as any)?.type));
         const noteType = normalizeNoteType((n as any).type);
-        const isTaskList = noteType === 'task_list';
+        const isTaskList = noteType === 'task_list' || inferredTaskListIds.has(n._id);
         
         if (activeTab === 'tasks') return isTaskList && isReadable(n);
 
@@ -465,7 +473,7 @@ export default function SidebarTree() {
     });
     return { rootNotes: sortNotes(roots, sortOrder), flatFilteredNotes: [], sortedFlatNotes: [] };
 
-  }, [safeNotes, searchQuery, sortOrder, viewMode, activeTab, activeProjectId, projects, noteById, securityMap, unlockedSet, activeProjectBlocked]);
+  }, [safeNotes, searchQuery, sortOrder, viewMode, activeTab, activeProjectId, projects, noteById, securityMap, unlockedSet, activeProjectBlocked, inferredTaskListIds]);
 
   const handleProjectSelect = async (projectId: string | null) => {
     if (!projectId) {
@@ -530,6 +538,20 @@ export default function SidebarTree() {
     window.addEventListener('create-note', handler as EventListener);
     return () => window.removeEventListener('create-note', handler as EventListener);
   }, [activeTab, activeProjectId]);
+
+  useEffect(() => {
+    const onDeleteCurrent = () => {
+      if (!editModal.isOpen || !editModal.note?._id) return;
+      const noteType = normalizeNoteType((editModal.note as any)?.type);
+      setDeleteModal({
+        isOpen: true,
+        id: editModal.note._id,
+        type: noteType === 'project' ? 'project' : (noteType === 'task_list' ? 'task_list' : 'note'),
+      });
+    };
+    window.addEventListener('delete-current-note', onDeleteCurrent as EventListener);
+    return () => window.removeEventListener('delete-current-note', onDeleteCurrent as EventListener);
+  }, [editModal]);
 
   const handleCreateChild = (e: React.MouseEvent, parentId: string) => {
       e.stopPropagation();

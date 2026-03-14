@@ -19,10 +19,12 @@ export default function SettingsScreen() {
   const setToken = useStore((s) => s.setToken);
   const fetchNotes = useStore((s) => s.fetchNotes);
   const fetchTasks = useStore((s) => s.fetchTasks);
+  const backgroundRefresh = useStore((s) => s.backgroundRefresh);
   const setActiveProject = useStore((s) => s.setActiveProject);
   const notificationsEnabled = useStore((s) => s.notificationsEnabled);
   const setNotificationsEnabled = useStore((s) => s.setNotificationsEnabled);
   const paperTheme = useTheme();
+  const touchRippleColor = 'rgba(33, 150, 243, 0.22)';
   const router = useRouter();
   const { width } = useWindowDimensions();
   const [language, setLanguage] = useState<'sv' | 'en'>('sv');
@@ -220,14 +222,10 @@ export default function SettingsScreen() {
   };
 
   const handleResync = async () => {
-    try {
-      await clearSyncQueue();
-      await fetchNotes();
-      await fetchTasks();
-      Alert.alert(t('common.success'), t('settings.resyncDone', 'Omsynk slutförd.'));
-    } catch {
-      Alert.alert(t('common.error'), t('settings.resyncFailed', 'Omsynk misslyckades.'));
-    }
+    clearSyncQueue().catch(() => {});
+    backgroundRefresh().catch(() => {});
+    fetchNotes().catch(() => {});
+    fetchTasks().catch(() => {});
   };
 
   return (
@@ -246,7 +244,7 @@ export default function SettingsScreen() {
              </View>
           )}
           onPress={cycleTheme}
-          rippleColor={paperTheme.colors.secondaryContainer}
+          rippleColor={touchRippleColor}
         />
         <View style={styles.hint}>
            <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
@@ -271,7 +269,7 @@ export default function SettingsScreen() {
             </View>
           )}
           onPress={() => saveLanguage(language === 'sv' ? 'en' : 'sv')}
-          rippleColor={paperTheme.colors.secondaryContainer}
+          rippleColor={touchRippleColor}
         />
         <View style={styles.hint}>
            <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
@@ -288,7 +286,7 @@ export default function SettingsScreen() {
           description={`${t('settings.lock', 'Lås')}: ${lockTimingLabel(lockTiming)}`}
           left={props => <List.Icon {...props} icon="lock" />}
           onPress={() => setLockTimingDialogVisible(true)}
-          rippleColor={paperTheme.colors.secondaryContainer}
+          rippleColor={touchRippleColor}
         />
         <View style={styles.hint}>
           <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
@@ -312,7 +310,7 @@ export default function SettingsScreen() {
               />
             </View>
           )}
-          rippleColor={paperTheme.colors.secondaryContainer}
+          rippleColor={touchRippleColor}
         />
         <View style={styles.hint}>
            <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
@@ -331,14 +329,14 @@ export default function SettingsScreen() {
           onPress={() => {
             setBackendUrlDialogVisible(true);
           }}
-          rippleColor={paperTheme.colors.secondaryContainer}
+          rippleColor={touchRippleColor}
         />
         <List.Item
           title={t('settings.resync', 'Synka om')}
           description={t('settings.resyncHint', 'Tvinga ny hämtning av anteckningar, projekt och tasks från backend')}
           left={props => <List.Icon {...props} icon="sync" />}
           onPress={handleResync}
-          rippleColor={paperTheme.colors.secondaryContainer}
+          rippleColor={touchRippleColor}
         />
         <View style={styles.hint}>
           <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
@@ -355,7 +353,7 @@ export default function SettingsScreen() {
           description="Tar bort anteckningar, projekt, tasks och AI-data lokalt"
           left={props => <List.Icon {...props} icon="database-remove" />}
           onPress={() => setClearDialogVisible(true)}
-          rippleColor={paperTheme.colors.secondaryContainer}
+          rippleColor={touchRippleColor}
         />
         <View style={styles.hint}>
           <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
@@ -372,7 +370,7 @@ export default function SettingsScreen() {
           description="Visa senaste uppdateringar"
           left={(props) => <List.Icon {...props} icon="new-box" />}
           onPress={() => router.push('/whats-new')}
-          rippleColor={paperTheme.colors.secondaryContainer}
+          rippleColor={touchRippleColor}
         />
       </List.Section>
 
@@ -383,7 +381,7 @@ export default function SettingsScreen() {
           title={t('common.logout')}
           left={props => <List.Icon {...props} icon="logout" />}
           onPress={handleLogout}
-          rippleColor={paperTheme.colors.secondaryContainer}
+          rippleColor={touchRippleColor}
         />
       </List.Section>
       

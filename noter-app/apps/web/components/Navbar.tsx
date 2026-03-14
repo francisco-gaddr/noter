@@ -10,7 +10,7 @@ import { useTranslation } from 'react-i18next';
 export default function Navbar({ onToggleSidebar, isSidebarCollapsed }: { onToggleSidebar?: () => void; isSidebarCollapsed?: boolean }) {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
-  const { searchQuery, setSearchQuery, logout, user, activeTab, isOffline } = useStore();
+  const { searchQuery, setSearchQuery, logout, user, activeTab, isOffline, setActiveTab, selectNote } = useStore();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [hideOfflineIndicator, setHideOfflineIndicator] = useState(false);
   const { t } = useTranslation();
@@ -29,6 +29,46 @@ export default function Navbar({ onToggleSidebar, isSidebarCollapsed }: { onTogg
       setHideOfflineIndicator(false);
     }
   }, [isOffline]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const isCtrl = event.ctrlKey || event.metaKey;
+      if (!isCtrl) return;
+      const key = event.key.toLowerCase();
+      if (key === 'f') {
+        event.preventDefault();
+        const input = document.getElementById('navbar-search-input') as HTMLInputElement | null;
+        input?.focus();
+        input?.select();
+      } else if (key === 'n') {
+        event.preventDefault();
+        window.dispatchEvent(new Event('create-note'));
+      } else if (key === ',') {
+        event.preventDefault();
+        setIsSettingsOpen(true);
+      } else if (key === 'b') {
+        event.preventDefault();
+        onToggleSidebar?.();
+      } else if (key === '1') {
+        event.preventDefault();
+        setActiveTab('notes');
+      } else if (key === '2') {
+        event.preventDefault();
+        setActiveTab('tasks');
+        selectNote(null as any);
+      }
+    };
+    const onDelete = (event: KeyboardEvent) => {
+      if (event.key !== 'Delete') return;
+      window.dispatchEvent(new Event('delete-current-note'));
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keydown', onDelete);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keydown', onDelete);
+    };
+  }, [onToggleSidebar, selectNote, setActiveTab]);
 
   if (!mounted) return null;
 
@@ -49,6 +89,7 @@ export default function Navbar({ onToggleSidebar, isSidebarCollapsed }: { onTogg
         <div className="relative w-full">
           <FaSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-600 dark:text-gray-300" aria-hidden="true" />
           <input
+            id="navbar-search-input"
             type="text"
             placeholder={activeTab === 'tasks' ? t('navbar.searchPlaceholderTasks') : t('navbar.searchPlaceholderNotes')}
             value={searchQuery}

@@ -3,7 +3,7 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { useStore } from '../stores/useStore';
 import { Task } from '@repo/shared';
-import { FaPlus, FaTrash, FaCheckCircle, FaRegCircle, FaExclamationCircle, FaSort, FaBars, FaList, FaColumns, FaCalendar, FaFilter } from 'react-icons/fa';
+import { FaPlus, FaTrash, FaCheckCircle, FaRegCircle, FaExclamationCircle, FaSort, FaBars, FaList, FaColumns, FaCalendar, FaFilter, FaBell } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
 import { TaskDetailModal } from './TaskDetailModal';
 import TaskBoard from './TaskBoard';
@@ -13,6 +13,7 @@ import { debounce, orderBy } from 'lodash';
 import { startOfDay, endOfDay, isWithinInterval, addDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, parseISO, isValid } from 'date-fns';
 import type { Identifier, XYCoord } from 'dnd-core';
 import Fuse from 'fuse.js';
+import { formatTaskDueLabel } from '../lib/formatTaskDue';
 
 const ItemType = 'TASK';
 
@@ -153,8 +154,19 @@ const TaskItem: React.FC<TaskItemProps> = ({
                     <span>{task.title}</span>
                     {task.dueDate && (
                         <span className="text-xs text-gray-500 dark:text-gray-300 flex items-center gap-1">
-                            <FaCalendar size={10} />
-                            {new Date(task.dueDate).toLocaleString([], { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            {task.reminderEnabled ? <FaBell size={10} /> : <FaCalendar size={10} />}
+                            {(() => {
+                              const d = new Date(task.dueDate);
+                              if (isNaN(d.getTime())) return '';
+                              const locale = typeof navigator !== 'undefined' ? navigator.language : 'sv-SE';
+                              return formatTaskDueLabel(d, {
+                                locale,
+                                todayLabel: 'Idag',
+                                tomorrowLabel: 'Imorgon',
+                                yesterdayLabel: 'Igår',
+                                timePrefix: 'kl',
+                              });
+                            })()}
                         </span>
                     )}
                 </div>
