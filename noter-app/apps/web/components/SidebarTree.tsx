@@ -372,6 +372,24 @@ export default function SidebarTree() {
     return map;
   }, [safeNotes]);
 
+  const inferredProjectIds = useMemo(() => {
+    const ids = new Set<string>();
+    safeNotes.forEach((note) => {
+      const type = normalizeNoteType((note as any).type);
+      if (type === 'project') {
+        ids.add(note._id);
+        return;
+      }
+      const hasChildren = (childCountMap.get(note._id) || 0) > 0;
+      const isTopLevel = !note.parentId;
+      const isTaskList = type === 'task_list';
+      if (isTopLevel && hasChildren && !isTaskList) {
+        ids.add(note._id);
+      }
+    });
+    return ids;
+  }, [safeNotes, childCountMap]);
+
   const inferredTaskListIds = useMemo(() => {
     const ids = new Set<string>();
     tasks.forEach((task: any) => {
@@ -383,14 +401,10 @@ export default function SidebarTree() {
   const projects = useMemo(() => {
     const set = new Map<string, typeof notes[0]>();
     safeNotes.forEach(n => {
-      if (isProjectType((n as any).type)) set.set(n._id, n);
-    });
-    safeNotes.forEach(n => {
-      const hasChildren = (childCountMap.get(n._id) || 0) > 0;
-      if (hasChildren) set.set(n._id, n);
+      if (inferredProjectIds.has(n._id)) set.set(n._id, n);
     });
     return Array.from(set.values()).sort((a, b) => (a.title || '').localeCompare(b.title || ''));
-  }, [safeNotes, childCountMap]);
+  }, [safeNotes, inferredProjectIds]);
 
   const childrenMap = useMemo(() => {
     const map = new Map<string, Note[]>();
@@ -427,7 +441,8 @@ export default function SidebarTree() {
       const filtered = matches.filter(n => {
         const noteType = normalizeNoteType((n as any).type);
         const isTaskList = noteType === 'task_list' || inferredTaskListIds.has(n._id);
-        const base = activeTab === 'tasks' ? isTaskList : !isTaskList;
+        const isProject = inferredProjectIds.has(n._id);
+        const base = activeTab === 'tasks' ? isTaskList : (!isTaskList && !isProject);
         return base && isReadable(n);
       });
       return { rootNotes: [], flatFilteredNotes: filtered, sortedFlatNotes: [] };
@@ -438,12 +453,13 @@ export default function SidebarTree() {
       const filtered = safeNotes.filter(n => {
         const noteType = normalizeNoteType((n as any).type);
         const isTaskList = noteType === 'task_list' || inferredTaskListIds.has(n._id);
+        const isProject = inferredProjectIds.has(n._id);
         if (activeTab === 'tasks') return isTaskList && isReadable(n);
         
         if (activeProjectId) {
              const cached = belongsCache.get(n._id);
              if (cached !== undefined) {
-               return !isTaskList && cached && isReadable(n);
+               return !isTaskList && !isProject && cached && isReadable(n);
              }
 
              let parent = n.parentId;
@@ -457,10 +473,10 @@ export default function SidebarTree() {
                  steps += 1;
              }
              belongsCache.set(n._id, belongs);
-             return !isTaskList && belongs && isReadable(n);
+             return !isTaskList && !isProject && belongs && isReadable(n);
         }
         
-        return !isTaskList && isReadable(n);
+        return !isTaskList && !isProject && isReadable(n);
       });
       return { rootNotes: [], flatFilteredNotes: [], sortedFlatNotes: sortNotes(filtered, sortOrder) };
     }
@@ -468,22 +484,23 @@ export default function SidebarTree() {
     // Tree view
     const roots = safeNotes.filter(n => {
         const parent = n.parentId ? noteById.get(n.parentId) : null;
-        const isRoot = (!n.parentId || !parent || isProjectType((parent as any)?.type));
+        const isRoot = (!n.parentId || !parent || inferredProjectIds.has(parent._id));
         const noteType = normalizeNoteType((n as any).type);
         const isTaskList = noteType === 'task_list' || inferredTaskListIds.has(n._id);
+        const isProject = inferredProjectIds.has(n._id);
         
         if (activeTab === 'tasks') return isTaskList && isReadable(n);
 
         if (activeProjectId) {
             // Show all children of the active project, including sub-projects (but filter out task lists if needed)
-            return n.parentId === activeProjectId && !isTaskList && isReadable(n);
+            return n.parentId === activeProjectId && !isTaskList && !isProject && isReadable(n);
         }
 
-        return isRoot && !isTaskList && isReadable(n);
+        return isRoot && !isTaskList && !isProject && isReadable(n);
     });
     return { rootNotes: sortNotes(roots, sortOrder), flatFilteredNotes: [], sortedFlatNotes: [] };
 
-  }, [safeNotes, searchQuery, sortOrder, viewMode, activeTab, activeProjectId, projects, noteById, securityMap, unlockedSet, activeProjectBlocked, inferredTaskListIds]);
+  }, [safeNotes, searchQuery, sortOrder, viewMode, activeTab, activeProjectId, projects, noteById, securityMap, unlockedSet, activeProjectBlocked, inferredTaskListIds, inferredProjectIds]);
 
   const handleProjectSelect = async (projectId: string | null) => {
     if (!projectId) {
