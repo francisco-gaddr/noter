@@ -50,6 +50,12 @@ const normalizeNoteType = (value: unknown): string => {
 
 const isProjectType = (value: unknown): boolean => normalizeNoteType(value) === 'project';
 const isTaskListType = (value: unknown): boolean => normalizeNoteType(value) === 'task_list';
+const isProjectLikeType = (value: unknown): boolean => {
+    const normalized = normalizeNoteType(value);
+    if (normalized === 'project') return true;
+    if (normalized === 'note' || normalized === 'task_list') return false;
+    return normalized.length > 0;
+};
 
 const sortNotes = (nodes: Note[], order: string) => {
     switch (order) {
@@ -381,7 +387,7 @@ export default function SidebarTree() {
     const ids = new Set<string>();
     safeNotes.forEach((note) => {
       const type = normalizeNoteType((note as any).type);
-      if (type === 'project') {
+      if (isProjectLikeType(type)) {
         ids.add(note._id);
         return;
       }
