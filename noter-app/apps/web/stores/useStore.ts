@@ -376,7 +376,7 @@ export const useStore = create<StoreState>((set, get) => ({
         const autoLockTimeout = parseInt(localStorage.getItem('autoLockTimeout') || '15', 10);
 
         const shouldLockOnLaunch = Boolean(token && appLockPasswordHash && isElectron);
-        const nextLocked = shouldLockOnLaunch ? true : isAppLocked;
+        const nextLocked = appLockPasswordHash ? (shouldLockOnLaunch ? true : isAppLocked) : false;
 
         set({ user, token, language, activeTab, selectedNoteId, selectedTaskListId, activeProjectId, isAppLocked: nextLocked, appLockPasswordHash, autoLockTimeout, isHydrated: true });
         setElectronLockState(nextLocked);
@@ -441,7 +441,9 @@ export const useStore = create<StoreState>((set, get) => ({
         const { user, token } = await api.login(username, password);
         localStorage.setItem('token', token);
         localStorage.setItem('user', JSON.stringify(user));
-        set({ user, token });
+        localStorage.removeItem('isAppLocked');
+        set({ user, token, isAppLocked: false });
+        setElectronLockState(false);
         setApiToken(token);
         setSocketToken(token);
         setElectronToken(token);
@@ -460,7 +462,9 @@ export const useStore = create<StoreState>((set, get) => ({
         const { user, token } = await api.register(username, password);
         localStorage.setItem('token', token);
         localStorage.setItem('user', JSON.stringify(user));
-        set({ user, token });
+        localStorage.removeItem('isAppLocked');
+        set({ user, token, isAppLocked: false });
+        setElectronLockState(false);
         setApiToken(token);
         setSocketToken(token);
         setElectronToken(token);

@@ -16,6 +16,10 @@ jest.mock('expo-secure-store', () => ({
 jest.mock('../services/api', () => ({
   fetchWithAuth: jest.fn(),
   login: jest.fn(),
+  register: jest.fn(),
+  setAuthToken: jest.fn(),
+  initApiUrl: jest.fn(),
+  setUnauthorizedHandler: jest.fn(),
   API_URL: 'http://test',
 }));
 
@@ -31,13 +35,9 @@ jest.mock('../services/database', () => ({
 }));
 
 jest.mock('../services/socket', () => ({
-  socket: {
-    connect: jest.fn(),
-    on: jest.fn(),
-    off: jest.fn(),
-    emit: jest.fn(),
-    connected: false,
-  },
+  initSocket: jest.fn(() => null),
+  disconnectSocket: jest.fn(),
+  getSocket: jest.fn(() => null),
 }));
 
 describe('Mobile Store', () => {
@@ -48,6 +48,9 @@ describe('Mobile Store', () => {
       tasks: [],
       securityLocked: false,
       unlockedProtectedNoteIds: [],
+      token: null,
+      isInitialized: false,
+      error: null,
     });
   });
 
@@ -55,6 +58,51 @@ describe('Mobile Store', () => {
     const state = useStore.getState();
     expect(state.notes).toEqual([]);
     expect(state.isLoading).toBe(false);
+    expect(state.securityLocked).toBe(false);
+  });
+
+  it('should unlock and load data on login when security lock is active', async () => {
+    const { login, fetchWithAuth } = require('../services/api');
+    const encryptedNow = encrypt(new Date().toISOString());
+    const encryptedFuture = encrypt(new Date(Date.now() + 3600000).toISOString());
+    login.mockResolvedValueOnce({ token: 'abc' });
+    fetchWithAuth.mockResolvedValueOnce([
+      {
+        _id: 'note-1',
+        title: encrypt('Inläst not'),
+        content: encrypt('Innehåll'),
+        locked: encrypt('false'),
+        type: encrypt('note'),
+        createdAt: encryptedNow,
+        updatedAt: encryptedNow,
+      },
+    ]);
+    fetchWithAuth.mockResolvedValueOnce([
+      {
+        _id: 'task-1',
+        title: encrypt('Inläst task'),
+        description: encrypt('Beskrivning'),
+        completed: encrypt('false'),
+        priority: encrypt('medium'),
+        dueDate: encryptedFuture,
+        recurrenceType: encrypt('none'),
+        recurrenceDays: encrypt('[]'),
+        reminderEnabled: encrypt('false'),
+        reminderOffsetMinutes: encrypt('[]'),
+        position: encrypt('0'),
+        createdAt: encryptedNow,
+        updatedAt: encryptedNow,
+      },
+    ]);
+
+    useStore.setState({ securityLocked: true, token: null });
+    await useStore.getState().login('test', 'password');
+
+    const state = useStore.getState();
+    expect(state.securityLocked).toBe(false);
+    expect(state.token).toBe('abc');
+    expect(fetchWithAuth).toHaveBeenCalledWith('/notes');
+    expect(fetchWithAuth).toHaveBeenCalledWith('/tasks');
   });
 
   it('should fetch notes from API when online', async () => {

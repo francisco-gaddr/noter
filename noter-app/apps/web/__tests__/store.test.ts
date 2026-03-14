@@ -5,6 +5,7 @@ import { useStore } from '../stores/useStore';
 // Mocks
 jest.mock('../services/api', () => ({
   getUUID: jest.fn(() => 'mock-uuid'),
+  setApiToken: jest.fn(),
   api: {
     login: jest.fn(),
     register: jest.fn(),
@@ -30,6 +31,7 @@ jest.mock('../services/socket', () => ({
   },
   connectSocket: jest.fn(),
   disconnectSocket: jest.fn(),
+  setSocketToken: jest.fn(),
 }));
 
 jest.mock('../services/db', () => ({
@@ -83,6 +85,19 @@ describe('Web Store', () => {
 
     expect(useStore.getState().token).toBe('abc');
     expect(connectSocket).toHaveBeenCalled();
+  });
+
+  it('should ignore stale isAppLocked flag on hydrate when no app lock password is configured', () => {
+    localStorage.setItem('user', JSON.stringify({ _id: '1', username: 'test' }));
+    localStorage.setItem('token', 'abc');
+    localStorage.setItem('isAppLocked', 'true');
+    localStorage.removeItem('appLockPasswordHash');
+
+    act(() => {
+      useStore.getState().hydrate();
+    });
+
+    expect(useStore.getState().isAppLocked).toBe(false);
   });
 
   it('should mask content when locking and send password', async () => {

@@ -316,7 +316,7 @@ export const useStore = create<AppState>((set, get) => ({
   token: null,
   isInitialized: false,
   notificationsEnabled: false,
-  securityLocked: true,
+  securityLocked: false,
   unlockedProtectedNoteIds: [],
 
   setActiveProject: (id) => set({ activeProjectId: id }),
@@ -409,7 +409,11 @@ export const useStore = create<AppState>((set, get) => ({
       }
     });
 
-    if (!get().securityLocked) {
+    if (storedToken && !get().securityLocked) {
+      await get().fetchNotes();
+      await get().fetchTasks();
+      get().connectSocket();
+    } else if (!get().securityLocked) {
       get().connectSocket();
     }
   },
@@ -607,7 +611,13 @@ export const useStore = create<AppState>((set, get) => ({
       setAuthToken(response.token);
       await SecureStore.setItemAsync('token', response.token);
       get().setToken(response.token);
+      if (get().securityLocked) {
+        await get().setSecurityLocked(false);
+      }
       await get().init();
+      await get().fetchNotes();
+      await get().fetchTasks();
+      get().connectSocket();
     } catch (error: any) {
       set({ error: error.message || 'Login failed' });
       throw error;

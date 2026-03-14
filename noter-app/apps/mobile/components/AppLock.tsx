@@ -5,6 +5,7 @@ import { useBiometrics } from '@/hooks/useBiometrics';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useStore } from '@/stores/useStore';
 
 interface AppLockProps {
   children: React.ReactNode;
@@ -32,6 +33,7 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
   const [lockTiming, setLockTiming] = useState<LockTiming>('immediate');
   const lastBackgroundAtRef = useRef<number | null>(null);
   const isMounted = useRef(false);
+  const setSecurityLocked = useStore((s) => s.setSecurityLocked);
 
   useEffect(() => {
     isMounted.current = true;
@@ -55,6 +57,7 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
           
           if (timeoutMs > 0 && Date.now() - lastBg < timeoutMs) {
             setIsLocked(false);
+            await setSecurityLocked(false);
             setChecking(false);
             return;
           }
@@ -68,7 +71,7 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
     };
     load();
     return () => { isMounted.current = false; };
-  }, []);
+  }, [setSecurityLocked]);
 
   const checkBiometrics = async () => {
     // Wait for hook to initialize
@@ -87,6 +90,7 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
         
         if (!hasHardware || !isEnrolled) {
             setIsLocked(false);
+            await setSecurityLocked(false);
             setChecking(false);
             return;
         }
@@ -100,6 +104,7 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
     const result = await authenticate('Lås upp Noter');
     if (result.success) {
       setIsLocked(false);
+      await setSecurityLocked(false);
     }
     setChecking(false);
   };
@@ -128,6 +133,7 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
           const timeoutMs = lockTimingToMs(timingToUse);
           if (timeoutMs === 0) {
             setIsLocked(true);
+            setSecurityLocked(true);
             return;
           }
 
@@ -135,6 +141,7 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
           if (!lastBg) return;
           if (Date.now() - lastBg >= timeoutMs) {
             setIsLocked(true);
+            setSecurityLocked(true);
           }
         });
       }
@@ -151,7 +158,7 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
     return () => {
       subscription.remove();
     };
-  }, [lockTiming]);
+  }, [lockTiming, setSecurityLocked]);
 
   // Effect to trigger auth when locked becomes true
   useEffect(() => {
