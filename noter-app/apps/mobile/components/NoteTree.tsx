@@ -163,68 +163,72 @@ export default function NoteTree({
   );
 
   const renderCardRow = useCallback(
-    (item: TreeItem, drag?: () => void, isActive?: boolean) => (
-      <Card
-        style={[
-          styles.card,
-          { marginLeft: item.level * 14 },
-          isActive ? { backgroundColor: theme.colors.elevation.level3 } : null,
-        ]}
-        onPress={() => router.push(`/note/${item._id}`)}
-        onLongPress={drag}
-        disabled={isActive}
-      >
-        <Card.Content>
-          <View style={styles.cardHeaderRow}>
-            <View style={styles.cardExpandIcon}>
-              {item.hasChildren ? (
-                <IconButton
-                  icon={item.isExpanded ? 'chevron-down' : 'chevron-right'}
-                  size={18}
-                  onPress={() => toggleExpand(item._id)}
-                  style={{ margin: 0 }}
-                />
-              ) : null}
+    (item: TreeItem, drag?: () => void, isActive?: boolean) => {
+      const tags = Array.isArray(item.tags) ? item.tags : [];
+      const visibleTags = tags.slice(0, 3);
+      return (
+        <Card
+          style={[
+            styles.card,
+            { marginLeft: item.level * 14 },
+            isActive ? { backgroundColor: theme.colors.elevation.level3 } : null,
+          ]}
+          onPress={() => router.push(`/note/${item._id}`)}
+          onLongPress={drag}
+          disabled={isActive}
+        >
+          <Card.Content>
+            <View style={styles.cardHeaderRow}>
+              <View style={styles.cardExpandIcon}>
+                {item.hasChildren ? (
+                  <IconButton
+                    icon={item.isExpanded ? 'chevron-down' : 'chevron-right'}
+                    size={18}
+                    onPress={() => toggleExpand(item._id)}
+                    style={{ margin: 0 }}
+                  />
+                ) : null}
+              </View>
+
+              <View style={{ width: 24, alignItems: 'center', marginRight: 6 }}>
+                {(() => {
+                  const iconKey = (item as any).icon as string | undefined;
+                  if (iconKey) {
+                    return <FontAwesome5 name={toFa5(iconKey) as any} size={18} color={theme.colors.onSurface} />;
+                  }
+
+                  if ((item as any).type === 'project') {
+                    return <IconButton icon="folder-outline" size={18} style={{ margin: 0 }} iconColor={theme.colors.onSurface} />;
+                  }
+
+                  return <IconButton icon="file-document-outline" size={18} style={{ margin: 0 }} iconColor={theme.colors.onSurface} />;
+                })()}
+              </View>
+
+              <Text variant="titleMedium" numberOfLines={1} style={styles.cardTitle}>
+                {item.title}
+              </Text>
+
+              {item.locked ? <IconButton icon="lock" size={16} style={{ margin: 0 }} /> : null}
             </View>
 
-            <View style={{ width: 24, alignItems: 'center', marginRight: 6 }}>
-              {(() => {
-                const iconKey = (item as any).icon as string | undefined;
-                if (iconKey) {
-                  return <FontAwesome5 name={toFa5(iconKey) as any} size={18} color={theme.colors.onSurface} />;
-                }
+            {!item.locked ? (
+              <Text variant="bodyMedium" numberOfLines={3} style={styles.cardContent}>
+                {getPreviewContent(item.content)}
+              </Text>
+            ) : null}
 
-                if ((item as any).type === 'project') {
-                  return <IconButton icon="folder-outline" size={18} style={{ margin: 0 }} iconColor={theme.colors.onSurface} />;
-                }
-
-                return <IconButton icon="file-document-outline" size={18} style={{ margin: 0 }} iconColor={theme.colors.onSurface} />;
-              })()}
+            <View style={styles.tagsRow}>
+              {visibleTags.map((tag, index) => (
+                <Chip key={`${item._id}-${index}`} style={styles.chip} textStyle={{ fontSize: 10 }}>
+                  {tag}
+                </Chip>
+              ))}
             </View>
-
-            <Text variant="titleMedium" numberOfLines={1} style={styles.cardTitle}>
-              {item.title}
-            </Text>
-
-            {item.locked ? <IconButton icon="lock" size={16} style={{ margin: 0 }} /> : null}
-          </View>
-
-          {!item.locked ? (
-            <Text variant="bodyMedium" numberOfLines={3} style={styles.cardContent}>
-              {getPreviewContent(item.content)}
-            </Text>
-          ) : null}
-
-          <View style={styles.tagsRow}>
-            {item.tags?.slice(0, 3).map((tag, index) => (
-              <Chip key={`${item._id}-${index}`} style={styles.chip} textStyle={{ fontSize: 10 }}>
-                {tag}
-              </Chip>
-            ))}
-          </View>
-        </Card.Content>
-      </Card>
-    ),
+          </Card.Content>
+        </Card>
+      );
+    },
     [getPreviewContent, router, theme.colors.elevation.level3, theme.colors.onSurface, toggleExpand, toFa5]
   );
 

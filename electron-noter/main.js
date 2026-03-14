@@ -6,8 +6,16 @@ const { getModels, downloadAndConvert, deleteModel, runChat, cancelChat, searchM
 const isDev = process.env.NODE_ENV === 'development';
 const isTest = process.env.ELECTRON_TEST === '1';
 const devUrl = 'http://localhost:3001/app/';
+const remoteUrl = 'https://daylited.com/app/';
 const userDataDir = process.env.ELECTRON_USER_DATA_DIR;
 const settingsFileName = 'settings.json';
+const rendererFallbackUrls = Array.from(new Set([
+  process.env.ELECTRON_RENDERER_URL,
+  devUrl,
+  'http://127.0.0.1:3001/app/',
+  'http://localhost:3001/',
+  remoteUrl,
+].filter(Boolean)));
 
 if (userDataDir) {
   app.setPath('userData', userDataDir);
@@ -30,6 +38,31 @@ const writeSettings = (next) => {
   fs.writeFileSync(filePath, JSON.stringify(next, null, 2));
 };
 
+const errorScreenPath = path.join(__dirname, 'renderer', 'error.html');
+
+const isUrlReachable = async (url) => {
+  try {
+    const res = await fetch(url, { method: 'GET', redirect: 'manual' });
+    return res.ok || (res.status >= 300 && res.status < 400);
+  } catch {
+    return false;
+  }
+};
+
+const loadFirstReachableUrl = async (win) => {
+  for (const url of rendererFallbackUrls) {
+    if (win.isDestroyed()) return false;
+    const reachable = await isUrlReachable(url);
+    if (!reachable) continue;
+    try {
+      await win.loadURL(url);
+      return true;
+    } catch {
+    }
+  }
+  return false;
+};
+
 const createWindow = () => {
   const win = new BrowserWindow({
     width: 1280,
@@ -47,28 +80,31 @@ const createWindow = () => {
   }
 
   const rendererIndex = path.join(__dirname, 'renderer', 'app', 'index.html');
+  let recovering = false;
+  const recoverRenderer = async () => {
+    if (recovering || win.isDestroyed()) return;
+    recovering = true;
+    try {
+      await win.loadFile(errorScreenPath);
+      const loaded = await loadFirstReachableUrl(win);
+      if (!loaded && !win.isDestroyed()) {
+        await win.loadFile(errorScreenPath);
+      }
+    } finally {
+      recovering = false;
+    }
+  };
+
   if (isDev) {
     win.loadURL(devUrl);
   } else if (fs.existsSync(rendererIndex)) {
     win.loadFile(rendererIndex);
   } else {
-    win.loadFile(path.join(__dirname, 'renderer', 'error.html')).then(() => {
-      setTimeout(() => {
-        if (!win.isDestroyed()) win.loadURL(devUrl);
-      }, 1500);
-    });
+    recoverRenderer();
   }
 
   win.webContents.on('did-fail-load', () => {
-    if (isDev) {
-      win.loadFile(path.join(__dirname, 'renderer', 'error.html')).then(() => {
-        setTimeout(() => {
-          if (!win.isDestroyed()) win.loadURL(devUrl);
-        }, 1500);
-      });
-      return;
-    }
-    win.loadFile(path.join(__dirname, 'renderer', 'error.html'));
+    recoverRenderer();
   });
 
   return win;
