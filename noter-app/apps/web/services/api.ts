@@ -42,6 +42,10 @@ const getBaseUrl = () => {
   }
 
   const envUrl = process.env.NEXT_PUBLIC_API_URL;
+  if (typeof window !== 'undefined' && window.location.protocol === 'file:') {
+    if (envUrl && /^https?:\/\//i.test(envUrl)) return normalizeUrl(envUrl);
+    return 'https://daylited.com/api';
+  }
   // If envUrl is defined but contains localhost, and we are NOT on localhost, 
   // assume we should use relative path to allow Nginx to proxy correctly.
   if (envUrl && (envUrl.includes('localhost') || envUrl.includes('127.0.0.1')) && 

@@ -11,7 +11,7 @@ interface AppLockProps {
   children: React.ReactNode;
 }
 
-type LockTiming = 'immediate' | '5min' | '15min' | '30min' | '1h';
+type LockTiming = 'immediate' | '5min' | '15min' | '30min' | '1h' | '3h';
 
 const LOCK_TIMING_KEY = 'lockTiming';
 const LAST_BACKGROUND_KEY = 'lastBackgroundAt';
@@ -21,6 +21,7 @@ const lockTimingToMs = (timing: LockTiming) => {
   if (timing === '5min') return 5 * 60 * 1000;
   if (timing === '15min') return 15 * 60 * 1000;
   if (timing === '30min') return 30 * 60 * 1000;
+  if (timing === '3h') return 3 * 60 * 60 * 1000;
   return 60 * 60 * 1000;
 };
 
@@ -45,7 +46,7 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
         ]);
 
         let currentTiming: LockTiming = 'immediate';
-        if (saved === 'immediate' || saved === '5min' || saved === '15min' || saved === '30min' || saved === '1h') {
+        if (saved === 'immediate' || saved === '5min' || saved === '15min' || saved === '30min' || saved === '1h' || saved === '3h') {
           setLockTiming(saved);
           currentTiming = saved;
         }
@@ -124,7 +125,7 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
           let timingToUse: LockTiming = lockTiming;
           try {
             const saved = await SecureStore.getItemAsync(LOCK_TIMING_KEY);
-            if (saved === 'immediate' || saved === '5min' || saved === '15min' || saved === '30min' || saved === '1h') {
+            if (saved === 'immediate' || saved === '5min' || saved === '15min' || saved === '30min' || saved === '1h' || saved === '3h') {
               timingToUse = saved;
               if (saved !== lockTiming) setLockTiming(saved);
             }

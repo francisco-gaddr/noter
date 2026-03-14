@@ -1,11 +1,13 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { Modal, Portal, Text, Button, IconButton, TextInput, Menu, useTheme, Divider, Dialog } from 'react-native-paper';
 import { useStore } from '@/stores/useStore';
 import { Note } from '@repo/shared';
 import IconPickerModal from '@/components/IconPickerModal';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import { SvgUri } from 'react-native-svg';
+import DraggableFlatList, { RenderItemParams } from 'react-native-draggable-flatlist';
+import * as Haptics from 'expo-haptics';
 
 interface ProjectSelectorProps {
   visible: boolean;
@@ -132,7 +134,7 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
   const [isCreating, setIsCreating] = useState(false);
   const [editingProject, setEditingProject] = useState<Note | null>(null);
   
-  // Menu state for long press
+  // Menu state for action button
   const [menuVisible, setMenuVisible] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<{ x: number, y: number } | null>(null);
   const [selectedProjectForMenu, setSelectedProjectForMenu] = useState<Note | null>(null);
@@ -189,15 +191,8 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
     onDismiss();
   };
 
-  const handleMoveProject = async (projectId: string, direction: 'up' | 'down') => {
-    const index = projects.findIndex((project) => project._id === projectId);
-    if (index === -1) return;
-    const targetIndex = direction === 'up' ? index - 1 : index + 1;
-    if (targetIndex < 0 || targetIndex >= projects.length) return;
-    const reordered = [...projects];
-    const [moved] = reordered.splice(index, 1);
-    reordered.splice(targetIndex, 0, moved);
-    const payload = reordered.map((project, order) => ({ ...project, order, parentId: null }));
+  const handleReorder = async (nextProjects: Note[]) => {
+    const payload = nextProjects.map((project, order) => ({ ...project, order, parentId: null }));
     await reorderNotes(payload as any);
   };
 
@@ -307,7 +302,7 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
           <>
             <Text variant="headlineSmall" style={styles.title}>Projects</Text>
             
-            <ScrollView style={styles.list}>
+            <View style={styles.list}>
               <TouchableOpacity
                 style={[
                   styles.item,
@@ -321,33 +316,40 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
               </TouchableOpacity>
               
               <Divider style={{ marginVertical: 5 }} />
-
-              {projects.map(project => (
-                <TouchableOpacity
-                  key={project._id}
-                  style={[
-                    styles.item,
-                    currentSelected === project._id && { backgroundColor: theme.colors.secondaryContainer }
-                  ]}
-                  onPress={() => handleSelect(project._id)}
-                  onLongPress={(e) => openMenu(e, project)}
-                >
-                  {renderProjectIcon((project as any).icon)}
-                  <Text variant="bodyLarge" style={{ flex: 1 }}>{project.title}</Text>
-                  <IconButton
-                    icon="chevron-up"
-                    size={18}
-                    onPress={() => handleMoveProject(project._id, 'up')}
-                  />
-                  <IconButton
-                    icon="chevron-down"
-                    size={18}
-                    onPress={() => handleMoveProject(project._id, 'down')}
-                  />
-                  {currentSelected === project._id && <IconButton icon="check" size={20} />}
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+              <DraggableFlatList
+                data={projects}
+                keyExtractor={(item) => item._id}
+                style={{ maxHeight: 260 }}
+                containerStyle={{ paddingBottom: 8 }}
+                activationDistance={8}
+                onDragEnd={({ data }) => handleReorder(data as Note[])}
+                renderItem={({ item, drag, isActive }: RenderItemParams<Note>) => (
+                  <TouchableOpacity
+                    key={item._id}
+                    style={[
+                      styles.item,
+                      currentSelected === item._id && { backgroundColor: theme.colors.secondaryContainer },
+                      isActive ? { opacity: 0.85 } : null,
+                    ]}
+                    onPress={() => handleSelect(item._id)}
+                    onLongPress={() => {
+                      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                      drag();
+                    }}
+                    delayLongPress={180}
+                  >
+                    {renderProjectIcon((item as any).icon)}
+                    <Text variant="bodyLarge" style={{ flex: 1 }}>{item.title}</Text>
+                    <IconButton
+                      icon="dots-horizontal"
+                      size={20}
+                      onPress={(e) => openMenu(e, item)}
+                    />
+                    {currentSelected === item._id && <IconButton icon="check" size={20} />}
+                  </TouchableOpacity>
+                )}
+              />
+            </View>
 
             <Button mode="outlined" onPress={() => setIsCreating(true)} icon="plus" style={styles.createBtn}>
               New Project

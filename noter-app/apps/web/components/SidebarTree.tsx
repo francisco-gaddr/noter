@@ -453,7 +453,7 @@ export default function SidebarTree() {
         const noteType = normalizeNoteType((n as any).type);
         const isTaskList = noteType === 'task_list';
         
-        if (activeTab === 'tasks') return isRoot && isTaskList;
+        if (activeTab === 'tasks') return isTaskList && isReadable(n);
 
         if (activeProjectId) {
             if (activeProjectBlocked) return false;

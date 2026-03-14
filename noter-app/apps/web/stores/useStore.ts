@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { Note, Task, UpdateTaskDto, User, decrypt, encrypt } from '@repo/shared';
-import { api, getUUID, setApiToken } from '../services/api';
+import { api, getUUID, setApiBaseUrl, setApiToken } from '../services/api';
 import { socket, connectSocket, disconnectSocket, setSocketToken } from '../services/socket';
 import { db } from '../services/db';
 import deepmerge from 'deepmerge';
@@ -396,14 +396,21 @@ export const useStore = create<StoreState>((set, get) => ({
         if ((!token || !user) && (window as any).mlc?.getSetting) {
             Promise.all([
                 (window as any).mlc.getSetting('token'),
-                (window as any).mlc.getSetting('user')
-            ]).then(([storedToken, storedUser]) => {
+                (window as any).mlc.getSetting('user'),
+                (window as any).mlc.getSetting('apiBaseUrl').catch(() => null),
+                (window as any).mlc.getSetting('apiUrl').catch(() => null),
+                (window as any).mlc.getSetting('backendUrl').catch(() => null),
+            ]).then(([storedToken, storedUser, storedApiBaseUrl, storedApiUrl, storedBackendUrl]) => {
                 if (storedToken && !token) {
                     localStorage.setItem('token', String(storedToken));
                 }
                 if (storedUser && !user) {
                     const normalizedUser = typeof storedUser === 'string' ? JSON.parse(storedUser) : storedUser;
                     localStorage.setItem('user', JSON.stringify(normalizedUser));
+                }
+                const apiBaseCandidate = storedApiBaseUrl || storedApiUrl || storedBackendUrl;
+                if (apiBaseCandidate && typeof apiBaseCandidate === 'string') {
+                    setApiBaseUrl(apiBaseCandidate);
                 }
                 if (storedToken && !token) {
                     set({ token: String(storedToken) });

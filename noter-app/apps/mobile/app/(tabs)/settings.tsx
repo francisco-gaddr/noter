@@ -12,7 +12,6 @@ import { BackendUrlDialog } from '@/components/BackendUrlDialog';
 import { useTranslation } from 'react-i18next';
 import { clearLocalData, clearNotesLocal, clearTasksLocal, clearModelsLocal, clearSyncQueue, getModelsLocal } from '@/services/database';
 import { deleteModel as deleteModelFile } from '@/services/ai/modelService';
-import { WHATS_NEW_ENTRIES } from '@repo/shared';
 
 export default function SettingsScreen() {
   const { t, i18n } = useTranslation();
@@ -27,7 +26,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
   const [language, setLanguage] = useState<'sv' | 'en'>('sv');
-  const [lockTiming, setLockTiming] = useState<'immediate' | '5min' | '15min' | '30min' | '1h'>('immediate');
+  const [lockTiming, setLockTiming] = useState<'immediate' | '5min' | '15min' | '30min' | '1h' | '3h'>('immediate');
   const [lockTimingDialogVisible, setLockTimingDialogVisible] = useState(false);
   
   // Backend URL state
@@ -72,7 +71,8 @@ export default function SettingsScreen() {
         savedLockTiming === '5min' ||
         savedLockTiming === '15min' ||
         savedLockTiming === '30min' ||
-        savedLockTiming === '1h'
+        savedLockTiming === '1h' ||
+        savedLockTiming === '3h'
       ) {
         setLockTiming(savedLockTiming);
       }
@@ -97,6 +97,7 @@ export default function SettingsScreen() {
     if (v === '5min') return t('settings.lock5min', 'Efter 5 min');
     if (v === '15min') return t('settings.lock15min', 'Efter 15 min');
     if (v === '30min') return t('settings.lock30min', 'Efter 30 min');
+    if (v === '3h') return t('settings.lock3h', 'Efter 3 h');
     return t('settings.lock1h', 'Efter 1 h');
   };
 
@@ -218,6 +219,17 @@ export default function SettingsScreen() {
     }
   };
 
+  const handleResync = async () => {
+    try {
+      await clearSyncQueue();
+      await fetchNotes();
+      await fetchTasks();
+      Alert.alert(t('common.success'), t('settings.resyncDone', 'Omsynk slutförd.'));
+    } catch {
+      Alert.alert(t('common.error'), t('settings.resyncFailed', 'Omsynk misslyckades.'));
+    }
+  };
+
   return (
     <ScrollView style={[styles.container, { backgroundColor: paperTheme.colors.background }]}>
       <List.Section title={t('common.appearance')}>
@@ -234,6 +246,7 @@ export default function SettingsScreen() {
              </View>
           )}
           onPress={cycleTheme}
+          rippleColor={paperTheme.colors.secondaryContainer}
         />
         <View style={styles.hint}>
            <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
@@ -258,6 +271,7 @@ export default function SettingsScreen() {
             </View>
           )}
           onPress={() => saveLanguage(language === 'sv' ? 'en' : 'sv')}
+          rippleColor={paperTheme.colors.secondaryContainer}
         />
         <View style={styles.hint}>
            <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
@@ -274,6 +288,7 @@ export default function SettingsScreen() {
           description={`${t('settings.lock', 'Lås')}: ${lockTimingLabel(lockTiming)}`}
           left={props => <List.Icon {...props} icon="lock" />}
           onPress={() => setLockTimingDialogVisible(true)}
+          rippleColor={paperTheme.colors.secondaryContainer}
         />
         <View style={styles.hint}>
           <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
@@ -297,6 +312,7 @@ export default function SettingsScreen() {
               />
             </View>
           )}
+          rippleColor={paperTheme.colors.secondaryContainer}
         />
         <View style={styles.hint}>
            <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
@@ -315,6 +331,14 @@ export default function SettingsScreen() {
           onPress={() => {
             setBackendUrlDialogVisible(true);
           }}
+          rippleColor={paperTheme.colors.secondaryContainer}
+        />
+        <List.Item
+          title={t('settings.resync', 'Synka om')}
+          description={t('settings.resyncHint', 'Tvinga ny hämtning av anteckningar, projekt och tasks från backend')}
+          left={props => <List.Icon {...props} icon="sync" />}
+          onPress={handleResync}
+          rippleColor={paperTheme.colors.secondaryContainer}
         />
         <View style={styles.hint}>
           <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
@@ -331,6 +355,7 @@ export default function SettingsScreen() {
           description="Tar bort anteckningar, projekt, tasks och AI-data lokalt"
           left={props => <List.Icon {...props} icon="database-remove" />}
           onPress={() => setClearDialogVisible(true)}
+          rippleColor={paperTheme.colors.secondaryContainer}
         />
         <View style={styles.hint}>
           <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
@@ -342,23 +367,13 @@ export default function SettingsScreen() {
       <Divider />
 
       <List.Section title="What's New">
-        {WHATS_NEW_ENTRIES.map((entry) => (
-          <List.Accordion
-            key={`${entry.version}-${entry.build}`}
-            title={`v${entry.version} (${entry.build})`}
-            description={entry.date}
-            left={(props) => <List.Icon {...props} icon="new-box" />}
-          >
-            {entry.highlights.map((item, idx) => (
-              <List.Item
-                key={`${entry.version}-${idx}`}
-                title={`• ${item}`}
-                titleNumberOfLines={3}
-                style={{ paddingLeft: 16 }}
-              />
-            ))}
-          </List.Accordion>
-        ))}
+        <List.Item
+          title="What's New"
+          description="Visa senaste uppdateringar"
+          left={(props) => <List.Icon {...props} icon="new-box" />}
+          onPress={() => router.push('/whats-new')}
+          rippleColor={paperTheme.colors.secondaryContainer}
+        />
       </List.Section>
 
       <Divider />
@@ -368,6 +383,7 @@ export default function SettingsScreen() {
           title={t('common.logout')}
           left={props => <List.Icon {...props} icon="logout" />}
           onPress={handleLogout}
+          rippleColor={paperTheme.colors.secondaryContainer}
         />
       </List.Section>
       
@@ -394,6 +410,7 @@ export default function SettingsScreen() {
               <RadioButton.Item label={t('settings.lock15min', 'Efter 15 min')} value="15min" />
               <RadioButton.Item label={t('settings.lock30min', 'Efter 30 min')} value="30min" />
               <RadioButton.Item label={t('settings.lock1h', 'Efter 1 h')} value="1h" />
+              <RadioButton.Item label={t('settings.lock3h', 'Efter 3 h')} value="3h" />
             </RadioButton.Group>
           </Dialog.Content>
           <Dialog.Actions>
