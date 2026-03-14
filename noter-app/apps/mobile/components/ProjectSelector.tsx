@@ -8,6 +8,7 @@ import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import { SvgUri } from 'react-native-svg';
 import DraggableFlatList, { RenderItemParams } from 'react-native-draggable-flatlist';
 import * as Haptics from 'expo-haptics';
+import { useTranslation } from 'react-i18next';
 
 interface ProjectSelectorProps {
   visible: boolean;
@@ -137,6 +138,8 @@ const RenameProjectInput = React.memo(({
 export default function ProjectSelector({ visible, onDismiss, onSelect, selectedProjectId }: ProjectSelectorProps) {
   const { notes, activeProjectId, setActiveProject, createNote, updateNote, deleteNote, verifyNoteLock, reorderNotes } = useStore();
   const theme = useTheme();
+  const { i18n } = useTranslation();
+  const isSwedish = i18n.language?.toLowerCase().startsWith('sv');
   
   const [isCreating, setIsCreating] = useState(false);
   const [editingProject, setEditingProject] = useState<Note | null>(null);
@@ -259,12 +262,13 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
   const handleUnlockProject = async () => {
     const targetId = pendingSelectProjectId || selectedProjectForMenu?._id || null;
     if (!targetId || !projectPassword) return;
-    await verifyNoteLock(targetId, projectPassword);
+    const response = await verifyNoteLock(targetId, projectPassword);
+    const unlockedProjectId = response?.unlockedId || targetId;
     setProjectPassword('');
     setUnlockDialogVisible(false);
     if (pendingSelectProjectId) {
-      if (onSelect) onSelect(pendingSelectProjectId);
-      else setActiveProject(pendingSelectProjectId);
+      if (onSelect) onSelect(unlockedProjectId);
+      else setActiveProject(unlockedProjectId);
       onDismiss();
       setPendingSelectProjectId(null);
     }
@@ -327,7 +331,7 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
                 data={projects}
                 keyExtractor={(item) => item._id}
                 style={{ maxHeight: 260 }}
-                containerStyle={{ paddingBottom: 8 }}
+                containerStyle={{ paddingBottom: 58 }}
                 activationDistance={8}
                 onDragEnd={({ data }) => handleReorder(data as Note[])}
                 renderItem={({ item, drag, isActive }: RenderItemParams<Note>) => (
@@ -358,11 +362,11 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
               />
             </View>
 
-            <View style={[styles.footer, { borderTopColor: theme.colors.outlineVariant }]}>
+            <View style={[styles.footer, { borderTopColor: theme.colors.outlineVariant, backgroundColor: theme.colors.elevation.level2, marginHorizontal: -20, marginBottom: -20, paddingHorizontal: 20, paddingBottom: 20 }]}>
               <Button mode="outlined" onPress={() => setIsCreating(true)} icon="plus">
-                New Project
+                {isSwedish ? 'Nytt projekt' : 'New Project'}
               </Button>
-              <Button onPress={onDismiss}>Close</Button>
+              <Button onPress={onDismiss}>{isSwedish ? 'Stäng' : 'Close'}</Button>
             </View>
           </>
         )}

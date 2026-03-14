@@ -400,7 +400,8 @@ export default function SidebarTree() {
     const isReadable = (note: Note) => {
       const cached = readableCache.get(note._id);
       if (cached !== undefined) return cached;
-      const readable = !findBlockingLockedAncestor(note as any, securityMap as any, unlockedSet as any);
+      const blocking = findBlockingLockedAncestor(note as any, securityMap as any, unlockedSet as any);
+      const readable = !blocking || blocking._id === note._id;
       readableCache.set(note._id, readable);
       return readable;
     };

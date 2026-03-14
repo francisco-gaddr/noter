@@ -740,7 +740,7 @@ export const useStore = create<AppState>((set, get) => ({
         ...data,
         title: encrypt(data.title),
         content: encrypt(data.content),
-        type: data.type ? encrypt(data.type) : undefined,
+        type: encrypt(data.type || 'note'),
         locked: encrypt(String(data.locked || false)),
         order: data.order !== undefined ? encrypt(String(data.order)) : undefined,
         createdAt: encrypt(new Date().toISOString()),
