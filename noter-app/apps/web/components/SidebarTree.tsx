@@ -36,11 +36,16 @@ type DragItem = { id: string; type: string };
 type NodeDropCollected = { isOver: boolean; canDrop: boolean };
 
 const normalizeNoteType = (value: unknown): string => {
-    if (typeof value !== 'string') return '';
-    const trimmed = value.trim().toLowerCase();
-    if (trimmed === 'project' || trimmed === 'folder') return 'project';
-    if (trimmed === 'task_list' || trimmed === 'tasklist' || trimmed === 'task-list') return 'task_list';
-    return trimmed || 'note';
+    if (typeof value !== 'string') return 'note';
+    let normalized = value.trim().toLowerCase();
+    if ((normalized.startsWith('"') && normalized.endsWith('"')) || (normalized.startsWith("'") && normalized.endsWith("'")) || (normalized.startsWith('`') && normalized.endsWith('`'))) {
+        normalized = normalized.slice(1, -1).trim();
+    }
+    normalized = normalized.replace(/\s+/g, '_');
+    if (normalized === 'folder') return 'project';
+    if (normalized === 'task_list' || normalized === 'tasklist' || normalized === 'task-list') return 'task_list';
+    if (normalized === 'project' || normalized === 'note') return normalized;
+    return normalized || 'note';
 };
 
 const isProjectType = (value: unknown): boolean => normalizeNoteType(value) === 'project';

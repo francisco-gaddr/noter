@@ -98,7 +98,11 @@ const parseNoteLocked = (value: unknown): boolean => {
 
 const normalizeNoteType = (value: unknown): string => {
   if (typeof value !== 'string') return 'note';
-  const normalized = value.trim().toLowerCase();
+  let normalized = value.trim().toLowerCase();
+  if ((normalized.startsWith('"') && normalized.endsWith('"')) || (normalized.startsWith("'") && normalized.endsWith("'")) || (normalized.startsWith('`') && normalized.endsWith('`'))) {
+    normalized = normalized.slice(1, -1).trim();
+  }
+  normalized = normalized.replace(/\s+/g, '_');
   if (normalized === 'folder') return 'project';
   if (normalized === 'tasklist' || normalized === 'task-list') return 'task_list';
   if (normalized === 'project' || normalized === 'task_list' || normalized === 'note') return normalized;

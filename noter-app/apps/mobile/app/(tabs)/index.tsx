@@ -10,14 +10,21 @@ import IconPickerModal from '@/components/IconPickerModal';
 import { SvgUri } from 'react-native-svg';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import { Note } from '@repo/shared';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const normalizeNoteType = (value: unknown): string => {
   if (typeof value !== 'string') return 'note';
-  const normalized = value.trim().toLowerCase();
+  let normalized = value.trim().toLowerCase();
+  if ((normalized.startsWith('"') && normalized.endsWith('"')) || (normalized.startsWith("'") && normalized.endsWith("'")) || (normalized.startsWith('`') && normalized.endsWith('`'))) {
+    normalized = normalized.slice(1, -1).trim();
+  }
+  normalized = normalized.replace(/\s+/g, '_');
   if (normalized === 'folder') return 'project';
   if (normalized === 'tasklist' || normalized === 'task-list') return 'task_list';
   return normalized || 'note';
 };
+
+const NOTES_SORT_KEY = 'notes_sort_settings';
 
 const HeaderProjectIcon = ({ uri, onLongPress, onPress }: { uri?: string, onLongPress: () => void, onPress: () => void }) => {
   const theme = useTheme();
@@ -82,6 +89,21 @@ export default function NotesScreen() {
       }
     }, [])
   );
+
+  useEffect(() => {
+    AsyncStorage.getItem(NOTES_SORT_KEY)
+      .then((saved) => {
+        if (!saved) return;
+        const parsed = JSON.parse(saved);
+        if (parsed?.sortBy) setSortBy(parsed.sortBy);
+        if (parsed?.sortOrder) setSortOrder(parsed.sortOrder);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    AsyncStorage.setItem(NOTES_SORT_KEY, JSON.stringify({ sortBy, sortOrder })).catch(() => {});
+  }, [sortBy, sortOrder]);
 
   const getNextViewMode = () => {
     return viewMode === 'list' ? 'tree' : 'list';

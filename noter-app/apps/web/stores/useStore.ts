@@ -130,7 +130,12 @@ const parseNoteLocked = (value: unknown): boolean => {
 
 const normalizeNoteType = (value: unknown): string => {
   if (typeof value !== 'string') return 'note';
-  const normalized = value.trim().toLowerCase();
+  let normalized = value.trim().toLowerCase();
+  if ((normalized.startsWith('"') && normalized.endsWith('"')) || (normalized.startsWith("'") && normalized.endsWith("'")) || (normalized.startsWith('`') && normalized.endsWith('`'))) {
+    normalized = normalized.slice(1, -1).trim();
+  }
+  normalized = normalized.replace(/\s+/g, '_');
+  if (normalized === 'task list') normalized = 'task_list';
   if (normalized === 'folder') return 'project';
   if (normalized === 'tasklist' || normalized === 'task-list') return 'task_list';
   if (normalized === 'project' || normalized === 'task_list' || normalized === 'note') return normalized;
@@ -401,6 +406,7 @@ export const useStore = create<StoreState>((set, get) => ({
         const token = localStorage.getItem('token');
         const language = (localStorage.getItem('language') as 'sv' | 'en') || 'sv';
         const activeTab = (localStorage.getItem('activeTab') as any) || 'notes';
+        const savedSortOrder = (localStorage.getItem('sortOrder') as SortOrder) || 'date-desc';
         const selectedNoteId = localStorage.getItem('lastSelectedNoteId') || localStorage.getItem('selectedNoteId') || null;
         const selectedTaskListId = localStorage.getItem('lastSelectedTaskListId') || null;
         const activeProjectId = localStorage.getItem('activeProjectId') || null;
@@ -412,7 +418,7 @@ export const useStore = create<StoreState>((set, get) => ({
         const shouldLockOnLaunch = Boolean(token && appLockPasswordHash && isElectron);
         const nextLocked = appLockPasswordHash ? (shouldLockOnLaunch ? true : isAppLocked) : false;
 
-        set({ user, token, language, activeTab, selectedNoteId, selectedTaskListId, activeProjectId, isAppLocked: nextLocked, appLockPasswordHash, autoLockTimeout, isHydrated: true });
+        set({ user, token, language, activeTab, sortOrder: savedSortOrder, selectedNoteId, selectedTaskListId, activeProjectId, isAppLocked: nextLocked, appLockPasswordHash, autoLockTimeout, isHydrated: true });
         setElectronLockState(nextLocked);
         setApiToken(token || null);
         setSocketToken(token || null);
@@ -1564,5 +1570,10 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   setSearchQuery: (query) => set({ searchQuery: query }),
-  setSortOrder: (order) => set({ sortOrder: order }),
+  setSortOrder: (order) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('sortOrder', order);
+    }
+    set({ sortOrder: order });
+  },
 }));
