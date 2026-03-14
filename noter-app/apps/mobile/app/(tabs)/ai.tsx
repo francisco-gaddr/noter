@@ -32,7 +32,7 @@ import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, enc
 
 const provider = new MobileLlamaProvider();
 type LocalConversation = Conversation & { localOnly?: boolean };
-type LocalAIProject = AIProject & { localOnly?: boolean };
+type LocalAIProject = AIProject & { localOnly?: boolean; userId?: string };
 type PullAiSyncResult = Awaited<ReturnType<typeof pullAiSync>>;
 
 const ProjectDialog = React.memo(({

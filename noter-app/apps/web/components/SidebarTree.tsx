@@ -35,6 +35,17 @@ interface TreeNodeProps {
 type DragItem = { id: string; type: string };
 type NodeDropCollected = { isOver: boolean; canDrop: boolean };
 
+const normalizeNoteType = (value: unknown): string => {
+    if (typeof value !== 'string') return '';
+    const trimmed = value.trim().toLowerCase();
+    if (trimmed === 'project' || trimmed === 'folder') return 'project';
+    if (trimmed === 'task_list' || trimmed === 'tasklist' || trimmed === 'task-list') return 'task_list';
+    return trimmed || 'note';
+};
+
+const isProjectType = (value: unknown): boolean => normalizeNoteType(value) === 'project';
+const isTaskListType = (value: unknown): boolean => normalizeNoteType(value) === 'task_list';
+
 const sortNotes = (nodes: Note[], order: string) => {
     switch (order) {
         case 'updated-desc': return orderBy(nodes, ['updatedAt'], ['desc']);
@@ -353,7 +364,7 @@ export default function SidebarTree() {
   const projects = useMemo(() => {
     const set = new Map<string, typeof notes[0]>();
     safeNotes.forEach(n => {
-      if ((n as any).type === 'project') set.set(n._id, n);
+      if (isProjectType((n as any).type)) set.set(n._id, n);
     });
     safeNotes.forEach(n => {
       const hasChildren = (childCountMap.get(n._id) || 0) > 0;
@@ -394,10 +405,9 @@ export default function SidebarTree() {
       });
       const matches = fuse.search(searchQuery).map(res => res.item);
       const filtered = matches.filter(n => {
-        const noteType = (n as any).type;
+        const noteType = normalizeNoteType((n as any).type);
         const isTaskList = noteType === 'task_list';
-        const isProject = noteType === 'project';
-        const base = activeTab === 'tasks' ? isTaskList : (!isTaskList && !isProject);
+        const base = activeTab === 'tasks' ? isTaskList : !isTaskList;
         return base && isReadable(n);
       });
       return { rootNotes: [], flatFilteredNotes: filtered, sortedFlatNotes: [] };
@@ -406,16 +416,15 @@ export default function SidebarTree() {
     if (viewMode === 'list') {
       const belongsCache = new Map<string, boolean>();
       const filtered = safeNotes.filter(n => {
-        const noteType = (n as any).type;
+        const noteType = normalizeNoteType((n as any).type);
         const isTaskList = noteType === 'task_list';
-        const isProject = noteType === 'project';
         if (activeTab === 'tasks') return isTaskList && isReadable(n);
         
         if (activeProjectId) {
              if (activeProjectBlocked) return false;
              const cached = belongsCache.get(n._id);
              if (cached !== undefined) {
-               return !isTaskList && (n as any).type !== 'project' && cached && isReadable(n);
+               return !isTaskList && cached && isReadable(n);
              }
 
              let parent = n.parentId;
@@ -429,11 +438,10 @@ export default function SidebarTree() {
                  steps += 1;
              }
              belongsCache.set(n._id, belongs);
-             return !isTaskList && (n as any).type !== 'project' && belongs && isReadable(n);
+             return !isTaskList && belongs && isReadable(n);
         }
         
-        // When "All Notes" (no activeProjectId), show all notes but hide project folders
-        return !isTaskList && (n as any).type !== 'project' && isReadable(n);
+        return !isTaskList && isReadable(n);
       });
       return { rootNotes: [], flatFilteredNotes: [], sortedFlatNotes: sortNotes(filtered, sortOrder) };
     }
@@ -441,10 +449,9 @@ export default function SidebarTree() {
     // Tree view
     const roots = safeNotes.filter(n => {
         const parent = n.parentId ? noteById.get(n.parentId) : null;
-        const isRoot = (!n.parentId || !parent || (parent as any)?.type === 'project');
-        const noteType = (n as any).type;
+        const isRoot = (!n.parentId || !parent || isProjectType((parent as any)?.type));
+        const noteType = normalizeNoteType((n as any).type);
         const isTaskList = noteType === 'task_list';
-        const isProject = noteType === 'project';
         
         if (activeTab === 'tasks') return isRoot && isTaskList;
 
@@ -454,8 +461,7 @@ export default function SidebarTree() {
             return n.parentId === activeProjectId && !isTaskList && isReadable(n);
         }
 
-        // When "All Notes" (no activeProjectId), show all notes but hide project folders
-        return isRoot && !isTaskList && !isProject && isReadable(n);
+        return isRoot && !isTaskList && isReadable(n);
     });
     return { rootNotes: sortNotes(roots, sortOrder), flatFilteredNotes: [], sortedFlatNotes: [] };
 
@@ -540,7 +546,7 @@ export default function SidebarTree() {
         if (createModal.type === 'project' && options?.locked && options.password) {
             const state = useStore.getState();
             const created = [...state.notes]
-              .filter((item) => item.type === 'project' && (item.parentId || null) === (createModal.parentId || null))
+              .filter((item) => isProjectType(item.type) && (item.parentId || null) === (createModal.parentId || null))
               .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
               .find((item) => item.title === title);
             if (created) {
@@ -564,7 +570,7 @@ export default function SidebarTree() {
         try {
             const noteType = (editModal.note as any).type;
             let lockedToSave = options?.locked;
-            if (noteType === 'project' && Boolean(editModal.note.locked) && options?.locked === false) {
+            if (isProjectType(noteType) && Boolean(editModal.note.locked) && options?.locked === false) {
                 const unlocked = await unlockNote(editModal.note._id, options?.password || '');
                 if (!unlocked) {
                     throw new Error('Fel lösenord för upplåsning av projektmapp');
@@ -582,7 +588,7 @@ export default function SidebarTree() {
   const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     const noteType = (notes.find(n => n._id === id) as any)?.type;
-    const isTaskList = noteType === 'task_list' || activeTab === 'tasks';
+    const isTaskList = isTaskListType(noteType) || activeTab === 'tasks';
     
     setDeleteModal({
         isOpen: true,

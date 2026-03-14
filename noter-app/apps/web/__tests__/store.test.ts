@@ -38,6 +38,7 @@ jest.mock('../services/db', () => ({
   db: {
     saveNote: jest.fn(),
     getAllNotes: jest.fn().mockResolvedValue([]),
+    getPendingSyncNotes: jest.fn().mockResolvedValue([]),
     saveTask: jest.fn(),
     getAllTasks: jest.fn().mockResolvedValue([]),
   },
@@ -136,4 +137,5 @@ describe('Web Store', () => {
       
       expect(api.createNote).toHaveBeenCalledWith(expect.objectContaining({ title: 'New Note' }));
   });
+
 });

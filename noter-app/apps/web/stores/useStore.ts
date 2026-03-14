@@ -113,6 +113,15 @@ const parseNoteLocked = (value: unknown): boolean => {
   return false;
 };
 
+const normalizeNoteType = (value: unknown): string => {
+  if (typeof value !== 'string') return 'note';
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'folder') return 'project';
+  if (normalized === 'tasklist' || normalized === 'task-list') return 'task_list';
+  if (normalized === 'project' || normalized === 'task_list' || normalized === 'note') return normalized;
+  return normalized || 'note';
+};
+
 const parseNoteOrder = (value: unknown): number => {
   if (typeof value === 'number') return value;
   if (typeof value === 'string') {
@@ -231,7 +240,7 @@ const normalizeEncryptedNote = (note: Note): any => {
     tags: Array.isArray(rawTags) ? rawTags : [],
     icon: typeof rawIcon === 'string' ? rawIcon : undefined,
     iconColor: typeof rawIconColor === 'string' ? rawIconColor : undefined,
-    type: note.type ? (() => { try { return decrypt(note.type) as any; } catch { return note.type; } })() : 'note',
+    type: normalizeNoteType(note.type ? (() => { try { return decrypt(note.type) as any; } catch { return note.type; } })() : 'note'),
     parentId: note.parentId ? (() => { try { return decrypt(note.parentId) } catch { return note.parentId } })() : null,
     locked: locked,
     order: parseNoteOrder((note as any).order),

@@ -126,7 +126,7 @@ const RenameProjectInput = React.memo(({
 });
 
 export default function ProjectSelector({ visible, onDismiss, onSelect, selectedProjectId }: ProjectSelectorProps) {
-  const { notes, activeProjectId, setActiveProject, createNote, updateNote, deleteNote } = useStore();
+  const { notes, activeProjectId, setActiveProject, createNote, updateNote, deleteNote, verifyNoteLock, reorderNotes } = useStore();
   const theme = useTheme();
   
   const [isCreating, setIsCreating] = useState(false);
@@ -137,6 +137,10 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
   const [menuAnchor, setMenuAnchor] = useState<{ x: number, y: number } | null>(null);
   const [selectedProjectForMenu, setSelectedProjectForMenu] = useState<Note | null>(null);
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
+  const [lockDialogVisible, setLockDialogVisible] = useState(false);
+  const [unlockDialogVisible, setUnlockDialogVisible] = useState(false);
+  const [projectPassword, setProjectPassword] = useState('');
+  const [pendingSelectProjectId, setPendingSelectProjectId] = useState<string | null>(null);
   
   const renderProjectIcon = (iconKey?: string) => {
     if (!iconKey) return <IconButton icon="folder-outline" size={24} />;
@@ -156,18 +160,45 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
     );
   };
 
-  const projects = notes.filter(n => (n as any).type === 'project')
-    .sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+  const projects = notes.filter(n => {
+      const type = String((n as any).type || '').toLowerCase();
+      return type === 'project' || type === 'folder';
+    })
+    .sort((a, b) => {
+      const ao = Number((a as any).order ?? 0);
+      const bo = Number((b as any).order ?? 0);
+      return ao - bo;
+    });
 
   const currentSelected = selectedProjectId !== undefined ? selectedProjectId : activeProjectId;
 
   const handleSelect = (id: string | null) => {
+    if (id) {
+      const selected = projects.find((project) => project._id === id);
+      if (selected?.locked) {
+        setPendingSelectProjectId(id);
+        setUnlockDialogVisible(true);
+        return;
+      }
+    }
     if (onSelect) {
         onSelect(id);
     } else {
         setActiveProject(id);
     }
     onDismiss();
+  };
+
+  const handleMoveProject = async (projectId: string, direction: 'up' | 'down') => {
+    const index = projects.findIndex((project) => project._id === projectId);
+    if (index === -1) return;
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= projects.length) return;
+    const reordered = [...projects];
+    const [moved] = reordered.splice(index, 1);
+    reordered.splice(targetIndex, 0, moved);
+    const payload = reordered.map((project, order) => ({ ...project, order, parentId: null }));
+    await reorderNotes(payload as any);
   };
 
   const handleCreateProject = async (name: string) => {
@@ -211,6 +242,32 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
       console.error(e);
       alert('Failed to delete project');
     }
+  };
+
+  const handleLockProject = async () => {
+    if (!selectedProjectForMenu) return;
+    if (!projectPassword) return;
+    await updateNote(selectedProjectForMenu._id, { locked: true, password: projectPassword, type: 'project' } as any);
+    setProjectPassword('');
+    setLockDialogVisible(false);
+    setMenuVisible(false);
+    setSelectedProjectForMenu(null);
+  };
+
+  const handleUnlockProject = async () => {
+    const targetId = pendingSelectProjectId || selectedProjectForMenu?._id || null;
+    if (!targetId || !projectPassword) return;
+    await verifyNoteLock(targetId, projectPassword);
+    setProjectPassword('');
+    setUnlockDialogVisible(false);
+    if (pendingSelectProjectId) {
+      if (onSelect) onSelect(pendingSelectProjectId);
+      else setActiveProject(pendingSelectProjectId);
+      onDismiss();
+      setPendingSelectProjectId(null);
+    }
+    setMenuVisible(false);
+    setSelectedProjectForMenu(null);
   };
 
   const openMenu = (event: any, project: Note) => {
@@ -277,6 +334,16 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
                 >
                   {renderProjectIcon((project as any).icon)}
                   <Text variant="bodyLarge" style={{ flex: 1 }}>{project.title}</Text>
+                  <IconButton
+                    icon="chevron-up"
+                    size={18}
+                    onPress={() => handleMoveProject(project._id, 'up')}
+                  />
+                  <IconButton
+                    icon="chevron-down"
+                    size={18}
+                    onPress={() => handleMoveProject(project._id, 'down')}
+                  />
                   {currentSelected === project._id && <IconButton icon="check" size={20} />}
                 </TouchableOpacity>
               ))}
@@ -336,12 +403,61 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
                 leadingIcon="pencil"
             />
             <Menu.Item 
+                onPress={() => {
+                    setProjectPassword('');
+                    if (selectedProjectForMenu?.locked) {
+                        setUnlockDialogVisible(true);
+                    } else {
+                        setLockDialogVisible(true);
+                    }
+                }} 
+                title={selectedProjectForMenu?.locked ? 'Unlock' : 'Lock'}
+                leadingIcon={selectedProjectForMenu?.locked ? 'lock-open-outline' : 'lock-outline'}
+            />
+            <Menu.Item 
                 onPress={handleDelete} 
                 title="Delete" 
                 leadingIcon="delete"
                 titleStyle={{ color: theme.colors.error }}
             />
         </Menu>
+
+        <Dialog visible={lockDialogVisible} onDismiss={() => setLockDialogVisible(false)}>
+          <Dialog.Title>Lock Project</Dialog.Title>
+          <Dialog.Content>
+            <TextInput
+              mode="outlined"
+              label="Password"
+              secureTextEntry
+              value={projectPassword}
+              onChangeText={setProjectPassword}
+            />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setLockDialogVisible(false)}>Cancel</Button>
+            <Button mode="contained" onPress={handleLockProject} disabled={!projectPassword}>Lock</Button>
+          </Dialog.Actions>
+        </Dialog>
+
+        <Dialog visible={unlockDialogVisible} onDismiss={() => setUnlockDialogVisible(false)}>
+          <Dialog.Title>Unlock Project</Dialog.Title>
+          <Dialog.Content>
+            <TextInput
+              mode="outlined"
+              label="Password"
+              secureTextEntry
+              value={projectPassword}
+              onChangeText={setProjectPassword}
+            />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => {
+              setUnlockDialogVisible(false);
+              setPendingSelectProjectId(null);
+            }}>Cancel</Button>
+            <Button mode="contained" onPress={handleUnlockProject} disabled={!projectPassword}>Unlock</Button>
+          </Dialog.Actions>
+        </Dialog>
 
         <Button onPress={onDismiss} style={{ marginTop: 10 }}>Close</Button>
 

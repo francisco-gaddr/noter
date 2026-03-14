@@ -12,6 +12,7 @@ import { BackendUrlDialog } from '@/components/BackendUrlDialog';
 import { useTranslation } from 'react-i18next';
 import { clearLocalData, clearNotesLocal, clearTasksLocal, clearModelsLocal, clearSyncQueue, getModelsLocal } from '@/services/database';
 import { deleteModel as deleteModelFile } from '@/services/ai/modelService';
+import { WHATS_NEW_ENTRIES } from '@repo/shared';
 
 export default function SettingsScreen() {
   const { t, i18n } = useTranslation();
@@ -336,6 +337,28 @@ export default function SettingsScreen() {
             Rensar allt lokalt och hämtar nytt från servern när internet finns.
           </Text>
         </View>
+      </List.Section>
+
+      <Divider />
+
+      <List.Section title="What's New">
+        {WHATS_NEW_ENTRIES.map((entry) => (
+          <List.Accordion
+            key={`${entry.version}-${entry.build}`}
+            title={`v${entry.version} (${entry.build})`}
+            description={entry.date}
+            left={(props) => <List.Icon {...props} icon="new-box" />}
+          >
+            {entry.highlights.map((item, idx) => (
+              <List.Item
+                key={`${entry.version}-${idx}`}
+                title={`• ${item}`}
+                titleNumberOfLines={3}
+                style={{ paddingLeft: 16 }}
+              />
+            ))}
+          </List.Accordion>
+        ))}
       </List.Section>
 
       <Divider />
