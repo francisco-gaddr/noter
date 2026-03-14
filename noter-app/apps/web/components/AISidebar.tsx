@@ -18,7 +18,7 @@ import { connectSocket, socket } from '../services/socket';
 import { buildSecurityNoteMap, isReadableWithLocks } from '../services/ai/security';
 
 type LocalConversation = Conversation & { localOnly?: boolean; userId?: string };
-type LocalAIProject = AIProject & { localOnly?: boolean };
+type LocalAIProject = AIProject & { localOnly?: boolean; userId?: string };
 type McpFetchDiagnostics = {
   level: 'idle' | 'ok' | 'warning' | 'error';
   message: string;
