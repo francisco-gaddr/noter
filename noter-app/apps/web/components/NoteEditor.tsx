@@ -6,7 +6,7 @@ import { Slate, Editable, withReact, useSlate, ReactEditor, useSlateStatic, useR
 import { withHistory, HistoryEditor } from 'slate-history';
 import { useStore } from '../stores/useStore';
 import { debounce } from 'lodash';
-import { FaBold, FaItalic, FaUnderline, FaCode, FaListUl, FaListOl, FaQuoteRight, FaLock, FaUnlock, FaLink, FaImage, FaVideo, FaFilePdf, FaFileDownload, FaFileAlt, FaCheckSquare, FaTable } from 'react-icons/fa';
+import { FaBold, FaItalic, FaUnderline, FaCode, FaListUl, FaListOl, FaQuoteRight, FaLock, FaUnlock, FaLink, FaImage, FaVideo, FaFilePdf, FaFileDownload, FaFileAlt, FaCheckSquare, FaTable, FaTags } from 'react-icons/fa';
 import * as FaIcons from 'react-icons/fa';
 import { PasswordModal } from './PasswordModal';
 import { IconPicker } from './IconPicker';
@@ -17,20 +17,14 @@ import jsPDF from 'jspdf';
 import TurndownService from 'turndown';
 import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
+import { getTikTokEmbedUrl, resolveVideoEmbedUrl } from '../lib/videoEmbed';
+import { buildSecurityNoteMap, findBlockingLockedAncestor } from '../services/ai/security';
 
 type CustomElement = { type: string; children: CustomText[]; url?: string; align?: string; checked?: boolean };
 type CustomText = { text: string; bold?: boolean; italic?: boolean; underline?: boolean; code?: boolean };
 
 const isTikTokUrl = (url: string) => {
   return url.includes('tiktok.com');
-};
-
-const getTikTokEmbedUrl = (url: string) => {
-  const match = url.match(/video\/(\d+)/);
-  if (match && match[1]) {
-      return `https://www.tiktok.com/embed/v2/${match[1]}`;
-  }
-  return null;
 };
 
 const sanitizeUrl = (url: string, type: 'link' | 'image' | 'video' = 'link'): string => {
@@ -441,6 +435,27 @@ const withEmbeds = (editor: Editor) => {
   return editor;
 };
 
+const withTrailingParagraph = (editor: Editor) => {
+  const { normalizeNode } = editor;
+  editor.normalizeNode = entry => {
+    const [node] = entry;
+    if (Editor.isEditor(node)) {
+      const last = node.children[node.children.length - 1] as any;
+      const lastType = last?.type;
+      if (last && (lastType === 'table' || lastType === 'video' || lastType === 'image')) {
+        Transforms.insertNodes(
+          editor,
+          { type: 'paragraph', children: [{ text: '' }] } as any,
+          { at: [node.children.length] }
+        );
+        return;
+      }
+    }
+    normalizeNode(entry);
+  };
+  return editor;
+};
+
 const stripHtml = (html: string) => {
   if (typeof window === 'undefined') return html;
   const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -510,7 +525,10 @@ const slateNodeToHtml = (node: any): string => {
     case 'video': {
       const url = typeof node.url === 'string' ? node.url : '';
       if (!url) return '';
-      return `<a href="${escapeAttr(sanitizeUrl(url, 'video'))}">${escapeHtml(url)}</a>`;
+      const sanitized = sanitizeUrl(url, 'video');
+      if (!sanitized) return '';
+      const embedUrl = resolveVideoEmbedUrl(sanitized);
+      return `<iframe src="${escapeAttr(embedUrl)}" style="width:100%;height:300px;border:0;" allowfullscreen></iframe>`;
     }
     case 'table':
       return `<table style="border-collapse: collapse; width: 100%; border: 1px solid #ddd;"><tbody>${childrenHtml}</tbody></table>`;
@@ -892,7 +910,7 @@ const ToolbarButton = ({ format, icon, active, onMouseDown }: any) => (
   </button>
 );
 
-const Toolbar = () => {
+const Toolbar = ({ onInsertVideo }: { onInsertVideo: () => void }) => {
   const editor = useSlate();
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const { t } = useTranslation();
@@ -1091,8 +1109,7 @@ const Toolbar = () => {
         icon={<FaVideo />}
         onMouseDown={(event: any) => {
           event.preventDefault();
-          const url = window.prompt(t('noteEditor.prompts.videoUrl'));
-          if (url) CustomEditor.insertVideo(editor, url);
+          onInsertVideo();
         }}
       />
     </div>
@@ -1174,8 +1191,8 @@ export default function NoteEditor() {
 }
 
 function NoteEditorContent() {
-  const { selectedNoteId, notes, updateNote, unlockNote, joinNote, leaveNote, activeUsers, user } = useStore();
-  const editor = useMemo(() => withHtml(withEmbeds(withHistory(withReact(createEditor())))), []);
+  const { selectedNoteId, notes, updateNote, unlockNote, joinNote, leaveNote, activeUsers, user, unlockedProtectedNoteIds } = useStore();
+  const editor = useMemo(() => withTrailingParagraph(withHtml(withEmbeds(withHistory(withReact(createEditor()))))), []);
   const { t } = useTranslation();
 
   const selectedNote = notes.find((n) => n._id === selectedNoteId);
@@ -1185,28 +1202,79 @@ function NoteEditorContent() {
   const [showIconPicker, setShowIconPicker] = useState(false);
   const [isLocking, setIsLocking] = useState(false);
   const [isUnlockedLocally, setIsUnlockedLocally] = useState(false);
+  const [showVideoModal, setShowVideoModal] = useState(false);
+  const [videoUrl, setVideoUrl] = useState('');
+  const [showTagsModal, setShowTagsModal] = useState(false);
+  const [tagsInput, setTagsInput] = useState('');
+  const tagsInputRef = useRef<HTMLInputElement | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+
+  const openVideoModal = useCallback(() => {
+    setVideoUrl('');
+    setShowVideoModal(true);
+  }, []);
+
+  const handleVideoInsert = useCallback(() => {
+    const trimmed = videoUrl.trim();
+    if (!trimmed) return;
+    CustomEditor.insertVideo(editor, trimmed);
+    setShowVideoModal(false);
+    setVideoUrl('');
+  }, [editor, videoUrl]);
+
+  const normalizeTags = useCallback((input: string) => {
+    const parts = input
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter((tag) => tag.length > 0);
+    return Array.from(new Set(parts));
+  }, []);
+
+  const openTagsModal = useCallback(() => {
+    setTagsInput((selectedNote?.tags || []).join(', '));
+    setShowTagsModal(true);
+  }, [selectedNote?.tags]);
+
+  const handleSaveTags = useCallback(() => {
+    if (!selectedNote) return;
+    const nextTags = normalizeTags(tagsInput);
+    updateNote(selectedNote._id, { tags: nextTags });
+    setShowTagsModal(false);
+  }, [normalizeTags, selectedNote, tagsInput, updateNote]);
+
+  useEffect(() => {
+    if (!showTagsModal) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setShowTagsModal(false);
+      } else if (event.key === 'Enter') {
+        event.preventDefault();
+        handleSaveTags();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showTagsModal, handleSaveTags]);
+
+  useEffect(() => {
+    if (!showTagsModal) return;
+    const timer = setTimeout(() => {
+      tagsInputRef.current?.focus();
+      tagsInputRef.current?.select();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [showTagsModal]);
 
   const loadedValue = useMemo((): Descendant[] => {
     if (!selectedNoteId) return initialValue;
     const note = notes.find(n => n._id === selectedNoteId);
     if (!note) return initialValue;
-
-    const isLockedEffective = (() => {
-      if (note.locked) return true;
-      let pId = note.parentId;
-      while (pId) {
-        const p = notes.find(n => n._id === pId);
-        if (!p) break;
-        if (p.locked) return true;
-        pId = p.parentId;
-      }
-      return false;
-    })();
-
-    if (isLockedEffective && !note.content && !isUnlockedLocally) return initialValue;
+    const blocking = findBlockingLockedAncestor(note as any, buildSecurityNoteMap(notes as any), new Set(unlockedProtectedNoteIds));
+    if (blocking && !isUnlockedLocally) return initialValue;
 
     return contentToSlateValue(note.content || '');
-  }, [isUnlockedLocally, notes, selectedNoteId]);
+  }, [isUnlockedLocally, notes, selectedNoteId, unlockedProtectedNoteIds]);
 
   useEffect(() => {
     if (selectedNoteId) {
@@ -1222,54 +1290,14 @@ function NoteEditorContent() {
       return activeUsers[selectedNoteId].filter(u => u._id !== user?._id);
   }, [activeUsers, selectedNoteId, user]);
 
-  const isEffectiveLocked = useMemo(() => {
-    if (!selectedNote) return false;
-    
-    // Early return if note is directly locked
-    if (selectedNote.locked) return true;
-    
-    // Use a more efficient approach - build a parent map first
-    const parentMap = new Map<string, any>();
-    notes.forEach(note => {
-      parentMap.set(note._id, note);
-    });
-    
-    // Iterative traversal with cycle detection to prevent infinite loops
-    const visited = new Set<string>();
-    let currentId = selectedNote.parentId;
-    let iterations = 0;
-    const MAX_ITERATIONS = 50; // Reduced safety limit for better performance
-    
-    while (currentId && iterations < MAX_ITERATIONS) {
-      iterations++;
-      
-      // Check for cycles
-      if (visited.has(currentId)) {
-        console.warn(`Cycle detected in note hierarchy for note ${selectedNote._id} at parent ${currentId}`);
-        break;
-      }
-      visited.add(currentId);
-      
-      const parentNote = parentMap.get(currentId);
-      if (!parentNote) {
-        // Parent not found, stop traversal
-        break;
-      }
-      
-      if (parentNote.locked) {
-        return true; // Found a locked ancestor
-      }
-      
-      // Move up the hierarchy
-      currentId = parentNote.parentId;
-    }
-    
-    if (iterations >= MAX_ITERATIONS) {
-      console.error(`Maximum iterations (${MAX_ITERATIONS}) reached for note ${selectedNote._id}, possible infinite loop`);
-    }
-    
-    return false; // No locked ancestors found
-  }, [selectedNote, notes]);
+  const projects = useMemo(() => notes.filter(n => n.type === 'project'), [notes]);
+
+  const blockingLockedAncestor = useMemo(() => {
+    if (!selectedNote) return null;
+    return findBlockingLockedAncestor(selectedNote as any, buildSecurityNoteMap(notes as any), new Set(unlockedProtectedNoteIds)) as any;
+  }, [selectedNote, notes, unlockedProtectedNoteIds]);
+
+  const isEffectiveLocked = Boolean(blockingLockedAncestor);
 
   const saveNote = useMemo(
     () => debounce((id: string, title: string, content: string, icon?: string, iconColor?: string) => {
@@ -1343,7 +1371,7 @@ function NoteEditorContent() {
 
   useEffect(() => {
     if (!selectedNoteId) return;
-    if (isEffectiveLocked && !isUnlockedLocally && !selectedNote?.content) return;
+    if (isEffectiveLocked && !isUnlockedLocally) return;
     
     // Only focus editor when note changes, not during regular typing
     const shouldFocus = previousNoteIdRef.current !== selectedNoteId || 
@@ -1362,7 +1390,7 @@ function NoteEditorContent() {
         }
       } catch {}
     });
-  }, [editor, isEffectiveLocked, isUnlockedLocally, selectedNote?.content, selectedNoteId]);
+  }, [editor, isEffectiveLocked, isUnlockedLocally, selectedNoteId]);
 
   useEffect(() => {
     return () => {
@@ -1467,13 +1495,16 @@ function NoteEditorContent() {
     );
   }
 
-  if (isEffectiveLocked && !isUnlockedLocally && !selectedNote.content) {
+  if (isEffectiveLocked && !isUnlockedLocally) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-gray-600 dark:text-gray-400 gap-4">
         <FaLock size={48} className="text-gray-500" />
         <h2 className="text-2xl font-bold text-gray-700 dark:text-gray-300">{t('noteEditor.lockedTitle')}</h2>
         <p className="text-sm text-gray-600 dark:text-gray-400">
-             {selectedNote.locked ? t('noteEditor.lockedPasswordProtected') : t('noteEditor.lockedInherited')}
+             {blockingLockedAncestor?._id === selectedNote._id ? t('noteEditor.lockedPasswordProtected') : t('noteEditor.lockedInherited')}
+        </p>
+        <p className="text-xs text-gray-500 dark:text-gray-500">
+          Krypterat lokalt tills korrekt lösenord anges.
         </p>
         <button
           onClick={() => setIsPasswordModalOpen(true)}
@@ -1547,6 +1578,24 @@ function NoteEditorContent() {
               placeholder={t('common.untitled')}
             />
         </div>
+
+        {selectedNote?.type === 'note' && (
+          <div className="mr-4">
+            <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+              {t('project.label')}
+            </label>
+            <select
+              value={selectedNote.parentId || ''}
+              onChange={(e) => updateNote(selectedNote._id, { parentId: e.target.value || null })}
+              className="text-sm px-2 py-1 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+            >
+              <option value="">{t('project.allNotes')}</option>
+              {projects.map(project => (
+                <option key={project._id} value={project._id}>{project.title}</option>
+              ))}
+            </select>
+          </div>
+        )}
         
         {showIconPicker && (
              <IconPicker 
@@ -1574,6 +1623,13 @@ function NoteEditorContent() {
             <FaFileDownload size={20} />
           </button>
           <button
+            onClick={openTagsModal}
+            className="p-2 text-gray-600 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+            title={t('noteEditor.editTags')}
+          >
+            <FaTags size={20} />
+          </button>
+          <button
             onClick={() => {
               if (selectedNote.locked) {
                 // If already locked (and we are viewing it, so we must have unlocked it), allow re-locking?
@@ -1598,9 +1654,10 @@ function NoteEditorContent() {
       </div>
       
       <Slate key={`${selectedNoteId}:${isUnlockedLocally ? 'u' : 'l'}`} editor={editor} initialValue={loadedValue} onChange={onChange}>
-        <Toolbar />
-        <div 
-            className="flex-1 overflow-y-auto w-full cursor-text" 
+        <Toolbar onInsertVideo={openVideoModal} />
+        <div
+            ref={scrollContainerRef}
+            className="flex-1 overflow-y-auto w-full cursor-text"
             onClick={focusEditor}
         >
           <Editable
@@ -1609,6 +1666,7 @@ function NoteEditorContent() {
             className="prose dark:prose-invert prose-p:my-0 prose-ul:my-0 prose-ol:my-0 prose-li:my-0 prose-headings:my-2 max-w-none w-full focus:outline-none min-h-full leading-snug"
             placeholder={t('noteEditor.startTyping')}
             onKeyDown={event => {
+              const previousScrollTop = scrollContainerRef.current?.scrollTop;
               const { selection } = editor;
 
               // Handle Enter in checklist
@@ -1631,11 +1689,27 @@ function NoteEditorContent() {
                   event.preventDefault();
                   Transforms.splitNodes(editor, { always: true });
                   Transforms.setNodes(editor, { checked: false } as any);
+                  if (previousScrollTop !== undefined) {
+                    requestAnimationFrame(() => {
+                      const container = scrollContainerRef.current;
+                      if (container && container.scrollTop < previousScrollTop) {
+                        container.scrollTop = previousScrollTop;
+                      }
+                    });
+                  }
                   return;
                 }
               }
 
               if (!event.ctrlKey) {
+                if (event.key === 'Enter' && previousScrollTop !== undefined) {
+                  requestAnimationFrame(() => {
+                    const container = scrollContainerRef.current;
+                    if (container && container.scrollTop < previousScrollTop) {
+                      container.scrollTop = previousScrollTop;
+                    }
+                  });
+                }
                 return;
               }
 
@@ -1661,10 +1735,89 @@ function NoteEditorContent() {
                   break;
                 }
               }
+              if (event.key === 'Enter' && previousScrollTop !== undefined) {
+                requestAnimationFrame(() => {
+                  const container = scrollContainerRef.current;
+                  if (container && container.scrollTop < previousScrollTop) {
+                    container.scrollTop = previousScrollTop;
+                  }
+                });
+              }
             }}
           />
         </div>
       </Slate>
+
+      {showTagsModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowTagsModal(false)} />
+          <div className="relative bg-white dark:bg-gray-900 rounded-lg shadow-xl w-full max-w-md p-6">
+            <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
+              {t('noteEditor.editTags')}
+            </h2>
+            <div className="mt-4">
+              <input
+                type="text"
+                value={tagsInput}
+                onChange={(e) => setTagsInput(e.target.value)}
+                placeholder={t('noteEditor.tagsPlaceholder')}
+                className="w-full p-2 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                autoFocus
+                ref={tagsInputRef}
+              />
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                className="px-4 py-2 rounded bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-100"
+                onClick={() => setShowTagsModal(false)}
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                className="px-4 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white"
+                onClick={handleSaveTags}
+              >
+                {t('common.save')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showVideoModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowVideoModal(false)} />
+          <div className="relative bg-white dark:bg-gray-900 rounded-lg shadow-xl w-full max-w-md p-6">
+            <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
+              {t('noteEditor.toolbar.video')}
+            </h2>
+            <div className="mt-4">
+              <input
+                type="text"
+                value={videoUrl}
+                onChange={(e) => setVideoUrl(e.target.value)}
+                placeholder={t('noteEditor.prompts.videoUrl')}
+                className="w-full p-2 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+                autoFocus
+              />
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <button
+                className="px-4 py-2 rounded bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-100"
+                onClick={() => setShowVideoModal(false)}
+              >
+                {t('common.cancel')}
+              </button>
+              <button
+                className="px-4 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white"
+                onClick={handleVideoInsert}
+              >
+                {t('common.save')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <PasswordModal
         isOpen={isPasswordModalOpen}
@@ -1762,11 +1915,16 @@ const Element = ({ attributes, children, element }: any) => {
     case 'video':
       const isTikTok = isTikTokUrl(element.url || '');
       const tikTokEmbedUrl = isTikTok ? getTikTokEmbedUrl(element.url || '') : null;
+      const isRelayEmbed = typeof element.url === 'string' && element.url.includes('/embed/youtube');
 
       if (isTikTok && tikTokEmbedUrl) {
           return (
-            <div {...attributes} className="my-4">
-              <div contentEditable={false} className="relative pt-[177.77%] bg-gray-100 dark:bg-gray-800 rounded overflow-hidden">
+            <div {...attributes} className="my-4" data-testid="note-video" data-url={element.url}>
+              <div
+                contentEditable={false}
+                className="relative w-full max-w-[360px] mx-auto bg-gray-100 dark:bg-gray-800 rounded overflow-hidden"
+                style={{ aspectRatio: '9 / 16', maxHeight: '70vh' }}
+              >
                 <iframe
                   src={tikTokEmbedUrl}
                   className="absolute top-0 left-0 w-full h-full"
@@ -1778,8 +1936,24 @@ const Element = ({ attributes, children, element }: any) => {
             </div>
           );
       }
+      if (isRelayEmbed) {
+        return (
+          <div {...attributes} className="my-4" data-testid="note-video" data-url={element.url}>
+            <div contentEditable={false} className="relative pt-[56.25%] bg-gray-100 dark:bg-gray-800 rounded overflow-hidden">
+              <iframe
+                src={element.url}
+                className="absolute top-0 left-0 w-full h-full"
+                allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+                allowFullScreen
+                title="YouTube Video"
+              />
+            </div>
+            {children}
+          </div>
+        );
+      }
       return (
-        <div {...attributes} className="my-4">
+        <div {...attributes} className="my-4" data-testid="note-video" data-url={element.url}>
           <div contentEditable={false} className="relative pt-[56.25%] bg-gray-100 dark:bg-gray-800 rounded overflow-hidden">
             <ReactPlayer
               url={element.url}

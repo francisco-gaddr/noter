@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { StyleSheet, View, Alert, ScrollView, Platform } from 'react-native';
 import { Appbar, TextInput, Button, SegmentedButtons, HelperText, useTheme, Checkbox, Text } from 'react-native-paper';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -11,26 +11,38 @@ import { useStore as useGlobalStore } from '@/stores/useStore';
 import { Note } from '@repo/shared';
 import { CreateTaskDto, UpdateTaskDto } from '@repo/shared';
 import { debounce } from 'lodash';
+import { useTranslation } from 'react-i18next';
+import { getReminderDefaultsForDueDate } from '@/services/tasks/reminderDefaults';
 
-const schema = yup.object({
-  title: yup.string().required('Title is required'),
-  description: yup.string().optional(),
-  dueDate: yup.date().nullable().optional(),
-  priority: yup.mixed<'low' | 'medium' | 'high'>().oneOf(['low', 'medium', 'high']).default('medium'),
-  completed: yup.boolean().default(false),
-  recurrenceType: yup.mixed<'none' | 'daily' | 'weekly'>().oneOf(['none', 'daily', 'weekly']).default('none'),
-  recurrenceDays: yup.array().of(yup.number()).default([]),
-  reminderEnabled: yup.boolean().default(false),
-  reminderOffsetMinutes: yup.mixed<0 | 10>().oneOf([0, 10]).default(0),
-}).required();
-
-type FormData = yup.InferType<typeof schema>;
+type FormData = {
+  title: string;
+  description?: string;
+  dueDate?: Date | null;
+  priority?: 'low' | 'medium' | 'high';
+  completed?: boolean;
+  recurrenceType?: 'none' | 'daily' | 'weekly';
+  recurrenceDays?: number[];
+  reminderEnabled?: boolean;
+  reminderOffsetMinutes?: number[];
+};
 
 export default function TaskEditorScreen() {
   const { id, parentNoteId: routeParentId, dueDate: routeDueDate } = useLocalSearchParams<{ id: string, parentNoteId?: string, dueDate?: string }>();
   const router = useRouter();
   const theme = useTheme();
   const { tasks, createTask, updateTask, deleteTask, notes } = useStore();
+  const { t } = useTranslation();
+  const schema = useMemo(() => yup.object({
+    title: yup.string().required(t('tasks.titleRequired')),
+    description: yup.string().optional(),
+    dueDate: yup.date().nullable().optional(),
+    priority: yup.mixed<'low' | 'medium' | 'high'>().oneOf(['low', 'medium', 'high']).default('medium'),
+    completed: yup.boolean().default(false),
+    recurrenceType: yup.mixed<'none' | 'daily' | 'weekly'>().oneOf(['none', 'daily', 'weekly']).default('none'),
+    recurrenceDays: yup.array().of(yup.number()).default([]),
+    reminderEnabled: yup.boolean().default(false),
+    reminderOffsetMinutes: yup.array().of(yup.number().oneOf([0, 10, 30])).default([]),
+  }).required(), [t]);
   
   const isNew = id === 'new';
   const existingTask = tasks.find(t => t._id === id);
@@ -76,8 +88,8 @@ export default function TaskEditorScreen() {
       completed: false,
       recurrenceType: 'none',
       recurrenceDays: [],
-      reminderEnabled: false,
-      reminderOffsetMinutes: 0,
+      reminderEnabled: !!routeDueDate,
+      reminderOffsetMinutes: routeDueDate ? [0] : [],
     },
   });
   const recurrenceType = watch('recurrenceType');
@@ -85,13 +97,13 @@ export default function TaskEditorScreen() {
   const reminderEnabled = watch('reminderEnabled');
   const reminderOffsetMinutes = watch('reminderOffsetMinutes');
   const weekDays = [
-    { value: 1, label: 'Mån' },
-    { value: 2, label: 'Tis' },
-    { value: 3, label: 'Ons' },
-    { value: 4, label: 'Tor' },
-    { value: 5, label: 'Fre' },
-    { value: 6, label: 'Lör' },
-    { value: 0, label: 'Sön' },
+    { value: 1, label: t('days.monShort') },
+    { value: 2, label: t('days.tueShort') },
+    { value: 3, label: t('days.wedShort') },
+    { value: 4, label: t('days.thuShort') },
+    { value: 5, label: t('days.friShort') },
+    { value: 6, label: t('days.satShort') },
+    { value: 0, label: t('days.sunShort') },
   ];
   const normalizeDays = (days?: (number | undefined)[]) => (days || []).filter((d): d is number => typeof d === 'number');
   
@@ -110,11 +122,18 @@ export default function TaskEditorScreen() {
       setValue('recurrenceType', existingTask.recurrenceType || 'none');
       setValue('recurrenceDays', existingTask.recurrenceDays || []);
       setValue('reminderEnabled', existingTask.reminderEnabled || false);
-      setValue('reminderOffsetMinutes', existingTask.reminderOffsetMinutes === 10 ? 10 : 0);
+      setValue('reminderOffsetMinutes', Array.isArray(existingTask.reminderOffsetMinutes) ? existingTask.reminderOffsetMinutes : []);
       setSelectedListId(existingTask.parentNoteId || null);
       setInitialized(true);
     }
   }, [id, existingTask, isNew, setValue, initialized]);
+
+  useEffect(() => {
+    if (!reminderEnabled) return;
+    if (!Array.isArray(reminderOffsetMinutes) || reminderOffsetMinutes.length === 0) {
+      setValue('reminderOffsetMinutes', [0]);
+    }
+  }, [reminderEnabled, reminderOffsetMinutes, setValue]);
 
   // Auto-save logic
   const saveTask = async (data: FormData) => {
@@ -131,7 +150,9 @@ export default function TaskEditorScreen() {
         recurrenceType: data.recurrenceType,
         recurrenceDays: data.recurrenceType === 'weekly' ? normalizeDays(data.recurrenceDays) : [],
         reminderEnabled: data.reminderEnabled,
-        reminderOffsetMinutes: data.reminderEnabled ? data.reminderOffsetMinutes : 0,
+        reminderOffsetMinutes: data.reminderEnabled
+          ? (data.reminderOffsetMinutes && data.reminderOffsetMinutes.length > 0 ? data.reminderOffsetMinutes : [0])
+          : [],
       };
       await updateTask(id!, dto);
       setLastSaved(new Date());
@@ -182,7 +203,9 @@ export default function TaskEditorScreen() {
           recurrenceType: data.recurrenceType,
           recurrenceDays: data.recurrenceType === 'weekly' ? normalizeDays(data.recurrenceDays) : [],
           reminderEnabled: data.reminderEnabled,
-          reminderOffsetMinutes: data.reminderEnabled ? data.reminderOffsetMinutes : 0,
+          reminderOffsetMinutes: data.reminderEnabled
+            ? (data.reminderOffsetMinutes && data.reminderOffsetMinutes.length > 0 ? data.reminderOffsetMinutes : [0])
+            : [],
         };
         // await createTask to ensure optimistic update happens before nav
         // and to keep submitting state true
@@ -199,13 +222,15 @@ export default function TaskEditorScreen() {
           recurrenceType: data.recurrenceType,
           recurrenceDays: data.recurrenceType === 'weekly' ? normalizeDays(data.recurrenceDays) : [],
           reminderEnabled: data.reminderEnabled,
-          reminderOffsetMinutes: data.reminderEnabled ? data.reminderOffsetMinutes : 0,
+          reminderOffsetMinutes: data.reminderEnabled
+            ? (data.reminderOffsetMinutes && data.reminderOffsetMinutes.length > 0 ? data.reminderOffsetMinutes : [0])
+            : [],
         };
         await updateTask(id!, dto);
         router.back();
       }
     } catch (error: any) {
-      Alert.alert('Error', error.message);
+      Alert.alert(t('common.error'), error.message);
       setSubmitting(false);
     }
   };
@@ -216,26 +241,26 @@ export default function TaskEditorScreen() {
       try {
         await updateTask(existingTask._id, { parentNoteId: listId || undefined });
       } catch (e: any) {
-        Alert.alert('Error', e.message || 'Kunde inte uppdatera lista');
+        Alert.alert(t('common.error'), e.message || t('tasks.listUpdateError'));
       }
     }
   };
 
   const handleDelete = async () => {
     Alert.alert(
-      'Delete Task',
-      'Are you sure you want to delete this task?',
+      t('tasks.deleteTitle'),
+      t('tasks.deleteConfirm'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         { 
-          text: 'Delete', 
+          text: t('common.delete'), 
           style: 'destructive', 
           onPress: async () => {
             try {
               await deleteTask(id!);
               router.back();
             } catch (error: any) {
-              Alert.alert('Error', error.message);
+              Alert.alert(t('common.error'), error.message);
             }
           }
         },
@@ -249,21 +274,21 @@ export default function TaskEditorScreen() {
       <Appbar.Header>
         <Appbar.BackAction onPress={() => router.back()} />
         <Appbar.Content 
-          title={isNew ? 'New Task' : 'Edit Task'} 
-          subtitle={lastSaved ? `Saved ${lastSaved.toLocaleTimeString()}` : (isSaving ? 'Saving...' : '')}
+          title={isNew ? t('tasks.new') : t('tasks.edit')} 
+          subtitle={lastSaved ? t('tasks.savedAt', { time: lastSaved.toLocaleTimeString() }) : (isSaving ? t('tasks.saving') : '')}
         />
         {!isNew && <Appbar.Action icon="delete" onPress={handleDelete} />}
         <Appbar.Action icon="check" onPress={handleSubmit(onSubmit)} disabled={isSubmitting || submitting} />
       </Appbar.Header>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Controller
           control={control}
           name="title"
           render={({ field: { onChange, onBlur, value } }) => (
             <TextInput
               ref={titleInputRef}
-              label="Title"
+              label={t('common.title')}
               onBlur={onBlur}
               onChangeText={onChange}
               value={value}
@@ -284,7 +309,7 @@ export default function TaskEditorScreen() {
           name="description"
           render={({ field: { onChange, onBlur, value } }) => (
             <TextInput
-              label="Description"
+              label={t('common.description')}
               onBlur={onBlur}
               onChangeText={onChange}
               value={value || ''}
@@ -300,19 +325,28 @@ export default function TaskEditorScreen() {
         />
 
         <View style={styles.section}>
-          <Text variant="titleMedium" style={styles.sectionTitle}>Due Date & Time</Text>
+          <Text variant="titleMedium" style={styles.sectionTitle}>{t('tasks.dueDateTime')}</Text>
           <Controller
             control={control}
             name="dueDate"
-            render={({ field: { onChange, value } }) => (
+            render={({ field: { onChange, value } }) => {
+              const applyDueDate = (nextDate: Date | null) => {
+                if (nextDate) {
+                  const reminderDefaults = getReminderDefaultsForDueDate(reminderOffsetMinutes);
+                  setValue('reminderEnabled', reminderDefaults.reminderEnabled);
+                  setValue('reminderOffsetMinutes', reminderDefaults.reminderOffsetMinutes);
+                }
+                onChange(nextDate);
+              };
+              return (
               <View>
                 <View style={styles.quickDateRow}>
                   <Button
                     mode="outlined"
                     compact
-                    onPress={() => onChange(startOfDay(new Date()))}
+                    onPress={() => applyDueDate(startOfDay(new Date()))}
                   >
-                    Idag
+                    {t('tasks.filter.today')}
                   </Button>
                   <Button
                     mode="outlined"
@@ -320,17 +354,17 @@ export default function TaskEditorScreen() {
                     onPress={() => {
                       const t = startOfDay(new Date());
                       t.setDate(t.getDate() + 1);
-                      onChange(t);
+                      applyDueDate(t);
                     }}
                   >
-                    Imorgon
+                    {t('tasks.filter.tomorrow')}
                   </Button>
                   <Button
                     mode="outlined"
                     compact
-                    onPress={() => onChange(endOfWeek(new Date()))}
+                    onPress={() => applyDueDate(endOfWeek(new Date()))}
                   >
-                    Slutet av veckan
+                    {t('tasks.filter.endOfWeek')}
                   </Button>
                 </View>
                 <Button 
@@ -338,7 +372,7 @@ export default function TaskEditorScreen() {
                   onPress={() => setShowDatePicker(true)}
                   icon="calendar"
                 >
-                  {value ? new Date(value).toLocaleDateString() : 'Set Due Date'}
+                  {value ? new Date(value).toLocaleDateString() : t('tasks.setDueDate')}
                 </Button>
                 {value && (
                   <Button 
@@ -349,11 +383,11 @@ export default function TaskEditorScreen() {
                   >
                     {value && (new Date(value).getHours() !== 0 || new Date(value).getMinutes() !== 0)
                       ? new Date(value).toLocaleTimeString()
-                      : 'Add Time (optional)'}
+                      : t('tasks.addTimeOptional')}
                   </Button>
                 )}
                 {value && (
-                  <Button onPress={() => onChange(null)} compact style={{ marginTop: 4 }}>Clear Date</Button>
+                  <Button onPress={() => onChange(null)} compact style={{ marginTop: 4 }}>{t('tasks.clearDate')}</Button>
                 )}
                 {showDatePicker && (
                   <DateTimePicker
@@ -366,7 +400,7 @@ export default function TaskEditorScreen() {
                         const current = value ? new Date(value) : new Date();
                         const merged = new Date(selectedDate);
                         merged.setHours(current.getHours(), current.getMinutes(), 0, 0);
-                        onChange(merged);
+                        applyDueDate(merged);
                       }
                     }}
                   />
@@ -382,18 +416,19 @@ export default function TaskEditorScreen() {
                         const dateOnly = new Date(value);
                         const merged = new Date(dateOnly);
                         merged.setHours(selectedTime.getHours(), selectedTime.getMinutes(), 0, 0);
-                        onChange(merged);
+                        applyDueDate(merged);
                       }
                     }}
                   />
                 )}
               </View>
-            )}
+            );
+            }}
           />
         </View>
 
         <View style={styles.section}>
-          <Text variant="titleMedium" style={styles.sectionTitle}>Priority</Text>
+          <Text variant="titleMedium" style={styles.sectionTitle}>{t('tasks.priority')}</Text>
           <Controller
             control={control}
             name="priority"
@@ -402,9 +437,9 @@ export default function TaskEditorScreen() {
                 value={value || 'low'}
                 onValueChange={onChange}
                 buttons={[
-                  { value: 'low', label: 'Low' },
-                  { value: 'medium', label: 'Medium' },
-                  { value: 'high', label: 'High' },
+                  { value: 'low', label: t('tasks.priorityLow') },
+                  { value: 'medium', label: t('tasks.priorityMedium') },
+                  { value: 'high', label: t('tasks.priorityHigh') },
                 ]}
               />
             )}
@@ -412,7 +447,7 @@ export default function TaskEditorScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text variant="titleMedium" style={styles.sectionTitle}>Återkommande</Text>
+          <Text variant="titleMedium" style={styles.sectionTitle}>{t('tasks.recurrence')}</Text>
           <Controller
             control={control}
             name="recurrenceType"
@@ -426,9 +461,9 @@ export default function TaskEditorScreen() {
                   }
                 }}
                 buttons={[
-                  { value: 'none', label: 'Ingen' },
-                  { value: 'daily', label: 'Dagligen' },
-                  { value: 'weekly', label: 'Veckovis' },
+                  { value: 'none', label: t('tasks.recurrenceNone') },
+                  { value: 'daily', label: t('tasks.recurrenceDaily') },
+                  { value: 'weekly', label: t('tasks.recurrenceWeekly') },
                 ]}
               />
             )}
@@ -456,7 +491,7 @@ export default function TaskEditorScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text variant="titleMedium" style={styles.sectionTitle}>Påminnelse</Text>
+          <Text variant="titleMedium" style={styles.sectionTitle}>{t('tasks.reminder')}</Text>
           <Controller
             control={control}
             name="reminderEnabled"
@@ -466,7 +501,7 @@ export default function TaskEditorScreen() {
                   status={value ? 'checked' : 'unchecked'}
                   onPress={() => onChange(!value)}
                 />
-                <Text onPress={() => onChange(!value)}>Aktivera påminnelse</Text>
+                <Text onPress={() => onChange(!value)}>{t('tasks.reminderEnable')}</Text>
               </View>
             )}
           />
@@ -475,14 +510,29 @@ export default function TaskEditorScreen() {
               control={control}
               name="reminderOffsetMinutes"
               render={({ field: { onChange, value } }) => (
-                <SegmentedButtons
-                  value={String(value === 10 ? 10 : 0)}
-                  onValueChange={(next) => onChange(Number(next) === 10 ? 10 : 0)}
-                  buttons={[
-                    { value: '0', label: 'Vid förfallotid' },
-                    { value: '10', label: '10 min innan' },
-                  ]}
-                />
+                <View style={styles.reminderOptions}>
+                  {[
+                    { value: 0, label: t('tasks.reminderAtDue') },
+                    { value: 10, label: t('tasks.reminder10min') },
+                    { value: 30, label: t('tasks.reminder30min') },
+                  ].map((option) => {
+                    const selected = Array.isArray(value) && value.includes(option.value);
+                    return (
+                      <Button
+                        key={option.value}
+                        mode={selected ? 'contained' : 'outlined'}
+                        onPress={() => {
+                          const next = selected
+                            ? (value || []).filter((v: number) => v !== option.value)
+                            : [...(value || []), option.value];
+                          onChange(next);
+                        }}
+                      >
+                        {option.label}
+                      </Button>
+                    );
+                  })}
+                </View>
               )}
             />
           )}
@@ -498,21 +548,21 @@ export default function TaskEditorScreen() {
                   status={value ? 'checked' : 'unchecked'}
                   onPress={() => onChange(!value)}
                 />
-                <Text onPress={() => onChange(!value)}>Completed</Text>
+                <Text onPress={() => onChange(!value)}>{t('tasks.completed')}</Text>
               </View>
             )}
           />
         </View>
 
         <View style={styles.section}>
-          <Text variant="titleMedium" style={styles.sectionTitle}>Lista</Text>
+          <Text variant="titleMedium" style={styles.sectionTitle}>{t('tasks.listLabel')}</Text>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             <Button
               mode={selectedListId === null ? 'contained' : 'outlined'}
               onPress={() => handleSelectList(null)}
               style={{ marginRight: 8, marginBottom: 8 }}
             >
-              Alla
+              {t('common.all')}
             </Button>
             {taskLists.map((list) => (
               <Button
@@ -521,7 +571,7 @@ export default function TaskEditorScreen() {
                 onPress={() => handleSelectList(list._id)}
                 style={{ marginRight: 8, marginBottom: 8 }}
               >
-                {list.title || 'Lista'}
+                {list.title || t('tasks.listFallback')}
               </Button>
             ))}
           </View>
@@ -551,6 +601,11 @@ const styles = StyleSheet.create({
   checkboxRow: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  reminderOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
   },
   quickDateRow: {
     flexDirection: 'row',

@@ -1,11 +1,12 @@
 import { create } from 'zustand';
 import { Note, Task, UpdateTaskDto, User, decrypt, encrypt } from '@repo/shared';
-import { api, getUUID } from '../services/api';
-import { socket, connectSocket, disconnectSocket } from '../services/socket';
+import { api, getUUID, setApiToken } from '../services/api';
+import { socket, connectSocket, disconnectSocket, setSocketToken } from '../services/socket';
 import { db } from '../services/db';
 import deepmerge from 'deepmerge';
 import { uniqBy } from 'lodash';
 import CryptoJS from 'crypto-js';
+import { buildSecurityNoteMap, findBlockingLockedAncestor } from '../services/ai/security';
 
 let networkListenersReady = false;
 
@@ -14,6 +15,20 @@ const setElectronToken = (value: string | null) => {
   const mlc = (window as any).mlc;
   if (!mlc?.setSetting) return;
   mlc.setSetting('token', value);
+};
+
+const setElectronUser = (value: User | null) => {
+  if (typeof window === 'undefined') return;
+  const mlc = (window as any).mlc;
+  if (!mlc?.setSetting) return;
+  mlc.setSetting('user', value);
+};
+
+const setElectronLockState = (locked: boolean) => {
+  if (typeof window === 'undefined') return;
+  const mlc = (window as any).mlc;
+  if (!mlc?.setLockState) return;
+  mlc.setLockState(Boolean(locked));
 };
 
 type SortOrder = 'date-desc' | 'date-asc' | 'title-asc' | 'title-desc' | 'custom';
@@ -113,91 +128,152 @@ const parseNoteOrder = (value: unknown): number => {
   return 0;
 };
 
-const reminderTimers = new Map<string, number>();
+const parseReminderOffsets = (value: string): number[] => {
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) return parsed.filter((v) => typeof v === 'number');
+  } catch {
+  }
+  const num = Number(value);
+  if (!Number.isNaN(num)) return [num];
+  return [];
+};
+
+const reminderTimers = new Map<string, number[]>();
 
 const scheduleWebReminder = (task: Task) => {
   if (typeof window === 'undefined') return;
   if (!task.reminderEnabled) {
     const existing = reminderTimers.get(task._id);
-    if (existing !== undefined) {
-      clearTimeout(existing);
+    if (existing && existing.length > 0) {
+      existing.forEach((id) => clearTimeout(id));
       reminderTimers.delete(task._id);
     }
     return;
   }
   const existing = reminderTimers.get(task._id);
   if (!task.dueDate) {
-    if (existing !== undefined) {
-      clearTimeout(existing);
+    if (existing && existing.length > 0) {
+      existing.forEach((id) => clearTimeout(id));
       reminderTimers.delete(task._id);
     }
     return;
   }
   const due = new Date(task.dueDate);
   if (isNaN(due.getTime())) {
-    if (existing !== undefined) {
-      clearTimeout(existing);
+    if (existing && existing.length > 0) {
+      existing.forEach((id) => clearTimeout(id));
       reminderTimers.delete(task._id);
     }
     return;
   }
-  const offset = task.reminderOffsetMinutes === 10 ? 10 : 0;
-  const trigger = new Date(due.getTime() - offset * 60000);
-  const delay = trigger.getTime() - Date.now();
-  if (delay <= 0) {
-    if (existing !== undefined) {
-      clearTimeout(existing);
+  const offsets = Array.isArray(task.reminderOffsetMinutes) && task.reminderOffsetMinutes.length > 0
+    ? Array.from(new Set(task.reminderOffsetMinutes))
+    : [0];
+  const triggers = offsets.map((offset) => ({
+    offset,
+    delay: new Date(due.getTime() - offset * 60000).getTime() - Date.now()
+  })).filter((t) => t.delay > 0);
+  if (triggers.length === 0) {
+    if (existing && existing.length > 0) {
+      existing.forEach((id) => clearTimeout(id));
       reminderTimers.delete(task._id);
     }
     return;
   }
-  if (existing !== undefined) {
-    clearTimeout(existing);
+  if (existing && existing.length > 0) {
+    existing.forEach((id) => clearTimeout(id));
   }
-  const timeoutId = window.setTimeout(() => {
+  const timeoutIds = triggers.map((t) => window.setTimeout(() => {
     if (!('Notification' in window)) return;
+    const fire = () => {
+      const body = t.offset === 0 ? 'Påminnelse' : `Påminnelse ${t.offset} minuter innan`;
+      const n = new Notification(task.title, {
+        body,
+        data: { taskId: task._id, offsetMinutes: t.offset }
+      } as any);
+      n.onclick = () => {
+        const url = `${window.location.origin}/app?taskId=${task._id}`;
+        window.location.href = url;
+      };
+    };
     if (Notification.permission === 'default') {
       Notification.requestPermission().then(() => {
         if (Notification.permission === 'granted') {
-          const n = new Notification(task.title, {
-            body: offset === 10 ? 'Påminnelse 10 minuter innan' : 'Påminnelse',
-            data: { taskId: task._id }
-          } as any);
-          n.onclick = () => {
-            const url = `${window.location.origin}/app?taskId=${task._id}`;
-            window.location.href = url;
-          };
+          fire();
         }
       });
       return;
     }
     if (Notification.permission !== 'granted') return;
-    const n = new Notification(task.title, {
-      body: offset === 10 ? 'Påminnelse 10 minuter innan' : 'Påminnelse',
-      data: { taskId: task._id }
-    } as any);
-    n.onclick = () => {
-      const url = `${window.location.origin}/app?taskId=${task._id}`;
-      window.location.href = url;
-    };
-  }, delay);
-  reminderTimers.set(task._id, timeoutId);
+    fire();
+  }, t.delay));
+  reminderTimers.set(task._id, timeoutIds);
 };
 
-const decryptNoteFromSocket = (note: Note): Note => {
+const normalizeEncryptedNote = (note: Note): any => {
+  const rawTitle = (note as any).__rawEncryptedTitle ?? note.title;
+  const rawContent = (note as any).__rawEncryptedContent ?? note.content;
+  const rawTags = (note as any).__rawEncryptedTags ?? note.tags;
+  const rawIcon = (note as any).__rawEncryptedIcon ?? note.icon;
+  const rawIconColor = (note as any).__rawEncryptedIconColor ?? (note as any).iconColor;
   const locked = parseNoteLocked(note.locked);
   return {
     ...note,
-    title: locked ? 'Låst anteckning' : decrypt(note.title),
-    content: locked ? '' : decrypt(note.content),
-    tags: locked ? [] : (note.tags?.map(t => { try { return decrypt(t); } catch { return t; } }) ?? []),
-    icon: locked ? undefined : (note.icon ? (() => { try { return decrypt(note.icon); } catch { return note.icon; } })() : undefined),
+    title: typeof rawTitle === 'string' ? rawTitle : '',
+    content: typeof rawContent === 'string' ? rawContent : '',
+    tags: Array.isArray(rawTags) ? rawTags : [],
+    icon: typeof rawIcon === 'string' ? rawIcon : undefined,
+    iconColor: typeof rawIconColor === 'string' ? rawIconColor : undefined,
     type: note.type ? (() => { try { return decrypt(note.type) as any; } catch { return note.type; } })() : 'note',
+    parentId: note.parentId ? (() => { try { return decrypt(note.parentId) } catch { return note.parentId } })() : null,
     locked: locked,
     order: parseNoteOrder((note as any).order),
     createdAt: decrypt(note.createdAt),
     updatedAt: decrypt(note.updatedAt),
+    __rawEncryptedTitle: typeof rawTitle === 'string' ? rawTitle : '',
+    __rawEncryptedContent: typeof rawContent === 'string' ? rawContent : '',
+    __rawEncryptedTags: Array.isArray(rawTags) ? rawTags : [],
+    __rawEncryptedIcon: typeof rawIcon === 'string' ? rawIcon : undefined,
+    __rawEncryptedIconColor: typeof rawIconColor === 'string' ? rawIconColor : undefined,
   };
+};
+
+const materializeNotesFromEncrypted = (notes: Note[], unlockedIds: Set<string>): Note[] => {
+  const normalized = notes.map(normalizeEncryptedNote);
+  const noteMap = buildSecurityNoteMap(normalized as any);
+  return normalized.map((note: any) => {
+    const blocking = findBlockingLockedAncestor(note, noteMap as any, unlockedIds);
+    if (blocking) {
+      const isDirectlyLockedProject = blocking._id === note._id && note.type === 'project';
+      let projectTitle = note.title;
+      if (isDirectlyLockedProject) {
+        try {
+          projectTitle = decrypt(note.__rawEncryptedTitle || note.title);
+        } catch {}
+      }
+      return {
+        ...note,
+        title: isDirectlyLockedProject ? projectTitle : 'Låst anteckning',
+        content: '',
+        tags: [],
+        icon: undefined,
+        iconColor: undefined,
+        locked: true,
+      };
+    }
+    return {
+      ...note,
+      title: (() => { try { return decrypt(note.__rawEncryptedTitle || note.title) } catch { return note.title } })(),
+      content: (() => { try { return decrypt(note.__rawEncryptedContent || note.content) } catch { return note.content } })(),
+      tags: Array.isArray(note.__rawEncryptedTags)
+        ? note.__rawEncryptedTags.map((t: any) => { try { return decrypt(t) } catch { return t } })
+        : [],
+      icon: note.__rawEncryptedIcon ? (() => { try { return decrypt(note.__rawEncryptedIcon) } catch { return note.__rawEncryptedIcon } })() : undefined,
+      iconColor: note.__rawEncryptedIconColor ? (() => { try { return decrypt(note.__rawEncryptedIconColor) } catch { return note.__rawEncryptedIconColor } })() : undefined,
+      locked: parseNoteLocked(note.locked),
+    };
+  });
 };
 
 interface StoreState {
@@ -236,6 +312,7 @@ interface StoreState {
   verifyAppLockPassword: (password: string) => boolean;
   autoLockTimeout: number; // in minutes
   setAutoLockTimeout: (minutes: number) => void;
+  unlockedProtectedNoteIds: string[];
   
   fetchNotes: () => Promise<void>;
   fetchTasks: (parentNoteId?: string) => Promise<void>;
@@ -246,7 +323,7 @@ interface StoreState {
   unlockNote: (id: string, password: string) => Promise<boolean>;
   deleteNote: (id: string) => Promise<void>;
   
-  createTask: (title: string, parentNoteId?: string, dueDate?: string | null, options?: { description?: string; priority?: 'low' | 'medium' | 'high'; recurrenceType?: 'none' | 'daily' | 'weekly'; recurrenceDays?: number[]; reminderEnabled?: boolean; reminderOffsetMinutes?: number }) => Promise<void>;
+  createTask: (title: string, parentNoteId?: string, dueDate?: string | null, options?: { description?: string; priority?: 'low' | 'medium' | 'high'; recurrenceType?: 'none' | 'daily' | 'weekly'; recurrenceDays?: number[]; reminderEnabled?: boolean; reminderOffsetMinutes?: number[] }) => Promise<void>;
   updateTask: (id: string, data: UpdateTaskDto) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
   reorderTasks: (tasks: Task[]) => Promise<void>;
@@ -287,12 +364,47 @@ export const useStore = create<StoreState>((set, get) => ({
         const selectedNoteId = localStorage.getItem('lastSelectedNoteId') || localStorage.getItem('selectedNoteId') || null;
         const selectedTaskListId = localStorage.getItem('lastSelectedTaskListId') || null;
         const activeProjectId = localStorage.getItem('activeProjectId') || null;
+        const isElectron = Boolean((window as any).mlc?.isElectron);
         const isAppLocked = localStorage.getItem('isAppLocked') === 'true';
         const appLockPasswordHash = localStorage.getItem('appLockPasswordHash');
         const autoLockTimeout = parseInt(localStorage.getItem('autoLockTimeout') || '15', 10);
 
-        set({ user, token, language, activeTab, selectedNoteId, selectedTaskListId, activeProjectId, isAppLocked, appLockPasswordHash, autoLockTimeout, isHydrated: true });
+        const shouldLockOnLaunch = Boolean(token && appLockPasswordHash && isElectron);
+        const nextLocked = shouldLockOnLaunch ? true : isAppLocked;
+
+        set({ user, token, language, activeTab, selectedNoteId, selectedTaskListId, activeProjectId, isAppLocked: nextLocked, appLockPasswordHash, autoLockTimeout, isHydrated: true });
+        setElectronLockState(nextLocked);
+        setApiToken(token || null);
+        setSocketToken(token || null);
         if (token) setElectronToken(token);
+        if (user) setElectronUser(user);
+        if ((!token || !user) && (window as any).mlc?.getSetting) {
+            Promise.all([
+                (window as any).mlc.getSetting('token'),
+                (window as any).mlc.getSetting('user')
+            ]).then(([storedToken, storedUser]) => {
+                if (storedToken && !token) {
+                    localStorage.setItem('token', String(storedToken));
+                }
+                if (storedUser && !user) {
+                    const normalizedUser = typeof storedUser === 'string' ? JSON.parse(storedUser) : storedUser;
+                    localStorage.setItem('user', JSON.stringify(normalizedUser));
+                }
+                if (storedToken && !token) {
+                    set({ token: String(storedToken) });
+                    setApiToken(String(storedToken));
+                    setSocketToken(String(storedToken));
+                }
+                if (storedUser && !user) {
+                    set({ user: typeof storedUser === 'string' ? JSON.parse(storedUser) : storedUser });
+                }
+                if (storedToken && !nextLocked) {
+                    get().fetchNotes();
+                    get().fetchTasks();
+                    get().initSocket();
+                }
+            }).catch(() => {});
+        }
         if (!networkListenersReady) {
             networkListenersReady = true;
             window.addEventListener('online', () => {
@@ -307,7 +419,9 @@ export const useStore = create<StoreState>((set, get) => ({
             });
             set({ isOffline: typeof navigator !== 'undefined' ? !navigator.onLine : false });
         }
-        if (token && !isAppLocked) {
+        if (token && !nextLocked) {
+            get().fetchNotes();
+            get().fetchTasks();
             get().initSocket();
         }
     } catch (e) {
@@ -322,7 +436,10 @@ export const useStore = create<StoreState>((set, get) => ({
         localStorage.setItem('token', token);
         localStorage.setItem('user', JSON.stringify(user));
         set({ user, token });
+        setApiToken(token);
+        setSocketToken(token);
         setElectronToken(token);
+        setElectronUser(user);
         await get().fetchNotes();
         await get().fetchTasks();
         get().initSocket();
@@ -338,7 +455,10 @@ export const useStore = create<StoreState>((set, get) => ({
         localStorage.setItem('token', token);
         localStorage.setItem('user', JSON.stringify(user));
         set({ user, token });
+        setApiToken(token);
+        setSocketToken(token);
         setElectronToken(token);
+        setElectronUser(user);
         await get().fetchNotes();
         await get().fetchTasks();
         get().initSocket();
@@ -351,13 +471,17 @@ export const useStore = create<StoreState>((set, get) => ({
   logout: () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    setApiToken(null);
+    setSocketToken(null);
     setElectronToken(null);
+    setElectronUser(null);
     disconnectSocket();
-    set({ user: null, token: null, notes: [], tasks: [], selectedNoteId: null, selectedTaskListId: null, isAppLocked: false });
+    set({ user: null, token: null, notes: [], tasks: [], selectedNoteId: null, selectedTaskListId: null, isAppLocked: false, unlockedProtectedNoteIds: [] });
   },
 
   notes: [],
   tasks: [],
+  unlockedProtectedNoteIds: [],
   pendingCreated: { notes: {}, tasks: {} },
   selectedNoteId: null,
   selectedTaskListId: null,
@@ -387,8 +511,10 @@ export const useStore = create<StoreState>((set, get) => ({
 
   verifyAppLockPassword: (password) => {
       const { appLockPasswordHash } = get();
-      if (!appLockPasswordHash) return false;
-      return CryptoJS.SHA256(password).toString() === appLockPasswordHash;
+      const stored = typeof window !== 'undefined' ? localStorage.getItem('appLockPasswordHash') : null;
+      const hash = appLockPasswordHash || stored || '';
+      if (!hash) return false;
+      return CryptoJS.SHA256(password).toString() === hash;
   },
 
   setAppLocked: (locked) => {
@@ -402,6 +528,7 @@ export const useStore = create<StoreState>((set, get) => ({
             isAppLocked: true, 
             notes: [], 
             tasks: [], 
+            unlockedProtectedNoteIds: [],
             activeUsers: {},
             selectedNoteId: null,
             selectedTaskListId: null,
@@ -415,6 +542,7 @@ export const useStore = create<StoreState>((set, get) => ({
         get().fetchTasks();
         get().initSocket();
     }
+    setElectronLockState(locked);
   },
 
   setAutoLockTimeout: (minutes) => {
@@ -439,6 +567,7 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   initSocket: () => {
+    if (get().isAppLocked) return;
     if (!get().token) return;
     connectSocket();
     
@@ -470,7 +599,9 @@ export const useStore = create<StoreState>((set, get) => ({
 
     socket.off('note:created');
     socket.on('note:created', (newNote: Note) => {
-      const decryptedNote = decryptNoteFromSocket(newNote);
+      const securedIncoming = materializeNotesFromEncrypted([normalizeEncryptedNote(newNote), ...get().notes], new Set(get().unlockedProtectedNoteIds));
+      const decryptedNote = securedIncoming.find((n) => n._id === newNote._id);
+      if (!decryptedNote) return;
       const exists = get().notes.find(n => n._id === decryptedNote._id);
       const pending = get().pendingCreated.notes[decryptedNote._id];
       if (exists || pending) {
@@ -490,7 +621,9 @@ export const useStore = create<StoreState>((set, get) => ({
 
     socket.off('note:updated');
     socket.on('note:updated', (updatedNote: Note) => {
-        const decryptedNote = decryptNoteFromSocket(updatedNote);
+        const securedIncoming = materializeNotesFromEncrypted(get().notes.map((n) => (n._id === updatedNote._id ? normalizeEncryptedNote(updatedNote) : n)) as any, new Set(get().unlockedProtectedNoteIds));
+        const decryptedNote = securedIncoming.find((n) => n._id === updatedNote._id);
+        if (!decryptedNote) return;
         
         // Use requestAnimationFrame to batch this potentially expensive operation
         requestAnimationFrame(() => {
@@ -509,7 +642,7 @@ export const useStore = create<StoreState>((set, get) => ({
                 }
                 
                 // Remote is newer or no local note, accept remote
-                const newNotes = state.notes.map(n => n._id === decryptedNote._id ? { ...n, ...decryptedNote } : n);
+                const newNotes = securedIncoming;
                 
                 // Preserve unlocked content if still locked in backend but unlocked locally
                 if (state.selectedNoteId === decryptedNote._id) {
@@ -572,7 +705,7 @@ export const useStore = create<StoreState>((set, get) => ({
             recurrenceType: newTask.recurrenceType ? (() => { try { return decrypt(newTask.recurrenceType) as any } catch { return 'none' as any } })() : 'none',
             recurrenceDays: newTask.recurrenceDays ? (() => { try { return JSON.parse(decrypt(newTask.recurrenceDays)) } catch { return [] } })() : [],
             reminderEnabled: newTask.reminderEnabled ? (() => { try { return decrypt(newTask.reminderEnabled) === 'true' } catch { return false } })() : false,
-            reminderOffsetMinutes: newTask.reminderOffsetMinutes ? (() => { try { const num = Number(decrypt(newTask.reminderOffsetMinutes)); return num === 10 ? 10 : 0 } catch { return 0 } })() : 0,
+            reminderOffsetMinutes: newTask.reminderOffsetMinutes ? (() => { try { return parseReminderOffsets(decrypt(newTask.reminderOffsetMinutes)); } catch { return []; } })() : [],
         };
         set(state => {
             const exists = state.tasks.some(t => t._id === decryptedTask._id);
@@ -610,7 +743,7 @@ export const useStore = create<StoreState>((set, get) => ({
             recurrenceType: updatedTask.recurrenceType ? (() => { try { return decrypt(updatedTask.recurrenceType) as any } catch { return 'none' as any } })() : 'none',
             recurrenceDays: updatedTask.recurrenceDays ? (() => { try { return JSON.parse(decrypt(updatedTask.recurrenceDays)) } catch { return [] } })() : [],
             reminderEnabled: updatedTask.reminderEnabled ? (() => { try { return decrypt(updatedTask.reminderEnabled) === 'true' } catch { return false } })() : false,
-            reminderOffsetMinutes: updatedTask.reminderOffsetMinutes ? (() => { try { const num = Number(decrypt(updatedTask.reminderOffsetMinutes)); return num === 10 ? 10 : 0 } catch { return 0 } })() : 0,
+            reminderOffsetMinutes: updatedTask.reminderOffsetMinutes ? (() => { try { return parseReminderOffsets(decrypt(updatedTask.reminderOffsetMinutes)); } catch { return []; } })() : [],
         };
         set(state => ({
             tasks: state.tasks.map(t => t._id === decryptedTask._id ? decryptedTask : t)
@@ -626,8 +759,8 @@ export const useStore = create<StoreState>((set, get) => ({
         }));
         db.deleteTask(taskId);
         const existing = reminderTimers.get(taskId);
-        if (existing !== undefined) {
-          clearTimeout(existing);
+        if (existing && existing.length > 0) {
+          existing.forEach((id) => clearTimeout(id));
           reminderTimers.delete(taskId);
         }
     });
@@ -658,6 +791,7 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   syncOfflineChanges: async () => {
+      if (get().isAppLocked) return;
       // Sync Notes
       const pendingNotes = await db.getPendingSyncNotes();
       for (const note of pendingNotes) {
@@ -765,10 +899,15 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   fetchNotes: async () => {
+    if (get().isAppLocked) {
+      set({ isLoading: false });
+      return;
+    }
     set({ isLoading: true, error: null });
     try {
         const cachedNotes = await db.getAllNotes();
-        const validNotes = cachedNotes.filter(n => !(n as any).deleted);
+        const validNotesRaw = cachedNotes.filter(n => !(n as any).deleted);
+        const validNotes = materializeNotesFromEncrypted(validNotesRaw as any, new Set(get().unlockedProtectedNoteIds));
         if (validNotes.length > 0) {
             set({ notes: validNotes, isLoading: false });
         } else {
@@ -779,10 +918,8 @@ export const useStore = create<StoreState>((set, get) => ({
     }
 
     try {
-      if (typeof navigator !== 'undefined' && !navigator.onLine) {
-        set({ isOffline: true, error: 'Offline-läge', isLoading: false });
-        return;
-      }
+      // Always try to fetch, regardless of navigator.onLine status
+      // This fixes issues in Electron where onLine might be false reported
       const withTimeout = <T,>(promise: Promise<T>, ms: number) => {
         let timeoutId: ReturnType<typeof setTimeout>;
         const timeout = new Promise<never>((_, reject) => {
@@ -792,7 +929,8 @@ export const useStore = create<StoreState>((set, get) => ({
       };
 
       const encryptedNotes = await withTimeout(api.fetchNotes(), 8000);
-      const notes = await api.decryptNotes(encryptedNotes);
+      const safeEncryptedNotes = Array.isArray(encryptedNotes) ? encryptedNotes : [];
+      const notes = materializeNotesFromEncrypted(safeEncryptedNotes as any, new Set(get().unlockedProtectedNoteIds));
       
       const pendingNotes = await db.getPendingSyncNotes();
       
@@ -813,7 +951,8 @@ export const useStore = create<StoreState>((set, get) => ({
           }
       }
 
-      const nextNotes = uniqBy(mergedNotes, '_id');
+      const nextNotesRaw = uniqBy(mergedNotes, '_id');
+      const nextNotes = materializeNotesFromEncrypted(nextNotesRaw as any, new Set(get().unlockedProtectedNoteIds));
       set({ notes: nextNotes, isLoading: false });
       if (typeof window !== 'undefined') {
         if (nextNotes.length === 0) {
@@ -836,8 +975,8 @@ export const useStore = create<StoreState>((set, get) => ({
 
       // Batch save to DB to prevent UI freezing
       const chunkSize = 50;
-      for (let i = 0; i < notes.length; i += chunkSize) {
-          const chunk = notes.slice(i, i + chunkSize);
+      for (let i = 0; i < nextNotes.length; i += chunkSize) {
+          const chunk = nextNotes.slice(i, i + chunkSize);
           await Promise.all(chunk.map(n => db.saveNote(n)));
           // Yield to event loop
           await new Promise(resolve => setTimeout(resolve, 0));
@@ -848,6 +987,10 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   fetchTasks: async (parentNoteId) => {
+    if (get().isAppLocked) {
+      set({ isLoading: false });
+      return;
+    }
     set({ isLoading: true, error: null });
     try {
         const cachedTasks = await db.getAllTasks();
@@ -863,10 +1006,7 @@ export const useStore = create<StoreState>((set, get) => ({
     }
 
     try {
-        if (typeof navigator !== 'undefined' && !navigator.onLine) {
-            set({ isOffline: true, error: 'Offline-läge', isLoading: false });
-            return;
-        }
+        // Always try to fetch, regardless of navigator.onLine status
         const encryptedTasks = await api.fetchTasks(parentNoteId);
         const tasks = await api.decryptTasks(encryptedTasks);
         
@@ -1018,9 +1158,18 @@ export const useStore = create<StoreState>((set, get) => ({
     }
 
     const stateUpdates = { ...updates };
+    const currentBeforeLock = get().notes.find(n => n._id === id) as any;
     if (updates.locked === true) {
+        if (currentBeforeLock) {
+            stateUpdates.__rawEncryptedTitle = currentBeforeLock.__rawEncryptedTitle || encrypt(currentBeforeLock.title || '');
+            stateUpdates.__rawEncryptedContent = currentBeforeLock.__rawEncryptedContent || encrypt(currentBeforeLock.content || '');
+            stateUpdates.__rawEncryptedTags = currentBeforeLock.__rawEncryptedTags || (Array.isArray(currentBeforeLock.tags) ? currentBeforeLock.tags.map((t: string) => encrypt(t)) : []);
+            stateUpdates.__rawEncryptedIcon = currentBeforeLock.__rawEncryptedIcon || (currentBeforeLock.icon ? encrypt(currentBeforeLock.icon) : undefined);
+            stateUpdates.__rawEncryptedIconColor = currentBeforeLock.__rawEncryptedIconColor || (currentBeforeLock.iconColor ? encrypt(currentBeforeLock.iconColor) : undefined);
+        }
         stateUpdates.title = 'Låst anteckning';
         stateUpdates.content = '';
+        set((state) => ({ unlockedProtectedNoteIds: state.unlockedProtectedNoteIds.filter((item) => item !== id) }));
     }
 
     // Optimistic update
@@ -1053,7 +1202,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
       const updatedNote = await api.updateNote(id, payload);
       set((state) => ({
-        notes: state.notes.map((n) => (n._id === id ? updatedNote : n))
+        notes: materializeNotesFromEncrypted(state.notes.map((n) => (n._id === id ? updatedNote : n)) as any, new Set(state.unlockedProtectedNoteIds))
       }));
       await db.saveNote(updatedNote, false); // Mark synced
     } catch (error: any) {
@@ -1088,21 +1237,14 @@ export const useStore = create<StoreState>((set, get) => ({
 
   unlockNote: async (id, password) => {
     try {
-      const { success, content, title } = await api.verifyLock(id, password);
+      const { success, content, title, unlockedId } = await api.verifyLock(id, password);
       if (success) {
+        const effectiveUnlockId = unlockedId || id;
         set((state) => ({
-          notes: state.notes.map((n) => (n._id === id ? { ...n, content, ...(title ? { title } : {}) } : n)) 
+          unlockedProtectedNoteIds: Array.from(new Set([...state.unlockedProtectedNoteIds, effectiveUnlockId])),
+          notes: state.notes.map((n) => (n._id === id ? { ...n, content, ...(title ? { title } : {}) } : n)),
         }));
-        // Update local DB with unlocked content?
-        // Maybe unsafe to store unlocked content permanently if it's supposed to be locked?
-        // But for offline access, we might need it.
-        // Let's NOT store unlocked content in DB for security, or store it encrypted?
-        // The DB stores what we have. If we have the content, we store it.
-        // Ideally, we should encrypt before storing in IndexedDB too, using a local key?
-        // For now, let's assume the user accepts the risk or we just don't persist unlocked state?
-        // Actually, if we update the note in store, we might trigger a save?
-        // No, updateNote triggers save. unlockNote just updates state.
-        // So we don't persist unlocked content to IDB here automatically.
+        await get().fetchNotes();
         return true;
       }
       return false;
@@ -1139,6 +1281,9 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   createTask: async (title, parentNoteId, dueDate, options) => {
+      const reminderOffsets = options?.reminderEnabled
+        ? (options?.reminderOffsetMinutes && options.reminderOffsetMinutes.length > 0 ? options.reminderOffsetMinutes : [0])
+        : [];
       const clientId = getUUID();
       try {
           const newTask = await api.createTask({ 
@@ -1151,7 +1296,7 @@ export const useStore = create<StoreState>((set, get) => ({
               recurrenceType: options?.recurrenceType,
               recurrenceDays: options?.recurrenceDays,
               reminderEnabled: options?.reminderEnabled,
-              reminderOffsetMinutes: options?.reminderOffsetMinutes
+              reminderOffsetMinutes: reminderOffsets
           });
           set(state => ({ 
               tasks: uniqBy([newTask, ...state.tasks], '_id'),
@@ -1186,7 +1331,7 @@ export const useStore = create<StoreState>((set, get) => ({
               recurrenceType: options?.recurrenceType || 'none',
               recurrenceDays: options?.recurrenceDays || [],
               reminderEnabled: options?.reminderEnabled || false,
-              reminderOffsetMinutes: options?.reminderOffsetMinutes || 0,
+              reminderOffsetMinutes: reminderOffsets,
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
           } as Task;
@@ -1257,8 +1402,8 @@ export const useStore = create<StoreState>((set, get) => ({
           tasks: state.tasks.filter(t => t._id !== id)
       }));
       const existing = reminderTimers.get(id);
-      if (existing !== undefined) {
-        clearTimeout(existing);
+      if (existing && existing.length > 0) {
+        existing.forEach((timeoutId) => clearTimeout(timeoutId));
         reminderTimers.delete(id);
       }
 

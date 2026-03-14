@@ -1,6 +1,8 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import { Note, Task, Conversation, Message, AIModel, encrypt, decrypt } from '@repo/shared';
 
+type LocalConversation = Conversation & { localOnly?: boolean };
+
 interface NoterDB extends DBSchema {
   notes: {
     key: string;
@@ -14,7 +16,7 @@ interface NoterDB extends DBSchema {
   };
   conversations: {
     key: string;
-    value: Conversation;
+    value: LocalConversation;
     indexes: { 'by-updated': string };
   };
   messages: {
@@ -155,11 +157,11 @@ export const db = {
         })();
         return {
           ...n,
-          title: locked ? 'Låst anteckning' : decrypt(n.title),
-          content: locked ? '' : decrypt(n.content),
-          tags: locked ? [] : (n.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? []),
-          icon: locked ? undefined : (n.icon ? (() => { try { return decrypt(n.icon) } catch { return n.icon } })() : undefined),
-          iconColor: locked ? undefined : (n.iconColor ? (() => { try { return decrypt(n.iconColor) } catch { return n.iconColor } })() : undefined),
+          title: n.title,
+          content: n.content,
+          tags: n.tags ?? [],
+          icon: n.icon,
+          iconColor: n.iconColor,
           type: n.type ? (() => { try { return decrypt(n.type) as any } catch { return n.type } })() : 'note',
           parentId: n.parentId ? (() => { try { return decrypt(n.parentId) } catch { return n.parentId } })() : null,
           order: (() => {
@@ -175,6 +177,11 @@ export const db = {
           userId: decryptText((n as any).userId, (n as any).userId) || (n as any).userId,
           clientId: (n as any).clientId ? (decryptText((n as any).clientId, (n as any).clientId) || (n as any).clientId) : undefined,
           locked: locked,
+          __rawEncryptedTitle: n.title,
+          __rawEncryptedContent: n.content,
+          __rawEncryptedTags: n.tags ?? [],
+          __rawEncryptedIcon: n.icon,
+          __rawEncryptedIconColor: n.iconColor,
           password: (n as any).password ? (decryptText((n as any).password, (n as any).password) || (n as any).password) : undefined,
           createdAt: (() => {
               const value: any = (n as any).createdAt;
@@ -198,7 +205,7 @@ export const db = {
           })(),
           pendingSync: parseEncryptedBool((n as any).pendingSync),
           deleted: parseEncryptedBool((n as any).deleted),
-        };
+        } as any;
     });
   },
 
@@ -223,11 +230,11 @@ export const db = {
     })();
     return {
         ...note,
-        title: locked ? 'Låst anteckning' : decrypt(note.title),
-        content: locked ? '' : decrypt(note.content),
-        tags: locked ? [] : (note.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? []),
-        icon: locked ? undefined : (note.icon ? (() => { try { return decrypt(note.icon) } catch { return note.icon } })() : undefined),
-        iconColor: locked ? undefined : (note.iconColor ? (() => { try { return decrypt(note.iconColor) } catch { return note.iconColor } })() : undefined),
+        title: note.title,
+        content: note.content,
+        tags: note.tags ?? [],
+        icon: note.icon,
+        iconColor: note.iconColor,
         type: note.type ? (() => { try { return decrypt(note.type) as any } catch { return note.type } })() : 'note',
         parentId: note.parentId ? (() => { try { return decrypt(note.parentId) } catch { return note.parentId } })() : null,
         order: (() => {
@@ -243,6 +250,11 @@ export const db = {
         userId: decryptText((note as any).userId, (note as any).userId) || (note as any).userId,
         clientId: (note as any).clientId ? (decryptText((note as any).clientId, (note as any).clientId) || (note as any).clientId) : undefined,
         locked: locked,
+        __rawEncryptedTitle: note.title,
+        __rawEncryptedContent: note.content,
+        __rawEncryptedTags: note.tags ?? [],
+        __rawEncryptedIcon: note.icon,
+        __rawEncryptedIconColor: note.iconColor,
         password: (note as any).password ? (decryptText((note as any).password, (note as any).password) || (note as any).password) : undefined,
         createdAt: (() => {
             const value: any = (note as any).createdAt;
@@ -266,20 +278,25 @@ export const db = {
         })(),
         pendingSync: parseEncryptedBool((note as any).pendingSync),
         deleted: parseEncryptedBool((note as any).deleted),
-    };
+    } as any;
   },
 
   async saveNote(note: Note, pendingSync = false): Promise<void> {
     const db = await initDB();
+    const rawTitle = (note as any).__rawEncryptedTitle;
+    const rawContent = (note as any).__rawEncryptedContent;
+    const rawTags = (note as any).__rawEncryptedTags;
+    const rawIcon = (note as any).__rawEncryptedIcon;
+    const rawIconColor = (note as any).__rawEncryptedIconColor;
     const encrypted: any = {
         _id: note._id,
         userId: note.userId ? encrypt(note.userId) : note.userId,
         clientId: note.clientId ? encrypt(note.clientId) : note.clientId,
-        title: encrypt(note.title),
-        content: encrypt(note.content),
-        tags: note.tags?.map(t => encrypt(t)) ?? [],
-        icon: note.icon ? encrypt(note.icon) : undefined,
-        iconColor: note.iconColor ? encrypt(note.iconColor) : undefined,
+        title: rawTitle && note.locked ? rawTitle : encrypt(note.title),
+        content: rawContent && note.locked ? rawContent : encrypt(note.content),
+        tags: Array.isArray(rawTags) && note.locked ? rawTags : (note.tags?.map(t => encrypt(t)) ?? []),
+        icon: rawIcon && note.locked ? rawIcon : (note.icon ? encrypt(note.icon) : undefined),
+        iconColor: rawIconColor && note.locked ? rawIconColor : (note.iconColor ? encrypt(note.iconColor) : undefined),
         parentId: note.parentId ? encrypt(note.parentId) : null,
         order: typeof note.order === 'number' ? encrypt(String(note.order)) : note.order ? encrypt(String(note.order)) : undefined,
         locked: encrypt(String(!!note.locked)),
@@ -465,29 +482,39 @@ export const db = {
 
   // AI Conversations
 
-  async saveConversation(conversation: Conversation): Promise<void> {
+  async saveConversation(conversation: LocalConversation): Promise<void> {
     const db = await initDB();
-    const encrypted: Conversation = {
+    const encrypted: LocalConversation = {
       ...conversation,
       title: encrypt(conversation.title),
       model: conversation.model ? encrypt(conversation.model) : undefined,
+      projectId: conversation.projectId ? encrypt(conversation.projectId) : undefined,
+      icon: conversation.icon ? encrypt(conversation.icon) : undefined,
+      iconColor: conversation.iconColor ? encrypt(conversation.iconColor) : undefined,
+      localOnly: encrypt(String(Boolean(conversation.localOnly))) as any,
+      userId: conversation.userId ? encrypt(conversation.userId) : undefined,
       createdAt: encrypt(conversation.createdAt),
       updatedAt: encrypt(conversation.updatedAt),
     };
     await db.put('conversations', encrypted);
   },
 
-  async getConversations(): Promise<Conversation[]> {
+  async getConversations(userId?: string): Promise<LocalConversation[]> {
     const db = await initDB();
     const encrypted = await db.getAllFromIndex('conversations', 'by-updated');
     return encrypted.map(conv => ({
       ...conv,
       title: decrypt(conv.title),
       model: conv.model ? decrypt(conv.model) : undefined,
+      projectId: conv.projectId ? decryptText(conv.projectId, conv.projectId) || conv.projectId : undefined,
+      icon: conv.icon ? decryptText(conv.icon, conv.icon) || conv.icon : undefined,
+      iconColor: conv.iconColor ? decryptText(conv.iconColor, conv.iconColor) || conv.iconColor : undefined,
+      localOnly: conv.localOnly ? (decryptText(conv.localOnly as any, String(conv.localOnly)) === 'true') : false,
+      userId: conv.userId ? decryptText(conv.userId, conv.userId) || conv.userId : undefined,
       createdAt: decrypt(conv.createdAt),
       updatedAt: decrypt(conv.updatedAt),
       messages: []
-    })).reverse();
+    })).reverse().filter(conv => !userId || conv.userId === userId || !conv.userId);
   },
 
   async deleteConversation(id: string): Promise<void> {

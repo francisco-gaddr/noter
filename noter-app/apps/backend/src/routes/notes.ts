@@ -7,37 +7,52 @@ import { decrypt, encrypt } from '@repo/shared';
 import { AuthRequest } from '../middleware/authMiddleware';
 import { validate } from '../middleware/validate';
 import cache from '../services/cache';
+import { isEncryptedPayload } from '../utils/encryption';
 
 const router = express.Router();
 
+const encryptedRequired = Joi.string().custom((value, helpers) => (
+  isEncryptedPayload(value) ? value : helpers.error('any.invalid')
+));
+const encryptedOptional = Joi.alternatives().try(Joi.string().valid(''), encryptedRequired);
+
+const parseEncryptedBoolean = (value: string): boolean => {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  const decrypted = decrypt(value);
+  if (decrypted === 'true') return true;
+  if (decrypted === 'false') return false;
+  return false;
+};
+
 // Validation schemas
 const noteSchema = Joi.object({
-  title: Joi.string().required(),
-  content: Joi.string().allow('').required(),
-  tags: Joi.array().items(Joi.string()),
+  title: encryptedRequired.required(),
+  content: encryptedRequired.required(),
+  tags: Joi.array().items(encryptedRequired),
   parentId: Joi.string().allow(null),
-  locked: Joi.alternatives().try(Joi.boolean(), Joi.string()), // Accept both boolean and encrypted string
-  password: Joi.string().allow(''),
-  icon: Joi.string().allow(null, ''),
-  order: Joi.alternatives().try(Joi.number(), Joi.string().allow('')),
-  type: Joi.string().allow('note', 'task_list', 'project').default('note'),
+  locked: encryptedOptional.optional(),
+  password: encryptedOptional.optional(),
+  icon: Joi.alternatives().try(Joi.valid(null), encryptedOptional).optional(),
+  order: encryptedOptional.optional(),
+  type: encryptedRequired.required(),
   clientId: Joi.string().allow('').optional(),
-  createdAt: Joi.string().allow(''),
-  updatedAt: Joi.string().allow('')
+  createdAt: encryptedRequired.required(),
+  updatedAt: encryptedRequired.required()
 });
 
 const updateSchema = Joi.object({
-  title: Joi.string(),
-  content: Joi.string().allow(''),
-  tags: Joi.array().items(Joi.string()),
+  title: encryptedRequired.optional(),
+  content: encryptedRequired.optional(),
+  tags: Joi.array().items(encryptedRequired).optional(),
   parentId: Joi.string().allow(null),
-  locked: Joi.alternatives().try(Joi.boolean(), Joi.string()), // Accept both boolean and encrypted string
-  password: Joi.string().allow(''),
-  icon: Joi.string().allow(null, ''),
-  order: Joi.alternatives().try(Joi.number(), Joi.string().allow('')),
-  type: Joi.string().allow(null, ''),
-  createdAt: Joi.string().allow(''),
-  updatedAt: Joi.string().allow('')
+  locked: encryptedOptional.optional(),
+  password: encryptedOptional.optional(),
+  icon: Joi.alternatives().try(Joi.valid(null), encryptedOptional).optional(),
+  order: encryptedOptional.optional(),
+  type: Joi.alternatives().try(Joi.valid(null), encryptedOptional).optional(),
+  createdAt: encryptedOptional.optional(),
+  updatedAt: encryptedOptional.optional()
 });
 
 const reorderSchema = Joi.object({
@@ -103,7 +118,7 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
       res.json(cachedNote);
       return;
     }
-    const note = await Note.findById(req.params.id);
+    const note = await Note.findById(req.params.id).select('+password');
     if (!note) {
       res.status(404);
       return next(new Error('Note not found'));
@@ -134,16 +149,38 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
 // POST /api/notes/:id/verify-lock
 router.post('/:id/verify-lock', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const userId = (req as AuthRequest).user!.userId;
     const targetId = req.params.id;
-    const targetNote = await Note.findById(targetId).select('+password');
+    const targetNote = await Note.findOne({ _id: targetId, userId }).select('+password');
     
     if (!targetNote) {
       res.status(404);
       return next(new Error('Note not found'));
     }
 
+    let blockingNote: any = null;
+    let current: any = targetNote;
+    const seen = new Set<string>();
+    while (current) {
+      if (seen.has(String(current._id))) break;
+      seen.add(String(current._id));
+      const lockedRaw = String(current.locked ?? '');
+      const isLocked = parseEncryptedBoolean(lockedRaw);
+      if (isLocked) {
+        blockingNote = current;
+        break;
+      }
+      if (!current.parentId) break;
+      current = await Note.findOne({ _id: current.parentId, userId }).select('+password');
+    }
+
+    if (!blockingNote) {
+      res.json({ success: true, content: targetNote.content, title: targetNote.title, unlockedId: null });
+      return;
+    }
+
     const password = req.body?.password;
-    if (!password || !targetNote.password) {
+    if (!password || !blockingNote.password) {
       // Return 200 OK with success: false instead of 401 to prevent frontend logout
       res.json({ success: false, message: 'Invalid password' });
       return;
@@ -154,7 +191,7 @@ router.post('/:id/verify-lock', async (req: Request, res: Response, next: NextFu
     const candidates = [password, decryptedCandidate, encryptedCandidate].filter((v, i, arr) => v && arr.indexOf(v) === i);
     let isMatch = false;
     for (const candidate of candidates) {
-      if (await bcrypt.compare(candidate, targetNote.password)) {
+      if (await bcrypt.compare(candidate, blockingNote.password)) {
         isMatch = true;
         break;
       }
@@ -165,7 +202,7 @@ router.post('/:id/verify-lock', async (req: Request, res: Response, next: NextFu
       return;
     }
 
-    res.json({ success: true, content: targetNote.content, title: targetNote.title });
+    res.json({ success: true, content: targetNote.content, title: targetNote.title, unlockedId: String(blockingNote._id) });
   } catch (error) {
     next(error);
   }
@@ -258,7 +295,16 @@ router.put('/:id', validate(updateSchema), async (req: Request, res: Response, n
       if (value.content !== undefined) note.content = value.content;
       if (value.tags !== undefined) note.tags = value.tags;
       if (value.parentId !== undefined) note.parentId = value.parentId;
-      if (value.locked !== undefined) note.locked = value.locked; // Now stored as encrypted string
+      if (value.locked !== undefined) {
+        const nextLockedEncrypted = String(value.locked);
+        const nextLocked = parseEncryptedBoolean(nextLockedEncrypted);
+        const currentLocked = parseEncryptedBoolean(String(note.locked || ''));
+        if (currentLocked && !nextLocked) {
+          res.status(403);
+          return next(new Error('Unlock is not allowed through update endpoint'));
+        }
+        note.locked = nextLockedEncrypted;
+      }
       if (value.type !== undefined) note.type = value.type;
       if (value.password !== undefined) {
         if (value.password) {

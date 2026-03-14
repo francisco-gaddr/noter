@@ -11,7 +11,9 @@ import { Note } from '@repo/shared';
 import { IconPicker } from './IconPicker';
 import { CreateNodeModal } from './CreateNodeModal';
 import { ConfirmationModal } from './ConfirmationModal';
+import { PasswordModal } from './PasswordModal';
 import { useTranslation } from 'react-i18next';
+import { buildSecurityNoteMap, findBlockingLockedAncestor } from '../services/ai/security';
 
 interface TreeNodeProps {
     note: Note;
@@ -260,12 +262,13 @@ const TreeNode = React.memo(({ note, allNotes, noteById, childrenMap, level, sel
 });
 
 export default function SidebarTree() {
-  const { notes, selectedNoteId, selectedTaskListId, selectNote, createNote, deleteNote, fetchNotes, searchQuery, sortOrder, setSortOrder, error, updateNote, moveNote, language, setLanguage, activeTab, setActiveTab, activeProjectId, setActiveProject } = useStore();
+  const { notes, selectedNoteId, selectedTaskListId, selectNote, createNote, deleteNote, fetchNotes, searchQuery, sortOrder, setSortOrder, error, updateNote, moveNote, unlockNote, language, setLanguage, activeTab, setActiveTab, activeProjectId, setActiveProject, unlockedProtectedNoteIds } = useStore();
   const [viewMode, setViewMode] = useState<'tree' | 'list'>('tree');
   const [iconPickerNote, setIconPickerNote] = useState<Note | null>(null);
   const [createModal, setCreateModal] = useState<{ isOpen: boolean; type: 'note' | 'task_list' | 'project'; parentId: string | null }>({ isOpen: false, type: 'note', parentId: null });
   const [editModal, setEditModal] = useState<{ isOpen: boolean; note: Note | null }>({ isOpen: false, note: null });
   const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; id: string | null; type: 'project' | 'note' | 'task_list' }>({ isOpen: false, id: null, type: 'note' });
+  const [projectUnlockModal, setProjectUnlockModal] = useState<{ isOpen: boolean; projectId: string | null }>({ isOpen: false, projectId: null });
   const containerRef = useRef<HTMLDivElement>(null);
   const { t } = useTranslation();
 
@@ -329,6 +332,14 @@ export default function SidebarTree() {
   const noteById = useMemo(() => {
     return new Map(safeNotes.map((n) => [n._id, n]));
   }, [safeNotes]);
+  const securityMap = useMemo(() => buildSecurityNoteMap(safeNotes as any), [safeNotes]);
+  const unlockedSet = useMemo(() => new Set(unlockedProtectedNoteIds), [unlockedProtectedNoteIds]);
+  const activeProjectBlocked = useMemo(() => {
+    if (!activeProjectId) return null;
+    const project = noteById.get(activeProjectId);
+    if (!project) return null;
+    return findBlockingLockedAncestor(project as any, securityMap as any, unlockedSet as any);
+  }, [activeProjectId, noteById, securityMap, unlockedSet]);
 
   const childCountMap = useMemo(() => {
     const map = new Map<string, number>();
@@ -366,6 +377,14 @@ export default function SidebarTree() {
   }, [safeNotes, sortOrder]);
 
   const { rootNotes, flatFilteredNotes, sortedFlatNotes } = useMemo(() => {
+    const readableCache = new Map<string, boolean>();
+    const isReadable = (note: Note) => {
+      const cached = readableCache.get(note._id);
+      if (cached !== undefined) return cached;
+      const readable = !findBlockingLockedAncestor(note as any, securityMap as any, unlockedSet as any);
+      readableCache.set(note._id, readable);
+      return readable;
+    };
     if (searchQuery) {
       // Only search when there's actually a search query to avoid unnecessary computation
       const fuse = new Fuse(safeNotes, {
@@ -378,7 +397,8 @@ export default function SidebarTree() {
         const noteType = (n as any).type;
         const isTaskList = noteType === 'task_list';
         const isProject = noteType === 'project';
-        return activeTab === 'tasks' ? isTaskList : (!isTaskList && !isProject);
+        const base = activeTab === 'tasks' ? isTaskList : (!isTaskList && !isProject);
+        return base && isReadable(n);
       });
       return { rootNotes: [], flatFilteredNotes: filtered, sortedFlatNotes: [] };
     }
@@ -389,12 +409,13 @@ export default function SidebarTree() {
         const noteType = (n as any).type;
         const isTaskList = noteType === 'task_list';
         const isProject = noteType === 'project';
-        if (activeTab === 'tasks') return isTaskList;
+        if (activeTab === 'tasks') return isTaskList && isReadable(n);
         
         if (activeProjectId) {
+             if (activeProjectBlocked) return false;
              const cached = belongsCache.get(n._id);
              if (cached !== undefined) {
-               return !isTaskList && (n as any).type !== 'project' && cached;
+               return !isTaskList && (n as any).type !== 'project' && cached && isReadable(n);
              }
 
              let parent = n.parentId;
@@ -408,11 +429,11 @@ export default function SidebarTree() {
                  steps += 1;
              }
              belongsCache.set(n._id, belongs);
-             return !isTaskList && (n as any).type !== 'project' && belongs;
+             return !isTaskList && (n as any).type !== 'project' && belongs && isReadable(n);
         }
         
         // When "All Notes" (no activeProjectId), show all notes but hide project folders
-        return !isTaskList && (n as any).type !== 'project';
+        return !isTaskList && (n as any).type !== 'project' && isReadable(n);
       });
       return { rootNotes: [], flatFilteredNotes: [], sortedFlatNotes: sortNotes(filtered, sortOrder) };
     }
@@ -428,16 +449,45 @@ export default function SidebarTree() {
         if (activeTab === 'tasks') return isRoot && isTaskList;
 
         if (activeProjectId) {
+            if (activeProjectBlocked) return false;
             // Show all children of the active project, including sub-projects (but filter out task lists if needed)
-            return n.parentId === activeProjectId && !isTaskList;
+            return n.parentId === activeProjectId && !isTaskList && isReadable(n);
         }
 
         // When "All Notes" (no activeProjectId), show all notes but hide project folders
-        return isRoot && !isTaskList && !isProject;
+        return isRoot && !isTaskList && !isProject && isReadable(n);
     });
     return { rootNotes: sortNotes(roots, sortOrder), flatFilteredNotes: [], sortedFlatNotes: [] };
 
-  }, [safeNotes, searchQuery, sortOrder, viewMode, activeTab, activeProjectId, projects, noteById]);
+  }, [safeNotes, searchQuery, sortOrder, viewMode, activeTab, activeProjectId, projects, noteById, securityMap, unlockedSet, activeProjectBlocked]);
+
+  const handleProjectSelect = async (projectId: string | null) => {
+    if (!projectId) {
+      setActiveProject(null);
+      return;
+    }
+    const project = noteById.get(projectId);
+    if (!project) {
+      setActiveProject(projectId);
+      return;
+    }
+    const blocking = findBlockingLockedAncestor(project as any, securityMap as any, unlockedSet as any);
+    if (!blocking) {
+      setActiveProject(projectId);
+      return;
+    }
+    setProjectUnlockModal({ isOpen: true, projectId });
+  };
+
+  const handleProjectUnlockSubmit = async (password: string) => {
+    if (!projectUnlockModal.projectId) return;
+    const unlocked = await unlockNote(projectUnlockModal.projectId, password);
+    if (!unlocked) {
+      throw new Error('incorrect password');
+    }
+    setActiveProject(projectUnlockModal.projectId);
+    setProjectUnlockModal({ isOpen: false, projectId: null });
+  };
 
   const handleCreateProject = () => {
       setCreateModal({
@@ -469,6 +519,12 @@ export default function SidebarTree() {
     });
   };
 
+  useEffect(() => {
+    const handler = () => handleCreateNote();
+    window.addEventListener('create-note', handler as EventListener);
+    return () => window.removeEventListener('create-note', handler as EventListener);
+  }, [activeTab, activeProjectId]);
+
   const handleCreateChild = (e: React.MouseEvent, parentId: string) => {
       e.stopPropagation();
       setCreateModal({
@@ -478,9 +534,19 @@ export default function SidebarTree() {
       });
   };
 
-  const handleCreateConfirm = async (title: string, icon: string) => {
+  const handleCreateConfirm = async (title: string, icon: string, options?: { locked?: boolean; password?: string }) => {
     try {
         await createNote(title, createModal.parentId, createModal.type, undefined, icon);
+        if (createModal.type === 'project' && options?.locked && options.password) {
+            const state = useStore.getState();
+            const created = [...state.notes]
+              .filter((item) => item.type === 'project' && (item.parentId || null) === (createModal.parentId || null))
+              .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+              .find((item) => item.title === title);
+            if (created) {
+                await updateNote(created._id, undefined, undefined, true, options.password, icon, 'project');
+            }
+        }
         setCreateModal({ ...createModal, isOpen: false });
     } catch (e) {
         console.error(e);
@@ -493,10 +559,19 @@ export default function SidebarTree() {
     setEditModal({ isOpen: true, note });
   };
 
-  const handleEditConfirm = async (title: string, icon: string) => {
+  const handleEditConfirm = async (title: string, icon: string, options?: { locked?: boolean; password?: string }) => {
     if (editModal.note) {
         try {
-            await updateNote(editModal.note._id, title, undefined, undefined, undefined, icon, (editModal.note as any).type);
+            const noteType = (editModal.note as any).type;
+            let lockedToSave = options?.locked;
+            if (noteType === 'project' && Boolean(editModal.note.locked) && options?.locked === false) {
+                const unlocked = await unlockNote(editModal.note._id, options?.password || '');
+                if (!unlocked) {
+                    throw new Error('Fel lösenord för upplåsning av projektmapp');
+                }
+                lockedToSave = true;
+            }
+            await updateNote(editModal.note._id, title, undefined, lockedToSave, options?.password, icon, noteType);
             setEditModal({ isOpen: false, note: null });
         } catch (e) {
             console.error(e);
@@ -558,6 +633,12 @@ export default function SidebarTree() {
         isDangerous={true}
         confirmLabel={t('actions.delete') || 'Delete'}
       />
+      <PasswordModal
+        isOpen={projectUnlockModal.isOpen}
+        onClose={() => setProjectUnlockModal({ isOpen: false, projectId: null })}
+        onSubmit={handleProjectUnlockSubmit}
+        title={t('note.enterPassword') || 'Ange lösenord för projektmappen'}
+      />
 
       {iconPickerNote && (
           <IconPicker 
@@ -591,6 +672,7 @@ export default function SidebarTree() {
         type={(editModal.note as any)?.type || 'note'}
         initialTitle={editModal.note?.title}
         initialIcon={(editModal.note as any)?.icon}
+        initialLocked={Boolean(editModal.note?.locked)}
         mode="edit"
       />
       
@@ -628,7 +710,7 @@ export default function SidebarTree() {
                 <select
                     id="project-select"
                     value={activeProjectId || ''}
-                    onChange={(e) => setActiveProject(e.target.value || null)}
+                    onChange={(e) => { void handleProjectSelect(e.target.value || null); }}
                     className="flex-1 p-2 text-sm border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 outline-none"
                 >
                     <option value="">{t('project.allNotes') || 'All Notes'}</option>

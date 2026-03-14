@@ -1,17 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, View, FlatList, TextInput, KeyboardAvoidingView, Platform, ScrollView, Pressable, AppState } from 'react-native';
-import { Text, Button, useTheme, IconButton, List, ActivityIndicator, ProgressBar, Portal, Dialog, TextInput as PaperTextInput, Switch } from 'react-native-paper';
-import { useNavigation } from 'expo-router';
+import { Text, Button, useTheme, IconButton, List, ActivityIndicator, ProgressBar, Portal, Dialog, TextInput as PaperTextInput, Switch, Menu } from 'react-native-paper';
+import { useLocalSearchParams, useNavigation } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { MobileLlamaProvider } from '@/services/ai/provider';
 import { useStore } from '@/stores/useStore';
 import { ChatMessage, Conversation, HFModel, AIProject } from '@repo/ai';
 import { searchHuggingFaceModels, getModelFiles, getConversionHealth } from '@/services/ai/huggingface';
 import { downloadModel as serviceDownloadModel, getBestQuantization, deleteModel as serviceDeleteModel, cancelDownload as cancelModelDownload } from '@/services/ai/modelService';
+import { isNativeFileSystemAvailable } from '@/services/ai/ModelDownloader';
 import { saveConversationLocal, getConversationsLocal, deleteConversationLocal, saveMessageLocal, getMessagesLocal, getModelsLocal, saveProjectLocal, getProjectsLocal, deleteProjectLocal } from '@/services/database';
 import { combineSystemPrompts, buildToolUseNotice } from '@/services/ai/prompt';
 import { API_URL, fetchWithAuth } from '@/services/api';
 import { buildToolSystemPrompt, extractToolCalls } from '@/services/ai/tooling';
+import { shouldStopToolIteration, toToolCallKeys, toToolIterationSignature } from '@/services/ai/toolChain';
+import { generateApiProviderResponse } from '@/services/ai/apiProviders';
+import { pullAiSync, pushAiSync } from '@/services/ai/sync';
+import { initSocket, getSocket } from '@/services/socket';
+import { buildSecurityNoteMap, isReadableWithLocks } from '@/services/ai/security';
 import { getLocalConversionCapabilities } from '@/services/ai/native/MLCModule';
 import { isAiBackgroundWorkEnabled, setAiBackgroundWorkEnabled } from '@/services/ai/runtimeSettings';
 import IconPickerModal from '@/components/IconPickerModal';
@@ -22,9 +28,12 @@ import * as Clipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
-import { encrypt, decrypt } from '@repo/shared';
+import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings } from '@repo/shared';
 
 const provider = new MobileLlamaProvider();
+type LocalConversation = Conversation & { localOnly?: boolean };
+type LocalAIProject = AIProject & { localOnly?: boolean };
+type PullAiSyncResult = Awaited<ReturnType<typeof pullAiSync>>;
 
 const ProjectDialog = React.memo(({
   visible,
@@ -34,6 +43,7 @@ const ProjectDialog = React.memo(({
   icon,
   iconColor,
   onPickIcon,
+  initialLocalOnly,
   onDelete,
   onSave,
   onDismiss,
@@ -45,21 +55,24 @@ const ProjectDialog = React.memo(({
   icon?: string;
   iconColor?: string;
   onPickIcon: () => void;
+  initialLocalOnly: boolean;
   onDelete?: () => void;
-  onSave: (name: string, prompt: string) => void;
+  onSave: (name: string, prompt: string, localOnly: boolean) => void;
   onDismiss: () => void;
 }) => {
   const theme = useTheme();
   const { t } = useTranslation();
   const [name, setName] = useState(initialName);
   const [prompt, setPrompt] = useState(initialPrompt);
+  const [localOnly, setLocalOnly] = useState(initialLocalOnly);
 
   useEffect(() => {
     if (visible) {
       setName(initialName);
       setPrompt(initialPrompt);
+      setLocalOnly(initialLocalOnly);
     }
-  }, [visible, initialName, initialPrompt]);
+  }, [visible, initialName, initialPrompt, initialLocalOnly]);
 
   return (
     <Dialog visible={visible} onDismiss={onDismiss}>
@@ -95,11 +108,15 @@ const ProjectDialog = React.memo(({
           autoCorrect={false}
           style={{ marginTop: 12 }}
         />
+        <View style={{ marginTop: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Text>{t('ai.localOnlyLabel')}</Text>
+          <Switch value={localOnly} onValueChange={setLocalOnly} />
+        </View>
       </Dialog.Content>
       <Dialog.Actions style={{ marginTop: 12 }}>
         <Button onPress={onDismiss}>{t('common.cancel')}</Button>
         {mode === 'edit' ? <Button onPress={onDelete}>{t('common.delete')}</Button> : null}
-        <Button mode="contained" onPress={() => onSave(name, prompt)} style={{ marginLeft: 8 }}>
+        <Button mode="contained" onPress={() => onSave(name, prompt, localOnly)} style={{ marginLeft: 8 }}>
           {mode === 'create' ? t('common.create') : t('common.save')}
         </Button>
       </Dialog.Actions>
@@ -110,6 +127,7 @@ const ProjectDialog = React.memo(({
 const ChatDialog = React.memo(({
   visible,
   initialName,
+  initialLocalOnly,
   onPickIcon,
   onDelete,
   onSave,
@@ -117,19 +135,22 @@ const ChatDialog = React.memo(({
 }: {
   visible: boolean;
   initialName: string;
+  initialLocalOnly: boolean;
   onPickIcon: () => void;
   onDelete: () => void;
-  onSave: (name: string) => void;
+  onSave: (name: string, localOnly: boolean) => void;
   onDismiss: () => void;
 }) => {
   const { t } = useTranslation();
   const [name, setName] = useState(initialName);
+  const [localOnly, setLocalOnly] = useState(initialLocalOnly);
 
   useEffect(() => {
     if (visible) {
       setName(initialName);
+      setLocalOnly(initialLocalOnly);
     }
-  }, [visible, initialName]);
+  }, [visible, initialName, initialLocalOnly]);
 
   return (
     <Dialog visible={visible} onDismiss={onDismiss}>
@@ -147,11 +168,15 @@ const ChatDialog = React.memo(({
             {t('ai.chatDialog.pickIcon')}
           </Button>
         </View>
+        <View style={{ marginTop: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Text>{t('ai.localOnlyLabel')}</Text>
+          <Switch value={localOnly} onValueChange={setLocalOnly} />
+        </View>
       </Dialog.Content>
       <Dialog.Actions style={{ marginTop: 12 }}>
         <Button onPress={onDismiss}>{t('common.cancel')}</Button>
         <Button onPress={onDelete}>{t('common.delete')}</Button>
-        <Button mode="contained" onPress={() => onSave(name)} style={{ marginLeft: 8 }}>
+        <Button mode="contained" onPress={() => onSave(name, localOnly)} style={{ marginLeft: 8 }}>
           {t('common.save')}
         </Button>
       </Dialog.Actions>
@@ -162,10 +187,11 @@ const ChatDialog = React.memo(({
 export default function AIScreen() {
   const theme = useTheme();
   const navigation = useNavigation();
+  const params = useLocalSearchParams<{ openSettings?: string; settingsTab?: string }>();
   const { t } = useTranslation();
   
   const [settingsVisible, setSettingsVisible] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'downloaded' | 'search' | 'system'>('downloaded');
+  const [settingsTab, setSettingsTab] = useState<'models' | 'instructions'>('models');
 
   // Chat
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
@@ -182,7 +208,7 @@ export default function AIScreen() {
   const [collapsedTool, setCollapsedTool] = useState<Record<string, boolean>>({});
 
   // Projects
-  const [projects, setProjects] = useState<AIProject[]>([]);
+  const [projects, setProjects] = useState<LocalAIProject[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const [projectDialogVisible, setProjectDialogVisible] = useState(false);
@@ -192,12 +218,14 @@ export default function AIScreen() {
   const [projectDialogPrompt, setProjectDialogPrompt] = useState('');
   const [projectDialogIcon, setProjectDialogIcon] = useState<string | undefined>();
   const [projectDialogIconColor, setProjectDialogIconColor] = useState<string | undefined>();
+  const [projectDialogLocalOnly, setProjectDialogLocalOnly] = useState(false);
   const [projectIconPickerVisible, setProjectIconPickerVisible] = useState(false);
   const [chatDialogVisible, setChatDialogVisible] = useState(false);
   const [chatDialogId, setChatDialogId] = useState<string | null>(null);
   const [chatDialogName, setChatDialogName] = useState('');
   const [chatDialogIcon, setChatDialogIcon] = useState<string | undefined>();
   const [chatDialogIconColor, setChatDialogIconColor] = useState<string | undefined>();
+  const [chatDialogLocalOnly, setChatDialogLocalOnly] = useState(false);
   const [chatIconPickerVisible, setChatIconPickerVisible] = useState(false);
   const [confirmProjectDeleteId, setConfirmProjectDeleteId] = useState<string | null>(null);
   const [confirmChatDeleteId, setConfirmChatDeleteId] = useState<string | null>(null);
@@ -208,17 +236,72 @@ export default function AIScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<HFModel[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [downloadDialogVisible, setDownloadDialogVisible] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({});
   const [processingModels, setProcessingModels] = useState<Record<string, boolean>>({});
   const [downloadStage, setDownloadStage] = useState<Record<string, string>>({});
   const [preferLocalConversion, setPreferLocalConversion] = useState(false);
   const [allowBackgroundAIWork, setAllowBackgroundAIWork] = useState(false);
+  const [aiUseApiProviders, setAiUseApiProviders] = useState(false);
+  const [apiProvider, setApiProvider] = useState<'openrouter' | 'gemini'>('openrouter');
+  const [providerMenuVisible, setProviderMenuVisible] = useState(false);
+  const [openRouterApiKey, setOpenRouterApiKey] = useState('');
+  const [openRouterModel, setOpenRouterModel] = useState('openai/gpt-4o-mini');
+  const [geminiApiKey, setGeminiApiKey] = useState('');
+  const [geminiModel, setGeminiModel] = useState('gemini-2.5-flash');
+  const [mcpSettings, setMcpSettings] = useState<McpUiSettings>(() => createEmptyMcpUiSettings());
+  const [mcpDashboardOpen, setMcpDashboardOpen] = useState(false);
+  const [mcpDashboardLoading, setMcpDashboardLoading] = useState(false);
+  const [mcpDashboardError, setMcpDashboardError] = useState<string | null>(null);
+  const [mcpDashboardRows, setMcpDashboardRows] = useState<any[]>([]);
   const [conversionHealthText, setConversionHealthText] = useState<string>('');
   const [deviceConversionHealthText, setDeviceConversionHealthText] = useState<string>('');
   const [searchSizes, setSearchSizes] = useState<Record<string, number | null>>({});
 
   // History
-  const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [conversations, setConversations] = useState<LocalConversation[]>([]);
+
+  const getMcpEnvValues = (): Record<string, string | undefined> => {
+    const env = process.env as Record<string, string | undefined>;
+    return {
+      MCP_SLACK_ENABLED: env.EXPO_PUBLIC_MCP_SLACK_ENABLED,
+      SLACK_MCP_ENABLED: env.EXPO_PUBLIC_SLACK_MCP_ENABLED,
+      MCP_SLACK_BOT_TOKEN: env.EXPO_PUBLIC_MCP_SLACK_BOT_TOKEN,
+      SLACK_BOT_TOKEN: env.EXPO_PUBLIC_SLACK_BOT_TOKEN,
+      MCP_SLACK_TEAM_ID: env.EXPO_PUBLIC_MCP_SLACK_TEAM_ID,
+      SLACK_TEAM_ID: env.EXPO_PUBLIC_SLACK_TEAM_ID,
+      MCP_SLACK_CHANNEL_IDS: env.EXPO_PUBLIC_MCP_SLACK_CHANNEL_IDS,
+      SLACK_CHANNEL_IDS: env.EXPO_PUBLIC_SLACK_CHANNEL_IDS,
+      MCP_GOOGLE_WORKSPACE_ENABLED: env.EXPO_PUBLIC_MCP_GOOGLE_WORKSPACE_ENABLED,
+      GOOGLE_WORKSPACE_MCP_ENABLED: env.EXPO_PUBLIC_GOOGLE_WORKSPACE_MCP_ENABLED,
+      MCP_GOOGLE_OAUTH_CLIENT_ID: env.EXPO_PUBLIC_MCP_GOOGLE_OAUTH_CLIENT_ID,
+      GOOGLE_OAUTH_CLIENT_ID: env.EXPO_PUBLIC_GOOGLE_OAUTH_CLIENT_ID,
+      MCP_GOOGLE_OAUTH_CLIENT_SECRET: env.EXPO_PUBLIC_MCP_GOOGLE_OAUTH_CLIENT_SECRET,
+      GOOGLE_OAUTH_CLIENT_SECRET: env.EXPO_PUBLIC_GOOGLE_OAUTH_CLIENT_SECRET,
+      MCP_GOOGLE_OAUTH_REDIRECT_URI: env.EXPO_PUBLIC_MCP_GOOGLE_OAUTH_REDIRECT_URI,
+      GOOGLE_OAUTH_REDIRECT_URI: env.EXPO_PUBLIC_GOOGLE_OAUTH_REDIRECT_URI,
+      MCP_GOOGLE_OAUTH_PATH: env.EXPO_PUBLIC_MCP_GOOGLE_OAUTH_PATH,
+      GOOGLE_OAUTH_PATH: env.EXPO_PUBLIC_GOOGLE_OAUTH_PATH,
+      MCP_NOTION_ENABLED: env.EXPO_PUBLIC_MCP_NOTION_ENABLED,
+      NOTION_MCP_ENABLED: env.EXPO_PUBLIC_NOTION_MCP_ENABLED,
+      MCP_NOTION_API_TOKEN: env.EXPO_PUBLIC_MCP_NOTION_API_TOKEN,
+      NOTION_API_TOKEN: env.EXPO_PUBLIC_NOTION_API_TOKEN,
+      MCP_NOTION_WORKSPACE_ID: env.EXPO_PUBLIC_MCP_NOTION_WORKSPACE_ID,
+      NOTION_WORKSPACE_ID: env.EXPO_PUBLIC_NOTION_WORKSPACE_ID,
+      MCP_FILESYSTEM_ENABLED: env.EXPO_PUBLIC_MCP_FILESYSTEM_ENABLED,
+      FILESYSTEM_MCP_ENABLED: env.EXPO_PUBLIC_FILESYSTEM_MCP_ENABLED,
+      MCP_FILESYSTEM_ALLOWED_PATHS: env.EXPO_PUBLIC_MCP_FILESYSTEM_ALLOWED_PATHS,
+      FILESYSTEM_ALLOWED_PATHS: env.EXPO_PUBLIC_FILESYSTEM_ALLOWED_PATHS,
+      MCP_PLAYWRIGHT_ENABLED: env.EXPO_PUBLIC_MCP_PLAYWRIGHT_ENABLED,
+      PLAYWRIGHT_MCP_ENABLED: env.EXPO_PUBLIC_PLAYWRIGHT_MCP_ENABLED,
+      MCP_PLAYWRIGHT_BROWSER: env.EXPO_PUBLIC_MCP_PLAYWRIGHT_BROWSER,
+      PLAYWRIGHT_BROWSER: env.EXPO_PUBLIC_PLAYWRIGHT_BROWSER,
+      MCP_PLAYWRIGHT_HEADLESS: env.EXPO_PUBLIC_MCP_PLAYWRIGHT_HEADLESS,
+      PLAYWRIGHT_HEADLESS: env.EXPO_PUBLIC_PLAYWRIGHT_HEADLESS,
+      MCP_PLAYWRIGHT_CHANNEL: env.EXPO_PUBLIC_MCP_PLAYWRIGHT_CHANNEL,
+      PLAYWRIGHT_CHANNEL: env.EXPO_PUBLIC_PLAYWRIGHT_CHANNEL,
+    };
+  };
 
   useEffect(() => {
     navigation.setOptions({
@@ -249,8 +332,16 @@ export default function AIScreen() {
   }, [navigation, theme, settingsVisible, activeModel, activeProjectId, tokensPerSecond, t]);
 
   useEffect(() => {
+    if (params.openSettings === '1') {
+      setSettingsVisible(true);
+      if (params.settingsTab === 'instructions' || params.settingsTab === 'models') {
+        setSettingsTab(params.settingsTab);
+      }
+    }
+  }, [params.openSettings, params.settingsTab]);
+
+  useEffect(() => {
     loadModels();
-    loadConversations();
     (async () => {
       const token = await SecureStore.getItemAsync('token');
       const scopeKey = token
@@ -271,7 +362,28 @@ export default function AIScreen() {
         const globalSetting = await isAiBackgroundWorkEnabled();
         setAllowBackgroundAIWork(globalSetting);
       }
-      await loadProjects(scopeKey);
+      await refreshRemoteSync(scopeKey);
+      const savedApiEnabled = await AsyncStorage.getItem(`ai_api_enabled_${scopeKey}`);
+      if (savedApiEnabled !== null) setAiUseApiProviders(savedApiEnabled === 'true');
+      const savedApiProvider = await AsyncStorage.getItem(`ai_api_provider_${scopeKey}`);
+      if (savedApiProvider === 'openrouter' || savedApiProvider === 'gemini') setApiProvider(savedApiProvider);
+      const savedOpenRouterModel = await AsyncStorage.getItem(`ai_openrouter_model_${scopeKey}`);
+      if (savedOpenRouterModel) setOpenRouterModel(savedOpenRouterModel);
+      const savedGeminiModel = await AsyncStorage.getItem(`ai_gemini_model_${scopeKey}`);
+      if (savedGeminiModel) setGeminiModel(savedGeminiModel);
+      const openRouterKeyEnc = await SecureStore.getItemAsync(`ai_openrouter_key_${scopeKey}`);
+      if (openRouterKeyEnc) setOpenRouterApiKey(decrypt(openRouterKeyEnc) || '');
+      const geminiKeyEnc = await SecureStore.getItemAsync(`ai_gemini_key_${scopeKey}`);
+      if (geminiKeyEnc) setGeminiApiKey(decrypt(geminiKeyEnc) || '');
+      const mcpSettingsRaw = await SecureStore.getItemAsync(`ai_mcp_settings_${scopeKey}`);
+      let parsedMcpSettings = createEmptyMcpUiSettings();
+      if (mcpSettingsRaw) {
+        try {
+          parsedMcpSettings = normalizeMcpUiSettings(JSON.parse(decrypt(mcpSettingsRaw) || mcpSettingsRaw || '{}'));
+        } catch {}
+      }
+      const resolvedMcpSettings = resolveMcpSettings(parsedMcpSettings, getMcpEnvValues());
+      setMcpSettings(toEffectiveMcpUiSettings(resolvedMcpSettings));
     })();
   }, []);
 
@@ -292,6 +404,41 @@ export default function AIScreen() {
   }, [allowBackgroundAIWork, userScopeKey]);
 
   useEffect(() => {
+    if (!userScopeKey) return;
+    AsyncStorage.setItem(`ai_api_enabled_${userScopeKey}`, aiUseApiProviders ? 'true' : 'false');
+  }, [aiUseApiProviders, userScopeKey]);
+
+  useEffect(() => {
+    if (!userScopeKey) return;
+    AsyncStorage.setItem(`ai_api_provider_${userScopeKey}`, apiProvider);
+  }, [apiProvider, userScopeKey]);
+
+  useEffect(() => {
+    if (!userScopeKey) return;
+    AsyncStorage.setItem(`ai_openrouter_model_${userScopeKey}`, openRouterModel);
+  }, [openRouterModel, userScopeKey]);
+
+  useEffect(() => {
+    if (!userScopeKey) return;
+    AsyncStorage.setItem(`ai_gemini_model_${userScopeKey}`, geminiModel);
+  }, [geminiModel, userScopeKey]);
+
+  useEffect(() => {
+    if (!userScopeKey) return;
+    SecureStore.setItemAsync(`ai_openrouter_key_${userScopeKey}`, openRouterApiKey ? encrypt(openRouterApiKey) : '');
+  }, [openRouterApiKey, userScopeKey]);
+
+  useEffect(() => {
+    if (!userScopeKey) return;
+    SecureStore.setItemAsync(`ai_gemini_key_${userScopeKey}`, geminiApiKey ? encrypt(geminiApiKey) : '');
+  }, [geminiApiKey, userScopeKey]);
+
+  useEffect(() => {
+    if (!userScopeKey) return;
+    SecureStore.setItemAsync(`ai_mcp_settings_${userScopeKey}`, encrypt(JSON.stringify(mcpSettings)));
+  }, [mcpSettings, userScopeKey]);
+
+  useEffect(() => {
     const sub = AppState.addEventListener('change', (nextState) => {
       if ((nextState === 'background' || nextState === 'inactive') && loading && !allowBackgroundAIWork) {
         stopRequestedRef.current = true;
@@ -299,6 +446,55 @@ export default function AIScreen() {
     });
     return () => sub.remove();
   }, [loading, allowBackgroundAIWork]);
+
+  useEffect(() => {
+    let active = true;
+    let currentSocket: ReturnType<typeof getSocket> | null = null;
+    let refreshInterval: ReturnType<typeof setInterval> | null = null;
+    let appStateSub: { remove: () => void } | null = null;
+    const setup = async () => {
+      try {
+        const token = await SecureStore.getItemAsync('token');
+        if (!active || !token) return;
+        currentSocket = initSocket(token) || getSocket();
+        if (!currentSocket) return;
+        const handler = async () => {
+          await refreshRemoteSync(userScopeKey || undefined);
+        };
+        currentSocket.on('ai:sync-updated', handler);
+        currentSocket.on('connect', handler);
+        refreshInterval = setInterval(() => {
+          handler().catch(() => {});
+        }, 15000);
+        appStateSub = AppState.addEventListener('change', (nextState) => {
+          if (nextState === 'active') {
+            handler().catch(() => {});
+          }
+        });
+        await handler();
+        return () => {
+          currentSocket?.off('ai:sync-updated', handler);
+          currentSocket?.off('connect', handler);
+          if (refreshInterval) clearInterval(refreshInterval);
+          refreshInterval = null;
+          appStateSub?.remove();
+          appStateSub = null;
+        };
+      } catch {
+        return () => {};
+      }
+    };
+    let cleanup: (() => void) | undefined;
+    setup().then((teardown) => {
+      if (typeof teardown === 'function') cleanup = teardown;
+    });
+    return () => {
+      active = false;
+      cleanup?.();
+      if (refreshInterval) clearInterval(refreshInterval);
+      appStateSub?.remove();
+    };
+  }, [userScopeKey]);
 
   const refreshConversionHealth = async () => {
       try {
@@ -348,17 +544,57 @@ export default function AIScreen() {
   };
 
   const loadConversations = async () => {
-      const convs = await getConversationsLocal();
+      let convs = await getConversationsLocal();
       setConversations(convs);
   };
 
+  const mergeRemoteSync = async (remote: PullAiSyncResult, scopeKey?: string) => {
+      try {
+          for (const conversation of remote.conversations) {
+              await saveConversationLocal(conversation);
+          }
+          for (const row of remote.messages) {
+              await saveMessageLocal(row.conversationId, row.message);
+          }
+          const convs = await getConversationsLocal();
+          setConversations(convs);
+      } catch {}
+      try {
+          for (const project of remote.projects) {
+              await saveProjectLocal(project, scopeKey);
+          }
+          const items = await getProjectsLocal(scopeKey);
+          setProjects(items);
+          if (items.length > 0 && !activeProjectId) {
+              setActiveProjectId(items[0].id);
+          }
+      } catch {}
+  };
+
+  const refreshRemoteSync = async (scopeKey?: string) => {
+      const localConvs = await getConversationsLocal();
+      setConversations(localConvs);
+      const localProjects = await getProjectsLocal(scopeKey);
+      setProjects(localProjects);
+      try {
+          const remote = await pullAiSync();
+          await mergeRemoteSync(remote, scopeKey);
+      } catch {}
+  };
+
   const loadProjects = async (scopeKey?: string) => {
-      const items = await getProjectsLocal(scopeKey);
+      let items = await getProjectsLocal(scopeKey);
       setProjects(items);
       if (items.length > 0 && !activeProjectId) {
           setActiveProjectId(items[0].id);
       }
   };
+
+  const isConversationLocalOnly = (conversationId: string) =>
+      Boolean(conversations.find((item) => item.id === conversationId)?.localOnly);
+  const activeModelLabel = aiUseApiProviders
+      ? (apiProvider === 'openrouter' ? openRouterModel : geminiModel)
+      : (activeModel || '');
 
   const formatError = (error: unknown) => {
       const message = (error as any)?.message ? String((error as any).message) : String(error);
@@ -405,14 +641,99 @@ export default function AIScreen() {
 
 
   const graphQLRequest = async (query: string, variables: Record<string, any>) => {
-      const json = await fetchWithAuth('/graphql', {
-          method: 'POST',
-          body: JSON.stringify({ query, variables })
-      });
-      if (json?.errors?.length) {
-          throw new Error(json.errors[0]?.message || 'GraphQL error');
+      if (!query || typeof query !== 'string') {
+          throw new Error('GraphQL query saknas');
       }
-      return json.data;
+      try {
+          const json = await fetchWithAuth('/graphql', {
+              method: 'POST',
+              body: JSON.stringify({ query, variables })
+          });
+          if (!json || typeof json !== 'object') {
+              throw new Error('Ogiltigt GraphQL-svar');
+          }
+          if (Array.isArray((json as any).errors) && (json as any).errors.length > 0) {
+              throw new Error((json as any).errors[0]?.message || 'GraphQL error');
+          }
+          if (!('data' in (json as any))) {
+              throw new Error('GraphQL data saknas');
+          }
+          return (json as any).data;
+      } catch (error: any) {
+          const message = String(error?.message || '');
+          if (error?.status === 401 || message.toLowerCase().includes('unauthorized') || message.toLowerCase().includes('token')) {
+              throw new Error('Sessionen har gått ut. Logga in igen.');
+          }
+          throw error;
+      }
+  };
+
+  const getEnabledMcpServices = () =>
+    (Object.keys(mcpSettings) as Array<keyof McpUiSettings>).filter((key) => Boolean(mcpSettings[key]?.enabled)) as string[];
+
+  const ensureSecureApiTransport = () => {
+      try {
+          const parsed = new URL(API_URL);
+          const host = parsed.hostname.toLowerCase();
+          const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '10.0.2.2';
+          if (parsed.protocol === 'http:' && !isLocal) {
+              throw new Error('Osäker transport blockerad: använd HTTPS för MCP-anrop');
+          }
+      } catch (error) {
+          if (error instanceof Error) throw error;
+          throw new Error('Kunde inte validera API-transport');
+      }
+  };
+
+  const mcpRequest = async (path: '/mcp/tools' | '/mcp/call', body: Record<string, any>) => {
+      ensureSecureApiTransport();
+      const payload = {
+          ...body,
+          mcpUiSettings: mcpSettings,
+          mcpUiSettingsEnc: encrypt(JSON.stringify(mcpSettings)),
+      };
+      const json = await fetchWithAuth(path, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+      });
+      if (!json || typeof json !== 'object') {
+          throw new Error('Ogiltigt MCP-svar');
+      }
+      if ((json as any).message && !(json as any).result) {
+          throw new Error(String((json as any).message));
+      }
+      return json as Record<string, any>;
+  };
+
+  const loadMcpDashboard = async () => {
+      setMcpDashboardLoading(true);
+      setMcpDashboardError(null);
+      try {
+          ensureSecureApiTransport();
+          const json = await fetchWithAuth('/mcp/dashboard?limit=80', { method: 'GET' });
+          if (!json || typeof json !== 'object') {
+              throw new Error('Ogiltigt dashboard-svar');
+          }
+          const rows = Array.isArray((json as any).persistedAudit) ? (json as any).persistedAudit : [];
+          setMcpDashboardRows(rows);
+      } catch (error: any) {
+          setMcpDashboardRows([]);
+          setMcpDashboardError(String(error?.message || 'Kunde inte läsa MCP-dashboard'));
+      } finally {
+          setMcpDashboardLoading(false);
+      }
+  };
+
+  const safePreview = (value: unknown, maxLen: number = 2000) => {
+      try {
+          const serialized = JSON.stringify(value);
+          if (serialized.length > maxLen) {
+              return `${serialized.slice(0, maxLen)}...`;
+          }
+          return serialized;
+      } catch {
+          return String(value);
+      }
   };
 
   const parseTimeFromString = (value: string) => {
@@ -519,6 +840,11 @@ export default function AIScreen() {
       if (typeof raw === 'string') {
           const trimmed = raw.trim();
           if (!trimmed) return undefined;
+          const dateOnly = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+          if (dateOnly) {
+              const asLocalMidnight = new Date(`${dateOnly[1]}-${dateOnly[2]}-${dateOnly[3]}T00:00:00`);
+              return Number.isNaN(asLocalMidnight.getTime()) ? undefined : asLocalMidnight.toISOString();
+          }
           const direct = new Date(trimmed);
           if (!Number.isNaN(direct.getTime())) return direct.toISOString();
           const relOffset = parseRelativeOffset(trimmed.toLowerCase());
@@ -537,7 +863,7 @@ export default function AIScreen() {
               later.setHours(Math.min(later.getHours() + 2, 21), Math.round(later.getMinutes() / 15) * 15, 0, 0);
               return later.toISOString();
           } else {
-              next.setHours(9, 0, 0, 0);
+              next.setHours(0, 0, 0, 0);
           }
           return next.toISOString();
       }
@@ -560,19 +886,162 @@ export default function AIScreen() {
       return input;
   };
 
-  const executeToolCall = async (tool: string, args: Record<string, any>) => {
+  const normalizeReminderOffsetsValue = (value: any): string => {
+      if (value === undefined || value === null || value === '') return '';
+      if (Array.isArray(value)) {
+          const parsed = value
+              .map((v) => Number(v))
+              .filter((v) => Number.isFinite(v))
+              .map((v) => Math.trunc(v));
+          return parsed.length > 0 ? parsed.join(',') : '';
+      }
+      if (typeof value === 'number') {
+          return Number.isFinite(value) ? String(Math.trunc(value)) : '';
+      }
+      if (typeof value === 'string') {
+          const trimmed = value.trim();
+          if (!trimmed) return '';
+          return trimmed;
+      }
+      return '';
+  };
+
+  const withDefaultReminderForDueDate = (input: Record<string, any>) => {
+      if (input.dueDate === undefined || input.dueDate === null || input.dueDate === '') {
+          return input;
+      }
+      const normalizedOffsets = normalizeReminderOffsetsValue(input.reminderOffsetMinutes);
+      if (input.reminderEnabled === undefined || input.reminderEnabled === null) {
+          return {
+              ...input,
+              reminderEnabled: true,
+              reminderOffsetMinutes: normalizedOffsets || '0',
+          };
+      }
+      if (input.reminderEnabled === true && !normalizedOffsets) {
+          return {
+              ...input,
+              reminderOffsetMinutes: '0',
+          };
+      }
+      return {
+          ...input,
+          reminderOffsetMinutes: input.reminderEnabled ? normalizedOffsets : '',
+      };
+  };
+
+  const getAISecurityContext = () => {
+      const state = useStore.getState() as any;
+      const notes = Array.isArray(state.notes) ? state.notes : [];
+      const tasks = Array.isArray(state.tasks) ? state.tasks : [];
+      const unlockedIds = new Set<string>(Array.isArray(state.unlockedProtectedNoteIds) ? state.unlockedProtectedNoteIds : []);
+      const noteMap = buildSecurityNoteMap(notes as any);
+      const ensureReadableNote = (id: string) => {
+          const note = noteMap.get(String(id));
+          if (!note) throw new Error('Anteckning hittades inte');
+          if (!isReadableWithLocks(note as any, noteMap as any, unlockedIds)) {
+              throw new Error('Åtkomst nekad: anteckningen eller projektmappen är låst');
+          }
+          return note as any;
+      };
+      const toNotePayload = (note: any) => ({
+          _id: note._id,
+          title: note.title,
+          content: note.content,
+          tags: note.tags || [],
+          parentId: note.parentId ?? null,
+          locked: note.locked,
+          icon: note.icon,
+          iconColor: note.iconColor,
+          order: note.order,
+          type: note.type,
+          createdAt: note.createdAt,
+          updatedAt: note.updatedAt,
+      });
+      return { notes, tasks, noteMap, unlockedIds, ensureReadableNote, toNotePayload };
+  };
+
+  const buildToolReadTrace = (tool: string, result: any) => {
+      if (tool === 'list_notes' || tool === 'list_projects' || tool === 'list_tasklists') {
+          const items = Array.isArray(result?.notes) ? result.notes : [];
+          return items.map((item: any) => ({
+              type: item.type || 'note',
+              id: item._id,
+              title: item.title || '',
+              contentPreview: String(item.content || '').slice(0, 400),
+          }));
+      }
+      if (tool === 'get_note') {
+          const item = result?.note;
+          if (!item) return [];
+          return [{
+              type: item.type || 'note',
+              id: item._id,
+              title: item.title || '',
+              contentPreview: String(item.content || '').slice(0, 600),
+          }];
+      }
+      if (tool === 'list_tasks') {
+          const items = Array.isArray(result?.tasks) ? result.tasks : [];
+          return items.map((item: any) => ({
+              type: 'task',
+              id: item._id,
+              title: item.title || '',
+              descriptionPreview: String(item.description || '').slice(0, 400),
+          }));
+      }
+      if (tool === 'get_task') {
+          const item = result?.task;
+          if (!item) return [];
+          return [{
+              type: 'task',
+              id: item._id,
+              title: item.title || '',
+              descriptionPreview: String(item.description || '').slice(0, 600),
+          }];
+      }
+      if (tool === 'mcp_list_tools') {
+          const tools = Array.isArray(result?.result?.tools) ? result.result.tools : [];
+          return tools.map((item: any) => ({
+              type: 'mcp_tool',
+              id: item.name || '',
+              title: item.name || '',
+              descriptionPreview: String(item.description || '').slice(0, 300),
+          }));
+      }
+      if (tool === 'mcp_call_tool') {
+          const content = Array.isArray(result?.result?.content) ? result.result.content : [];
+          return content.map((entry: any, index: number) => ({
+              type: 'mcp_result',
+              id: String(index + 1),
+              title: entry.type || 'content',
+              contentPreview: String(entry.text || JSON.stringify(entry)).slice(0, 400),
+          }));
+      }
+      return [];
+  };
+
+  const executeToolCall = async (tool: string, args: Record<string, any>, intentText: string) => {
       const requireId = (value: any) => {
           if (!value) throw new Error(`Tool ${tool} kräver id`);
           return value;
       };
       switch (tool) {
           case 'list_notes': {
-              const query = `query($parentId:String,$type:String){notes(parentId:$parentId,type:$type){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
-              return graphQLRequest(query, { parentId: args.parentId ?? null, type: args.type ?? null });
+              const { notes, noteMap, unlockedIds, toNotePayload } = getAISecurityContext();
+              const parentId = args.parentId ?? null;
+              const type = args.type ?? null;
+              const filtered = notes
+                  .filter((note: any) => (parentId === null ? !note.parentId : String(note.parentId) === String(parentId)))
+                  .filter((note: any) => (type ? note.type === type : true))
+                  .filter((note: any) => isReadableWithLocks(note as any, noteMap as any, unlockedIds))
+                  .map(toNotePayload);
+              return { notes: filtered };
           }
           case 'get_note': {
-              const query = `query($id:String!){note(id:$id){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
-              return graphQLRequest(query, { id: requireId(args.id) });
+              const { ensureReadableNote, toNotePayload } = getAISecurityContext();
+              const note = ensureReadableNote(requireId(args.id));
+              return { note: toNotePayload(note) };
           }
           case 'create_note': {
               const state = useStore.getState();
@@ -581,34 +1050,54 @@ export default function AIScreen() {
               return graphQLRequest(query, { input });
           }
           case 'update_note': {
+              const { ensureReadableNote } = getAISecurityContext();
+              ensureReadableNote(requireId(args.id));
               const query = `mutation($id:String!,$input:NoteInput!){updateNote(id:$id,input:$input){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
               if (!args.updates || Object.keys(args.updates).length === 0) throw new Error('update_note kräver updates');
               return graphQLRequest(query, { id: requireId(args.id), input: args.updates || {} });
           }
           case 'delete_note': {
+              const { ensureReadableNote } = getAISecurityContext();
+              ensureReadableNote(requireId(args.id));
               const query = `mutation($id:String!){deleteNote(id:$id)}`;
               return graphQLRequest(query, { id: requireId(args.id) });
           }
           case 'list_projects': {
-              const query = `query($parentId:String,$type:String){notes(parentId:$parentId,type:$type){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
-              return graphQLRequest(query, { parentId: args.parentId ?? null, type: 'project' });
+              const { notes, noteMap, unlockedIds, toNotePayload } = getAISecurityContext();
+              const parentId = args.parentId ?? null;
+              const filtered = notes
+                  .filter((note: any) => note.type === 'project')
+                  .filter((note: any) => (parentId === null ? !note.parentId : String(note.parentId) === String(parentId)))
+                  .filter((note: any) => isReadableWithLocks(note as any, noteMap as any, unlockedIds))
+                  .map(toNotePayload);
+              return { notes: filtered };
           }
           case 'create_project': {
               const query = `mutation($input:NoteInput!){createNote(input:$input){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
               return graphQLRequest(query, { input: { ...args, type: 'project' } });
           }
           case 'update_project': {
+              const { ensureReadableNote } = getAISecurityContext();
+              ensureReadableNote(requireId(args.id));
               const query = `mutation($id:String!,$input:NoteInput!){updateNote(id:$id,input:$input){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
               if (!args.updates || Object.keys(args.updates).length === 0) throw new Error('update_project kräver updates');
               return graphQLRequest(query, { id: requireId(args.id), input: { ...args.updates } });
           }
           case 'delete_project': {
+              const { ensureReadableNote } = getAISecurityContext();
+              ensureReadableNote(requireId(args.id));
               const query = `mutation($id:String!){deleteNote(id:$id)}`;
               return graphQLRequest(query, { id: requireId(args.id) });
           }
           case 'list_tasklists': {
-              const query = `query($parentId:String,$type:String){notes(parentId:$parentId,type:$type){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
-              return graphQLRequest(query, { parentId: args.parentId ?? null, type: 'task_list' });
+              const { notes, noteMap, unlockedIds, toNotePayload } = getAISecurityContext();
+              const parentId = args.parentId ?? null;
+              const filtered = notes
+                  .filter((note: any) => note.type === 'task_list')
+                  .filter((note: any) => (parentId === null ? !note.parentId : String(note.parentId) === String(parentId)))
+                  .filter((note: any) => isReadableWithLocks(note as any, noteMap as any, unlockedIds))
+                  .map(toNotePayload);
+              return { notes: filtered };
           }
           case 'create_tasklist': {
               const state = useStore.getState();
@@ -617,47 +1106,110 @@ export default function AIScreen() {
               return graphQLRequest(query, { input: { ...inputBase, type: 'task_list' } });
           }
           case 'update_tasklist': {
+              const { ensureReadableNote } = getAISecurityContext();
+              ensureReadableNote(requireId(args.id));
               const query = `mutation($id:String!,$input:NoteInput!){updateNote(id:$id,input:$input){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
               if (!args.updates || Object.keys(args.updates).length === 0) throw new Error('update_tasklist kräver updates');
               return graphQLRequest(query, { id: requireId(args.id), input: { ...args.updates } });
           }
           case 'delete_tasklist': {
+              const { ensureReadableNote } = getAISecurityContext();
+              ensureReadableNote(requireId(args.id));
               const query = `mutation($id:String!){deleteNote(id:$id)}`;
               return graphQLRequest(query, { id: requireId(args.id) });
           }
           case 'list_tasks': {
-              const query = `query($parentNoteId:String,$completed:Boolean){tasks(parentNoteId:$parentNoteId,completed:$completed){_id title description dueDate completed priority parentNoteId parentId recurrenceType recurrenceDays reminderEnabled reminderOffsetMinutes createdAt updatedAt}}`;
-              return graphQLRequest(query, { parentNoteId: args.parentNoteId ?? null, completed: args.completed ?? null });
+              const { tasks, noteMap, unlockedIds } = getAISecurityContext();
+              const parentNoteId = args.parentNoteId ?? null;
+              const completed = args.completed;
+              const filtered = tasks
+                  .filter((task: any) => (parentNoteId === null ? !task.parentNoteId : String(task.parentNoteId) === String(parentNoteId)))
+                  .filter((task: any) => (typeof completed === 'boolean' ? Boolean(task.completed) === completed : true))
+                  .filter((task: any) => {
+                      if (!task.parentNoteId) return true;
+                      const parent = noteMap.get(String(task.parentNoteId));
+                      return isReadableWithLocks(parent as any, noteMap as any, unlockedIds);
+                  });
+              return { tasks: filtered };
           }
           case 'get_task': {
-              const query = `query($id:String!){task(id:$id){_id title description dueDate completed priority parentNoteId parentId recurrenceType recurrenceDays reminderEnabled reminderOffsetMinutes createdAt updatedAt}}`;
-              return graphQLRequest(query, { id: requireId(args.id) });
+              const { tasks, noteMap, unlockedIds } = getAISecurityContext();
+              const task = tasks.find((item: any) => String(item._id) === String(requireId(args.id)));
+              if (!task) throw new Error('Task hittades inte');
+              if (task.parentNoteId) {
+                  const parent = noteMap.get(String(task.parentNoteId));
+                  if (!isReadableWithLocks(parent as any, noteMap as any, unlockedIds)) {
+                      throw new Error('Åtkomst nekad: tillhörande lista/projekt är låst');
+                  }
+              }
+              return { task };
           }
           case 'create_task': {
+              if (args.parentNoteId) {
+                  const { ensureReadableNote } = getAISecurityContext();
+                  ensureReadableNote(String(args.parentNoteId));
+              }
               const query = `mutation($input:TaskInput!){createTask(input:$input){_id title description dueDate completed priority parentNoteId parentId recurrenceType recurrenceDays reminderEnabled reminderOffsetMinutes createdAt updatedAt}}`;
-              return graphQLRequest(query, { input: withNormalizedDueDate(withDefaultPriority(args)) });
+              return graphQLRequest(query, { input: withDefaultReminderForDueDate(withNormalizedDueDate(withDefaultPriority(args))) });
           }
           case 'update_task': {
+              const { tasks, noteMap, unlockedIds } = getAISecurityContext();
+              const existing = tasks.find((item: any) => String(item._id) === String(requireId(args.id)));
+              if (existing?.parentNoteId) {
+                  const parent = noteMap.get(String(existing.parentNoteId));
+                  if (!isReadableWithLocks(parent as any, noteMap as any, unlockedIds)) {
+                      throw new Error('Åtkomst nekad: tillhörande lista/projekt är låst');
+                  }
+              }
               const query = `mutation($id:String!,$input:TaskInput!){updateTask(id:$id,input:$input){_id title description dueDate completed priority parentNoteId parentId recurrenceType recurrenceDays reminderEnabled reminderOffsetMinutes createdAt updatedAt}}`;
               if (!args.updates || Object.keys(args.updates).length === 0) throw new Error('update_task kräver updates');
               return graphQLRequest(query, { id: requireId(args.id), input: withNormalizedDueDate(args.updates || {}) });
           }
           case 'delete_task': {
+              const { tasks, noteMap, unlockedIds } = getAISecurityContext();
+              const existing = tasks.find((item: any) => String(item._id) === String(requireId(args.id)));
+              if (existing?.parentNoteId) {
+                  const parent = noteMap.get(String(existing.parentNoteId));
+                  if (!isReadableWithLocks(parent as any, noteMap as any, unlockedIds)) {
+                      throw new Error('Åtkomst nekad: tillhörande lista/projekt är låst');
+                  }
+              }
               const query = `mutation($id:String!){deleteTask(id:$id)}`;
               return graphQLRequest(query, { id: requireId(args.id) });
+          }
+          case 'mcp_list_tools': {
+              const service = String(args.service || '').trim();
+              if (!service) throw new Error('mcp_list_tools kräver service');
+              return mcpRequest('/mcp/tools', { service });
+          }
+          case 'mcp_call_tool': {
+              const service = String(args.service || '').trim();
+              const toolName = String(args.toolName || '').trim();
+              const toolArgs = args.args && typeof args.args === 'object' && !Array.isArray(args.args) ? args.args : {};
+              if (!service || !toolName) throw new Error('mcp_call_tool kräver service och toolName');
+              return mcpRequest('/mcp/call', {
+                  service,
+                  toolName,
+                  args: toolArgs,
+                  intentText,
+              });
           }
           default:
               throw new Error(`Unknown tool: ${tool}`);
       }
   };
 
-  const processToolCalls = async (conversationId: string, assistantId: string, assistantText: string) => {
+  const processToolCalls = async (conversationId: string, assistantId: string, assistantText: string, intentText: string) => {
       if (!enableToolUse) return [];
       const { calls, cleaned } = extractToolCalls(assistantText);
       const newMessages: ChatMessage[] = [];
       if (cleaned !== assistantText) {
           setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: cleaned } : m));
-          await saveMessageLocal(conversationId, { id: assistantId, role: 'assistant', content: cleaned, createdAt: new Date().toISOString() });
+          const cleanedMsg = { id: assistantId, role: 'assistant', content: cleaned, createdAt: new Date().toISOString() } as ChatMessage;
+          await saveMessageLocal(conversationId, cleanedMsg);
+          if (!isConversationLocalOnly(conversationId)) {
+              pushAiSync({ messages: [{ conversationId, message: cleanedMsg }] }).catch(() => {});
+          }
       }
       if (calls.length === 0) return [];
       const seen = new Set<string>();
@@ -665,13 +1217,16 @@ export default function AIScreen() {
           const key = `${call.tool}:${JSON.stringify(call.arguments || {})}`;
           if (seen.has(key)) continue;
           seen.add(key);
-          const toolMsg: ChatMessage = { id: uuidv4(), role: 'tool', content: `Tool call: ${call.tool} ${JSON.stringify(call.arguments)}`, createdAt: new Date().toISOString() };
+          const toolMsg: ChatMessage = { id: uuidv4(), role: 'tool', content: `Tool call: ${call.tool} ${safePreview({ args: call.arguments || {} })}`, createdAt: new Date().toISOString() };
           setMessages(prev => [...prev, toolMsg]);
           await saveMessageLocal(conversationId, toolMsg);
+          if (!isConversationLocalOnly(conversationId)) {
+              pushAiSync({ messages: [{ conversationId, message: toolMsg }] }).catch(() => {});
+          }
           newMessages.push(toolMsg);
           if (toolMsg.id) setCollapsedTool(prev => ({ ...prev, [toolMsg.id as string]: true }));
           try {
-              const result = await executeToolCall(call.tool, call.arguments || {});
+              const result = await executeToolCall(call.tool, call.arguments || {}, intentText);
               if (['create_note', 'update_note', 'delete_note', 'create_project', 'update_project', 'delete_project'].includes(call.tool)) {
                   try {
                       await useStore.getState().fetchNotes();
@@ -682,17 +1237,28 @@ export default function AIScreen() {
                       await useStore.getState().fetchTasks();
                   } catch {}
               }
-              const resultMsg: ChatMessage = { id: uuidv4(), role: 'tool', content: `Tool result: ${call.tool} ${JSON.stringify(result)}`, createdAt: new Date().toISOString() };
+              const entitiesRead = buildToolReadTrace(call.tool, result);
+              const resultMsg: ChatMessage = { id: uuidv4(), role: 'tool', content: `Tool result: ${call.tool} ${safePreview({ entitiesRead, result })}`, createdAt: new Date().toISOString() };
               setMessages(prev => [...prev, resultMsg]);
               await saveMessageLocal(conversationId, resultMsg);
+              if (!isConversationLocalOnly(conversationId)) {
+                  pushAiSync({ messages: [{ conversationId, message: resultMsg }] }).catch(() => {});
+              }
               newMessages.push(resultMsg);
               if (resultMsg.id) setCollapsedTool(prev => ({ ...prev, [resultMsg.id as string]: true }));
           } catch (e: any) {
-              const errMsg: ChatMessage = { id: uuidv4(), role: 'tool', content: `Tool error: ${call.tool} ${e?.message || 'Unknown error'}`, createdAt: new Date().toISOString() };
+              const errorText = e?.message || 'Unknown error';
+              const errMsg: ChatMessage = { id: uuidv4(), role: 'tool', content: `Tool error: ${call.tool} ${errorText}`, createdAt: new Date().toISOString() };
               setMessages(prev => [...prev, errMsg]);
               await saveMessageLocal(conversationId, errMsg);
+              if (!isConversationLocalOnly(conversationId)) {
+                  pushAiSync({ messages: [{ conversationId, message: errMsg }] }).catch(() => {});
+              }
               newMessages.push(errMsg);
               if (errMsg.id) setCollapsedTool(prev => ({ ...prev, [errMsg.id as string]: true }));
+              if (String(errorText).toLowerCase().includes('sessionen har gått ut')) {
+                  break;
+              }
           }
       }
       return newMessages;
@@ -700,8 +1266,11 @@ export default function AIScreen() {
 
   const runAIGeneration = async (conversationId: string, initialHistory: ChatMessage[]) => {
       let currentHistory = [...initialHistory];
+      const intentText = [...initialHistory].reverse().find((msg) => msg.role === 'user')?.content || '';
       let iterations = 0;
       const maxIterations = 5;
+      const executedCallKeys = new Set<string>();
+      const iterationSignatures = new Set<string>();
 
       while (iterations < maxIterations && !stopRequestedRef.current) {
           iterations += 1;
@@ -727,14 +1296,18 @@ export default function AIScreen() {
           };
 
           let generationError: any = null;
-          try {
-              await provider.streamResponse(
-                  currentHistory,
-                  { streamDelayMs: 10, shouldStop: () => stopRequestedRef.current },
-                  (token) => {
-                      if (stopRequestedRef.current) return;
-                      streamed = true;
-                      fullContent += token;
+          if (aiUseApiProviders) {
+              try {
+                  const response = await generateApiProviderResponse({
+                      provider: apiProvider,
+                      apiKey: apiProvider === 'openrouter' ? openRouterApiKey : geminiApiKey,
+                      model: apiProvider === 'openrouter' ? openRouterModel : geminiModel,
+                      history: currentHistory,
+                  });
+                  const chunks = response.split(/(\s+)/).filter(Boolean);
+                  for (const chunk of chunks) {
+                      if (stopRequestedRef.current) break;
+                      fullContent += chunk;
                       tokenCount += 1;
                       if (Date.now() - lastUpdate > 300) {
                           updateTps();
@@ -742,29 +1315,55 @@ export default function AIScreen() {
                       }
                       setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
                   }
-              );
-          } catch (streamError: any) {
-              generationError = streamError;
-          }
-
-          if (!streamed && !stopRequestedRef.current) {
-              const tryGenerate = async () => {
-                  const response = await provider.generateResponse(currentHistory);
-                  fullContent = response;
-                  tokenCount = Math.max(tokenCount, 1);
-                  updateTps();
-                  setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
-              };
+                  if (!chunks.length) {
+                      fullContent = response;
+                      tokenCount = Math.max(tokenCount, 1);
+                      updateTps();
+                      setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
+                  }
+              } catch (apiError: any) {
+                  generationError = apiError;
+              }
+          } else {
               try {
-                  await tryGenerate();
-              } catch (firstError: any) {
-                  generationError = firstError;
+                  await provider.streamResponse(
+                      currentHistory,
+                      { streamDelayMs: 10, shouldStop: () => stopRequestedRef.current },
+                      (token) => {
+                          if (stopRequestedRef.current) return;
+                          streamed = true;
+                          fullContent += token;
+                          tokenCount += 1;
+                          if (Date.now() - lastUpdate > 300) {
+                              updateTps();
+                              lastUpdate = Date.now();
+                          }
+                          setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
+                      }
+                  );
+              } catch (streamError: any) {
+                  generationError = streamError;
+              }
+
+              if (!streamed && !stopRequestedRef.current) {
+                  const tryGenerate = async () => {
+                      const response = await provider.generateResponse(currentHistory);
+                      fullContent = response;
+                      tokenCount = Math.max(tokenCount, 1);
+                      updateTps();
+                      setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
+                  };
                   try {
-                      await new Promise(resolve => setTimeout(resolve, 300));
                       await tryGenerate();
-                      generationError = null;
-                  } catch (secondError: any) {
-                      generationError = secondError;
+                  } catch (firstError: any) {
+                      generationError = firstError;
+                      try {
+                          await new Promise(resolve => setTimeout(resolve, 300));
+                          await tryGenerate();
+                          generationError = null;
+                      } catch (secondError: any) {
+                          generationError = secondError;
+                      }
                   }
               }
           }
@@ -774,16 +1373,29 @@ export default function AIScreen() {
               setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
           }
 
+          const extractedBeforeTools = extractToolCalls(fullContent);
+          if (!enableToolUse && extractedBeforeTools.cleaned !== fullContent) {
+              fullContent = extractedBeforeTools.cleaned;
+              setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
+          }
+
           updateTps();
           const savedMsg: ChatMessage = { ...assistantMsg, content: (fullContent || '').toString() };
           await saveMessageLocal(conversationId, savedMsg);
+          if (!isConversationLocalOnly(conversationId)) {
+              pushAiSync({ messages: [{ conversationId, message: savedMsg }] }).catch(() => {});
+          }
 
-          const newToolMessages = await processToolCalls(conversationId, assistantId, fullContent);
+          const newToolMessages = await processToolCalls(conversationId, assistantId, fullContent, intentText);
           if (newToolMessages.length === 0) break;
-          const { calls } = extractToolCalls(fullContent);
+          const extracted = extractToolCalls(fullContent);
+          const { calls } = extracted;
+          const callKeys = toToolCallKeys(calls);
+          const signature = toToolIterationSignature(extracted.cleaned || '', fullContent, callKeys);
+          if (shouldStopToolIteration(signature, callKeys, iterationSignatures, executedCallKeys)) break;
           if (calls.some(c => /^(create|update|delete)_/.test(c.tool))) break;
 
-          const cleaned = extractToolCalls(fullContent).cleaned || fullContent;
+          const cleaned = extracted.cleaned || fullContent;
           currentHistory = [...currentHistory, { ...assistantMsg, content: cleaned }, ...newToolMessages];
       }
   };
@@ -791,7 +1403,7 @@ export default function AIScreen() {
   const buildHistory = (userMsg: ChatMessage) => {
       const maxChars = 12000;
       const projectPrompt = getActiveProject()?.systemPrompt || '';
-      const toolPrompt = enableToolUse ? buildToolSystemPrompt(API_URL.replace(/\/+$/, '')) : '';
+      const toolPrompt = enableToolUse ? buildToolSystemPrompt(API_URL.replace(/\/+$/, ''), getEnabledMcpServices()) : '';
       const toolUseNotice = buildToolUseNotice(enableToolUse);
       const combinedPrompt = combineSystemPrompts([systemPrompt, toolUseNotice, toolPrompt].filter(Boolean).join('\n\n'), projectPrompt);
       const systemMsg = combinedPrompt
@@ -819,23 +1431,31 @@ export default function AIScreen() {
   };
 
   const formatSearchSize = (size?: number | null) => {
-      if (size === undefined) return 'Size: ...';
-      if (typeof size === 'number') return `Size: ${(size / 1024 / 1024 / 1024).toFixed(2)} GB`;
+      if (size === undefined || size === null) return 'Size: ...';
+      if (typeof size === 'number') {
+          const gb = size / 1024 / 1024 / 1024;
+          if (gb >= 1) return `Size: ${gb.toFixed(2)} GB`;
+          const mb = size / 1024 / 1024;
+          return `Size: ${mb.toFixed(1)} MB`;
+      }
       return 'Size: ?';
   };
 
   const createNewChat = async () => {
       const newId = uuidv4();
-      const newConv: Conversation = {
+      const newConv: LocalConversation = {
           id: newId,
           title: 'New Chat',
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           messages: [],
-          model: activeModel || undefined,
+          model: activeModelLabel || undefined,
           projectId: activeProjectId || undefined
       };
       await saveConversationLocal(newConv);
+      if (!newConv.localOnly) {
+          pushAiSync({ conversations: [newConv] }).catch(() => {});
+      }
       setConversations(prev => [newConv, ...prev]);
       setCurrentConversationId(newId);
       setMessages([]);
@@ -855,6 +1475,7 @@ export default function AIScreen() {
 
   const deleteChat = async (id: string) => {
       await deleteConversationLocal(id);
+      pushAiSync({ deletedConversationIds: [id] }).catch(() => {});
       setConversations(prev => prev.filter(c => c.id !== id));
       if (currentConversationId === id) {
           setCurrentConversationId(null);
@@ -866,17 +1487,19 @@ export default function AIScreen() {
           setChatDialogName('');
           setChatDialogIcon(undefined);
           setChatDialogIconColor(undefined);
+          setChatDialogLocalOnly(false);
           setChatIconPickerVisible(false);
       }
   };
 
-  const openProjectDialog = (project: AIProject) => {
+  const openProjectDialog = (project: LocalAIProject) => {
       setProjectDialogMode('edit');
       setProjectDialogId(project.id);
       setProjectDialogName(project.name);
       setProjectDialogPrompt(project.systemPrompt || '');
       setProjectDialogIcon(project.icon);
       setProjectDialogIconColor(project.iconColor);
+      setProjectDialogLocalOnly(Boolean(project.localOnly));
       setProjectDialogVisible(true);
   };
 
@@ -887,32 +1510,38 @@ export default function AIScreen() {
       setProjectDialogPrompt('');
       setProjectDialogIcon(undefined);
       setProjectDialogIconColor(undefined);
+      setProjectDialogLocalOnly(false);
       setProjectDialogVisible(true);
   };
 
-  const openChatDialog = (chat: Conversation) => {
+  const openChatDialog = (chat: LocalConversation) => {
       setChatDialogId(chat.id);
       setChatDialogName(chat.title);
       setChatDialogIcon(chat.icon);
       setChatDialogIconColor(chat.iconColor);
+      setChatDialogLocalOnly(Boolean(chat.localOnly));
       setChatDialogVisible(true);
   };
 
-  const handleSaveProjectDialog = async (nameInput: string, promptInput: string) => {
+  const handleSaveProjectDialog = async (nameInput: string, promptInput: string, localOnly: boolean) => {
       const name = nameInput.trim();
       if (!name) return;
       if (projectDialogMode === 'create') {
-          const project: AIProject = {
+          const project: LocalAIProject = {
               id: uuidv4(),
               name,
               systemPrompt: promptInput,
               icon: projectDialogIcon,
               iconColor: projectDialogIconColor,
+              localOnly,
               createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           userId: userScopeKey
           };
       await saveProjectLocal(project, userScopeKey);
+      if (!project.localOnly) {
+          pushAiSync({ projects: [project] }).catch(() => {});
+      }
           setProjects(prev => [project, ...prev]);
           setActiveProjectId(project.id);
           setProjectDialogVisible(false);
@@ -921,33 +1550,42 @@ export default function AIScreen() {
       if (!projectDialogId) return;
       const proj = projects.find(p => p.id === projectDialogId);
       if (!proj) return;
-      const updated: AIProject = {
+      const updated: LocalAIProject = {
           ...proj,
           name,
           systemPrompt: promptInput,
           icon: projectDialogIcon,
           iconColor: projectDialogIconColor,
+          localOnly,
           updatedAt: new Date().toISOString(),
           userId: userScopeKey
       };
       await saveProjectLocal(updated, userScopeKey);
+      if (updated.localOnly) pushAiSync({ deletedProjectIds: [updated.id] }).catch(() => {});
+      else pushAiSync({ projects: [updated] }).catch(() => {});
       setProjects(prev => prev.map(p => p.id === updated.id ? updated : p));
       setProjectDialogVisible(false);
   };
 
-  const handleSaveChatDialog = async (nameInput: string) => {
+  const handleSaveChatDialog = async (nameInput: string, localOnly: boolean) => {
       if (!chatDialogId) return;
       const conv = conversations.find(c => c.id === chatDialogId);
       if (!conv) return;
       const trimmed = nameInput.trim();
-      const updated: Conversation = {
+      const updated: LocalConversation = {
           ...conv,
           title: trimmed || conv.title,
           icon: chatDialogIcon,
           iconColor: chatDialogIconColor,
+          localOnly,
           updatedAt: new Date().toISOString()
       };
       await saveConversationLocal(updated);
+      if (updated.localOnly) {
+          pushAiSync({ deletedConversationIds: [updated.id] }).catch(() => {});
+      } else {
+          pushAiSync({ conversations: [updated] }).catch(() => {});
+      }
       setConversations(prev => prev.map(c => c.id === updated.id ? updated : c));
       setChatDialogVisible(false);
   };
@@ -971,6 +1609,7 @@ export default function AIScreen() {
 
   const handleDeleteProject = async (projectId: string) => {
       await deleteProjectLocal(projectId);
+      pushAiSync({ deletedProjectIds: [projectId] }).catch(() => {});
       setProjects(prev => prev.filter(p => p.id !== projectId));
       if (activeProjectId === projectId) {
           setActiveProjectId(null);
@@ -1012,6 +1651,10 @@ export default function AIScreen() {
 
   const downloadModel = async (model: HFModel) => {
       try {
+        if (!isNativeFileSystemAvailable()) {
+            alert('AI-modeller kräver en dev build (inte Expo Go). Bygg appen med EAS och installera den innan nedladdning.');
+            return;
+        }
         setProcessingModels(prev => ({ ...prev, [model.id]: true }));
         setDownloadProgress(prev => ({ ...prev, [model.id]: 0 }));
         setDownloadStage(prev => ({ ...prev, [model.id]: 'queued' }));
@@ -1161,9 +1804,19 @@ export default function AIScreen() {
   const handleSend = async () => {
     if (!input.trim() || loading) return;
 
-    if (!activeModel) {
+    if (!aiUseApiProviders && !activeModel) {
         alert('Please select a model first');
-        setSettingsTab('downloaded');
+        setSettingsTab('models');
+        setSettingsVisible(true);
+        return;
+    }
+    if (aiUseApiProviders && apiProvider === 'openrouter' && (!openRouterApiKey || !openRouterModel)) {
+        alert('Ange OpenRouter API-nyckel och modell först');
+        setSettingsVisible(true);
+        return;
+    }
+    if (aiUseApiProviders && apiProvider === 'gemini' && (!geminiApiKey || !geminiModel)) {
+        alert('Ange Gemini API-nyckel och modell först');
         setSettingsVisible(true);
         return;
     }
@@ -1171,16 +1824,19 @@ export default function AIScreen() {
     let conversationId = currentConversationId;
     if (!conversationId) {
         const newId = uuidv4();
-        const newConv: Conversation = {
+        const newConv: LocalConversation = {
             id: newId,
             title: input.substring(0, 30) + '...',
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
             messages: [],
-            model: activeModel,
+            model: activeModelLabel,
             projectId: activeProjectId || undefined
         };
         await saveConversationLocal(newConv);
+        if (!newConv.localOnly) {
+            pushAiSync({ conversations: [newConv] }).catch(() => {});
+        }
         setConversations(prev => [newConv, ...prev]);
         setCurrentConversationId(newId);
         conversationId = newId;
@@ -1202,7 +1858,12 @@ export default function AIScreen() {
 
     try {
       await saveMessageLocal(conversationId, userMsg);
-      await provider.loadModel(activeModel);
+      if (!isConversationLocalOnly(conversationId)) {
+          pushAiSync({ messages: [{ conversationId, message: userMsg }] }).catch(() => {});
+      }
+      if (!aiUseApiProviders) {
+          await provider.loadModel(activeModel as string);
+      }
       await runAIGeneration(conversationId, buildHistory(userMsg));
     } catch (error) {
       console.error(error);
@@ -1310,6 +1971,7 @@ export default function AIScreen() {
           mode={projectDialogMode}
           initialName={projectDialogName}
           initialPrompt={projectDialogPrompt}
+          initialLocalOnly={projectDialogLocalOnly}
           icon={projectDialogIcon}
           iconColor={projectDialogIconColor}
           onPickIcon={() => setProjectIconPickerVisible(true)}
@@ -1320,6 +1982,7 @@ export default function AIScreen() {
         <ChatDialog
           visible={chatDialogVisible}
           initialName={chatDialogName}
+          initialLocalOnly={chatDialogLocalOnly}
           onPickIcon={() => setChatIconPickerVisible(true)}
           onDelete={() => chatDialogId && setConfirmChatDeleteId(chatDialogId)}
           onSave={handleSaveChatDialog}
@@ -1385,120 +2048,123 @@ export default function AIScreen() {
       />
       {settingsVisible ? (
         <View style={{ flex: 1, padding: 16 }}>
-              <View style={{ flexDirection: 'row', marginBottom: 12 }}>
-            <Button mode={settingsTab === 'downloaded' ? 'contained' : 'text'} onPress={() => setSettingsTab('downloaded')} style={{ marginRight: 8 }}>
-              Nedladdade
+          <View style={{ flexDirection: 'row', marginBottom: 12 }}>
+            <Button mode={settingsTab === 'models' ? 'contained' : 'text'} onPress={() => setSettingsTab('models')} style={{ marginRight: 8 }} testID="ai-settings-tab-models">
+              Modeller
             </Button>
-            <Button mode={settingsTab === 'search' ? 'contained' : 'text'} onPress={() => setSettingsTab('search')}>
-              HuggingFace
+            <Button mode={settingsTab === 'instructions' ? 'contained' : 'text'} onPress={() => setSettingsTab('instructions')} testID="ai-settings-tab-instructions">
+              AI Instruktioner
             </Button>
-                <Button mode={settingsTab === 'system' ? 'contained' : 'text'} onPress={() => setSettingsTab('system')}>
-                  Systemprompt
-                </Button>
           </View>
 
-          {settingsTab === 'downloaded' && (
+          {settingsTab === 'models' && (
             <View style={{ flex: 1 }}>
-              <Text variant="titleMedium" style={{ marginBottom: 8, color: theme.colors.onSurface }}>Nedladdade modeller</Text>
-              {localModels.length === 0 ? (
-                <Text style={{ color: theme.colors.onSurfaceVariant, marginBottom: 16 }}>Inga modeller nedladdade</Text>
-              ) : (
-                <FlatList
-                  data={localModels}
-                  keyExtractor={(item) => item.id}
-                  renderItem={({ item: m }) => (
-                    <View style={[styles.modelItem, { borderColor: theme.colors.outline }]}>
-                      <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
-                        <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.colors.onSurface, fontWeight: 'bold' }}>{m.name}</Text>
-                        <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.colors.onSurfaceVariant }}>{(m.size / 1024 / 1024).toFixed(1)} MB</Text>
-                      </View>
-                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <Button 
-                          mode={activeModel === m.path ? 'contained' : 'outlined'} 
-                          onPress={() => setActiveModel(m.path)}
-                          style={{ marginRight: 8 }}
-                        >
-                          {activeModel === m.path ? 'Active' : 'Select'}
-                        </Button>
-                        <IconButton icon="delete" onPress={() => handleDeleteModel(m.id, m.path)} />
-                      </View>
-                    </View>
-                  )}
-                />
-              )}
-            </View>
-          )}
-
-          {settingsTab === 'search' && (
-            <View style={{ flex: 1 }}>
-              <Text variant="titleMedium" style={{ marginBottom: 8, color: theme.colors.onSurface }}>Sök HuggingFace</Text>
-              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 16 }}>
-                <TextInput 
-                  style={[styles.input, { flex: 1, color: theme.colors.onSurface, borderColor: theme.colors.outline, borderWidth: 1, borderRadius: 4, padding: 8 }]}
-                  placeholder={t('ai.searchPlaceholder')}
-                  placeholderTextColor={theme.colors.onSurfaceVariant}
-                  value={searchQuery}
-                  onChangeText={setSearchQuery}
-                  returnKeyType="search"
-                  onSubmitEditing={handleSearch}
-                />
-                <Button mode="contained" onPress={handleSearch} loading={isSearching}>Search</Button>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+                <Text style={{ color: theme.colors.onSurface }}>Använd API-baserad AI</Text>
+                <Switch value={aiUseApiProviders} onValueChange={setAiUseApiProviders} />
               </View>
-
-              <FlatList 
-                data={searchResults}
-                keyExtractor={item => item.id}
-                renderItem={({ item }) => (
-                  <View style={[styles.modelItem, { borderColor: theme.colors.outline }]}>
-                    <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
-                      <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.colors.onSurface, fontWeight: 'bold' }}>{item.name}</Text>
-                      <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.colors.onSurfaceVariant }}>{item.author}</Text>
-                      <Text style={{ color: theme.colors.onSurfaceVariant }}>
-                        {formatSearchSize(searchSizes[item.id])}
-                      </Text>
-                    </View>
-                    <View style={{ alignItems: 'flex-end' }}>
-                      {processingModels[item.id] ? (
-                        <Button mode="outlined" onPress={() => handleCancelDownload(item.id)}>
-                          Cancel
-                        </Button>
-                      ) : (
-                        <Button 
-                          mode="contained-tonal" 
-                          onPress={() => downloadModel(item)}
-                          disabled={!!processingModels[item.id]}
-                        >
-                          Download
-                        </Button>
-                      )}
-                      <Button
-                        mode="text"
-                        onPress={() => runDeviceLocalConversionCheck(item)}
-                        disabled={!!processingModels[item.id]}
-                        compact
-                      >
-                        {t('ai.deviceE2ECheck')}
+              <Text style={{ marginTop: 6, color: theme.colors.onSurfaceVariant }}>
+                När detta är på används OpenRouter/Gemini. Annars används vald lokal modell.
+              </Text>
+              {aiUseApiProviders ? (
+                <View style={{ marginTop: 12 }}>
+                  <Text style={{ color: theme.colors.onSurface, marginBottom: 6 }}>API Provider</Text>
+                  <Menu
+                    visible={providerMenuVisible}
+                    onDismiss={() => setProviderMenuVisible(false)}
+                    anchor={
+                      <Button mode="outlined" onPress={() => setProviderMenuVisible(true)} testID="ai-provider-dropdown-button">
+                        {apiProvider === 'gemini' ? 'Gemini' : 'OpenRouter'}
                       </Button>
-                      {typeof downloadProgress[item.id] === 'number' && (
-                        <View style={{ width: 120, marginTop: 6 }}>
-                          <ProgressBar progress={downloadProgress[item.id]} />
-                          <Text style={{ fontSize: 11, marginTop: 4, color: theme.colors.onSurfaceVariant }}>
-                            {(downloadProgress[item.id] * 100).toFixed(0)}%
-                          </Text>
-                          <Text style={{ fontSize: 10, marginTop: 2, color: theme.colors.onSurfaceVariant }}>
-                            {formatDownloadStage(downloadStage[item.id])}
-                          </Text>
+                    }
+                  >
+                    <Menu.Item onPress={() => { setApiProvider('openrouter'); setProviderMenuVisible(false); }} title="OpenRouter" />
+                    <Menu.Item onPress={() => { setApiProvider('gemini'); setProviderMenuVisible(false); }} title="Gemini" />
+                  </Menu>
+                  {apiProvider === 'openrouter' ? (
+                    <>
+                      <PaperTextInput
+                        mode="outlined"
+                        label="OpenRouter API Key"
+                        value={openRouterApiKey}
+                        onChangeText={setOpenRouterApiKey}
+                        autoCorrect={false}
+                        style={{ marginTop: 8 }}
+                      />
+                      <PaperTextInput
+                        mode="outlined"
+                        label="OpenRouter modell"
+                        value={openRouterModel}
+                        onChangeText={setOpenRouterModel}
+                        autoCorrect={false}
+                        style={{ marginTop: 8 }}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <PaperTextInput
+                        mode="outlined"
+                        label="Gemini API Key"
+                        value={geminiApiKey}
+                        onChangeText={setGeminiApiKey}
+                        autoCorrect={false}
+                        style={{ marginTop: 8 }}
+                      />
+                      <PaperTextInput
+                        mode="outlined"
+                        label="Gemini modell"
+                        value={geminiModel}
+                        onChangeText={setGeminiModel}
+                        autoCorrect={false}
+                        style={{ marginTop: 8 }}
+                      />
+                    </>
+                  )}
+                </View>
+              ) : (
+                <View style={{ marginTop: 12, flex: 1 }}>
+                  <Text variant="titleMedium" style={{ marginBottom: 8, color: theme.colors.onSurface }}>Nedladdade modeller</Text>
+                  {localModels.length === 0 ? (
+                    <Text style={{ color: theme.colors.onSurfaceVariant, marginBottom: 16 }}>Inga modeller nedladdade</Text>
+                  ) : (
+                    <FlatList
+                      data={localModels}
+                      keyExtractor={(item) => item.id}
+                      renderItem={({ item: m }) => (
+                        <View style={[styles.modelItem, { borderColor: theme.colors.outline }]}>
+                          <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
+                            <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.colors.onSurface, fontWeight: 'bold' }}>{m.name}</Text>
+                            <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.colors.onSurfaceVariant }}>{(m.size / 1024 / 1024).toFixed(1)} MB</Text>
+                          </View>
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <Button
+                              mode={activeModel === m.path ? 'contained' : 'outlined'}
+                              onPress={() => setActiveModel(m.path)}
+                              style={{ marginRight: 8 }}
+                            >
+                              {activeModel === m.path ? 'Active' : 'Select'}
+                            </Button>
+                            <IconButton icon="delete" onPress={() => handleDeleteModel(m.id, m.path)} />
+                          </View>
                         </View>
                       )}
-                    </View>
-                  </View>
-                )}
-              />
+                    />
+                  )}
+                </View>
+              )}
+              <View style={{ marginTop: 12 }}>
+                <Button mode="contained" onPress={() => setDownloadDialogVisible(true)} testID="ai-open-download-models-dialog">
+                  Ladda ner nya AI-modeller
+                </Button>
+                <Text style={{ marginTop: 6, color: theme.colors.onSurfaceVariant }}>
+                  Nedladdning och konvertering fortsätter i bakgrunden även om du stänger dialogen.
+                </Text>
+              </View>
             </View>
           )}
-          {settingsTab === 'system' && (
-            <View style={{ flex: 1 }}>
-              <Text variant="titleMedium" style={{ marginBottom: 8, color: theme.colors.onSurface }}>Systemprompt</Text>
+          {settingsTab === 'instructions' && (
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }}>
+              <Text variant="titleMedium" style={{ marginBottom: 8, color: theme.colors.onSurface }}>AI Instruktioner</Text>
               <TextInput
                 style={[styles.input, { color: theme.colors.onSurface, borderColor: theme.colors.outline, borderWidth: 1, borderRadius: 8, padding: 8, height: 160, textAlignVertical: 'top' }]}
                 placeholder={t('ai.systemPromptPlaceholder')}
@@ -1543,6 +2209,108 @@ export default function AIScreen() {
                   {t('ai.checkConversionHealth')}
                 </Button>
               </View>
+              <View style={{ marginTop: 14, padding: 12, borderWidth: 1, borderColor: theme.colors.outline, borderRadius: 10 }}>
+                <Text variant="titleSmall" style={{ color: theme.colors.onSurface, marginBottom: 6 }}>MCP Integrationer</Text>
+                <Text style={{ color: theme.colors.onSurfaceVariant, marginBottom: 10 }}>
+                  Värden här sparas krypterat på enheten och prioriteras över motsvarande .env-värden.
+                </Text>
+                {MCP_INTEGRATIONS.map((integration) => (
+                  <View key={integration.id} style={{ marginBottom: 12, borderWidth: 1, borderColor: theme.colors.outlineVariant, borderRadius: 8, padding: 10 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <Text style={{ color: theme.colors.onSurface, fontWeight: '600' }}>{integration.label}</Text>
+                      <Switch
+                        value={Boolean(mcpSettings[integration.id]?.enabled)}
+                        testID={`mcp-enabled-${integration.id}`}
+                        onValueChange={(value) =>
+                          setMcpSettings((prev) => ({
+                            ...prev,
+                            [integration.id]: {
+                              ...prev[integration.id],
+                              enabled: value,
+                            },
+                          }))
+                        }
+                      />
+                    </View>
+                    {integration.fields.map((field) => (
+                      <PaperTextInput
+                        key={`${integration.id}-${field.key}`}
+                        mode="outlined"
+                        label={field.label}
+                        value={mcpSettings[integration.id]?.values[field.key] || ''}
+                        onChangeText={(value) =>
+                          setMcpSettings((prev) => ({
+                            ...prev,
+                            [integration.id]: {
+                              ...prev[integration.id],
+                              values: {
+                                ...prev[integration.id].values,
+                                [field.key]: value,
+                              },
+                            },
+                          }))
+                        }
+                        autoCorrect={false}
+                        secureTextEntry={field.secret}
+                        style={{ marginTop: 8 }}
+                        testID={`mcp-${integration.id}-${field.key}`}
+                      />
+                    ))}
+                  </View>
+                ))}
+              </View>
+              <View style={{ marginTop: 14, padding: 12, borderWidth: 1, borderColor: theme.colors.outline, borderRadius: 10 }} testID="mcp-dashboard-section-mobile">
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <Text variant="titleSmall" style={{ color: theme.colors.onSurface }}>MCP Säkerhetsdashboard</Text>
+                  <Button
+                    mode="outlined"
+                    onPress={async () => {
+                      const nextOpen = !mcpDashboardOpen;
+                      setMcpDashboardOpen(nextOpen);
+                      if (nextOpen) {
+                        await loadMcpDashboard();
+                      }
+                    }}
+                    testID="mcp-dashboard-toggle-mobile"
+                  >
+                    {mcpDashboardOpen ? 'Dölj' : 'Visa'}
+                  </Button>
+                </View>
+                <Text style={{ color: theme.colors.onSurfaceVariant, marginBottom: 8 }}>
+                  Visar endast aktuell användares auditmetadata från backend.
+                </Text>
+                {mcpDashboardOpen ? (
+                  <View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                      <Button mode="text" onPress={loadMcpDashboard} testID="mcp-dashboard-refresh-mobile">
+                        Uppdatera
+                      </Button>
+                      {mcpDashboardLoading ? <ActivityIndicator size="small" style={{ marginLeft: 8 }} /> : null}
+                    </View>
+                    {mcpDashboardError ? (
+                      <Text style={{ color: theme.colors.error, marginBottom: 8 }}>{mcpDashboardError}</Text>
+                    ) : null}
+                    <View style={{ maxHeight: 180 }}>
+                      <ScrollView testID="mcp-dashboard-list-mobile">
+                        {mcpDashboardRows.length === 0 ? (
+                          <Text style={{ color: theme.colors.onSurfaceVariant }}>Ingen spårning hittades.</Text>
+                        ) : (
+                          mcpDashboardRows.map((row: any, index: number) => (
+                            <View key={`${row.at || index}-${row.service || ''}`} style={{ paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: theme.colors.outlineVariant }}>
+                              <Text style={{ color: theme.colors.onSurface, fontWeight: '600' }}>
+                                {row.service || '-'} · {row.action || '-'} · {row.ok ? 'OK' : 'NEJ'}
+                              </Text>
+                              <Text style={{ color: theme.colors.onSurfaceVariant }}>
+                                {(row.at ? new Date(row.at).toLocaleString('sv-SE') : '-') + (row.toolName ? ` · ${row.toolName}` : '')}
+                              </Text>
+                            </View>
+                          ))
+                        )}
+                      </ScrollView>
+                    </View>
+                  </View>
+                ) : null}
+              </View>
               <View style={{ flexDirection: 'row', marginTop: 12 }}>
                 <Button
                   mode="contained"
@@ -1565,8 +2333,77 @@ export default function AIScreen() {
                   Rensa
                 </Button>
               </View>
-            </View>
+            </ScrollView>
           )}
+          <Dialog visible={downloadDialogVisible} onDismiss={() => setDownloadDialogVisible(false)}>
+            <Dialog.Title>Hämta AI-modeller från HuggingFace</Dialog.Title>
+            <Dialog.Content>
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+                <TextInput
+                  style={[styles.input, { flex: 1, color: theme.colors.onSurface, borderColor: theme.colors.outline, borderWidth: 1, borderRadius: 4, padding: 8 }]}
+                  placeholder={t('ai.searchPlaceholder')}
+                  placeholderTextColor={theme.colors.onSurfaceVariant}
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                  returnKeyType="search"
+                  onSubmitEditing={handleSearch}
+                />
+                <Button mode="contained" onPress={handleSearch} loading={isSearching}>Search</Button>
+              </View>
+              <ScrollView style={{ maxHeight: 340 }}>
+                <View style={{ gap: 10 }}>
+                  {searchResults.map((item) => (
+                    <View key={item.id} style={[styles.modelItem, { borderColor: theme.colors.outline }]}>
+                      <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
+                        <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.colors.onSurface, fontWeight: 'bold' }}>{item.name}</Text>
+                        <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.colors.onSurfaceVariant }}>{item.author}</Text>
+                        <Text style={{ color: theme.colors.onSurfaceVariant }}>
+                          {formatSearchSize(searchSizes[item.id])}
+                        </Text>
+                      </View>
+                      <View style={{ alignItems: 'flex-end' }}>
+                        {processingModels[item.id] ? (
+                          <Button mode="outlined" onPress={() => handleCancelDownload(item.id)}>
+                            Cancel
+                          </Button>
+                        ) : (
+                          <Button
+                            mode="contained-tonal"
+                            onPress={() => downloadModel(item)}
+                            disabled={!!processingModels[item.id]}
+                          >
+                            Download
+                          </Button>
+                        )}
+                        <Button
+                          mode="text"
+                          onPress={() => runDeviceLocalConversionCheck(item)}
+                          disabled={!!processingModels[item.id]}
+                          compact
+                        >
+                          {t('ai.deviceE2ECheck')}
+                        </Button>
+                        {typeof downloadProgress[item.id] === 'number' && (
+                          <View style={{ width: 120, marginTop: 6 }}>
+                            <ProgressBar progress={downloadProgress[item.id]} />
+                            <Text style={{ fontSize: 11, marginTop: 4, color: theme.colors.onSurfaceVariant }}>
+                              {(downloadProgress[item.id] * 100).toFixed(0)}%
+                            </Text>
+                            <Text style={{ fontSize: 10, marginTop: 2, color: theme.colors.onSurfaceVariant }}>
+                              {formatDownloadStage(downloadStage[item.id])}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              </ScrollView>
+            </Dialog.Content>
+            <Dialog.Actions>
+              <Button onPress={() => setDownloadDialogVisible(false)}>{t('common.close')}</Button>
+            </Dialog.Actions>
+          </Dialog>
         </View>
       ) : (
         <>

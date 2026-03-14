@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { StyleSheet, View, TextInput, Alert, KeyboardAvoidingView, Platform, Modal, ScrollView, Keyboard, Pressable, ActivityIndicator } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Appbar, useTheme, Text, Menu, Button } from 'react-native-paper';
@@ -9,8 +9,12 @@ import { CreateNoteDto, UpdateNoteDto } from '@repo/shared';
 import { RichEditor, RichToolbar, actions } from 'react-native-pell-rich-editor';
 import PasswordModal from '@/components/PasswordModal';
 import { tiptapJsonToHtml } from '@/utils/tiptap';
+import { getVideoEmbedHtml } from '@/utils/video';
 import IconPickerModal from '@/components/IconPickerModal';
 import ProjectSelector from '@/components/ProjectSelector';
+import { useTranslation } from 'react-i18next';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { buildSecurityNoteMap, findBlockingLockedAncestor } from '@/services/ai/security';
 
 export default function NoteEditorScreen() {
   const params = useLocalSearchParams<{ id: string | string[]; parentId?: string | string[] }>();
@@ -18,12 +22,18 @@ export default function NoteEditorScreen() {
   const parentId = Array.isArray(params.parentId) ? params.parentId[0] : params.parentId;
   const router = useRouter();
   const theme = useTheme();
-  const { notes, createNote, updateNote, deleteNote, fetchNotes, verifyNoteLock, maskLockedNote } = useStore();
+  const { notes, createNote, updateNote, deleteNote, fetchNotes, verifyNoteLock, maskLockedNote, unlockedProtectedNoteIds } = useStore();
+  const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
   
   const richText = useRef<RichEditor>(null);
   
   const isNew = id === 'new';
   const existingNote = id ? notes.find(n => n._id === id) : undefined;
+  const blockingLockedAncestor = useMemo(() => {
+    if (!existingNote) return null;
+    return findBlockingLockedAncestor(existingNote as any, buildSecurityNoteMap(notes as any), new Set(unlockedProtectedNoteIds));
+  }, [existingNote, notes, unlockedProtectedNoteIds]);
 
   const [title, setTitle] = useState('');
   const [icon, setIcon] = useState<string>('');
@@ -34,6 +44,8 @@ export default function NoteEditorScreen() {
   const [editorKey, setEditorKey] = useState<string>(() => `editor-${String(id ?? 'new')}-${Date.now()}`);
   const [isSaving, setIsSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [tags, setTags] = useState<string[]>([]);
+  const tagsRef = useRef<string[]>([]);
 
   // Lock State
   const [isLocked, setIsLocked] = useState(false);
@@ -47,6 +59,8 @@ export default function NoteEditorScreen() {
   // Video Modal State
   const [showVideoModal, setShowVideoModal] = useState(false);
   const [videoUrl, setVideoUrl] = useState('');
+  const [showTagsModal, setShowTagsModal] = useState(false);
+  const [tagsInput, setTagsInput] = useState('');
 
   const [showProjectSelector, setShowProjectSelector] = useState(false);
   const [selectedParentId, setSelectedParentId] = useState<string | null>(null);
@@ -81,6 +95,7 @@ export default function NoteEditorScreen() {
   useEffect(() => { iconRef.current = icon; }, [icon]);
   useEffect(() => { iconColorRef.current = iconColor; }, [iconColor]);
   useEffect(() => { selectedParentIdRef.current = selectedParentId; }, [selectedParentId]);
+  useEffect(() => { tagsRef.current = tags; }, [tags]);
   useEffect(() => { isSavingRef.current = isSaving; }, [isSaving]);
   useEffect(() => { isLockedRef.current = isLocked; }, [isLocked]);
 
@@ -96,6 +111,7 @@ export default function NoteEditorScreen() {
       const currentIcon = iconRef.current;
       const currentIconColor = iconColorRef.current;
       const currentParentId = selectedParentIdRef.current;
+      const currentTags = tagsRef.current;
 
       // If it's a new note and empty (no title, no content), don't create it
       if (isNew && !currentTitle.trim() && !currentContent.trim()) {
@@ -106,7 +122,7 @@ export default function NoteEditorScreen() {
       const save = async () => {
         try {
             let titleToSave = currentTitle.trim();
-            if (!titleToSave && !currentContent) titleToSave = 'Untitled Note';
+            if (!titleToSave && !currentContent) titleToSave = t('common.untitled');
             
             // If still empty (no title, no content), skip
             if (!titleToSave && !currentContent) return;
@@ -117,6 +133,7 @@ export default function NoteEditorScreen() {
              title: titleToSave,
              content: currentContent,
              parentId: currentParentId,
+             tags: currentTags,
              icon: currentIcon,
              iconColor: currentIconColor,
              type: 'note'
@@ -127,6 +144,7 @@ export default function NoteEditorScreen() {
                  title: titleToSave,
                  content: currentContent,
                  parentId: currentParentId,
+                 tags: currentTags,
                  icon: currentIcon,
                  iconColor: currentIconColor
                });
@@ -151,7 +169,7 @@ export default function NoteEditorScreen() {
   useEffect(() => {
     if (!isNew && existingNote) {
       if (initializedNoteIdRef.current === id) return;
-      if (existingNote.locked) {
+      if (blockingLockedAncestor) {
         setIsLocked(true);
         setShowPasswordModal(true);
         setTitle(existingNote.title);
@@ -167,6 +185,7 @@ export default function NoteEditorScreen() {
         contentRef.current = html;
         setEditorKey(`editor-${String(id)}-${Date.now()}`);
         setSelectedParentId(existingNote.parentId || null);
+        setTags(existingNote.tags || []);
       }
       initializedNoteIdRef.current = id ?? null;
     } else if (!isNew && !existingNote) {
@@ -179,20 +198,21 @@ export default function NoteEditorScreen() {
       contentRef.current = '';
       setEditorKey(`editor-${String(id ?? 'new')}-${Date.now()}`);
       setSelectedParentId(parentId || null);
+      setTags([]);
       initializedNoteIdRef.current = id ?? null;
     }
-  }, [id, existingNote, isNew, parentId]);
+  }, [id, existingNote, isNew, parentId, blockingLockedAncestor]);
 
   // Helper to generate title if missing
-  const getEffectiveTitle = (t: string, c: string) => {
-    if (t && t.trim()) return t.trim();
-    const plainText = c.replace(/<[^>]*>?/gm, '').trim();
+  const getEffectiveTitle = (title: string, content: string) => {
+    if (title && title.trim()) return title.trim();
+    const plainText = content.replace(/<[^>]*>?/gm, '').trim();
     if (plainText) {
       const words = plainText.split(/\s+/);
       const title = words.slice(0, 5).join(' ');
       return title.length > 30 ? title.substring(0, 30) + '...' : title;
     }
-    return 'Untitled Note';
+    return t('common.untitled');
   };
 
   const handleTitleChange = (text: string) => {
@@ -203,13 +223,37 @@ export default function NoteEditorScreen() {
     contentRef.current = html;
   };
 
+  const normalizeTags = (input: string) => {
+    const parts = input
+      .split(',')
+      .map((tag) => tag.trim())
+      .filter((tag) => tag.length > 0);
+    return Array.from(new Set(parts));
+  };
+
+  const openTagsModal = () => {
+    setTagsInput(tags.join(', '));
+    setShowTagsModal(true);
+  };
+
+  const handleSaveTags = async () => {
+    const nextTags = normalizeTags(tagsInput);
+    setTags(nextTags);
+    setShowTagsModal(false);
+    if (!isNew && id) {
+      try {
+        await updateNote(id, { tags: nextTags });
+      } catch {}
+    }
+  };
+
   const handleManualSave = async () => {
     // Generate title if missing, but allow user to have no title if they want
     let titleToSave = title.trim();
     
     // Only force a title if absolutely nothing is present to avoid creating "ghost" notes
     if (!titleToSave && !contentRef.current) {
-      titleToSave = 'Untitled Note'; 
+      titleToSave = t('common.untitled'); 
     }
     // If we have content but no title, titleToSave remains "" (empty string)
 
@@ -220,21 +264,21 @@ export default function NoteEditorScreen() {
         const dto: CreateNoteDto = { 
           title: titleToSave, 
           content: contentRef.current || '', 
-          tags: [], 
+          tags, 
           icon,
           iconColor,
           parentId: selectedParentId
         };
         await createNote(dto);
       } else {
-        const dto: UpdateNoteDto = { title: titleToSave, content: contentRef.current || '', icon, iconColor, parentId: selectedParentId || undefined };
+        const dto: UpdateNoteDto = { title: titleToSave, content: contentRef.current || '', tags, icon, iconColor, parentId: selectedParentId || undefined };
         await updateNote(id!, dto);
       }
       setLastSaved(new Date());
       hasSavedRef.current = true;
       router.back();
     } catch (error: any) {
-      Alert.alert('Error', error.message);
+      Alert.alert(t('common.error'), error.message);
       // If error occurred, allow retry and allow auto-save (although auto-save might also fail if validation error)
       setIsSaving(false);
       isSavingRef.current = false;
@@ -248,12 +292,12 @@ export default function NoteEditorScreen() {
 
   const handleDelete = async () => {
     Alert.alert(
-      'Delete Note',
-      'Are you sure you want to delete this note?',
+      t('note.deleteConfirmTitle'),
+      t('note.deleteConfirmMessage'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         { 
-          text: 'Delete', 
+          text: t('common.delete'), 
           style: 'destructive', 
           onPress: async () => {
             try {
@@ -261,7 +305,7 @@ export default function NoteEditorScreen() {
               await deleteNote(id!);
               router.back();
             } catch (error: any) {
-              Alert.alert('Error', error.message);
+              Alert.alert(t('common.error'), error.message);
             }
           }
         },
@@ -285,12 +329,12 @@ export default function NoteEditorScreen() {
       } else {
         // Locking the note
         await updateNote(id!, { locked: true, password });
-        Alert.alert('Success', 'Note locked successfully');
+        Alert.alert(t('common.success'), t('note.lockedSuccess'));
         setShowPasswordModal(false);
         router.back(); // Go back after locking, or stay and require unlock? Let's go back.
       }
     } catch (error: any) {
-      setUnlockError(passwordMode === 'unlock' ? 'Incorrect password' : error.message);
+      setUnlockError(passwordMode === 'unlock' ? t('note.incorrectPassword') : error.message);
     } finally {
       setUnlocking(false);
     }
@@ -299,17 +343,17 @@ export default function NoteEditorScreen() {
   const handleRemoveLock = async () => {
     try {
       await updateNote(id!, { locked: false, password: '' });
-      Alert.alert('Success', 'Lock removed');
+      Alert.alert(t('common.success'), t('note.lockRemoved'));
       setShowMenu(false);
     } catch (error: any) {
-      Alert.alert('Error', error.message);
+      Alert.alert(t('common.error'), error.message);
     }
   };
 
   const handleInsertImage = async () => {
     const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (permissionResult.granted === false) {
-      Alert.alert("Permission to access camera roll is required!");
+      Alert.alert(t('note.imagePermission'));
       return;
     }
 
@@ -339,13 +383,13 @@ export default function NoteEditorScreen() {
     if (!html) return;
     const match = html.match(/<table[\s\S]*?<\/table>/i);
     if (!match) {
-      Alert.alert('No table found');
+      Alert.alert(t('note.tableNotFound'));
       return;
     }
     const tableHtml = match[0];
     const updated = mutate(tableHtml);
     if (!updated) {
-      Alert.alert('Cannot update table');
+      Alert.alert(t('note.tableUpdateError'));
       return;
     }
     const nextHtml = html.replace(tableHtml, updated);
@@ -427,21 +471,9 @@ export default function NoteEditorScreen() {
 
   const submitVideo = () => {
     if (!videoUrl) return;
-    let embedUrl = videoUrl;
-    
-    // Simple parsing for youtube/tiktok
-    // YouTube
-    if (videoUrl.includes('youtube.com') || videoUrl.includes('youtu.be')) {
-      const videoId = videoUrl.includes('v=') ? videoUrl.split('v=')[1]?.split('&')[0] : videoUrl.split('/').pop();
-      embedUrl = `https://www.youtube.com/embed/${videoId}`;
-    }
-    // TikTok (requires webview embed usually, or custom iframe)
-    else if (videoUrl.includes('tiktok.com')) {
-      const videoId = videoUrl.split('/video/')[1]?.split('?')[0];
-      if (videoId) embedUrl = `https://www.tiktok.com/embed/v2/${videoId}?lang=en-US`;
-    }
-
-    richText.current?.insertHTML(`<iframe src="${embedUrl}" width="100%" height="300" frameborder="0" allowfullscreen></iframe><br/>`);
+    const iframe = getVideoEmbedHtml(videoUrl);
+    if (!iframe) return;
+    richText.current?.insertHTML(iframe);
     setVideoUrl('');
     setShowVideoModal(false);
   };
@@ -452,12 +484,19 @@ export default function NoteEditorScreen() {
         <Stack.Screen options={{ headerShown: false }} />
         <Appbar.Header>
           <Appbar.BackAction onPress={() => router.back()} />
-          <Appbar.Content title="Locked Note" />
+          <Appbar.Content title={t('note.locked')} />
         </Appbar.Header>
         <View style={styles.lockedContainer}>
-          <Text variant="headlineSmall" style={{ marginBottom: 16 }}>This note is locked</Text>
+          <Text variant="headlineSmall" style={{ marginBottom: 16 }}>
+            {blockingLockedAncestor && existingNote && blockingLockedAncestor._id !== existingNote._id
+              ? (t('note.lockedInherited') || 'Den här anteckningen ligger i en låst projektmapp.')
+              : t('note.lockedMessage')}
+          </Text>
+          <Text variant="bodySmall" style={{ marginBottom: 12, color: theme.colors.onSurfaceVariant }}>
+            Krypterat lokalt tills rätt lösenord anges.
+          </Text>
           <Button mode="contained" onPress={() => { setPasswordMode('unlock'); setShowPasswordModal(true); }}>
-            Unlock Note
+            {t('note.unlock')}
           </Button>
         </View>
         <PasswordModal
@@ -466,7 +505,8 @@ export default function NoteEditorScreen() {
           onSubmit={handleUnlock}
           error={unlockError}
           loading={unlocking}
-          title="Enter Password to Unlock"
+          title={t('note.enterPassword')}
+          submitLabel={t('note.unlock')}
         />
       </View>
     );
@@ -475,7 +515,10 @@ export default function NoteEditorScreen() {
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <Stack.Screen options={{ headerShown: false }} />
-      <Appbar.Header>
+      <Appbar.Header
+        statusBarHeight={insets.top}
+        style={{ height: insets.top + 26, paddingBottom: 5, paddingTop: 0, marginBottom: 5 }}
+      >
         <Appbar.BackAction onPress={() => router.back()} />
         {icon && (
           <Pressable
@@ -497,21 +540,24 @@ export default function NoteEditorScreen() {
             }}
             value={title}
             onChangeText={handleTitleChange}
-            placeholder="Title"
+            placeholder={t('common.title')}
             placeholderTextColor={theme.colors.onSurfaceDisabled}
         />
         {isSaving && <ActivityIndicator size="small" color={theme.colors.primary} style={{ marginRight: 8 }} />}
         <Menu
           visible={showMenu}
           onDismiss={() => setShowMenu(false)}
-          anchor={<Appbar.Action icon="dots-vertical" onPress={() => setShowMenu(true)} />}
+          anchor={<Appbar.Action icon="dots-vertical" onPress={() => {
+            setShowMenu(false);
+            setTimeout(() => setShowMenu(true), 0);
+          }} />}
         >
           <Menu.Item
             onPress={() => {
               setShowMenu(false);
               setShowIconPicker(true);
             }}
-            title="Change Icon"
+            title={t('note.changeIcon')}
             leadingIcon="shape-outline"
           />
           <Menu.Item
@@ -519,21 +565,21 @@ export default function NoteEditorScreen() {
               setShowMenu(false);
               setShowProjectSelector(true);
             }}
-            title="Move to Project"
+            title={t('note.moveToProject')}
             leadingIcon="folder-outline"
           />
           <Menu.Item
             onPress={() => {
               setShowMenu(false);
-              setShowVideoModal(true);
+              openTagsModal();
             }}
-            title="Insert Video"
-            leadingIcon="video"
+            title={t('note.editTags')}
+            leadingIcon="tag-outline"
           />
           {!isNew && (
             <Menu.Item 
               onPress={() => { 
-                if (existingNote?.locked) {
+                if (existingNote?.locked && (!blockingLockedAncestor || blockingLockedAncestor._id === existingNote._id)) {
                   handleRemoveLock();
                 } else {
                   setPasswordMode('lock'); 
@@ -541,12 +587,12 @@ export default function NoteEditorScreen() {
                   setShowMenu(false); 
                 }
               }} 
-              title={existingNote?.locked ? "Remove Lock" : "Lock Note"} 
+              title={existingNote?.locked ? t('note.removeLock') : t('note.lock')} 
               leadingIcon={existingNote?.locked ? "lock-open" : "lock"} 
             />
           )}
           {!isNew && (
-            <Menu.Item onPress={handleDelete} title="Delete" leadingIcon="delete" titleStyle={{ color: theme.colors.error }} />
+            <Menu.Item onPress={handleDelete} title={t('common.delete')} leadingIcon="delete" titleStyle={{ color: theme.colors.error }} />
           )}
         </Menu>
         <Appbar.Action icon="check" onPress={handleManualSave} disabled={isSaving} />
@@ -568,7 +614,7 @@ export default function NoteEditorScreen() {
             ref={richText}
             initialContentHTML={initialHtml}
             onChange={handleContentChange}
-            placeholder="Start typing..."
+            placeholder={t('note.editorPlaceholder')}
             scrollEnabled={false}
             editorStyle={{
               backgroundColor: theme.colors.background,
@@ -600,7 +646,7 @@ export default function NoteEditorScreen() {
             'removeTableColumn',
           ]}
           onPressAddImage={handleInsertImage}
-          onPressAddVideo={handleInsertVideo}
+          insertVideo={handleInsertVideo}
           iconMap={{
               insertTable: ({ tintColor }: any) => <Text style={{ color: tintColor, fontWeight: 'bold' }}>Tbl</Text>,
               addTableRow: ({ tintColor }: any) => <Text style={{ color: tintColor, fontWeight: 'bold' }}>R+</Text>,
@@ -625,7 +671,8 @@ export default function NoteEditorScreen() {
         onSubmit={handleUnlock}
         error={unlockError}
         loading={unlocking}
-        title={passwordMode === 'lock' ? "Set Password" : "Enter Password"}
+        title={passwordMode === 'lock' ? t('note.setPassword') : t('note.enterPassword')}
+        submitLabel={passwordMode === 'lock' ? t('note.lock') : t('note.unlock')}
       />
 
       <ProjectSelector
@@ -648,6 +695,35 @@ export default function NoteEditorScreen() {
         currentColor={iconColor}
       />
 
+      <Modal
+        visible={showTagsModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowTagsModal(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowTagsModal(false)}>
+          <Pressable
+            style={[styles.modalContent, { backgroundColor: theme.colors.surface }]}
+            onPress={() => {}}
+            onStartShouldSetResponder={() => true}
+          >
+            <Text variant="titleMedium" style={{ marginBottom: 16 }}>{t('note.editTags')}</Text>
+            <TextInput
+              style={[styles.input, { color: theme.colors.onSurface, borderColor: theme.colors.outline }]}
+              placeholder={t('note.tagsPlaceholder')}
+              placeholderTextColor={theme.colors.onSurfaceDisabled}
+              value={tagsInput}
+              onChangeText={setTagsInput}
+              autoCapitalize="none"
+            />
+            <View style={styles.modalButtons}>
+              <Button onPress={() => setShowTagsModal(false)} style={{ marginRight: 8 }}>{t('common.cancel')}</Button>
+              <Button mode="contained" onPress={handleSaveTags}>{t('common.save')}</Button>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       {/* Video URL Modal */}
       <Modal
         visible={showVideoModal}
@@ -655,23 +731,27 @@ export default function NoteEditorScreen() {
         animationType="slide"
         onRequestClose={() => setShowVideoModal(false)}
       >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: theme.colors.surface }]}>
-            <Text variant="titleMedium" style={{ marginBottom: 16 }}>Insert Video URL</Text>
+        <Pressable style={styles.modalOverlay} onPress={() => setShowVideoModal(false)}>
+          <Pressable
+            style={[styles.modalContent, { backgroundColor: theme.colors.surface }]}
+            onPress={() => {}}
+            onStartShouldSetResponder={() => true}
+          >
+            <Text variant="titleMedium" style={{ marginBottom: 16 }}>{t('note.insertVideoTitle')}</Text>
             <TextInput
               style={[styles.input, { color: theme.colors.onSurface, borderColor: theme.colors.outline }]}
-              placeholder="https://youtube.com/..."
+              placeholder={t('note.insertVideoPlaceholder')}
               placeholderTextColor={theme.colors.onSurfaceDisabled}
               value={videoUrl}
               onChangeText={setVideoUrl}
               autoCapitalize="none"
             />
             <View style={styles.modalButtons}>
-              <Button onPress={() => setShowVideoModal(false)} style={{ marginRight: 8 }}>Cancel</Button>
-              <Button mode="contained" onPress={submitVideo}>Insert</Button>
+              <Button onPress={() => setShowVideoModal(false)} style={{ marginRight: 8 }}>{t('common.cancel')}</Button>
+              <Button mode="contained" onPress={submitVideo}>{t('note.insertVideoAction')}</Button>
             </View>
-          </View>
-        </View>
+          </Pressable>
+        </Pressable>
       </Modal>
     </View>
   );
@@ -700,7 +780,8 @@ const styles = StyleSheet.create({
   },
   contentContainerInner: {
     flexGrow: 1,
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 5,
     paddingBottom: 16,
   },
   titleInput: {

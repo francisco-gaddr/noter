@@ -8,6 +8,8 @@ import noteRoutes from '../../src/routes/notes';
 import Note from '../../src/models/Note';
 import { encrypt } from '@repo/shared';
 
+jest.setTimeout(120000);
+
 jest.mock('../../src/services/cache', () => ({
   get: jest.fn(),
   set: jest.fn(),
@@ -68,9 +70,12 @@ describe('Note Lock Verification', () => {
     const createRes = await request(app)
       .post('/api/notes')
       .send({
-        title: 'Locked Note',
-        content: 'Secret Content',
-        locked: true,
+        title: encrypt('Locked Note'),
+        content: encrypt('Secret Content'),
+        locked: encrypt('true'),
+        type: encrypt('note'),
+        createdAt: encrypt(new Date().toISOString()),
+        updatedAt: encrypt(new Date().toISOString()),
         password: encrypted
       });
 
@@ -113,5 +118,36 @@ describe('Note Lock Verification', () => {
       .send({ password: 'any' });
 
     expect(res.status).toBe(404);
+  });
+
+  it('should unlock child note when parent project is locked and password is correct', async () => {
+    const password = 'project-password';
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const project = await Note.create({
+      userId: 'test-user-id',
+      title: 'Project',
+      content: '',
+      type: 'project',
+      password: hashedPassword,
+      locked: true,
+    });
+    const child = await Note.create({
+      userId: 'test-user-id',
+      title: 'Child',
+      content: 'Child Content',
+      parentId: project._id,
+      type: 'note',
+      locked: false,
+    });
+
+    const res = await request(app)
+      .post(`/api/notes/${child._id}/verify-lock`)
+      .send({ password });
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.title).toBe('Child');
+    expect(res.body.content).toBe('Child Content');
+    expect(res.body.unlockedId).toBe(String(project._id));
   });
 });

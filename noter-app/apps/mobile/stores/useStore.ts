@@ -9,6 +9,7 @@ import NetInfo from '@react-native-community/netinfo';
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { scheduleTaskReminder, cancelTaskReminder, cancelAllTaskReminders } from '../services/notifications';
+import { buildSecurityNoteMap, findBlockingLockedAncestor } from '../services/ai/security';
 
 let wasOffline = false;
 
@@ -24,11 +25,14 @@ interface AppState {
   token: string | null;
   isInitialized: boolean;
   notificationsEnabled: boolean;
+  securityLocked: boolean;
+  unlockedProtectedNoteIds: string[];
   
   // UI Actions
   setActiveProject: (id: string | null) => void;
   setViewMode: (mode: 'list' | 'tree') => void;
   setNotificationsEnabled: (enabled: boolean) => Promise<void>;
+  setSecurityLocked: (locked: boolean) => Promise<void>;
   init: () => Promise<void>;
   register: (username: string, password: string) => Promise<void>;
   
@@ -55,7 +59,7 @@ interface AppState {
   syncOfflineChanges: () => Promise<void>;
 
   // Security
-  verifyNoteLock: (id: string, password: string) => Promise<{ title: string; content: string }>;
+  verifyNoteLock: (id: string, password: string) => Promise<{ title: string; content: string; unlockedId?: string | null }>;
   maskLockedNote: (id: string) => Promise<void>;
   
   // Auth
@@ -92,15 +96,20 @@ const parseNoteLocked = (value: unknown): boolean => {
   return false;
 };
 
-const processApiNote = (note: Note): Note => {
+const normalizeEncryptedNote = (note: Note): any => {
+  const rawTitle = (note as any).__rawEncryptedTitle ?? note.title;
+  const rawContent = (note as any).__rawEncryptedContent ?? note.content;
+  const rawTags = (note as any).__rawEncryptedTags ?? (note as any).tags;
+  const rawIcon = (note as any).__rawEncryptedIcon ?? (note as any).icon;
   const locked = parseNoteLocked(note.locked);
   return {
   ...note,
-  title: locked ? 'Låst anteckning' : decrypt(note.title),
-  content: locked ? '' : decrypt(note.content),
-  tags: locked ? [] : (Array.isArray((note as any).tags) ? ((note as any).tags as any[]).map((t) => tryDecryptString(t)) : []),
-  icon: locked ? undefined : ((note as any).icon ? tryDecryptString((note as any).icon) : (note as any).icon),
+  title: typeof rawTitle === 'string' ? rawTitle : '',
+  content: typeof rawContent === 'string' ? rawContent : '',
+  tags: Array.isArray(rawTags) ? rawTags : (typeof rawTags === 'string' ? [rawTags] : []),
+  icon: typeof rawIcon === 'string' ? rawIcon : undefined,
   type: (note as any).type ? tryDecryptString((note as any).type) : (note as any).type,
+  parentId: note.parentId ? tryDecryptString(note.parentId) : null,
   locked: locked,
   order: (() => {
     const raw = (note as any).order;
@@ -119,7 +128,56 @@ const processApiNote = (note: Note): Note => {
   })(),
   createdAt: decrypt(note.createdAt),
   updatedAt: decrypt(note.updatedAt),
+  __rawEncryptedTitle: typeof rawTitle === 'string' ? rawTitle : '',
+  __rawEncryptedContent: typeof rawContent === 'string' ? rawContent : '',
+  __rawEncryptedTags: Array.isArray(rawTags) ? rawTags : rawTags,
+  __rawEncryptedIcon: typeof rawIcon === 'string' ? rawIcon : undefined,
   };
+};
+
+const materializeNotesFromEncrypted = (notes: Note[], unlockedIds: Set<string>): Note[] => {
+  const normalized = notes.map(normalizeEncryptedNote);
+  const noteMap = buildSecurityNoteMap(normalized as any);
+  return normalized.map((note: any) => {
+    const blocking = findBlockingLockedAncestor(note, noteMap as any, unlockedIds);
+    if (blocking) {
+      const isDirectlyLockedProject = blocking._id === note._id && note.type === 'project';
+      let projectTitle = note.title;
+      if (isDirectlyLockedProject) {
+        try {
+          projectTitle = decrypt(note.__rawEncryptedTitle || note.title);
+        } catch {}
+      }
+      return {
+        ...note,
+        title: isDirectlyLockedProject ? projectTitle : 'Låst anteckning',
+        content: '',
+        tags: [],
+        icon: undefined,
+        iconColor: undefined,
+        locked: true,
+      };
+    }
+    return {
+      ...note,
+      title: (() => { try { return decrypt(note.__rawEncryptedTitle || note.title) } catch { return note.title } })(),
+      content: (() => { try { return decrypt(note.__rawEncryptedContent || note.content) } catch { return note.content } })(),
+      tags: Array.isArray(note.__rawEncryptedTags)
+        ? note.__rawEncryptedTags.map((t: any) => tryDecryptString(t))
+        : (() => {
+            if (typeof note.__rawEncryptedTags !== 'string') return [];
+            try {
+              const decoded = decrypt(note.__rawEncryptedTags);
+              const parsed = JSON.parse(decoded);
+              return Array.isArray(parsed) ? parsed.map((t: any) => tryDecryptString(t)) : [];
+            } catch {
+              return [];
+            }
+          })(),
+      icon: note.__rawEncryptedIcon ? tryDecryptString(note.__rawEncryptedIcon) : undefined,
+      locked: parseNoteLocked(note.locked),
+    };
+  });
 };
 
 const parseTaskCompleted = (value: unknown): boolean => {
@@ -258,6 +316,8 @@ export const useStore = create<AppState>((set, get) => ({
   token: null,
   isInitialized: false,
   notificationsEnabled: false,
+  securityLocked: true,
+  unlockedProtectedNoteIds: [],
 
   setActiveProject: (id) => set({ activeProjectId: id }),
   setToken: (token) => {
@@ -274,6 +334,21 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
   setViewMode: (mode) => set({ viewMode: mode }),
+  setSecurityLocked: async (locked) => {
+    if (get().securityLocked === locked) return;
+    if (locked) {
+      disconnectSocket();
+      set({ securityLocked: true, notes: [], tasks: [], activeProjectId: null, isLoading: false, error: null, unlockedProtectedNoteIds: [] });
+      return;
+    }
+    set({ securityLocked: false });
+    const token = get().token;
+    if (token) {
+      await get().fetchNotes();
+      await get().fetchTasks();
+      get().connectSocket();
+    }
+  },
   setNotificationsEnabled: async (enabled) => {
     set({ notificationsEnabled: enabled });
     await AsyncStorage.setItem('notificationsEnabled', JSON.stringify(enabled));
@@ -309,12 +384,14 @@ export const useStore = create<AppState>((set, get) => ({
     });
     
     // Load local data immediately
-    const localNotes = await Database.getNotesLocal();
-    const localTasks = await Database.getTasksLocal();
-    set({ 
-      notes: localNotes.map(processLocalNote), 
-      tasks: localTasks.map(processLocalTask) 
-    });
+    if (!get().securityLocked) {
+      const localNotes = await Database.getNotesLocal();
+      const localTasks = await Database.getTasksLocal();
+      set({
+        notes: localNotes.map(processLocalNote),
+        tasks: localTasks.map(processLocalTask)
+      });
+    }
 
     // Setup network listener
     NetInfo.addEventListener(state => {
@@ -332,11 +409,14 @@ export const useStore = create<AppState>((set, get) => ({
       }
     });
 
-    get().connectSocket();
+    if (!get().securityLocked) {
+      get().connectSocket();
+    }
   },
 
   // Fallback sync method when WebSocket fails
   syncViaHttp: async () => {
+    if (get().securityLocked) return;
     try {
       console.log('Attempting HTTP sync fallback due to WebSocket issues');
       await get().fetchNotes();
@@ -348,6 +428,10 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   connectSocket: () => {
+    if (get().securityLocked) {
+      disconnectSocket();
+      return;
+    }
     const token = get().token;
     const socket = initSocket(token);
 
@@ -380,8 +464,11 @@ export const useStore = create<AppState>((set, get) => ({
     socket.off('tasks:reordered');
 
     socket.on('note:created', (note: Note) => {
-      const parsed = processApiNote(note);
       set(state => {
+        const merged = [normalizeEncryptedNote(note), ...state.notes];
+        const secured = materializeNotesFromEncrypted(merged as any, new Set(state.unlockedProtectedNoteIds));
+        const parsed = secured.find((n) => n._id === note._id);
+        if (!parsed) return state;
         if (state.notes.find(n => n._id === parsed._id)) return state;
 
         const parsedClientId = (parsed as any).clientId as string | undefined;
@@ -408,11 +495,14 @@ export const useStore = create<AppState>((set, get) => ({
     });
 
     socket.on('note:updated', (note: Note) => {
-      const parsed = processApiNote(note);
       set(state => {
+        const merged = state.notes.map((n) => (n._id === note._id ? normalizeEncryptedNote(note) : n));
+        const secured = materializeNotesFromEncrypted(merged as any, new Set(state.unlockedProtectedNoteIds));
+        const parsed = secured.find((n) => n._id === note._id);
+        if (!parsed) return state;
         Database.saveNoteLocal(parsed, true);
         return {
-          notes: state.notes.map(n => n._id === parsed._id ? parsed : n)
+          notes: secured
         };
       });
     });
@@ -546,33 +636,40 @@ export const useStore = create<AppState>((set, get) => ({
     } catch {}
     setAuthToken(null);
     disconnectSocket();
-    set({ token: null, notes: [], tasks: [], activeProjectId: null, error: null });
+    set({ token: null, notes: [], tasks: [], activeProjectId: null, error: null, unlockedProtectedNoteIds: [] });
   },
 
   fetchNotes: async () => {
+    if (get().securityLocked) {
+      set({ isLoading: false });
+      return;
+    }
     set({ isLoading: true, error: null });
     try {
       const netState = await NetInfo.fetch();
       
       if (netState.isConnected) {
         const notes = await fetchWithAuth('/notes');
-        const decryptedNotes = notes.map(processApiNote);
+        const safeNotes = Array.isArray(notes) ? notes : [];
+        const securedNotes = materializeNotesFromEncrypted(safeNotes as any, new Set(get().unlockedProtectedNoteIds));
         
         // Update local DB
-        for (const note of decryptedNotes) {
+        for (const note of securedNotes) {
           await Database.saveNoteLocal(note, true);
         }
-        set({ notes: decryptedNotes, isLoading: false });
+        set({ notes: securedNotes, isLoading: false });
       } else {
         // Already loaded from init, but refresh just in case
         const localNotes = await Database.getNotesLocal();
-        set({ notes: localNotes.map(processLocalNote), isLoading: false });
+        const securedNotes = materializeNotesFromEncrypted(localNotes.map(processLocalNote) as any, new Set(get().unlockedProtectedNoteIds));
+        set({ notes: securedNotes, isLoading: false });
       }
     } catch (error: any) {
       console.error('[Store] Fetch notes error:', error);
       // Fallback to local
       const localNotes = await Database.getNotesLocal();
-      set({ notes: localNotes.map(processLocalNote), isLoading: false, error: error.message });
+      const securedNotes = materializeNotesFromEncrypted(localNotes.map(processLocalNote) as any, new Set(get().unlockedProtectedNoteIds));
+      set({ notes: securedNotes, isLoading: false, error: error.message });
     }
   },
 
@@ -630,7 +727,7 @@ export const useStore = create<AppState>((set, get) => ({
             method: 'POST',
             body: JSON.stringify(encryptedData),
           });
-          const realNote = processApiNote(created);
+          const realNote = materializeNotesFromEncrypted([created as any], new Set(get().unlockedProtectedNoteIds))[0] as Note;
           
           // Replace in State
           set((state) => ({
@@ -684,8 +781,17 @@ export const useStore = create<AppState>((set, get) => ({
         updatedAt: new Date().toISOString()
     };
     if (data.locked === true) {
+        const existingRawTitle = (currentNote as any).__rawEncryptedTitle;
+        const existingRawContent = (currentNote as any).__rawEncryptedContent;
+        const existingRawTags = (currentNote as any).__rawEncryptedTags;
+        const existingRawIcon = (currentNote as any).__rawEncryptedIcon;
+        (optimisticNote as any).__rawEncryptedTitle = existingRawTitle || encrypt(currentNote.title || '');
+        (optimisticNote as any).__rawEncryptedContent = existingRawContent || encrypt(currentNote.content || '');
+        (optimisticNote as any).__rawEncryptedTags = existingRawTags || encrypt(JSON.stringify(currentNote.tags || []));
+        (optimisticNote as any).__rawEncryptedIcon = existingRawIcon || (currentNote.icon ? encrypt(currentNote.icon) : undefined);
         optimisticNote.title = 'Låst anteckning';
         optimisticNote.content = '';
+        set((state) => ({ unlockedProtectedNoteIds: state.unlockedProtectedNoteIds.filter((item) => item !== id) }));
     }
 
     // 2. Update State
@@ -719,11 +825,11 @@ export const useStore = create<AppState>((set, get) => ({
             method: 'PUT',
             body: JSON.stringify(encryptedData),
           });
-          const realNote = processApiNote(updated);
+          const realNote = materializeNotesFromEncrypted([updated as any], new Set(get().unlockedProtectedNoteIds))[0] as Note;
           
           // Update State & DB
           set(state => ({
-              notes: state.notes.map(n => n._id === id ? realNote : n)
+              notes: materializeNotesFromEncrypted(state.notes.map(n => n._id === id ? realNote : n) as any, new Set(state.unlockedProtectedNoteIds))
           }));
           await Database.saveNoteLocal(realNote, true);
 
@@ -816,6 +922,10 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   fetchTasks: async (parentNoteId) => {
+    if (get().securityLocked) {
+      set({ isLoading: false });
+      return;
+    }
     set({ isLoading: true, error: null });
     try {
       const netState = await NetInfo.fetch();
@@ -864,12 +974,14 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   backgroundRefresh: async () => {
+    if (get().securityLocked) return;
     try {
       const netState = await NetInfo.fetch();
       if (!netState.isConnected) return;
 
       const notes = await fetchWithAuth('/notes');
-      const decryptedNotes = notes.map(processApiNote);
+      const safeNotes = Array.isArray(notes) ? notes : [];
+      const decryptedNotes = materializeNotesFromEncrypted(safeNotes as any, new Set(get().unlockedProtectedNoteIds));
       for (const note of decryptedNotes) {
         await Database.saveNoteLocal(note, true);
       }
@@ -1290,6 +1402,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   syncOfflineChanges: async () => {
+    if (get().securityLocked) return;
     if (get().isSyncingOffline) return;
     set({ isSyncingOffline: true });
     try {
@@ -1339,7 +1452,7 @@ export const useStore = create<AppState>((set, get) => ({
                 body: JSON.stringify(createData),
               });
               if (tempId) {
-                  const decryptedCreated = processApiNote(created);
+                  const decryptedCreated = materializeNotesFromEncrypted([created as any], new Set(get().unlockedProtectedNoteIds))[0] as Note;
                   
                   // Update map
                   tempIdMap.set(tempId, decryptedCreated._id);
@@ -1472,11 +1585,14 @@ export const useStore = create<AppState>((set, get) => ({
       const decryptedContent = decrypt(response.content);
       const decryptedTitle = response.title ? decrypt(response.title) : 'Låst anteckning';
 
+      const effectiveUnlockId = response.unlockedId || id;
       set(state => ({
-        notes: state.notes.map(n => n._id === id ? { ...n, title: decryptedTitle, content: decryptedContent } : n)
+        notes: state.notes.map(n => n._id === id ? { ...n, title: decryptedTitle, content: decryptedContent } : n),
+        unlockedProtectedNoteIds: Array.from(new Set([...state.unlockedProtectedNoteIds, effectiveUnlockId])),
       }));
+      await get().fetchNotes();
 
-      return { title: decryptedTitle, content: decryptedContent };
+      return { title: decryptedTitle, content: decryptedContent, unlockedId: response.unlockedId || null };
     } catch (error: any) {
       const status = typeof error?.status === 'number' ? error.status : undefined;
       if (status === 401 || status === 403) {
@@ -1496,7 +1612,8 @@ export const useStore = create<AppState>((set, get) => ({
       locked: true,
     };
     set(state => ({
-      notes: state.notes.map(n => n._id === id ? masked : n)
+      notes: state.notes.map(n => n._id === id ? masked : n),
+      unlockedProtectedNoteIds: state.unlockedProtectedNoteIds.filter((item) => item !== id),
     }));
     await Database.saveNoteLocal(masked, true);
   },

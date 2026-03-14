@@ -5,24 +5,30 @@ import Joi from 'joi';
 import { AuthRequest } from '../middleware/authMiddleware';
 import mongoose from 'mongoose';
 import { validate } from '../middleware/validate';
+import { isEncryptedPayload } from '../utils/encryption';
 
 const router = express.Router();
 
+const encryptedRequired = Joi.string().custom((value, helpers) => (
+  isEncryptedPayload(value) ? value : helpers.error('any.invalid')
+));
+const encryptedOptional = Joi.alternatives().try(Joi.string().valid(''), encryptedRequired);
+
 const taskSchema = Joi.object({
   clientId: Joi.string().allow('').optional(),
-  title: Joi.string().required(),
-  description: Joi.string().allow(''),
-  dueDate: Joi.string().allow(null, ''), // Encrypted date string
-  completed: Joi.string().allow(''), // Encrypted boolean string
-  priority: Joi.string().allow(''), // Encrypted priority string
+  title: encryptedRequired.required(),
+  description: encryptedOptional.optional(),
+  dueDate: Joi.alternatives().try(Joi.valid(null), encryptedOptional).optional(),
+  completed: encryptedOptional.optional(),
+  priority: encryptedOptional.optional(),
   parentNoteId: Joi.string().allow(null),
-  createdAt: Joi.string().allow(''), // Encrypted timestamp string
-  updatedAt: Joi.string().allow(''), // Encrypted timestamp string
-  position: Joi.string().allow(''), // Encrypted position string
-  recurrenceType: Joi.string().allow(''),
-  recurrenceDays: Joi.string().allow(''),
-  reminderEnabled: Joi.string().allow(''),
-  reminderOffsetMinutes: Joi.string().allow('')
+  createdAt: encryptedRequired.required(),
+  updatedAt: encryptedRequired.required(),
+  position: encryptedOptional.optional(),
+  recurrenceType: encryptedOptional.optional(),
+  recurrenceDays: encryptedOptional.optional(),
+  reminderEnabled: encryptedOptional.optional(),
+  reminderOffsetMinutes: encryptedOptional.optional()
 });
 
 const assignSchema = Joi.object({
@@ -33,24 +39,24 @@ const reorderSchema = Joi.object({
   tasks: Joi.array().items(
     Joi.object({
       _id: Joi.string().required(),
-      position: Joi.string().required()
+      position: encryptedRequired.required()
     }).unknown(true)
   ).required()
 });
 
 const updateTaskSchema = Joi.object({
-  title: Joi.string(),
-  description: Joi.string().allow(''),
-  dueDate: Joi.string().allow(null, ''),
-  completed: Joi.string().allow(''),
-  priority: Joi.string().allow(''),
+  title: encryptedRequired.optional(),
+  description: encryptedOptional.optional(),
+  dueDate: Joi.alternatives().try(Joi.valid(null), encryptedOptional).optional(),
+  completed: encryptedOptional.optional(),
+  priority: encryptedOptional.optional(),
   parentNoteId: Joi.string().allow(null),
-  position: Joi.string().allow(''),
-  updatedAt: Joi.string().allow(''),
-  recurrenceType: Joi.string().allow(''),
-  recurrenceDays: Joi.string().allow(''),
-  reminderEnabled: Joi.string().allow(''),
-  reminderOffsetMinutes: Joi.string().allow('')
+  position: encryptedOptional.optional(),
+  updatedAt: encryptedOptional.optional(),
+  recurrenceType: encryptedOptional.optional(),
+  recurrenceDays: encryptedOptional.optional(),
+  reminderEnabled: encryptedOptional.optional(),
+  reminderOffsetMinutes: encryptedOptional.optional()
 });
 
 // GET /api/tasks

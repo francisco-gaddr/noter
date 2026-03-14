@@ -1,5 +1,5 @@
 import { useStore } from '../stores/useStore';
-import { encrypt } from '@repo/shared';
+import { encrypt, decrypt } from '@repo/shared';
 
 // Mocks
 jest.mock('@react-native-community/netinfo', () => ({
@@ -46,6 +46,8 @@ describe('Mobile Store', () => {
     useStore.setState({
       notes: [],
       tasks: [],
+      securityLocked: false,
+      unlockedProtectedNoteIds: [],
     });
   });
 
@@ -57,7 +59,15 @@ describe('Mobile Store', () => {
 
   it('should fetch notes from API when online', async () => {
     const { fetchWithAuth } = require('../services/api');
-    const mockNotes = [{ _id: '1', title: 'Test Note', content: 'Content', updatedAt: new Date().toISOString() }];
+    const mockNotes = [{
+      _id: '1',
+      title: encrypt('Test Note'),
+      content: encrypt('Content'),
+      locked: encrypt('false'),
+      type: encrypt('note'),
+      createdAt: encrypt(new Date().toISOString()),
+      updatedAt: encrypt(new Date().toISOString()),
+    }];
     fetchWithAuth.mockResolvedValueOnce(mockNotes);
 
     await useStore.getState().fetchNotes();
@@ -90,12 +100,63 @@ describe('Mobile Store', () => {
     expect(state.notes[0].locked).toBe(true);
   });
 
+  it('should keep project name visible but mask all descendants under locked project', async () => {
+    const { fetchWithAuth } = require('../services/api');
+    const projectId = 'project-1';
+    const mockNotes = [
+      {
+        _id: projectId,
+        title: encrypt('Projekt A'),
+        content: encrypt('Projekt-hemligt'),
+        locked: encrypt('true'),
+        type: encrypt('project'),
+        createdAt: encrypt(new Date().toISOString()),
+        updatedAt: encrypt(new Date().toISOString()),
+      },
+      {
+        _id: 'child-1',
+        title: encrypt('Barn-hemlig titel'),
+        content: encrypt('Barn-hemligt innehåll'),
+        parentId: encrypt(projectId),
+        locked: encrypt('false'),
+        type: encrypt('note'),
+        createdAt: encrypt(new Date().toISOString()),
+        updatedAt: encrypt(new Date().toISOString()),
+      },
+    ];
+    fetchWithAuth.mockResolvedValueOnce(mockNotes);
+
+    await useStore.getState().fetchNotes();
+
+    const state = useStore.getState();
+    const project = state.notes.find((n) => n._id === projectId) as any;
+    const child = state.notes.find((n) => n._id === 'child-1') as any;
+
+    expect(project.title).toBe('Projekt A');
+    expect(project.content).toBe('');
+    expect(child.title).toBe('Låst anteckning');
+    expect(child.content).toBe('');
+    expect(child.__rawEncryptedTitle).toBe(mockNotes[1].title);
+    expect(child.__rawEncryptedContent).toBe(mockNotes[1].content);
+  });
+
   it('should fetch notes from Local DB when offline', async () => {
      const NetInfo = require('@react-native-community/netinfo');
      NetInfo.fetch.mockResolvedValueOnce({ isConnected: false });
 
      const Database = require('../services/database');
-     const localNotes = [{ _id: 'local_1', title: 'Local Note', content: 'Content', updatedAt: new Date().toISOString() }];
+     const localNotes = [{
+      _id: 'local_1',
+      title: encrypt('Local Note'),
+      content: encrypt('Content'),
+      locked: encrypt('false'),
+      type: encrypt('note'),
+      createdAt: encrypt(new Date().toISOString()),
+      updatedAt: encrypt(new Date().toISOString()),
+      __rawEncryptedTitle: encrypt('Local Note'),
+      __rawEncryptedContent: encrypt('Content'),
+      __rawEncryptedTags: encrypt('[]'),
+    }];
      Database.getNotesLocal.mockResolvedValueOnce(localNotes);
 
      await useStore.getState().fetchNotes();
@@ -117,6 +178,7 @@ describe('Mobile Store', () => {
     });
 
     fetchWithAuth.mockResolvedValueOnce({
+      success: true,
       title: encryptedTitle,
       content: encryptedContent,
     });
@@ -170,5 +232,9 @@ describe('Mobile Store', () => {
     const updated = state.notes.find(n => n._id === noteId);
     expect(updated?.title).toBe('Låst anteckning');
     expect(updated?.content).toBe('');
+    const Database = require('../services/database');
+    const optimisticSaved = Database.saveNoteLocal.mock.calls[0]?.[0];
+    expect(decrypt(optimisticSaved.__rawEncryptedTitle)).toBe('Test Title');
+    expect(decrypt(optimisticSaved.__rawEncryptedContent)).toBe('Test Content');
   });
 });

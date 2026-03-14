@@ -2,6 +2,9 @@ import * as SQLite from 'expo-sqlite';
 import CryptoJS from 'crypto-js';
 import { Note, Task, Conversation, Message, AIModel, AIProject, encrypt, decrypt } from '@repo/shared';
 
+type LocalConversation = Conversation & { localOnly?: boolean };
+type LocalAIProject = AIProject & { localOnly?: boolean };
+
 const db = SQLite.openDatabaseSync('noter.db');
 
 const toIsoString = (value: unknown): string => {
@@ -111,6 +114,10 @@ export const initDatabase = async () => {
       parentNoteId TEXT,
       parentId TEXT,
       position REAL,
+      recurrenceType TEXT,
+      recurrenceDays TEXT,
+      reminderEnabled TEXT,
+      reminderOffsetMinutes TEXT,
       clientId TEXT,
       isSynced INTEGER DEFAULT 1
     );
@@ -130,6 +137,7 @@ export const initDatabase = async () => {
       projectId TEXT,
       icon TEXT,
       iconColor TEXT,
+      localOnly TEXT,
       createdAt TEXT,
       updatedAt TEXT
     );
@@ -154,10 +162,12 @@ export const initDatabase = async () => {
     );
     CREATE TABLE IF NOT EXISTS ai_projects (
       id TEXT PRIMARY KEY,
+      userId TEXT,
       name TEXT,
       systemPrompt TEXT,
       icon TEXT,
       iconColor TEXT,
+      localOnly TEXT,
       createdAt TEXT,
       updatedAt TEXT
     );
@@ -168,6 +178,23 @@ export const initDatabase = async () => {
       await db.execAsync('ALTER TABLE tasks ADD COLUMN parentNoteId TEXT');
   } catch (e) {
       // Column likely exists
+  }
+
+  try {
+      await db.execAsync('ALTER TABLE tasks ADD COLUMN recurrenceType TEXT');
+  } catch (e) {
+  }
+  try {
+      await db.execAsync('ALTER TABLE tasks ADD COLUMN recurrenceDays TEXT');
+  } catch (e) {
+  }
+  try {
+      await db.execAsync('ALTER TABLE tasks ADD COLUMN reminderEnabled TEXT');
+  } catch (e) {
+  }
+  try {
+      await db.execAsync('ALTER TABLE tasks ADD COLUMN reminderOffsetMinutes TEXT');
+  } catch (e) {
   }
   
   try {
@@ -223,6 +250,11 @@ export const initDatabase = async () => {
   } catch (e) {
       // Column likely exists
   }
+  try {
+      await db.execAsync('ALTER TABLE ai_projects ADD COLUMN userId TEXT');
+  } catch (e) {
+      // Column likely exists
+  }
 
   try {
       await db.execAsync('ALTER TABLE notes ADD COLUMN clientId TEXT');
@@ -256,6 +288,18 @@ export const initDatabase = async () => {
 
   try {
       await db.execAsync('ALTER TABLE conversations ADD COLUMN projectId TEXT');
+  } catch (e) {
+      // Column likely exists
+  }
+
+  try {
+      await db.execAsync('ALTER TABLE conversations ADD COLUMN localOnly TEXT');
+  } catch (e) {
+      // Column likely exists
+  }
+
+  try {
+      await db.execAsync('ALTER TABLE ai_projects ADD COLUMN localOnly TEXT');
   } catch (e) {
       // Column likely exists
   }
@@ -318,11 +362,16 @@ export const initDatabase = async () => {
 };
 
 export const saveNoteLocal = async (note: Note, isSynced: boolean = true) => {
-  const encryptedTitle = encrypt(note.title);
-  const encryptedContent = encrypt(note.content);
+  const encryptedTitle = (note as any).__rawEncryptedTitle && note.locked ? (note as any).__rawEncryptedTitle : encrypt(note.title);
+  const encryptedContent = (note as any).__rawEncryptedContent && note.locked ? (note as any).__rawEncryptedContent : encrypt(note.content);
   
-  const encryptedTags = encrypt(JSON.stringify(note.tags || []));
-  const encryptedIcon = note.icon ? encrypt(note.icon) : null;
+  const encryptedTags = (() => {
+    const raw = (note as any).__rawEncryptedTags;
+    if (note.locked && typeof raw === 'string') return raw;
+    if (note.locked && Array.isArray(raw)) return encrypt(JSON.stringify(raw));
+    return encrypt(JSON.stringify(note.tags || []));
+  })();
+  const encryptedIcon = (note as any).__rawEncryptedIcon && note.locked ? (note as any).__rawEncryptedIcon : (note.icon ? encrypt(note.icon) : null);
   const encryptedIconColor = (note as any).iconColor ? encrypt((note as any).iconColor) : null;
   const encryptedType = (note as any).type ? encrypt((note as any).type) : null;
   const encryptedUserId = encryptText(note.userId);
@@ -370,28 +419,8 @@ export const getNotesLocal = async (): Promise<Note[]> => {
 
     const locked = decryptBool(row.locked);
 
-    let tags: string[] = [];
-    let icon: string | undefined = undefined;
-    if (!locked) {
-        try {
-            const decryptedTags = decrypt(row.tags);
-            tags = JSON.parse(decryptedTags);
-        } catch {
-            try {
-                tags = JSON.parse(row.tags || '[]');
-            } catch {
-                tags = [];
-            }
-        }
-
-        if (row.icon) {
-            try {
-                icon = decrypt(row.icon);
-            } catch {
-                icon = row.icon;
-            }
-        }
-    }
+    const tags: any = row.tags;
+    const icon: string | undefined = row.icon || undefined;
 
     let type: 'note' | 'task_list' | 'project' | undefined = undefined;
     if (row.type) {
@@ -422,8 +451,8 @@ export const getNotesLocal = async (): Promise<Note[]> => {
 
     return {
         _id: row._id,
-        title: locked ? 'Låst anteckning' : decrypt(row.title),
-        content: locked ? '' : decrypt(row.content),
+        title: row.title,
+        content: row.content,
         tags: tags,
         createdAt: createdAt,
         updatedAt: updatedAt,
@@ -436,6 +465,10 @@ export const getNotesLocal = async (): Promise<Note[]> => {
         iconColor: iconColor || undefined,
         locked: locked,
         password: password || undefined,
+        __rawEncryptedTitle: row.title,
+        __rawEncryptedContent: row.content,
+        __rawEncryptedTags: row.tags,
+        __rawEncryptedIcon: row.icon,
     };
   });
   return notes.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
@@ -461,6 +494,10 @@ export const saveTaskLocal = async (task: Task, isSynced: boolean = true) => {
   const encryptedPosition = typeof task.position === 'number' ? encryptText(task.position) : null;
   const encryptedClientId = task.clientId ? encryptText(task.clientId) : null;
   const encryptedIsSynced = encryptText(isSynced ? '1' : '0');
+  const encryptedRecurrenceType = task.recurrenceType ? encrypt(task.recurrenceType) : null;
+  const encryptedRecurrenceDays = Array.isArray(task.recurrenceDays) ? encrypt(JSON.stringify(task.recurrenceDays)) : null;
+  const encryptedReminderEnabled = task.reminderEnabled !== undefined ? encrypt(String(!!task.reminderEnabled)) : null;
+  const encryptedReminderOffsetMinutes = Array.isArray(task.reminderOffsetMinutes) ? encrypt(JSON.stringify(task.reminderOffsetMinutes)) : null;
   
   let encryptedDueDate: string | null = null;
   if (task.dueDate) {
@@ -469,8 +506,8 @@ export const saveTaskLocal = async (task: Task, isSynced: boolean = true) => {
   }
 
   await db.runAsync(
-    `INSERT OR REPLACE INTO tasks (_id, title, description, priority, completed, dueDate, createdAt, updatedAt, userId, parentNoteId, parentId, position, clientId, isSynced)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO tasks (_id, title, description, priority, completed, dueDate, createdAt, updatedAt, userId, parentNoteId, parentId, position, recurrenceType, recurrenceDays, reminderEnabled, reminderOffsetMinutes, clientId, isSynced)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       task._id,
       encryptedTitle,
@@ -484,6 +521,10 @@ export const saveTaskLocal = async (task: Task, isSynced: boolean = true) => {
       encryptedParentNoteId,
       encryptedParentId,
       encryptedPosition,
+      encryptedRecurrenceType,
+      encryptedRecurrenceDays,
+      encryptedReminderEnabled,
+      encryptedReminderOffsetMinutes,
       encryptedClientId,
       encryptedIsSynced
     ]
@@ -529,6 +570,29 @@ export const getTasksLocal = async (): Promise<Task[]> => {
     const parentId = row.parentId ? decryptText(row.parentId, row.parentId) : null;
     const position = decryptNumber(row.position);
     const clientId = row.clientId ? decryptText(row.clientId, row.clientId) : undefined;
+    const recurrenceType = row.recurrenceType ? decryptText(row.recurrenceType, row.recurrenceType) : 'none';
+    const recurrenceDays = (() => {
+      if (!row.recurrenceDays) return [];
+      const raw = decryptText(row.recurrenceDays, row.recurrenceDays) || '';
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    })();
+    const reminderEnabled = row.reminderEnabled ? decryptText(row.reminderEnabled, row.reminderEnabled) === 'true' : false;
+    const reminderOffsetMinutes = (() => {
+      if (!row.reminderOffsetMinutes) return [];
+      const raw = decryptText(row.reminderOffsetMinutes, row.reminderOffsetMinutes) || '';
+      try {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        const num = Number(raw);
+        return Number.isNaN(num) ? [] : [num];
+      }
+    })();
 
     return {
         _id: row._id,
@@ -543,7 +607,11 @@ export const getTasksLocal = async (): Promise<Task[]> => {
         parentNoteId: parentNoteId,
         clientId: clientId,
         parentId: parentId,
-        position: position ?? 0
+        position: position ?? 0,
+        recurrenceType: recurrenceType as any,
+        recurrenceDays,
+        reminderEnabled,
+        reminderOffsetMinutes
     } as unknown as Task;
   });
   return tasks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -594,23 +662,24 @@ export const removeFromSyncQueue = async (id: number) => {
 
 // AI Conversations & Messages
 
-export const saveConversationLocal = async (conversation: Conversation) => {
+export const saveConversationLocal = async (conversation: LocalConversation) => {
   const encryptedTitle = encrypt(conversation.title);
   const encryptedModel = conversation.model ? encrypt(conversation.model) : null;
   const encryptedProjectId = conversation.projectId ? encrypt(conversation.projectId) : null;
   const encryptedIcon = conversation.icon ? encrypt(conversation.icon) : null;
   const encryptedIconColor = conversation.iconColor ? encrypt(conversation.iconColor) : null;
+  const encryptedLocalOnly = encrypt(conversation.localOnly ? 'true' : 'false');
   const encryptedCreatedAt = encrypt(conversation.createdAt);
   const encryptedUpdatedAt = encrypt(conversation.updatedAt);
 
   await db.runAsync(
-    `INSERT OR REPLACE INTO conversations (id, title, model, projectId, icon, iconColor, createdAt, updatedAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    [conversation.id, encryptedTitle, encryptedModel, encryptedProjectId, encryptedIcon, encryptedIconColor, encryptedCreatedAt, encryptedUpdatedAt]
+    `INSERT OR REPLACE INTO conversations (id, title, model, projectId, icon, iconColor, localOnly, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [conversation.id, encryptedTitle, encryptedModel, encryptedProjectId, encryptedIcon, encryptedIconColor, encryptedLocalOnly, encryptedCreatedAt, encryptedUpdatedAt]
   );
 };
 
-export const getConversationsLocal = async (): Promise<Conversation[]> => {
+export const getConversationsLocal = async (): Promise<LocalConversation[]> => {
   const result = await db.getAllAsync<any>('SELECT * FROM conversations ORDER BY updatedAt DESC');
   return result.map((row: any) => ({
     id: row.id,
@@ -619,6 +688,7 @@ export const getConversationsLocal = async (): Promise<Conversation[]> => {
     projectId: row.projectId ? decrypt(row.projectId) : undefined,
     icon: row.icon ? decrypt(row.icon) : undefined,
     iconColor: row.iconColor ? decrypt(row.iconColor) : undefined,
+    localOnly: row.localOnly ? decrypt(row.localOnly) === 'true' : false,
     createdAt: decrypt(row.createdAt),
     updatedAt: decrypt(row.updatedAt),
     messages: []
@@ -700,31 +770,37 @@ export const deleteModelLocal = async (id: string) => {
 
 // AI Projects
 
-export const saveProjectLocal = async (project: AIProject) => {
+export const saveProjectLocal = async (project: LocalAIProject, userId?: string) => {
   const encryptedName = encrypt(project.name);
   const encryptedPrompt = project.systemPrompt ? encrypt(project.systemPrompt) : null;
   const encryptedIcon = project.icon ? encrypt(project.icon) : null;
   const encryptedIconColor = project.iconColor ? encrypt(project.iconColor) : null;
+  const encryptedLocalOnly = encrypt(project.localOnly ? 'true' : 'false');
   const encryptedCreatedAt = encrypt(project.createdAt);
   const encryptedUpdatedAt = encrypt(project.updatedAt);
+  const encryptedUserId = userId ? encryptText(userId) : null;
   await db.runAsync(
-    `INSERT OR REPLACE INTO ai_projects (id, name, systemPrompt, icon, iconColor, createdAt, updatedAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [project.id, encryptedName, encryptedPrompt, encryptedIcon, encryptedIconColor, encryptedCreatedAt, encryptedUpdatedAt]
+    `INSERT OR REPLACE INTO ai_projects (id, userId, name, systemPrompt, icon, iconColor, localOnly, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [project.id, encryptedUserId, encryptedName, encryptedPrompt, encryptedIcon, encryptedIconColor, encryptedLocalOnly, encryptedCreatedAt, encryptedUpdatedAt]
   );
 };
 
-export const getProjectsLocal = async (): Promise<AIProject[]> => {
+export const getProjectsLocal = async (userId?: string): Promise<LocalAIProject[]> => {
   const result = await db.getAllAsync<any>('SELECT * FROM ai_projects ORDER BY updatedAt DESC');
-  return result.map((row: any) => ({
-    id: row.id,
-    name: decrypt(row.name),
-    systemPrompt: row.systemPrompt ? decrypt(row.systemPrompt) : undefined,
-    icon: row.icon ? decrypt(row.icon) : undefined,
-    iconColor: row.iconColor ? decrypt(row.iconColor) : undefined,
-    createdAt: decrypt(row.createdAt),
-    updatedAt: decrypt(row.updatedAt),
-  }));
+  return result
+    .map((row: any) => ({
+      id: row.id,
+      userId: row.userId ? decryptText(row.userId, row.userId) || row.userId : undefined,
+      name: decrypt(row.name),
+      systemPrompt: row.systemPrompt ? decrypt(row.systemPrompt) : undefined,
+      icon: row.icon ? decrypt(row.icon) : undefined,
+      iconColor: row.iconColor ? decrypt(row.iconColor) : undefined,
+      localOnly: row.localOnly ? decrypt(row.localOnly) === 'true' : false,
+      createdAt: decrypt(row.createdAt),
+      updatedAt: decrypt(row.updatedAt),
+    }))
+    .filter((project) => !userId || project.userId === userId);
 };
 
 export const deleteProjectLocal = async (id: string) => {
