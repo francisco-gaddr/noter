@@ -1,4 +1,3 @@
-import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Task } from '@repo/shared';
@@ -25,11 +24,14 @@ const writeMap = async (map: Record<string, string>) => {
   await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(map));
 };
 
+const getNotificationsModule = () => require('expo-notifications');
+
 export const ensureNotificationPermission = async (): Promise<boolean> => {
   if (isExpoGo) {
     console.log('Notifications are disabled in Expo Go');
     return false;
   }
+  const Notifications = getNotificationsModule();
 
   if (Platform.OS === 'android') {
     await Notifications.setNotificationChannelAsync('default', {
@@ -45,6 +47,7 @@ export const ensureNotificationPermission = async (): Promise<boolean> => {
 
 export const cancelTaskReminder = async (taskId: string) => {
   if (isExpoGo) return;
+  const Notifications = getNotificationsModule();
   const map = await readMap();
   const existing = map[taskId];
   if (existing) {
@@ -59,6 +62,7 @@ export const cancelTaskReminder = async (taskId: string) => {
 
 export const scheduleTaskReminder = async (task: Task) => {
   if (isExpoGo) return;
+  const Notifications = getNotificationsModule();
   
   if (!task.reminderEnabled) {
     await cancelTaskReminder(task._id);
@@ -98,6 +102,7 @@ export const scheduleTaskReminder = async (task: Task) => {
 
 export const cancelAllTaskReminders = async () => {
   if (isExpoGo) return;
+  const Notifications = getNotificationsModule();
   const map = await readMap();
   const ids = Object.values(map);
   for (const id of ids) {

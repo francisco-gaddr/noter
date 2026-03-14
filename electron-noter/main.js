@@ -5,15 +5,17 @@ const { getModels, downloadAndConvert, deleteModel, runChat, cancelChat, searchM
 
 const isDev = process.env.NODE_ENV === 'development';
 const isTest = process.env.ELECTRON_TEST === '1';
-const devUrl = 'http://localhost:3001/app/';
-const remoteUrl = 'https://daylited.com/app/';
+const devUrl = 'http://localhost:3001/';
+const remoteUrl = 'https://daylited.com/';
 const userDataDir = process.env.ELECTRON_USER_DATA_DIR;
 const settingsFileName = 'settings.json';
 const rendererFallbackUrls = Array.from(new Set([
   process.env.ELECTRON_RENDERER_URL,
+  'http://localhost:3001/app/',
   devUrl,
+  'http://127.0.0.1:3001/',
   'http://127.0.0.1:3001/app/',
-  'http://localhost:3001/',
+  'https://daylited.com/app/',
   remoteUrl,
 ].filter(Boolean)));
 
@@ -185,12 +187,4 @@ ipcMain.handle('settings:set', async (_event, payload) => {
   }
   writeSettings(settings);
   return true;
-});
-
-ipcMain.handle('mlc:search-models', async (_event, payload) => {
-  return searchModels(payload?.query || '');
-});
-
-ipcMain.handle('mlc:get-model-files', async (_event, payload) => {
-  return getModelFiles(payload?.modelId || '');
 });

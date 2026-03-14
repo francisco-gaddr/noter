@@ -65,17 +65,6 @@ import { useStore } from '@/stores/useStore';
 import { initApiUrl } from '@/services/api';
 import { Alert, View } from 'react-native';
 import { useRouter, useSegments } from 'expo-router';
-import * as Notifications from 'expo-notifications';
-
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
 
 function RootLayoutNav() {
   const { actualTheme } = useThemeContext();
@@ -116,14 +105,31 @@ function RootLayoutNav() {
   }, [token, inAuth, isInitialized, router, segments]);
 
   useEffect(() => {
-    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
-      const taskId = (response.notification.request.content.data as any)?.taskId;
-      if (taskId) {
-        router.push(`/task/${taskId}`);
+    let unsub: (() => void) | null = null;
+    (async () => {
+      try {
+        const Notifications = await import('expo-notifications');
+        await Notifications.setNotificationHandler({
+          handleNotification: async () => ({
+            shouldShowAlert: true,
+            shouldPlaySound: true,
+            shouldSetBadge: false,
+            shouldShowBanner: true,
+            shouldShowList: true,
+          }),
+        });
+        const subscription = Notifications.addNotificationResponseReceivedListener((response: any) => {
+          const taskId = response?.notification?.request?.content?.data?.taskId;
+          if (taskId) {
+            router.push(`/task/${taskId}`);
+          }
+        });
+        unsub = () => subscription.remove();
+      } catch {
       }
-    });
+    })();
     return () => {
-      subscription.remove();
+      if (unsub) unsub();
     };
   }, [router]);
 
