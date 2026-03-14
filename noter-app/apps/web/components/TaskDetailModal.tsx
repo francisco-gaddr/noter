@@ -9,6 +9,7 @@ interface TaskDetailModalProps {
   onClose: () => void;
   task: Task | null;
   initialDate?: Date | null;
+  defaultListId?: string | null;
   onUpdate: (id: string, updates: Partial<Task>) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onCreate?: (task: Omit<Task, '_id' | 'createdAt' | 'updatedAt' | 'userId'>) => Promise<void>;
@@ -19,6 +20,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   onClose,
   task,
   initialDate,
+  defaultListId,
   onUpdate,
   onDelete,
   onCreate
@@ -35,7 +37,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   const [recurrenceType, setRecurrenceType] = useState<'none' | 'daily' | 'weekly'>('none');
   const [recurrenceDays, setRecurrenceDays] = useState<number[]>([]);
   const [reminderEnabled, setReminderEnabled] = useState(false);
-  const [reminderOffsetMinutes, setReminderOffsetMinutes] = useState<0 | 10>(0);
+  const [reminderOffsetMinutes, setReminderOffsetMinutes] = useState<number[]>([0]);
   const [isSaving, setIsSaving] = useState(false);
   const recurrenceOptions = [
     { value: 'none', label: 'Ingen' },
@@ -93,7 +95,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
         setRecurrenceType(task.recurrenceType || 'none');
         setRecurrenceDays(task.recurrenceDays || []);
         setReminderEnabled(task.reminderEnabled || false);
-        setReminderOffsetMinutes(task.reminderOffsetMinutes === 10 ? 10 : 0);
+        setReminderOffsetMinutes(Array.isArray(task.reminderOffsetMinutes) && task.reminderOffsetMinutes.length > 0 ? task.reminderOffsetMinutes : [0]);
       } else {
         // Reset for new task
         setTitle('');
@@ -126,14 +128,14 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
           setDueTimeValue('');
         }
         setCompleted(false);
-        setSelectedListId('');
+        setSelectedListId(defaultListId || '');
         setRecurrenceType('none');
         setRecurrenceDays([]);
         setReminderEnabled(false);
-        setReminderOffsetMinutes(0);
+        setReminderOffsetMinutes([0]);
       }
     }
-  }, [isOpen, task, initialDate]);
+  }, [isOpen, task, initialDate, defaultListId]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -168,7 +170,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
             recurrenceType,
             recurrenceDays: recurrenceType === 'weekly' ? recurrenceDays : [],
             reminderEnabled,
-            reminderOffsetMinutes: reminderEnabled ? reminderOffsetMinutes : 0
+            reminderOffsetMinutes: reminderEnabled ? reminderOffsetMinutes : [0]
         });
       } else if (onCreate) {
          const dueIso = dueDateValue
@@ -187,7 +189,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
             recurrenceType,
             recurrenceDays: recurrenceType === 'weekly' ? recurrenceDays : [],
             reminderEnabled,
-            reminderOffsetMinutes: reminderEnabled ? reminderOffsetMinutes : 0
+            reminderOffsetMinutes: reminderEnabled ? reminderOffsetMinutes : [0]
          });
       }
       onClose();
@@ -383,8 +385,8 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
             </label>
             {reminderEnabled && (
               <select
-                value={reminderOffsetMinutes}
-                onChange={(e) => setReminderOffsetMinutes(Number(e.target.value) === 10 ? 10 : 0)}
+                value={reminderOffsetMinutes[0] ?? 0}
+                onChange={(e) => setReminderOffsetMinutes([Number(e.target.value) === 10 ? 10 : 0])}
                 className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white mt-2"
               >
                 <option value={0}>Vid förfallotid</option>

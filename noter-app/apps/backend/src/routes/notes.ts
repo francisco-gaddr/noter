@@ -3,6 +3,7 @@ import Note from '../models/Note';
 import Task from '../models/Task';
 import Joi from 'joi';
 import bcrypt from 'bcryptjs';
+import rateLimit from 'express-rate-limit';
 import { decrypt, encrypt } from '@repo/shared';
 import { AuthRequest } from '../middleware/authMiddleware';
 import { validate } from '../middleware/validate';
@@ -64,6 +65,14 @@ const reorderSchema = Joi.object({
       }).unknown(true),
     )
     .required(),
+});
+
+const verifyLockLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 25,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: 'Too many unlock verification attempts, please try again later.'
 });
 
 // GET /api/notes
@@ -147,7 +156,7 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
 });
 
 // POST /api/notes/:id/verify-lock
-router.post('/:id/verify-lock', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/:id/verify-lock', verifyLockLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = (req as AuthRequest).user!.userId;
     const targetId = req.params.id;

@@ -48,6 +48,10 @@
 - Mobil och Electron-flöden ska validera transportpolicy vid runtime och ge tydliga fel för osäkra endpoints.
 - Alla nya dashboard-endpoints ska ha query-bounds, pagineringsgränser och default-limit för att skydda stabilitet.
 - Dashboard-funktioner för säkerhetsdata ska vara upptäckbara via AI-inställningar i både mobil och web/electron.
+- API ska blockera NoSQL/SQL-injektionsmönster, prototype-pollution-keys och onormalt långa URL:er innan affärslogik körs.
+- Skrivande API-endpoints ska kräva `application/json` och returnera tydlig 415 för avvikande content-type.
+- Säkerhetskänsliga endpoints (auth, lock-verifiering, graphql) ska ha separata rate-limiters utöver global limiter.
+- Felrespons för 5xx får inte läcka interna detaljer, stacktrace eller databasinformation i produktion.
 
 ## Mobilapp — Kvalitetsregler
 
@@ -92,6 +96,7 @@
 - Följ verifieringsmatrisen i `.trae/rules/engineering_playbook.md` och inkludera leveransbevis enligt playbooken.
 - För krypteringsleveranser ska leveransbevis täcka hela kedjan: klient-payload krypterad, server validerar ciphertext, server lagrar ciphertext, lokal lagring är ciphertext.
 - För mobil/electron-paritet ska leveransbevis inkludera minst ett test per plattform som verifierar samma beteende.
+- För intrångsskydd ska leveransbevis inkludera minst ett negativt test för injektionsförsök mot API/databaslager.
 
 ## Build Readiness och Release
 

@@ -86,3 +86,5 @@ export const downloadCompiledModel = async (
 };
 
 export const getPlatformTarget = () => (Platform.OS === 'ios' ? 'iphone' : 'android');
+
+export const isNativeFileSystemAvailable = () => Boolean(RNFS?.DocumentDirectoryPath);

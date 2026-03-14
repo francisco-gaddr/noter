@@ -18,6 +18,7 @@ import authRoutes from './routes/auth';
 import aiModelRoutes from './routes/aiModels';
 import { authMiddleware, getBearerTokenFromRequestLike, getUserIdFromDecodedToken } from './middleware/authMiddleware';
 import { errorHandler } from './middleware/errorMiddleware';
+import { blockSuspiciousRequestPatterns, enforceJsonApiRequests } from './middleware/requestSecurity';
 import { createHandler } from 'graphql-http/lib/use/express';
 import { toolSchema } from './graphql/schema';
 import { getAllowedOrigins, getJwtSecret, getJwtVerifyOptions, isDemoTokenEnabled } from './utils/security';
@@ -41,6 +42,7 @@ const allowedOrigins = getAllowedOrigins();
 const isProduction = process.env.NODE_ENV === 'production';
 
 app.set('trust proxy', 1);
+app.disable('x-powered-by');
 
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
@@ -54,11 +56,15 @@ const corsOptions: cors.CorsOptions = {
 };
 
 // Security & Performance Middleware
-app.use(helmet());
+app.use(helmet({
+  referrerPolicy: { policy: 'no-referrer' },
+}));
 app.use(cors(corsOptions));
 app.use(compression());
-app.use(mongoSanitize()); // Prevent NoSQL injection
 app.use(express.json({ limit: '1mb' }));
+app.use(enforceJsonApiRequests);
+app.use(mongoSanitize({ replaceWith: '_' }));
+app.use(blockSuspiciousRequestPatterns);
 
 // Rate Limiting
 const limiter = rateLimit({
@@ -80,6 +86,16 @@ const authLimiter = rateLimit({
   message: 'Too many authentication attempts, please try again later.'
 });
 
+const apiSensitiveLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 40,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: 'Too many security-sensitive requests from this IP, please try again later.'
+});
+
+const socketConnectionAttempts = new Map<string, { count: number; startedAt: number }>();
+
 const io = new Server(server, {
   cors: {
     origin: allowedOrigins.length === 0 && !isProduction ? true : allowedOrigins,
@@ -95,6 +111,20 @@ const io = new Server(server, {
 const socketUsers = new Map<string, any>();
 
 io.use((socket, next) => {
+  const now = Date.now();
+  const ip = String(socket.handshake.address || 'unknown');
+  const entry = socketConnectionAttempts.get(ip);
+  if (!entry || now - entry.startedAt > 60_000) {
+    socketConnectionAttempts.set(ip, { count: 1, startedAt: now });
+  } else {
+    entry.count += 1;
+    if (entry.count > 45) {
+      next(new Error('Too many connection attempts'));
+      return;
+    }
+    socketConnectionAttempts.set(ip, entry);
+  }
+
   const token = (socket.handshake.auth as any)?.token as string | undefined;
   if (!token) {
     next(new Error('Unauthorized'));
@@ -226,6 +256,16 @@ app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/notes', authMiddleware, noteRoutes);
 app.use('/api/tasks', authMiddleware, taskRoutes);
 app.use('/api/ai/models', aiModelRoutes);
+app.use('/api/graphql', apiSensitiveLimiter);
+app.use('/api/graphql', (req, res, next) => {
+  if (!isProduction) return next();
+  if (process.env.ALLOW_GRAPHQL_INTROSPECTION === 'true') return next();
+  const query = typeof req.body?.query === 'string' ? req.body.query.toLowerCase() : '';
+  if (query.includes('__schema') || query.includes('__type')) {
+    return res.status(403).json({ message: 'GraphQL introspection is disabled' });
+  }
+  return next();
+});
 app.use('/api/graphql', authMiddleware, createHandler({
   schema: toolSchema,
   context: (req: any) => {
@@ -241,6 +281,9 @@ app.use('/api/graphql', authMiddleware, createHandler({
     return { userId, io: req?.app?.get('io') };
   }
 }));
+app.use('/api', (_req, res) => {
+  res.status(404).json({ message: 'API endpoint not found' });
+});
 
 // Error Handler
 app.use(errorHandler);

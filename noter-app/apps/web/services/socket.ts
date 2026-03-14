@@ -42,6 +42,7 @@ export const resolveSocketBaseUrl = (options?: {
 };
 
 let socketBaseUrl = resolveSocketBaseUrl();
+let socketTokenCache: string | null = null;
 
 export let socket = io(socketBaseUrl, {
   autoConnect: false,
@@ -74,13 +75,20 @@ export const connectSocket = () => {
       withCredentials: true,
     });
   }
-  if (typeof window !== 'undefined') {
-    const token = localStorage.getItem('token');
-    (socket as any).auth = { token };
-  }
+  const token = socketTokenCache || (typeof window !== 'undefined' ? localStorage.getItem('token') : null);
+  (socket as any).auth = { token };
   if (!socket.connected) socket.connect();
 };
 
 export const disconnectSocket = () => {
   if (socket.connected) socket.disconnect();
+};
+
+export const setSocketToken = (token: string | null) => {
+  socketTokenCache = token;
+  if (typeof window !== 'undefined') {
+    if (token) localStorage.setItem('token', token);
+    else localStorage.removeItem('token');
+  }
+  (socket as any).auth = { token };
 };

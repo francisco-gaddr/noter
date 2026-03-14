@@ -42,7 +42,11 @@ export const getBestQuantization = (files: HFFile[]): HFFile | undefined => {
 export const downloadModel = async (
     model: HFModel, 
     file: HFFile, 
-    onProgress?: (percent: number) => void
+    onProgress?: (percent: number) => void,
+    options?: {
+      preferLocalConversion?: boolean;
+      onStageChange?: (stage: 'queued' | 'downloading' | 'converting' | 'converting_locally' | 'zipping' | 'completed' | 'failed') => void;
+    }
 ): Promise<string> => {
     const platform = getPlatformTarget();
     const modelDir = getModelDir(model.id, file.quantization);
@@ -51,6 +55,7 @@ export const downloadModel = async (
     }
     const exists = await RNFS.exists(modelDir);
     if (!exists) {
+        options?.onStageChange?.('queued');
         const { jobId } = await requestModelConversion({
             modelId: model.id,
             ggufUrl: file.url,
@@ -62,6 +67,8 @@ export const downloadModel = async (
         let outputUrl: string | undefined;
         for (let i = 0; i < maxAttempts; i += 1) {
             const status = await getConversionStatus(jobId);
+            const nextStage = status.status === 'converting' && options?.preferLocalConversion ? 'converting_locally' : status.status;
+            options?.onStageChange?.(nextStage as any);
             if (typeof status.progress === 'number') {
                 onProgress?.(Math.min(0.9, Math.max(0, status.progress)));
             }
@@ -84,9 +91,11 @@ export const downloadModel = async (
             outputUrl = compiled.url;
         }
 
+        options?.onStageChange?.('downloading');
         await downloadCompiledModel(outputUrl, model.id, file.quantization, (p) => {
             onProgress?.(0.9 + p * 0.1);
         });
+        options?.onStageChange?.('completed');
     }
 
     const filename = (file.quantization ? `${file.quantization}.zip` : 'model.zip');

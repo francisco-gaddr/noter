@@ -20,6 +20,7 @@ Detta dokument operationaliserar reglerna i `project_rules.md` till konkreta ver
 | Dashboard-förändring | route-test + UI-test (web eller mobile) + e2e där tillämpligt | `cd apps/backend && npm test -- __tests__/mcp-routes.test.ts` |
 | Notes/Tasks E2E-kryptering | backend validering + web at-rest + mobile at-rest + sync transporttest | `cd apps/backend && npm test -- __tests__/encryption-validation.test.ts __tests__/ai-sync.test.ts` + `cd apps/web && npm test -- services/db.security.test.ts __tests__/ai-sync-service.test.ts` + `cd apps/mobile && npm test -- tests/database-at-rest.test.ts tests/ai-sync-service.test.ts` |
 | Mobil/Electron-paritet (Tasks/AI) | mobile kontraktstest + mobile UI-strukturtest + web paritytest | `cd apps/mobile && npm test -- tests/task-editor-contract.test.ts tests/ai-settings-structure.test.tsx` + `cd apps/web && npm test -- components/NoteEditor.test.tsx` |
+| API/DB attackhärdning | middleware-unit + api-integration för injektion/content-type + typecheck/lint | `cd apps/backend && npm test -- __tests__/request-security.test.ts __tests__/api-hardening.test.ts` |
 
 ## 3. Verifiering per regelklass
 
@@ -30,6 +31,8 @@ Detta dokument operationaliserar reglerna i `project_rules.md` till konkreta ver
 - Bekräfta server-side user-scope på dashboard/endpoints.
 - Bekräfta att krypterad data inte lagras i klartext.
 - Vid key-rotation: verifiera både nytt format och legacy-dekryptering.
+- Bekräfta att injektionsmönster (`$where`, prototype keys, SQL-liknande payloads) blockeras före databaslager.
+- Bekräfta att write-endpoints avvisar fel content-type med 415.
 
 ### Mobilapp
 

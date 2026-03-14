@@ -12,6 +12,7 @@ export const getUUID = (): string => {
 };
 
 const API_URL_KEY = 'apiBaseUrl';
+let apiTokenCache: string | null = null;
 
 const normalizeUrl = (value: string) => {
   let next = value.trim().replace(/^[`'"]+|[`'"]+$/g, '').trim().replace(/\/+$/, '');
@@ -60,8 +61,17 @@ export const setApiBaseUrl = (url: string) => {
   storage.setItem(API_URL_KEY, trimmed);
 };
 
+export const setApiToken = (token: string | null) => {
+  apiTokenCache = token;
+  const storage = getStorage();
+  if (!storage) return;
+  if (token) storage.setItem('token', token);
+  else storage.removeItem('token');
+};
+
 const getHeaders = () => {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+  const storage = getStorage();
+  const token = apiTokenCache || (storage ? storage.getItem('token') : null);
   return {
     'Content-Type': 'application/json',
     ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
@@ -286,7 +296,7 @@ export const api = {
     };
   },
 
-  async verifyLock(id: string, password: string): Promise<{ success: boolean; content: string; title?: string }> {
+  async verifyLock(id: string, password: string): Promise<{ success: boolean; content: string; title?: string; unlockedId?: string }> {
     const res = await fetch(`${getBaseUrl()}/notes/${id}/verify-lock`, {
       method: 'POST',
       headers: getHeaders(),
@@ -313,6 +323,7 @@ export const api = {
       success: true,
       content: decrypt(data.content),
       title: data.title ? decrypt(data.title) : undefined,
+      unlockedId: typeof data.unlockedId === 'string' ? data.unlockedId : undefined,
     };
   },
 

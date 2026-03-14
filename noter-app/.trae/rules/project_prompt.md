@@ -32,6 +32,9 @@ Bygg plattformen med säkerhet, stabilitet och produktkvalitet som primära mål
 - Kryptering in transit ska vara HTTPS/TLS i alla externa miljöer.
 - Loggar och dashboards ska aldrig exponera hemligheter, råa tokens eller skyddad note-data.
 - Scope-kontroll ska göras server-side på alla endpoints med användardata.
+- API-lagret ska använda fail-closed request-härdning: JSON-only write requests, mönsterblockering för injektionspayloads och blockering av prototype-pollution keys.
+- Databasaccess ska alltid gå via parametriserade/ORM-säkra queryflöden med validerade filter och bounds för att minska injection/DoS-risk.
+- Endpoint-enumeration och brute-force ska begränsas med route-specifika throttles för auth, lock-verifiering och andra känsliga operationer.
 
 ## Arbetsmetod
 

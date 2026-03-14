@@ -128,6 +128,19 @@ export const getConversionStatus = async (jobId: string): Promise<{
     return fetchJson(url);
 };
 
+export const getConversionHealth = async (): Promise<{
+    mode: 'external' | 'local';
+    externalEndpoint?: string;
+    localBinary?: string;
+    localBinaryAvailable: boolean;
+    storageDir: string;
+    storageWritable: boolean;
+}> => {
+    const webBase = resolveWebBaseUrl();
+    const url = `${webBase}/api/ai/models/health`;
+    return fetchJson(url);
+};
+
 const extractQuantization = (filename: string): string | undefined => {
     const match = filename.match(/(q\d_[0-9a-z_]+|f16|f32)/i);
     return (match && match[1]) ? match[1].toUpperCase() : undefined;

@@ -7,12 +7,13 @@ import { FaFolder } from 'react-icons/fa';
 interface CreateNodeModalProps {
     isOpen: boolean;
     onClose: () => void;
-    onConfirm: (title: string, icon: string) => void;
+    onConfirm: (title: string, icon: string, options?: { locked?: boolean; password?: string }) => void;
     onDelete?: () => void;
     type: 'note' | 'task_list' | 'project';
     mode?: 'create' | 'edit';
     initialTitle?: string;
     initialIcon?: string;
+    initialLocked?: boolean;
 }
 
 export const CreateNodeModal: React.FC<CreateNodeModalProps> = ({ 

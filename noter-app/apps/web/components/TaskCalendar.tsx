@@ -26,9 +26,10 @@ interface TaskCalendarProps {
     tasks: Task[];
     onTaskClick: (task: Task) => void;
     onCreateTask?: (date: Date) => void;
+    view?: View;
 }
 
-export default function TaskCalendar({ tasks, onTaskClick, onCreateTask }: TaskCalendarProps) {
+export default function TaskCalendar({ tasks, onTaskClick, onCreateTask, view: initialView }: TaskCalendarProps) {
     const { t, i18n } = useTranslation();
     const currentLocale = i18n.language?.startsWith('sv') ? 'sv' : 'en';
     const { updateTask } = useStore();
@@ -66,7 +67,7 @@ export default function TaskCalendar({ tasks, onTaskClick, onCreateTask }: TaskC
         })
         .filter(Boolean) as any[];
 
-    const [view, setView] = React.useState<View>('month');
+    const [view, setView] = React.useState<View>(initialView || 'month');
     const [date, setDate] = React.useState(new Date());
 
     const components = React.useMemo(() => ({

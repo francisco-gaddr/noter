@@ -73,7 +73,8 @@ export const scheduleTaskReminder = async (task: Task) => {
     await cancelTaskReminder(task._id);
     return;
   }
-  const offset = task.reminderOffsetMinutes === 10 ? 10 : 0;
+  const firstOffset = Array.isArray(task.reminderOffsetMinutes) ? task.reminderOffsetMinutes[0] : 0;
+  const offset = firstOffset === 10 ? 10 : 0;
   const triggerAt = new Date(due.getTime() - offset * 60000);
   if (triggerAt.getTime() <= Date.now()) {
     await cancelTaskReminder(task._id);

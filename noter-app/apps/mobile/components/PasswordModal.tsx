@@ -8,6 +8,7 @@ interface PasswordModalProps {
   error?: string | null;
   loading?: boolean;
   title?: string;
+  submitLabel?: string;
 }
 
 export default function PasswordModal({ 
@@ -16,7 +17,8 @@ export default function PasswordModal({
   onSubmit, 
   error, 
   loading,
-  title = "Enter Password" 
+  title = "Enter Password",
+  submitLabel = "Unlock"
 }: PasswordModalProps) {
   const [password, setPassword] = useState('');
 
@@ -51,7 +53,7 @@ export default function PasswordModal({
         <Dialog.Actions>
           <Button onPress={onDismiss}>Cancel</Button>
           <Button onPress={handleSubmit} loading={loading} disabled={!password || loading}>
-            Unlock
+            {submitLabel}
           </Button>
         </Dialog.Actions>
       </Dialog>
