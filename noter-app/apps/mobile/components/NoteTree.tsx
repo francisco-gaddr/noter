@@ -28,6 +28,14 @@ interface TreeItem extends Note {
   isExpanded: boolean;
 }
 
+const normalizeNoteType = (value: unknown): string => {
+  if (typeof value !== 'string') return 'note';
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'folder') return 'project';
+  if (normalized === 'tasklist' || normalized === 'task-list') return 'task_list';
+  return normalized || 'note';
+};
+
 export default function NoteTree({
   notes,
   onRefresh,
@@ -44,8 +52,8 @@ export default function NoteTree({
   const lastOrderKeyRef = useRef<string>('');
   const draggedItemRef = useRef<TreeItem | null>(null);
   const visibleNotes = useMemo(() => notes.filter((n) => {
-    const type = (n as any).type;
-    return type !== 'task_list' && type !== 'project' && type !== 'Project' && type !== 'folder';
+    const type = normalizeNoteType((n as any).type);
+    return type !== 'task_list' && type !== 'project';
   }), [notes]);
 
   const toggleExpand = (id: string) => {

@@ -11,6 +11,14 @@ import { SvgUri } from 'react-native-svg';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import { Note } from '@repo/shared';
 
+const normalizeNoteType = (value: unknown): string => {
+  if (typeof value !== 'string') return 'note';
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'folder') return 'project';
+  if (normalized === 'tasklist' || normalized === 'task-list') return 'task_list';
+  return normalized || 'note';
+};
+
 const HeaderProjectIcon = ({ uri, onLongPress, onPress }: { uri?: string, onLongPress: () => void, onPress: () => void }) => {
   const theme = useTheme();
   
@@ -175,7 +183,10 @@ export default function NotesScreen() {
   }, [navigation, viewMode, setViewMode, sortMenuVisible, sortOrder, sortBy, activeProjectId, activeProject]);
 
   const sortedNotes = useMemo(() => {
-    let filtered = notes;
+    let filtered = notes.filter((n) => {
+      const type = normalizeNoteType((n as any).type);
+      return type !== 'project' && type !== 'task_list';
+    });
 
     if (activeProjectId) {
       const byParent = new Map<string, Note[]>();
@@ -198,11 +209,7 @@ export default function NotesScreen() {
         }
       }
 
-      filtered = notes.filter((n) => included.has(n._id));
-    }
-
-    if (viewMode === 'list') {
-      filtered = filtered.filter((n) => (n as any).type !== 'project');
+      filtered = filtered.filter((n) => included.has(n._id));
     }
 
     return filtered;

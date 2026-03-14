@@ -7,6 +7,14 @@ import { useFocusEffect } from 'expo-router';
 import { useCallback } from 'react';
 import { orderBy } from 'lodash';
 
+const normalizeNoteType = (value: unknown): string => {
+  if (typeof value !== 'string') return 'note';
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'folder') return 'project';
+  if (normalized === 'tasklist' || normalized === 'task-list') return 'task_list';
+  return normalized || 'note';
+};
+
 export default function ListsScreen() {
   const theme = useTheme();
   const { notes, fetchNotes, createNote, updateNote, deleteNote } = useStore();
@@ -24,7 +32,7 @@ export default function ListsScreen() {
     }, [])
   );
 
-  const lists = orderBy(notes.filter(n => (n as any).type === 'task_list'), ['updatedAt'], ['desc']);
+  const lists = orderBy(notes.filter((n) => normalizeNoteType((n as any).type) === 'task_list'), ['updatedAt'], ['desc']);
 
   const startEdit = (note: Note) => {
     setEditingId(note._id);

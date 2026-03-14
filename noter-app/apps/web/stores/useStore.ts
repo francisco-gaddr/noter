@@ -122,6 +122,16 @@ const normalizeNoteType = (value: unknown): string => {
   return normalized || 'note';
 };
 
+const parseNoteDateValue = (value: unknown): string => {
+  if (typeof value !== 'string') return new Date().toISOString();
+  try {
+    return decrypt(value);
+  } catch {
+    const parsed = new Date(value);
+    return isNaN(parsed.getTime()) ? new Date().toISOString() : value;
+  }
+};
+
 const parseNoteOrder = (value: unknown): number => {
   if (typeof value === 'number') return value;
   if (typeof value === 'string') {
@@ -244,8 +254,8 @@ const normalizeEncryptedNote = (note: Note): any => {
     parentId: note.parentId ? (() => { try { return decrypt(note.parentId) } catch { return note.parentId } })() : null,
     locked: locked,
     order: parseNoteOrder((note as any).order),
-    createdAt: decrypt(note.createdAt),
-    updatedAt: decrypt(note.updatedAt),
+    createdAt: parseNoteDateValue(note.createdAt),
+    updatedAt: parseNoteDateValue(note.updatedAt),
     __rawEncryptedTitle: typeof rawTitle === 'string' ? rawTitle : '',
     __rawEncryptedContent: typeof rawContent === 'string' ? rawContent : '',
     __rawEncryptedTags: Array.isArray(rawTags) ? rawTags : [],

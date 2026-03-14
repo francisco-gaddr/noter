@@ -40,6 +40,15 @@ const ListAvatar = ({ uri }: { uri?: string }) => {
 const STORAGE_KEY_LIST = 'last_selected_list_id';
 const STORAGE_KEY_VIEW = 'last_view_mode';
 const STORAGE_KEY_FILTERS = 'task_filters';
+const STORAGE_KEY_SORT = 'task_sort';
+
+const normalizeNoteType = (value: unknown): string => {
+  if (typeof value !== 'string') return 'note';
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'folder') return 'project';
+  if (normalized === 'tasklist' || normalized === 'task-list') return 'task_list';
+  return normalized || 'note';
+};
 
 const parseTaskDate = (value: unknown): Date | null => {
   if (!value) return null;
@@ -100,6 +109,12 @@ export default function TasksScreen() {
                 end: parsed.end ? new Date(parsed.end) : null
             });
         }
+        const savedSort = await AsyncStorage.getItem(STORAGE_KEY_SORT);
+        if (savedSort) {
+          const parsedSort = JSON.parse(savedSort);
+          if (parsedSort?.sortBy) setSortBy(parsedSort.sortBy);
+          if (parsedSort?.sortOrder) setSortOrder(parsedSort.sortOrder);
+        }
       } catch (e) {
         console.log('Failed to load state', e);
       }
@@ -118,9 +133,10 @@ export default function TasksScreen() {
             start: filterDateRange.start ? filterDateRange.start.toISOString() : null,
             end: filterDateRange.end ? filterDateRange.end.toISOString() : null
         }));
+        await AsyncStorage.setItem(STORAGE_KEY_SORT, JSON.stringify({ sortBy, sortOrder }));
     };
     saveState();
-  }, [selectedListId, viewMode, filterDateRange, quickFilter, statusFilter]);
+  }, [selectedListId, viewMode, filterDateRange, quickFilter, statusFilter, sortBy, sortOrder]);
 
   const applyQuickFilter = (type: string) => {
       const now = new Date();
@@ -215,7 +231,7 @@ export default function TasksScreen() {
   }, [filteredTasks, sortBy, sortOrder]);
 
   const sortedLists = useMemo(() => {
-    const lists = notes.filter(n => (n as any).type === 'task_list');
+    const lists = notes.filter((n) => normalizeNoteType((n as any).type) === 'task_list');
     return orderBy(lists, [(n) => (typeof (n as any).order === 'number' ? (n as any).order : 0), 'createdAt'], ['asc', 'desc']);
   }, [notes]);
 

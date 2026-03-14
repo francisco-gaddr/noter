@@ -223,9 +223,9 @@ export default function SettingsScreen() {
 
   const handleResync = async () => {
     clearSyncQueue().catch(() => {});
-    backgroundRefresh().catch(() => {});
-    fetchNotes().catch(() => {});
-    fetchTasks().catch(() => {});
+    setTimeout(() => {
+      backgroundRefresh().catch(() => {});
+    }, 0);
   };
 
   return (

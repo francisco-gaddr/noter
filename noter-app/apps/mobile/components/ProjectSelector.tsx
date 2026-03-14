@@ -33,6 +33,13 @@ const styles = StyleSheet.create({
   list: {
     maxHeight: 300
   },
+  footer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 12,
+    paddingTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
   item: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -351,7 +358,7 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
               />
             </View>
 
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 10 }}>
+            <View style={[styles.footer, { borderTopColor: theme.colors.outlineVariant }]}>
               <Button mode="outlined" onPress={() => setIsCreating(true)} icon="plus">
                 New Project
               </Button>

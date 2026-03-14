@@ -105,6 +105,16 @@ const normalizeNoteType = (value: unknown): string => {
   return normalized || 'note';
 };
 
+const parseNoteDateValue = (value: unknown): string => {
+  if (typeof value !== 'string') return new Date().toISOString();
+  try {
+    return decrypt(value);
+  } catch {
+    const parsed = new Date(value);
+    return isNaN(parsed.getTime()) ? new Date().toISOString() : value;
+  }
+};
+
 const normalizeEncryptedNote = (note: Note): any => {
   const rawTitle = (note as any).__rawEncryptedTitle ?? note.title;
   const rawContent = (note as any).__rawEncryptedContent ?? note.content;
@@ -135,8 +145,8 @@ const normalizeEncryptedNote = (note: Note): any => {
     }
     return 0;
   })(),
-  createdAt: decrypt(note.createdAt),
-  updatedAt: decrypt(note.updatedAt),
+  createdAt: parseNoteDateValue(note.createdAt),
+  updatedAt: parseNoteDateValue(note.updatedAt),
   __rawEncryptedTitle: typeof rawTitle === 'string' ? rawTitle : '',
   __rawEncryptedContent: typeof rawContent === 'string' ? rawContent : '',
   __rawEncryptedTags: Array.isArray(rawTags) ? rawTags : rawTags,
