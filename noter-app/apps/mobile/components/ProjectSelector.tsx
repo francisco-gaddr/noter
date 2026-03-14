@@ -262,13 +262,12 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
   const handleUnlockProject = async () => {
     const targetId = pendingSelectProjectId || selectedProjectForMenu?._id || null;
     if (!targetId || !projectPassword) return;
-    const response = await verifyNoteLock(targetId, projectPassword);
-    const unlockedProjectId = response?.unlockedId || targetId;
+    await verifyNoteLock(targetId, projectPassword);
     setProjectPassword('');
     setUnlockDialogVisible(false);
     if (pendingSelectProjectId) {
-      if (onSelect) onSelect(unlockedProjectId);
-      else setActiveProject(unlockedProjectId);
+      if (onSelect) onSelect(pendingSelectProjectId);
+      else setActiveProject(pendingSelectProjectId);
       onDismiss();
       setPendingSelectProjectId(null);
     }
@@ -331,7 +330,7 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
                 data={projects}
                 keyExtractor={(item) => item._id}
                 style={{ maxHeight: 260 }}
-                containerStyle={{ paddingBottom: 58 }}
+                containerStyle={{ paddingBottom: 80 }}
                 activationDistance={8}
                 onDragEnd={({ data }) => handleReorder(data as Note[])}
                 renderItem={({ item, drag, isActive }: RenderItemParams<Note>) => (

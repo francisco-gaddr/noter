@@ -352,6 +352,17 @@ export default function SidebarTree() {
     return findBlockingLockedAncestor(project as any, securityMap as any, unlockedSet as any);
   }, [activeProjectId, noteById, securityMap, unlockedSet]);
 
+  useEffect(() => {
+    if (!activeProjectId) return;
+    if (!noteById.has(activeProjectId)) {
+      setActiveProject(null);
+      return;
+    }
+    if (activeProjectBlocked && activeProjectBlocked._id === activeProjectId) {
+      setActiveProject(null);
+    }
+  }, [activeProjectId, activeProjectBlocked, noteById, setActiveProject]);
+
   const childCountMap = useMemo(() => {
     const map = new Map<string, number>();
     safeNotes.forEach((n) => {
@@ -430,7 +441,6 @@ export default function SidebarTree() {
         if (activeTab === 'tasks') return isTaskList && isReadable(n);
         
         if (activeProjectId) {
-             if (activeProjectBlocked) return false;
              const cached = belongsCache.get(n._id);
              if (cached !== undefined) {
                return !isTaskList && cached && isReadable(n);
@@ -465,7 +475,6 @@ export default function SidebarTree() {
         if (activeTab === 'tasks') return isTaskList && isReadable(n);
 
         if (activeProjectId) {
-            if (activeProjectBlocked) return false;
             // Show all children of the active project, including sub-projects (but filter out task lists if needed)
             return n.parentId === activeProjectId && !isTaskList && isReadable(n);
         }
