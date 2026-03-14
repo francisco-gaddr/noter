@@ -73,6 +73,7 @@ Detta dokument operationaliserar reglerna i `project_rules.md` till konkreta ver
 - Vilka regler i `project_rules.md` som berördes.
 - Vilka filer som uppdaterades för dokumentation.
 - Eventuella kvarvarande risker och planerade nästa steg.
+- Branch- och sync-bevis: aktiv branch, target branch, commit SHA och bekräftelse att `origin/dev` och `origin/main` pekar på avsedd releasecommit.
 
 ## 7. Build Readiness — Electron och EAS APK
 
@@ -92,3 +93,10 @@ Detta dokument operationaliserar reglerna i `project_rules.md` till konkreta ver
 
 - **Obligatorisk dokumentation**:
 - Uppdatera `Doc/Electron & Mobile Build Readiness Runbook.md` när buildprofiler, scripts eller releaseflöden ändras.
+
+## 8. GitHub Synk-gate
+
+- Kör `git fetch --all --prune` före release-merge.
+- Bekräfta att releasebranch innehåller alla avsedda commits med `git log --oneline --decorate -n 20`.
+- Efter merge/push: verifiera `git ls-remote --heads origin main dev` och dokumentera SHA-matchning.
+- Om lokala `dev`/`main` är divergerade ska de rebasas eller återskapas från `origin/*` innan ny releasehantering.

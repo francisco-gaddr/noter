@@ -42,6 +42,9 @@ Bygg plattformen med säkerhet, stabilitet och produktkvalitet som primära mål
 - Implementera lösning i små steg med verifiering efter varje steg.
 - Avsluta varje leverans med tydlig dokumentation: arkitektur, dataflöde, retention, testresultat.
 - Om osäkerhet finns mellan snabb lösning och robust lösning ska robust lösning prioriteras.
+- Följ GitHub-flöde med `feature/*` -> `dev` -> `main`, där `main` endast tar verifierade merges från `dev`.
+- Säkerställ efter push att remote-brancher är synkade och att inga kritiska ändringar ligger kvar lokalt.
+- Prioritera små, tydliga commits med spårbar scope för enklare rollback och säkrare release-hantering.
 
 ## Kvalitet och verifiering
 

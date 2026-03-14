@@ -105,3 +105,13 @@
 - EAS-profiler för APK ska bibehålla `android.buildType: apk` i både `preview` och `apk` om inte en medveten releaseändring dokumenteras.
 - Build readiness-dokumentation ska uppdateras när scripts, profiler eller releaseflöden ändras.
 - CI ska ha separat verifiering för mobile EAS och electron build, inklusive dependency-installation och byggbara artefakter.
+
+## GitHub-flöde och Branch-policy
+
+- `main` ska alltid representera stabil releasekandidat och uppdateras via merge från `dev`, inte via direkta feature-pushar.
+- `dev` ska vara integrationsgren för verifierade ändringar och vara synkad mot `main` efter varje godkänd leverans.
+- Featurebrancher ska namnges konsekvent med prefix (`feature/`, `fix/`, `security/`, `refactor/`, `chore/`) och vara kortlivade.
+- Säkerhetsfixar ska alltid gå via branch med tydlig risketikett i commit/PR-titel och kräva gröna säkerhetstester innan merge.
+- Direkta pushes till `main`/`dev` ska undvikas; när undantag krävs ska det dokumenteras i leveransbevis med orsak och verifieringslogg.
+- Varje merge till `dev` och `main` ska följas av snabb kontroll av `git branch -vv` och remote-status så att brancherna är fast-forward synkade.
+- Otrackade build-artefakter, lokala dist-mappar och temporära filer får inte inkluderas i release-commit utan explicit avsikt.
