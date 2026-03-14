@@ -17,7 +17,7 @@ import { pullAiSync, pushAiSync } from '../services/ai/sync';
 import { connectSocket, socket } from '../services/socket';
 import { buildSecurityNoteMap, isReadableWithLocks } from '../services/ai/security';
 
-type LocalConversation = Conversation & { localOnly?: boolean };
+type LocalConversation = Conversation & { localOnly?: boolean; userId?: string };
 type LocalAIProject = AIProject & { localOnly?: boolean };
 type McpFetchDiagnostics = {
   level: 'idle' | 'ok' | 'warning' | 'error';

@@ -1,7 +1,7 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
 import { Note, Task, Conversation, Message, AIModel, encrypt, decrypt } from '@repo/shared';
 
-type LocalConversation = Conversation & { localOnly?: boolean };
+type LocalConversation = Conversation & { localOnly?: boolean; userId?: string };
 
 interface NoterDB extends DBSchema {
   notes: {

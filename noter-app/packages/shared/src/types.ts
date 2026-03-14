@@ -31,7 +31,7 @@ export interface Task {
   recurrenceType?: 'none' | 'daily' | 'weekly';
   recurrenceDays?: number[];
   reminderEnabled?: boolean;
-  reminderOffsetMinutes?: number;
+  reminderOffsetMinutes?: number | number[];
   createdAt: string;
   updatedAt: string;
   deleted?: boolean | string;
@@ -56,7 +56,7 @@ export interface UpdateTaskDto {
   recurrenceType?: 'none' | 'daily' | 'weekly';
   recurrenceDays?: number[];
   reminderEnabled?: boolean;
-  reminderOffsetMinutes?: number;
+  reminderOffsetMinutes?: number | number[];
   parentNoteId?: string;
   position?: number;
 }
@@ -71,7 +71,7 @@ export interface CreateTaskDto {
   recurrenceType?: 'none' | 'daily' | 'weekly';
   recurrenceDays?: number[];
   reminderEnabled?: boolean;
-  reminderOffsetMinutes?: number;
+  reminderOffsetMinutes?: number | number[];
   clientId?: string;
   position?: number;
 }

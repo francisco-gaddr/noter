@@ -399,13 +399,16 @@ export default function TaskList() {
 
     const handleCreateFromModal = async (taskData: Omit<Task, '_id' | 'createdAt' | 'updatedAt' | 'userId'>) => {
         const parentId = selectedTaskListId || undefined;
+        const reminderOffsets = Array.isArray(taskData.reminderOffsetMinutes)
+          ? taskData.reminderOffsetMinutes
+          : (typeof taskData.reminderOffsetMinutes === 'number' ? [taskData.reminderOffsetMinutes] : undefined);
         await createTask(taskData.title, parentId, taskData.dueDate || null, {
             description: taskData.description,
             priority: taskData.priority,
             recurrenceType: taskData.recurrenceType,
             recurrenceDays: taskData.recurrenceDays,
             reminderEnabled: taskData.reminderEnabled,
-            reminderOffsetMinutes: taskData.reminderOffsetMinutes
+            reminderOffsetMinutes: reminderOffsets
         });
     };
 

@@ -139,6 +139,12 @@ const parseReminderOffsets = (value: string): number[] => {
   return [];
 };
 
+const toReminderOffsets = (value?: number | number[]): number[] => {
+  if (Array.isArray(value)) return value.filter((offset) => typeof offset === 'number');
+  if (typeof value === 'number') return [value];
+  return [];
+};
+
 const reminderTimers = new Map<string, number[]>();
 
 const scheduleWebReminder = (task: Task) => {
@@ -323,7 +329,7 @@ interface StoreState {
   unlockNote: (id: string, password: string) => Promise<boolean>;
   deleteNote: (id: string) => Promise<void>;
   
-  createTask: (title: string, parentNoteId?: string, dueDate?: string | null, options?: { description?: string; priority?: 'low' | 'medium' | 'high'; recurrenceType?: 'none' | 'daily' | 'weekly'; recurrenceDays?: number[]; reminderEnabled?: boolean; reminderOffsetMinutes?: number[] }) => Promise<void>;
+  createTask: (title: string, parentNoteId?: string, dueDate?: string | null, options?: { description?: string; priority?: 'low' | 'medium' | 'high'; recurrenceType?: 'none' | 'daily' | 'weekly'; recurrenceDays?: number[]; reminderEnabled?: boolean; reminderOffsetMinutes?: number | number[] }) => Promise<void>;
   updateTask: (id: string, data: UpdateTaskDto) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
   reorderTasks: (tasks: Task[]) => Promise<void>;
@@ -1281,8 +1287,9 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   createTask: async (title, parentNoteId, dueDate, options) => {
+      const parsedOffsets = toReminderOffsets(options?.reminderOffsetMinutes);
       const reminderOffsets = options?.reminderEnabled
-        ? (options?.reminderOffsetMinutes && options.reminderOffsetMinutes.length > 0 ? options.reminderOffsetMinutes : [0])
+        ? (parsedOffsets.length > 0 ? parsedOffsets : [0])
         : [];
       const clientId = getUUID();
       try {
@@ -1365,7 +1372,7 @@ export const useStore = create<StoreState>((set, get) => ({
                   recurrenceType: mergedTask.recurrenceType,
                   recurrenceDays: mergedTask.recurrenceDays,
                   reminderEnabled: mergedTask.reminderEnabled,
-                  reminderOffsetMinutes: mergedTask.reminderOffsetMinutes
+                  reminderOffsetMinutes: toReminderOffsets(mergedTask.reminderOffsetMinutes)
                   }
               );
           }
