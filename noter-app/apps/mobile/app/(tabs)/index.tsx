@@ -19,9 +19,27 @@ const normalizeNoteType = (value: unknown): string => {
     normalized = normalized.slice(1, -1).trim();
   }
   normalized = normalized.replace(/\s+/g, '_');
+  normalized = normalized.replace(/-/g, '_');
+  if (normalized === 'projectfolder' || normalized === 'project_folder') return 'project';
+  if (normalized.includes('project') || normalized.includes('folder')) return 'project';
   if (normalized === 'folder') return 'project';
-  if (normalized === 'tasklist' || normalized === 'task-list') return 'task_list';
+  if (normalized === 'tasklist' || normalized === 'task-list' || normalized === 'task_list') return 'task_list';
+  if (normalized.includes('task') && normalized.includes('list')) return 'task_list';
   return normalized || 'note';
+};
+
+const normalizeId = (value: unknown): string | null => {
+  if (typeof value !== 'string') return null;
+  let normalized = value.trim();
+  if (!normalized) return null;
+  if (
+    (normalized.startsWith('"') && normalized.endsWith('"')) ||
+    (normalized.startsWith("'") && normalized.endsWith("'")) ||
+    (normalized.startsWith('`') && normalized.endsWith('`'))
+  ) {
+    normalized = normalized.slice(1, -1).trim();
+  }
+  return normalized || null;
 };
 
 const NOTES_SORT_KEY = 'notes_sort_settings';
@@ -212,26 +230,33 @@ export default function NotesScreen() {
 
     if (activeProjectId) {
       const byParent = new Map<string, Note[]>();
+      const normalizedActiveProjectId = normalizeId(activeProjectId);
+      if (!normalizedActiveProjectId) return filtered;
       for (const n of notes) {
-        if (!n.parentId) continue;
-        const arr = byParent.get(n.parentId);
+        const normalizedParentId = normalizeId(n.parentId);
+        if (!normalizedParentId) continue;
+        const arr = byParent.get(normalizedParentId);
         if (arr) arr.push(n);
-        else byParent.set(n.parentId, [n]);
+        else byParent.set(normalizedParentId, [n]);
       }
 
       const included = new Set<string>();
-      const queue: string[] = [activeProjectId];
+      const queue: string[] = [normalizedActiveProjectId];
       while (queue.length > 0) {
         const current = queue.shift()!;
         const children = byParent.get(current) ?? [];
         for (const child of children) {
-          if (included.has(child._id)) continue;
-          included.add(child._id);
-          queue.push(child._id);
+          const normalizedChildId = normalizeId(child._id);
+          if (!normalizedChildId || included.has(normalizedChildId)) continue;
+          included.add(normalizedChildId);
+          queue.push(normalizedChildId);
         }
       }
 
-      filtered = filtered.filter((n) => included.has(n._id));
+      filtered = filtered.filter((n) => {
+        const normalizedId = normalizeId(n._id);
+        return normalizedId ? included.has(normalizedId) : false;
+      });
     }
 
     return filtered;

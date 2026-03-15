@@ -54,12 +54,6 @@ const normalizeNoteType = (value: unknown): string => {
 
 const isProjectType = (value: unknown): boolean => normalizeNoteType(value) === 'project';
 const isTaskListType = (value: unknown): boolean => normalizeNoteType(value) === 'task_list';
-const isProjectLikeType = (value: unknown): boolean => {
-    const normalized = normalizeNoteType(value);
-    if (normalized === 'project') return true;
-    if (normalized === 'note' || normalized === 'task_list') return false;
-    return normalized.length > 0;
-};
 
 const sortNotes = (nodes: Note[], order: string) => {
     switch (order) {
@@ -81,7 +75,7 @@ const TreeNode = React.memo(({ note, allNotes, noteById, childrenMap, level, sel
     const children = (childrenMap.get(note._id) || []).filter((child) => {
       const childType = normalizeNoteType((child as any).type);
       const childIsTaskList = childType === 'task_list';
-      const childIsProject = isProjectLikeType(childType);
+      const childIsProject = childType === 'project';
       return !childIsTaskList && !childIsProject;
     });
     const hasChildren = children.length > 0;
@@ -383,32 +377,16 @@ export default function SidebarTree() {
     }
   }, [activeProjectId, activeProjectBlocked, noteById, setActiveProject]);
 
-  const childCountMap = useMemo(() => {
-    const map = new Map<string, number>();
-    safeNotes.forEach((n) => {
-      if (!n.parentId) return;
-      map.set(n.parentId, (map.get(n.parentId) || 0) + 1);
-    });
-    return map;
-  }, [safeNotes]);
-
   const inferredProjectIds = useMemo(() => {
     const ids = new Set<string>();
     safeNotes.forEach((note) => {
       const type = normalizeNoteType((note as any).type);
-      if (isProjectLikeType(type)) {
-        ids.add(note._id);
-        return;
-      }
-      const hasChildren = (childCountMap.get(note._id) || 0) > 0;
-      const isTopLevel = !note.parentId;
-      const isTaskList = type === 'task_list';
-      if (isTopLevel && hasChildren && !isTaskList) {
+      if (type === 'project') {
         ids.add(note._id);
       }
     });
     return ids;
-  }, [safeNotes, childCountMap]);
+  }, [safeNotes]);
 
   const inferredTaskListIds = useMemo(() => {
     const ids = new Set<string>();

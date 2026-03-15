@@ -7,6 +7,18 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    version: '1.0.1',
+    build: '2026.03.15.1',
+    date: '2026-03-15',
+    highlights: [
+      'Electron: projektmappar klassas strikt och visas i projektdropdown istället för i anteckningslistan',
+      'Electron: stabilare filtrering så anteckningar med barnnoder inte felklassas som projekt',
+      'Mobil: låst projekt öppnar unlock-dialog med autofokus i lösenordsfältet',
+      'Mobil: projektfiltrering visar åter anteckningar i valt projekt även vid inkonsekvent parentId-format',
+      "Process: 'What’s New' är nu obligatorisk att uppdatera vid varje leverans",
+    ],
+  },
+  {
     version: '1.0.0',
     build: '2026.03.12.1',
     date: '2026-03-12',

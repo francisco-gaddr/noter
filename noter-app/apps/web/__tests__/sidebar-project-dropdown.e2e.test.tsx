@@ -14,6 +14,8 @@ jest.mock('../stores/useStore', () => {
         { _id: 'p2', title: 'Projekt Beta', content: '', type: 'project-folder', parentId: null, locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
         { _id: 'n1', title: 'Vanlig anteckning', content: '', type: 'note', parentId: null, locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
         { _id: 'p3', title: 'Projekt Gamma', content: '', type: 'Project Folder', parentId: 'n1', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+        { _id: 'n2', title: 'Mötesanteckning', content: '', type: 'note', parentId: null, locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+        { _id: 'n3', title: 'Mötesanteckning barn', content: '', type: 'note', parentId: 'n2', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
       ],
       tasks: [],
       selectedNoteId: null,
@@ -57,6 +59,7 @@ describe('SidebarTree e2e project dropdown behavior', () => {
     expect(screen.getByRole('option', { name: 'Projekt Alpha' })).toBeTruthy();
     expect(screen.getByRole('option', { name: 'Projekt Beta' })).toBeTruthy();
     expect(screen.getByRole('option', { name: 'Projekt Gamma' })).toBeTruthy();
+    expect(screen.queryByRole('option', { name: 'Mötesanteckning' })).toBeNull();
 
     const titleMatches = screen.getAllByText('Projekt Alpha');
     expect(titleMatches.length).toBe(1);
@@ -65,5 +68,7 @@ describe('SidebarTree e2e project dropdown behavior', () => {
     const thirdTitleMatches = screen.getAllByText('Projekt Gamma');
     expect(thirdTitleMatches.length).toBe(1);
     expect(screen.getByText('Vanlig anteckning')).toBeTruthy();
+    expect(screen.getByText('Mötesanteckning')).toBeTruthy();
+    expect(screen.getByText('Mötesanteckning barn')).toBeTruthy();
   });
 });

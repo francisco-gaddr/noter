@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { Modal, Portal, Text, Button, IconButton, TextInput, Menu, useTheme, Divider, Dialog } from 'react-native-paper';
 import { useStore } from '@/stores/useStore';
@@ -16,6 +16,21 @@ interface ProjectSelectorProps {
   onSelect?: (projectId: string | null) => void;
   selectedProjectId?: string | null;
 }
+
+const normalizeNoteType = (value: unknown): string => {
+  if (typeof value !== 'string') return 'note';
+  let normalized = value.trim().toLowerCase();
+  if ((normalized.startsWith('"') && normalized.endsWith('"')) || (normalized.startsWith("'") && normalized.endsWith("'")) || (normalized.startsWith('`') && normalized.endsWith('`'))) {
+    normalized = normalized.slice(1, -1).trim();
+  }
+  normalized = normalized.replace(/\s+/g, '_').replace(/-/g, '_');
+  if (normalized === 'projectfolder' || normalized === 'project_folder') return 'project';
+  if (normalized.includes('project') || normalized.includes('folder')) return 'project';
+  if (normalized === 'folder') return 'project';
+  if (normalized === 'tasklist' || normalized === 'task-list' || normalized === 'task_list') return 'task_list';
+  if (normalized.includes('task') && normalized.includes('list')) return 'task_list';
+  return normalized || 'note';
+};
 
 const styles = StyleSheet.create({
   modal: {
@@ -153,6 +168,7 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
   const [unlockDialogVisible, setUnlockDialogVisible] = useState(false);
   const [projectPassword, setProjectPassword] = useState('');
   const [pendingSelectProjectId, setPendingSelectProjectId] = useState<string | null>(null);
+  const unlockPasswordRef = useRef<any>(null);
   
   const renderProjectIcon = (iconKey?: string) => {
     if (!iconKey) return <IconButton icon="folder-outline" size={24} />;
@@ -172,15 +188,22 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
     );
   };
 
-  const projects = notes.filter(n => {
-      const type = String((n as any).type || '').toLowerCase();
-      return type === 'project' || type === 'folder';
-    })
+  const projects = useMemo(() => notes.filter((n) => normalizeNoteType((n as any).type) === 'project')
     .sort((a, b) => {
       const ao = Number((a as any).order ?? 0);
       const bo = Number((b as any).order ?? 0);
       return ao - bo;
-    });
+    }), [notes]);
+
+  useEffect(() => {
+    if (!unlockDialogVisible) return;
+    const timer = setTimeout(() => {
+      if (unlockPasswordRef.current && typeof unlockPasswordRef.current.focus === 'function') {
+        unlockPasswordRef.current.focus();
+      }
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [unlockDialogVisible]);
 
   const currentSelected = selectedProjectId !== undefined ? selectedProjectId : activeProjectId;
 
@@ -319,6 +342,7 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
                   currentSelected === null && { backgroundColor: theme.colors.secondaryContainer }
                 ]}
                 onPress={() => handleSelect(null)}
+                testID="project-row-all-notes"
               >
                 <IconButton icon="folder-multiple-outline" size={24} />
                 <Text variant="bodyLarge">All Notes</Text>
@@ -342,6 +366,7 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
                       isActive ? { opacity: 0.85 } : null,
                     ]}
                     onPress={() => handleSelect(item._id)}
+                    testID={`project-row-${item._id}`}
                     onLongPress={() => {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                       drag();
@@ -458,11 +483,14 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
           <Dialog.Title>Unlock Project</Dialog.Title>
           <Dialog.Content>
             <TextInput
+              ref={unlockPasswordRef}
               mode="outlined"
               label="Password"
               secureTextEntry
               value={projectPassword}
               onChangeText={setProjectPassword}
+              autoFocus
+              testID="unlock-project-password-input"
             />
           </Dialog.Content>
           <Dialog.Actions>
