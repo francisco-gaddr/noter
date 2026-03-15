@@ -53,6 +53,11 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
     { value: 6, label: 'Lör' },
     { value: 0, label: 'Sön' },
   ];
+  const reminderOptions = [
+    { value: 0, label: 'Vid förfallotid' },
+    { value: 10, label: '10 minuter innan' },
+    { value: 30, label: '30 minuter innan' },
+  ];
   const toLocalDateInput = (date: Date) => {
     const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
     return local.toISOString().slice(0, 10);
@@ -171,7 +176,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
             recurrenceType,
             recurrenceDays: recurrenceType === 'weekly' ? recurrenceDays : [],
             reminderEnabled,
-            reminderOffsetMinutes: reminderEnabled ? reminderOffsetMinutes : [0]
+            reminderOffsetMinutes: reminderEnabled ? (reminderOffsetMinutes.length > 0 ? reminderOffsetMinutes : [0]) : [0]
         });
       } else if (onCreate) {
          const dueIso = dueDateValue
@@ -190,7 +195,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
             recurrenceType,
             recurrenceDays: recurrenceType === 'weekly' ? recurrenceDays : [],
             reminderEnabled,
-            reminderOffsetMinutes: reminderEnabled ? reminderOffsetMinutes : [0]
+            reminderOffsetMinutes: reminderEnabled ? (reminderOffsetMinutes.length > 0 ? reminderOffsetMinutes : [0]) : [0]
          });
       }
       onClose();
@@ -385,14 +390,26 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
               <span className="text-sm text-gray-700 dark:text-gray-300 select-none">Aktivera påminnelse</span>
             </label>
             {reminderEnabled && (
-              <select
-                value={reminderOffsetMinutes[0] ?? 0}
-                onChange={(e) => setReminderOffsetMinutes([Number(e.target.value) === 10 ? 10 : 0])}
-                className="w-full p-2 border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white mt-2"
-              >
-                <option value={0}>Vid förfallotid</option>
-                <option value={10}>10 minuter innan</option>
-              </select>
+              <div className="mt-2 space-y-1">
+                {reminderOptions.map((option) => (
+                  <label key={option.value} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={reminderOffsetMinutes.includes(option.value)}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setReminderOffsetMinutes((prev) => {
+                          if (checked) return Array.from(new Set([...prev, option.value])).sort((a, b) => a - b);
+                          const next = prev.filter((value) => value !== option.value);
+                          return next.length > 0 ? next : [0];
+                        });
+                      }}
+                      className="w-4 h-4 cursor-pointer"
+                    />
+                    <span className="text-sm text-gray-700 dark:text-gray-300 select-none">{option.label}</span>
+                  </label>
+                ))}
+              </div>
             )}
           </div>
           

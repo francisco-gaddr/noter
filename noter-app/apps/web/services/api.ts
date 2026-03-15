@@ -127,6 +127,46 @@ const parseTaskPriority = (value: unknown): 'low' | 'medium' | 'high' => {
   return 'medium';
 };
 
+const parseReminderOffsets = (value: unknown): number[] => {
+  const normalizeOffsets = (raw: unknown): number[] => {
+    if (Array.isArray(raw)) {
+      const values = raw
+        .map((item) => Number(item))
+        .filter((item) => !Number.isNaN(item) && item >= 0);
+      const unique = Array.from(new Set(values));
+      return unique.length > 0 ? unique : [0];
+    }
+    if (typeof raw === 'number') {
+      if (!Number.isNaN(raw) && raw >= 0) return [raw];
+      return [0];
+    }
+    if (typeof raw === 'string') {
+      const parsedNum = Number(raw);
+      if (!Number.isNaN(parsedNum) && parsedNum >= 0) return [parsedNum];
+      return [0];
+    }
+    return [0];
+  };
+
+  if (typeof value === 'string') {
+    try {
+      const decrypted = decrypt(value);
+      try {
+        return normalizeOffsets(JSON.parse(decrypted));
+      } catch {
+        return normalizeOffsets(decrypted);
+      }
+    } catch {
+      try {
+        return normalizeOffsets(JSON.parse(value));
+      } catch {
+        return normalizeOffsets(value);
+      }
+    }
+  }
+  return normalizeOffsets(value);
+};
+
 const parseNoteOrder = (value: unknown): number => {
   if (typeof value === 'number') return value;
   if (typeof value === 'string') {
@@ -391,14 +431,7 @@ export const api = {
                 return false;
                 }
             })() : false,
-            reminderOffsetMinutes: task.reminderOffsetMinutes ? (() => {
-                try {
-                const num = Number(decrypt(task.reminderOffsetMinutes));
-                return num === 10 ? 10 : 0;
-                } catch {
-                return 0;
-                }
-            })() : 0,
+            reminderOffsetMinutes: parseReminderOffsets(task.reminderOffsetMinutes),
             createdAt: decrypt(task.createdAt),
             updatedAt: decrypt(task.updatedAt),
             position: task.position ? (() => {
@@ -427,7 +460,7 @@ export const api = {
       recurrenceType: data.recurrenceType ? encrypt(data.recurrenceType) : '',
       recurrenceDays: data.recurrenceDays ? encrypt(JSON.stringify(data.recurrenceDays)) : '',
       reminderEnabled: data.reminderEnabled !== undefined ? encrypt(String(data.reminderEnabled)) : '',
-      reminderOffsetMinutes: data.reminderOffsetMinutes !== undefined ? encrypt(String(data.reminderOffsetMinutes)) : '',
+      reminderOffsetMinutes: data.reminderOffsetMinutes !== undefined ? encrypt(JSON.stringify(data.reminderOffsetMinutes)) : '',
       createdAt: encrypt(new Date().toISOString()),
       updatedAt: encrypt(new Date().toISOString()),
       position: data.position !== undefined ? encrypt(String(data.position)) : encrypt('0'),
@@ -475,14 +508,7 @@ export const api = {
           return false;
         }
       })() : false,
-      reminderOffsetMinutes: task.reminderOffsetMinutes ? (() => {
-        try {
-          const num = Number(decrypt(task.reminderOffsetMinutes));
-          return num === 10 ? 10 : 0;
-        } catch {
-          return 0;
-        }
-      })() : 0,
+      reminderOffsetMinutes: parseReminderOffsets(task.reminderOffsetMinutes),
       createdAt: decrypt(task.createdAt),
       updatedAt: decrypt(task.updatedAt),
       position: task.position ? (() => {
@@ -516,7 +542,7 @@ export const api = {
       encryptedData.reminderEnabled = encrypt(String(data.reminderEnabled));
     }
     if (data.reminderOffsetMinutes !== undefined) {
-      encryptedData.reminderOffsetMinutes = encrypt(String(data.reminderOffsetMinutes));
+      encryptedData.reminderOffsetMinutes = encrypt(JSON.stringify(data.reminderOffsetMinutes));
     }
     encryptedData.updatedAt = encrypt(new Date().toISOString());
     if (data.position !== undefined) encryptedData.position = encrypt(String(data.position));
@@ -563,14 +589,7 @@ export const api = {
           return false;
         }
       })() : false,
-      reminderOffsetMinutes: task.reminderOffsetMinutes ? (() => {
-        try {
-          const num = Number(decrypt(task.reminderOffsetMinutes));
-          return num === 10 ? 10 : 0;
-        } catch {
-          return 0;
-        }
-      })() : 0,
+      reminderOffsetMinutes: parseReminderOffsets(task.reminderOffsetMinutes),
       createdAt: decrypt(task.createdAt),
       updatedAt: decrypt(task.updatedAt),
       position: task.position ? (() => {

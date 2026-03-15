@@ -42,8 +42,12 @@ const normalizeNoteType = (value: unknown): string => {
         normalized = normalized.slice(1, -1).trim();
     }
     normalized = normalized.replace(/\s+/g, '_');
+    normalized = normalized.replace(/-/g, '_');
+    if (normalized === 'projectfolder' || normalized === 'project_folder') return 'project';
+    if (normalized === 'tasklist' || normalized === 'task_list' || normalized === 'task-list') return 'task_list';
+    if (normalized.includes('task') && normalized.includes('list')) return 'task_list';
+    if (normalized.includes('project') || normalized.includes('folder')) return 'project';
     if (normalized === 'folder') return 'project';
-    if (normalized === 'task_list' || normalized === 'tasklist' || normalized === 'task-list') return 'task_list';
     if (normalized === 'project' || normalized === 'note') return normalized;
     return normalized || 'note';
 };
@@ -74,7 +78,12 @@ const sortNotes = (nodes: Note[], order: string) => {
 const TreeNode = React.memo(({ note, allNotes, noteById, childrenMap, level, selectedNoteId, sortOrder, onSelect, onDelete, onCreateChild, onEdit, onIconClick, onMove, ancestors }: TreeNodeProps) => {
     const { t } = useTranslation();
     const [isExpanded, setIsExpanded] = useState(true);
-    const children = childrenMap.get(note._id) || [];
+    const children = (childrenMap.get(note._id) || []).filter((child) => {
+      const childType = normalizeNoteType((child as any).type);
+      const childIsTaskList = childType === 'task_list';
+      const childIsProject = isProjectLikeType(childType);
+      return !childIsTaskList && !childIsProject;
+    });
     const hasChildren = children.length > 0;
     const ref = useRef<HTMLDivElement>(null);
     const [visibleChildrenCount, setVisibleChildrenCount] = useState(50);
