@@ -31,6 +31,8 @@
 - Nya funktioner ska ha minst ett enhetstest för normalfall och ett test för fel-/kantfall.
 - Säkerhetskritiska flöden ska täckas av både unit/integration och minst ett E2E-scenario.
 - Före leverans ska relevanta suites i web, mobile och backend köras för berörda förändringar.
+- Före varje push till `dev`/`main` ska `npm run validate:prepush` köras från repo-roten och passera.
+- `validate:prepush` är obligatorisk gate för notes, tasks, AI-chatt, säkerhet och fallback/felhantering i backend/web/mobile/electron.
 - `npm run check-types` och `npm run lint` måste vara gröna innan ändringar betraktas som färdiga.
 - Testnamn ska beskriva beteende och förväntat utfall, inte implementation.
 - Säkerhetsändringar i backend kräver minst ett test som verifierar access-scope per användare.

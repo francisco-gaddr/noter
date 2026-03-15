@@ -50,6 +50,9 @@ Bygg plattformen med säkerhet, stabilitet och produktkvalitet som primära mål
 
 - Alla säkerhetskritiska ändringar ska ha unit + integration och minst ett relevant E2E-test.
 - Typecheck och lint ska vara gröna innan leverans.
+- Före varje push till `dev` eller `main` ska `npm run validate:prepush` köras från repo-roten och passera helt.
+- Valideringskommandot ska täcka backend, web/electron, mobile och electron-noter med kritiska tester för notes, tasks, AI-chatt, kryptering, auth/lock och fallback/felhantering.
+- Push får inte göras om någon gate fallerar; först fix, därefter ny full validering.
 - Dokumentation ska uppdateras i samma leverans när nya säkerhetsflöden, endpoints eller dashboards införs.
 - Verifiering ska bevisa kryptering i varje fas: payload före transport, server-side validering, server persistens, lokal persistens och återläsning.
 - Testbevis ska vara konkreta och spårbara med tydliga assertions för `ingen plaintext-lagring`.

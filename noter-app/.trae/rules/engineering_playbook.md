@@ -7,6 +7,7 @@ Detta dokument operationaliserar reglerna i `project_rules.md` till konkreta ver
 - Kör alltid från repo-roten:
 - `npm run check-types`
 - `npm run lint`
+- `npm run validate:prepush`
 - Om någon gate fallerar får ändringen inte levereras.
 
 ## 2. Gate-matris per ändringstyp
@@ -70,6 +71,7 @@ Detta dokument operationaliserar reglerna i `project_rules.md` till konkreta ver
 ## 6. Leveransbevis som alltid ska bifogas
 
 - Lista över körda kommandon och resultat.
+- Bekräftelse att `npm run validate:prepush` körts och passerat före push.
 - Vilka regler i `project_rules.md` som berördes.
 - Vilka filer som uppdaterades för dokumentation.
 - Eventuella kvarvarande risker och planerade nästa steg.

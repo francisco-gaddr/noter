@@ -8,6 +8,8 @@
     "postinstall": "patch-package",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "check-types": "turbo run check-types",
+    "validate:critical": "node scripts/validate-critical.mjs",
+    "validate:prepush": "npm run validate:critical",
     "bump-build": "node -e \"const fs=require('fs');const path=require('path');const appJsonPath=path.join(process.cwd(),'apps','mobile','app.json');const app=JSON.parse(fs.readFileSync(appJsonPath,'utf8'));const expo=app.expo||{};expo.ios=expo.ios||{};expo.android=expo.android||{};const nextIos=String((parseInt(expo.ios.buildNumber||'0',10)||0)+1);expo.ios.buildNumber=nextIos;expo.android.versionCode=(Number(expo.android.versionCode)||0)+1;app.expo=expo;fs.writeFileSync(appJsonPath,JSON.stringify(app,null,2)+'\\n');const version=expo.version||'unknown';const build=nextIos+'/'+String(expo.android.versionCode);const updateReadme=(p)=>{let t=fs.readFileSync(p,'utf8');const block=`## Build Info\\n\\n- Version: ${version}\\n- Build: ${build}\\n`;if(t.includes('## Build Info')){t=t.replace(/## Build Info[\\s\\S]*?(?=\\n## |\\n# |$)/,block.trimEnd()+'\\n');}else{t=block+'\\n'+t;}fs.writeFileSync(p,t);};updateReadme(path.join(process.cwd(),'apps','mobile','README.md'));updateReadme(path.join(process.cwd(),'apps','web','README.md'));console.log('Build info updated:',{version,build});\""
   },
   "devDependencies": {

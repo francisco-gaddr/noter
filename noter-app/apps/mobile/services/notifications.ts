@@ -7,19 +7,28 @@ const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreCl
 
 const STORAGE_KEY = 'taskReminderMap';
 
-const readMap = async (): Promise<Record<string, string>> => {
+const readMap = async (): Promise<Record<string, string[]>> => {
   if (isExpoGo) return {};
   const raw = await AsyncStorage.getItem(STORAGE_KEY);
   if (!raw) return {};
   try {
     const parsed = JSON.parse(raw);
-    return typeof parsed === 'object' && parsed ? parsed : {};
+    if (typeof parsed !== 'object' || !parsed) return {};
+    const out: Record<string, string[]> = {};
+    Object.entries(parsed as Record<string, unknown>).forEach(([taskId, value]) => {
+      if (Array.isArray(value)) {
+        out[taskId] = value.filter((v): v is string => typeof v === 'string');
+      } else if (typeof value === 'string') {
+        out[taskId] = [value];
+      }
+    });
+    return out;
   } catch {
     return {};
   }
 };
 
-const writeMap = async (map: Record<string, string>) => {
+const writeMap = async (map: Record<string, string[]>) => {
   if (isExpoGo) return;
   await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(map));
 };
@@ -49,12 +58,14 @@ export const cancelTaskReminder = async (taskId: string) => {
   if (isExpoGo) return;
   const Notifications = getNotificationsModule();
   const map = await readMap();
-  const existing = map[taskId];
-  if (existing) {
+  const existing = Array.isArray(map[taskId]) ? map[taskId] : [];
+  for (const notificationId of existing) {
     try {
-      await Notifications.cancelScheduledNotificationAsync(existing);
+      await Notifications.cancelScheduledNotificationAsync(notificationId);
     } catch {
     }
+  }
+  if (existing.length > 0) {
     delete map[taskId];
     await writeMap(map);
   }
@@ -68,6 +79,10 @@ export const scheduleTaskReminder = async (task: Task) => {
     await cancelTaskReminder(task._id);
     return;
   }
+  if (task.completed) {
+    await cancelTaskReminder(task._id);
+    return;
+  }
   if (!task.dueDate) {
     await cancelTaskReminder(task._id);
     return;
@@ -77,26 +92,35 @@ export const scheduleTaskReminder = async (task: Task) => {
     await cancelTaskReminder(task._id);
     return;
   }
-  const firstOffset = Array.isArray(task.reminderOffsetMinutes) ? task.reminderOffsetMinutes[0] : 0;
-  const offset = firstOffset === 10 ? 10 : 0;
-  const triggerAt = new Date(due.getTime() - offset * 60000);
-  if (triggerAt.getTime() <= Date.now()) {
+  const offsets = Array.isArray(task.reminderOffsetMinutes)
+    ? Array.from(new Set(task.reminderOffsetMinutes.filter((v): v is number => typeof v === 'number' && v >= 0)))
+    : [0];
+  const normalizedOffsets = offsets.length > 0 ? offsets : [0];
+  const triggerPairs = normalizedOffsets
+    .map((offset) => ({ offset, triggerAt: new Date(due.getTime() - offset * 60000) }))
+    .filter(({ triggerAt }) => triggerAt.getTime() > Date.now())
+    .sort((a, b) => b.offset - a.offset);
+  if (triggerPairs.length === 0) {
     await cancelTaskReminder(task._id);
     return;
   }
   const granted = await ensureNotificationPermission();
   if (!granted) return;
   await cancelTaskReminder(task._id);
-  const id = await Notifications.scheduleNotificationAsync({
-    content: {
-      title: task.title || 'Påminnelse',
-      body: offset === 10 ? '10 minuter innan förfallotid' : 'Vid förfallotid',
-      data: { taskId: task._id }
-    },
-    trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: triggerAt }
-  });
+  const ids: string[] = [];
+  for (const { offset, triggerAt } of triggerPairs) {
+    const id = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: task.title || 'Påminnelse',
+        body: offset > 0 ? `${offset} minuter innan förfallotid` : 'Vid förfallotid',
+        data: { taskId: task._id }
+      },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: triggerAt }
+    });
+    ids.push(id);
+  }
   const map = await readMap();
-  map[task._id] = id;
+  map[task._id] = ids;
   await writeMap(map);
 };
 

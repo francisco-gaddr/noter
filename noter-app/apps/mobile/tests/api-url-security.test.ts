@@ -14,6 +14,8 @@ jest.mock('expo-constants', () => ({
 }));
 
 describe('API URL security', () => {
+  const previousDev = (global as any).__DEV__;
+
   const setNodeEnv = (value?: string) => {
     if (value === undefined) {
       Object.defineProperty(process.env, 'NODE_ENV', { value: undefined, writable: true, configurable: true });
@@ -25,6 +27,7 @@ describe('API URL security', () => {
   afterEach(() => {
     jest.resetModules();
     setNodeEnv(undefined);
+    (global as any).__DEV__ = previousDev;
   });
 
   it('normalizes api url with /api suffix', async () => {
@@ -35,6 +38,7 @@ describe('API URL security', () => {
   });
 
   it('rejects insecure non-local http url in production mode', async () => {
+    (global as any).__DEV__ = false;
     setNodeEnv('production');
     const api = require('../services/api');
     await expect(api.setApiUrl('http://example.com')).rejects.toThrow('HTTPS');
