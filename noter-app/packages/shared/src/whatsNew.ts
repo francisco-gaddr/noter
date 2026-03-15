@@ -7,6 +7,18 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    version: '1.0.2',
+    build: '2026.03.15.2',
+    date: '2026-03-15',
+    highlights: [
+      'Electron: robustare klassning gör att projektmappar konsekvent hamnar i projektdropdown och inte bland anteckningar',
+      'Mobile: projektmodal har extra luft i botten så sista projektvalet inte ligger för nära kanten',
+      'Mobile: projektfiltrering för anteckningar normaliserar parentId/activeProjectId bättre och visar anteckningar i valt projekt igen',
+      'Mobile: valt projekt sparas och återställs mellan appstarter',
+      'Persistens: senaste sortering/filtrering för notes/tasks verifieras och bibehålls i både Electron och mobile',
+    ],
+  },
+  {
     version: '1.0.1',
     build: '2026.03.15.1',
     date: '2026-03-15',

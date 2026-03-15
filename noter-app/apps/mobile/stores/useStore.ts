@@ -342,7 +342,10 @@ export const useStore = create<AppState>((set, get) => ({
   securityLocked: false,
   unlockedProtectedNoteIds: [],
 
-  setActiveProject: (id) => set({ activeProjectId: id }),
+  setActiveProject: (id) => {
+    set({ activeProjectId: id });
+    AsyncStorage.setItem('activeProjectId', id || '').catch(() => {});
+  },
   setToken: (token) => {
     set({ token });
     // Also update socket auth
@@ -394,8 +397,12 @@ export const useStore = create<AppState>((set, get) => ({
 
     const storedToken = await SecureStore.getItemAsync('token');
     const storedNotifications = await AsyncStorage.getItem('notificationsEnabled');
+    const storedActiveProjectId = await AsyncStorage.getItem('activeProjectId');
     if (storedNotifications !== null) {
       set({ notificationsEnabled: storedNotifications === 'true' });
+    }
+    if (storedActiveProjectId && storedActiveProjectId !== 'null') {
+      set({ activeProjectId: storedActiveProjectId });
     }
     if (storedToken) {
       setAuthToken(storedToken);

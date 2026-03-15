@@ -44,6 +44,7 @@ jest.mock('@/stores/useStore', () => ({
       { _id: 'p1', title: 'Projekt A', type: 'project-folder', parentId: null, content: '', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
       { _id: 'n1', title: 'Anteckning 1', type: 'note', parentId: 'p1', content: '', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
       { _id: 'n2', title: 'Anteckning 2', type: 'note', parentId: '"p1"', content: '', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+      { _id: 'n4', title: 'Anteckning 3', type: 'note', parentId: "'\"p1\"'", content: '', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
       { _id: 'n3', title: 'Utanför projekt', type: 'note', parentId: null, content: '', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
     ],
     isLoading: false,
@@ -51,7 +52,7 @@ jest.mock('@/stores/useStore', () => ({
     fetchNotes: jest.fn(),
     viewMode: 'list',
     setViewMode: jest.fn(),
-    activeProjectId: 'p1',
+    activeProjectId: '"p1"',
     updateNote: jest.fn(),
     reorderNotes: jest.fn(),
     deleteNote: jest.fn(),
@@ -87,6 +88,6 @@ describe('Notes project filtering e2e', () => {
     });
 
     const titles = (capturedNoteListProps?.notes || []).map((n: any) => n.title).sort();
-    expect(titles).toEqual(['Anteckning 1', 'Anteckning 2']);
+    expect(titles).toEqual(['Anteckning 1', 'Anteckning 2', 'Anteckning 3']);
   });
 });

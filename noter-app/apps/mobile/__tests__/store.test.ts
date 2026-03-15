@@ -13,6 +13,12 @@ jest.mock('expo-secure-store', () => ({
   deleteItemAsync: jest.fn(),
 }));
 
+jest.mock('@react-native-async-storage/async-storage', () => ({
+  getItem: jest.fn().mockResolvedValue(null),
+  setItem: jest.fn().mockResolvedValue(undefined),
+  removeItem: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock('../services/api', () => ({
   fetchWithAuth: jest.fn(),
   login: jest.fn(),
@@ -59,6 +65,14 @@ describe('Mobile Store', () => {
     expect(state.notes).toEqual([]);
     expect(state.isLoading).toBe(false);
     expect(state.securityLocked).toBe(false);
+  });
+
+  it('should persist active project selection', async () => {
+    const AsyncStorage = require('@react-native-async-storage/async-storage');
+    useStore.getState().setActiveProject('project-xyz');
+    await Promise.resolve();
+    expect(AsyncStorage.setItem).toHaveBeenCalledWith('activeProjectId', 'project-xyz');
+    expect(useStore.getState().activeProjectId).toBe('project-xyz');
   });
 
   it('should unlock and load data on login when security lock is active', async () => {

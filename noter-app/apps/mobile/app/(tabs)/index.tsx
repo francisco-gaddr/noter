@@ -15,7 +15,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const normalizeNoteType = (value: unknown): string => {
   if (typeof value !== 'string') return 'note';
   let normalized = value.trim().toLowerCase();
-  if ((normalized.startsWith('"') && normalized.endsWith('"')) || (normalized.startsWith("'") && normalized.endsWith("'")) || (normalized.startsWith('`') && normalized.endsWith('`'))) {
+  while (
+    normalized.length >= 2 &&
+    (
+      (normalized.startsWith('"') && normalized.endsWith('"')) ||
+      (normalized.startsWith("'") && normalized.endsWith("'")) ||
+      (normalized.startsWith('`') && normalized.endsWith('`'))
+    )
+  ) {
     normalized = normalized.slice(1, -1).trim();
   }
   normalized = normalized.replace(/\s+/g, '_');
@@ -32,10 +39,13 @@ const normalizeId = (value: unknown): string | null => {
   if (typeof value !== 'string') return null;
   let normalized = value.trim();
   if (!normalized) return null;
-  if (
-    (normalized.startsWith('"') && normalized.endsWith('"')) ||
-    (normalized.startsWith("'") && normalized.endsWith("'")) ||
-    (normalized.startsWith('`') && normalized.endsWith('`'))
+  while (
+    normalized.length >= 2 &&
+    (
+      (normalized.startsWith('"') && normalized.endsWith('"')) ||
+      (normalized.startsWith("'") && normalized.endsWith("'")) ||
+      (normalized.startsWith('`') && normalized.endsWith('`'))
+    )
   ) {
     normalized = normalized.slice(1, -1).trim();
   }

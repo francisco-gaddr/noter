@@ -38,7 +38,14 @@ type NodeDropCollected = { isOver: boolean; canDrop: boolean };
 const normalizeNoteType = (value: unknown): string => {
     if (typeof value !== 'string') return 'note';
     let normalized = value.trim().toLowerCase();
-    if ((normalized.startsWith('"') && normalized.endsWith('"')) || (normalized.startsWith("'") && normalized.endsWith("'")) || (normalized.startsWith('`') && normalized.endsWith('`'))) {
+    while (
+      normalized.length >= 2 &&
+      (
+        (normalized.startsWith('"') && normalized.endsWith('"')) ||
+        (normalized.startsWith("'") && normalized.endsWith("'")) ||
+        (normalized.startsWith('`') && normalized.endsWith('`'))
+      )
+    ) {
         normalized = normalized.slice(1, -1).trim();
     }
     normalized = normalized.replace(/\s+/g, '_');
@@ -50,6 +57,22 @@ const normalizeNoteType = (value: unknown): string => {
     if (normalized === 'folder') return 'project';
     if (normalized === 'project' || normalized === 'note') return normalized;
     return normalized || 'note';
+};
+
+const normalizeId = (value: unknown): string | null => {
+    if (typeof value !== 'string') return null;
+    let normalized = value.trim();
+    while (
+      normalized.length >= 2 &&
+      (
+        (normalized.startsWith('"') && normalized.endsWith('"')) ||
+        (normalized.startsWith("'") && normalized.endsWith("'")) ||
+        (normalized.startsWith('`') && normalized.endsWith('`'))
+      )
+    ) {
+      normalized = normalized.slice(1, -1).trim();
+    }
+    return normalized || null;
 };
 
 const isProjectType = (value: unknown): boolean => normalizeNoteType(value) === 'project';
@@ -455,19 +478,21 @@ export default function SidebarTree() {
         if (activeTab === 'tasks') return isTaskList && isReadable(n);
         
         if (activeProjectId) {
+             const normalizedActiveProjectId = normalizeId(activeProjectId);
+             if (!normalizedActiveProjectId) return false;
              const cached = belongsCache.get(n._id);
              if (cached !== undefined) {
                return !isTaskList && !isProject && cached && isReadable(n);
              }
 
-             let parent = n.parentId;
+             let parent = normalizeId(n.parentId);
              let belongs = false;
              let steps = 0;
              while (parent && steps < 100) {
-                 if (parent === activeProjectId) { belongs = true; break; }
+                 if (parent === normalizedActiveProjectId) { belongs = true; break; }
                  const p = noteById.get(parent);
                  if (!p) break;
-                 parent = p.parentId;
+                 parent = normalizeId(p.parentId);
                  steps += 1;
              }
              belongsCache.set(n._id, belongs);
@@ -491,7 +516,9 @@ export default function SidebarTree() {
 
         if (activeProjectId) {
             // Show all children of the active project, including sub-projects (but filter out task lists if needed)
-            return n.parentId === activeProjectId && !isTaskList && !isProject && isReadable(n);
+            const normalizedActiveProjectId = normalizeId(activeProjectId);
+            const normalizedParentId = normalizeId(n.parentId);
+            return Boolean(normalizedActiveProjectId) && normalizedParentId === normalizedActiveProjectId && !isTaskList && !isProject && isReadable(n);
         }
 
         return isRoot && !isTaskList && !isProject && isReadable(n);

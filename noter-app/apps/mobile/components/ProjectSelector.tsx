@@ -20,7 +20,14 @@ interface ProjectSelectorProps {
 const normalizeNoteType = (value: unknown): string => {
   if (typeof value !== 'string') return 'note';
   let normalized = value.trim().toLowerCase();
-  if ((normalized.startsWith('"') && normalized.endsWith('"')) || (normalized.startsWith("'") && normalized.endsWith("'")) || (normalized.startsWith('`') && normalized.endsWith('`'))) {
+  while (
+    normalized.length >= 2 &&
+    (
+      (normalized.startsWith('"') && normalized.endsWith('"')) ||
+      (normalized.startsWith("'") && normalized.endsWith("'")) ||
+      (normalized.startsWith('`') && normalized.endsWith('`'))
+    )
+  ) {
     normalized = normalized.slice(1, -1).trim();
   }
   normalized = normalized.replace(/\s+/g, '_').replace(/-/g, '_');
@@ -354,7 +361,7 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
                 data={projects}
                 keyExtractor={(item) => item._id}
                 style={{ maxHeight: 260 }}
-                containerStyle={{ paddingBottom: 80 }}
+                containerStyle={{ paddingBottom: 130 }}
                 activationDistance={8}
                 onDragEnd={({ data }) => handleReorder(data as Note[])}
                 renderItem={({ item, drag, isActive }: RenderItemParams<Note>) => (

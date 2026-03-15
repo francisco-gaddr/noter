@@ -97,6 +97,27 @@ describe('Web Store', () => {
     expect(useStore.getState().sortOrder).toBe('title-asc');
   });
 
+  it('should persist active project selection in localStorage', () => {
+    act(() => {
+      useStore.getState().setActiveProject('project-123');
+    });
+
+    expect(localStorage.getItem('activeProjectId')).toBe('project-123');
+    expect(useStore.getState().activeProjectId).toBe('project-123');
+  });
+
+  it('should restore active project selection from localStorage on hydrate', () => {
+    localStorage.setItem('activeProjectId', 'project-abc');
+    localStorage.setItem('user', JSON.stringify({ _id: '1', username: 'test' }));
+    localStorage.setItem('token', 'abc');
+
+    act(() => {
+      useStore.getState().hydrate();
+    });
+
+    expect(useStore.getState().activeProjectId).toBe('project-abc');
+  });
+
   it('should restore sort order from localStorage on hydrate', () => {
     localStorage.setItem('sortOrder', 'title-desc');
     localStorage.setItem('user', JSON.stringify({ _id: '1', username: 'test' }));
