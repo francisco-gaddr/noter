@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+echo "Kör obligatorisk valideringsmatris före push..."
+npm run validate:prepush
+status=$?
+if [ $status -ne 0 ]; then
+  echo "Push stoppad: validering misslyckades."
+  exit $status
+fi

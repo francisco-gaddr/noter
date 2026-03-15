@@ -72,6 +72,17 @@ Bygg plattformen med säkerhet, stabilitet och produktkvalitet som primära mål
 - Vid testfel: fixa rotorsak, kör om hela matrisen, pusha först när allt passerar.
 - Kör `npm run lint` separat och åtgärda konfig- eller kodfel innan leverans där lint-gate är möjlig.
 
+## Pre-push hook: exakt innehåll och varför
+
+- Hook trigger: Git `pre-push` körs lokalt vid varje push och blockerar push om validering fallerar.
+- Körkommando: hooken kör `npm run validate:prepush`, som i sin tur kör `npm run validate:critical`.
+- Backend-gate: kritiska API-, auth-, lock-, encryption-, request-security- och MCP-tester + typecheck för att stoppa regressions i serversäkerhet/dataflöden.
+- Web/Electron-gate: kritiska notes/tasks/AI/säkerhetstester + typecheck för att säkra UI-flöden, kryptering och projekt-/filtreringsbeteenden.
+- Mobile-gate: kritiska notes/tasks/AI/säkerhet/notifications/API-tester + typecheck för att säkra offline-fall, auth-recovery och felhantering i appen.
+- Electron-gate: kritiska electron-noter tester för runtime- och desktop-specifika flöden.
+- Varför blockerande: minskar risken att osäkra eller trasiga ändringar når `dev`/`main`, och gör kvaliteten reproducerbar mellan utvecklare.
+- Felpolicy: vid röd gate ska rotorsak fixas, hela matrisen köras om, och push ske först när alla steg är gröna.
+
 ## Dokumentationskarta
 
 - Primär översikt: [README.md](file:///f:/Tech/Projekt/Noter/noter-app/README.md)
