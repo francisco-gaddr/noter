@@ -9,6 +9,7 @@
   "files": [
     "base.js",
     "next.js",
+    "next-js.js",
     "react-internal.js"
   ],
   "devDependencies": {

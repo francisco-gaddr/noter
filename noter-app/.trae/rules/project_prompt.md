@@ -46,6 +46,14 @@ Bygg plattformen med säkerhet, stabilitet och produktkvalitet som primära mål
 - Säkerställ efter push att remote-brancher är synkade och att inga kritiska ändringar ligger kvar lokalt.
 - Prioritera små, tydliga commits med spårbar scope för enklare rollback och säkrare release-hantering.
 
+## Essentiella funktionsdelar
+
+- Notes: skapa, läsa in, uppdatera, flytta mellan projekt, offline-cache och återhämtning efter nätverksfel.
+- Tasks: task-lists, statusflöde, sortering/filtrering, påminnelser och synk mellan mobile/web/electron.
+- AI-chatt: säkra tool-anrop, synk av sessionsdata, fallback vid timeout/fel och tydliga användarfel.
+- Projektmappar: korrekt klassning/separation från anteckningar, filtrering via dropdown och konsekvent parent-child-hantering.
+- Säkerhet: app-lock, låsta anteckningar/projekt, auth-scope, kryptering at rest/in transit och fail-closed API-validering.
+
 ## Kvalitet och verifiering
 
 - Alla säkerhetskritiska ändringar ska ha unit + integration och minst ett relevant E2E-test.
@@ -56,6 +64,21 @@ Bygg plattformen med säkerhet, stabilitet och produktkvalitet som primära mål
 - Dokumentation ska uppdateras i samma leverans när nya säkerhetsflöden, endpoints eller dashboards införs.
 - Verifiering ska bevisa kryptering i varje fas: payload före transport, server-side validering, server persistens, lokal persistens och återläsning.
 - Testbevis ska vara konkreta och spårbara med tydliga assertions för `ingen plaintext-lagring`.
+
+## Valideringsmatris
+
+- Kör alltid `npm run validate:prepush` från repo-roten före push; den är blockerande gate.
+- Validering ska inkludera unit/integration/E2E för backend, web/electron, mobile och electron-noter.
+- Vid testfel: fixa rotorsak, kör om hela matrisen, pusha först när allt passerar.
+- Kör `npm run lint` separat och åtgärda konfig- eller kodfel innan leverans där lint-gate är möjlig.
+
+## Dokumentationskarta
+
+- Primär översikt: [README.md](file:///f:/Tech/Projekt/Noter/noter-app/README.md)
+- Projektregler: [project_rules.md](file:///f:/Tech/Projekt/Noter/noter-app/.trae/rules/project_rules.md)
+- Leverans-/kvalitetsflöde: [engineering_playbook.md](file:///f:/Tech/Projekt/Noter/noter-app/.trae/rules/engineering_playbook.md)
+- Säkerhets- och driftdokument: [Doc](file:///f:/Tech/Projekt/Noter/Doc/)
+- Electron-specifikt: [electron-noter](file:///f:/Tech/Projekt/Noter/electron-noter/)
 
 ## Prestanda och drift
 
