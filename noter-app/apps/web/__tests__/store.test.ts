@@ -203,4 +203,20 @@ describe('Web Store', () => {
     expect(state.notes[0]?.type).toBe('project');
   });
 
+  it('should relock project session when leaving active project', async () => {
+    useStore.setState({
+      activeProjectId: 'p1',
+      unlockedProtectedNoteIds: ['p1'],
+      notes: [
+        { _id: 'p1', title: 'Projekt', content: '', type: 'project', parentId: null, locked: true, tags: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as any,
+        { _id: 'n1', title: 'Synlig', content: 'Hej', type: 'note', parentId: 'p1', locked: false, tags: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as any,
+      ],
+    } as any);
+
+    useStore.getState().setActiveProject(null);
+    const state = useStore.getState();
+    expect(state.unlockedProtectedNoteIds).not.toContain('p1');
+    expect((state.notes.find((n: any) => n._id === 'n1') as any)?.locked).toBe(true);
+  });
+
 });

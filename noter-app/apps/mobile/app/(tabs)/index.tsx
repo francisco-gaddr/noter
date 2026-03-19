@@ -209,16 +209,32 @@ export default function NotesScreen() {
       return type !== 'project' && type !== 'task_list';
     });
 
+    const noteById = new Map<string, Note>();
+    for (const note of notes) {
+      const noteId = normalizeId(note._id);
+      if (!noteId) continue;
+      noteById.set(noteId, note);
+    }
+
+    if (!activeProjectId) {
+      filtered = filtered.filter((note) => {
+        let parentId = normalizeId(note.parentId);
+        let guard = 0;
+        while (parentId && guard < 200) {
+          const parent = noteById.get(parentId);
+          if (!parent) return true;
+          const parentType = normalizeNoteType((parent as any).type);
+          if (parentType === 'project' && parent.locked) return false;
+          parentId = normalizeId(parent.parentId);
+          guard += 1;
+        }
+        return true;
+      });
+    }
+
     if (activeProjectId) {
       const normalizedActiveProjectId = normalizeId(activeProjectId);
       if (!normalizedActiveProjectId) return filtered;
-
-      const noteById = new Map<string, Note>();
-      for (const note of notes) {
-        const noteId = normalizeId(note._id);
-        if (!noteId) continue;
-        noteById.set(noteId, note);
-      }
 
       filtered = filtered.filter((note) => {
         let parentId = normalizeId(note.parentId);

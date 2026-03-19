@@ -4,6 +4,7 @@ import NotesScreen from '../app/(tabs)/index';
 
 const mockSetOptions = jest.fn();
 let capturedNoteListProps: any = null;
+let mockActiveProjectId: string | null = '"p1"';
 
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: jest.fn() }),
@@ -45,14 +46,17 @@ jest.mock('@/stores/useStore', () => ({
       { _id: 'n1', title: 'Anteckning 1', type: 'note', parentId: 'p1', content: '', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
       { _id: 'n2', title: 'Anteckning 2', type: 'note', parentId: '"p1"', content: '', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
       { _id: 'n4', title: 'Anteckning 3', type: 'note', parentId: "'\"p1\"'", content: '', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+      { _id: 'n5', title: 'Barn till anteckning', type: 'note', parentId: 'n2', content: '', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
       { _id: 'n3', title: 'Utanför projekt', type: 'note', parentId: null, content: '', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+      { _id: 'pLocked', title: 'Låst Projekt', type: 'project', parentId: null, content: '', locked: true, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+      { _id: 'nLocked', title: 'Hemlig anteckning', type: 'note', parentId: 'pLocked', content: '', locked: true, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
     ],
     isLoading: false,
     error: null,
     fetchNotes: jest.fn(),
     viewMode: 'list',
     setViewMode: jest.fn(),
-    activeProjectId: '"p1"',
+    activeProjectId: mockActiveProjectId,
     updateNote: jest.fn(),
     reorderNotes: jest.fn(),
     deleteNote: jest.fn(),
@@ -80,6 +84,7 @@ describe('Notes project filtering e2e', () => {
   beforeEach(() => {
     capturedNoteListProps = null;
     mockSetOptions.mockClear();
+    mockActiveProjectId = '"p1"';
   });
 
   it('visar anteckningar i valt projekt även när parentId har citattecken', async () => {
@@ -88,6 +93,17 @@ describe('Notes project filtering e2e', () => {
     });
 
     const titles = (capturedNoteListProps?.notes || []).map((n: any) => n.title).sort();
-    expect(titles).toEqual(['Anteckning 1', 'Anteckning 2', 'Anteckning 3']);
+    expect(titles).toEqual(['Anteckning 1', 'Anteckning 2', 'Anteckning 3', 'Barn till anteckning']);
+  });
+
+  it('döljer anteckningar som ligger i låsta projekt i Alla anteckningar', async () => {
+    mockActiveProjectId = null;
+    await act(async () => {
+      renderer.create(<NotesScreen />);
+    });
+
+    const titles = (capturedNoteListProps?.notes || []).map((n: any) => n.title);
+    expect(titles).not.toContain('Hemlig anteckning');
+    expect(titles).toContain('Utanför projekt');
   });
 });

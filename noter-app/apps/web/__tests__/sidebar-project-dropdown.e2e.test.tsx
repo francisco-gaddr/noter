@@ -15,6 +15,8 @@ jest.mock('../stores/useStore', () => {
         { _id: 'n1', title: 'Vanlig anteckning', content: '', type: 'note', parentId: null, locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
         { _id: 'p3', title: 'Projekt Gamma', content: '', type: 'Project Folder', parentId: 'n1', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
         { _id: 'p4', title: 'Projekt Delta', content: '', type: '"`project`"', parentId: null, locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+        { _id: 'p5', title: 'Projekt Låst', content: '', type: 'note', parentId: null, locked: true, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+        { _id: 'n4', title: 'Hemlig anteckning', content: '', type: 'note', parentId: 'p5', locked: true, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
         { _id: 'n2', title: 'Mötesanteckning', content: '', type: 'note', parentId: null, locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
         { _id: 'n3', title: 'Mötesanteckning barn', content: '', type: 'note', parentId: 'n2', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
       ],
@@ -61,6 +63,7 @@ describe('SidebarTree e2e project dropdown behavior', () => {
     expect(screen.getByRole('option', { name: 'Projekt Beta' })).toBeTruthy();
     expect(screen.getByRole('option', { name: 'Projekt Gamma' })).toBeTruthy();
     expect(screen.getByRole('option', { name: 'Projekt Delta' })).toBeTruthy();
+    expect(screen.getByRole('option', { name: 'Projekt Låst' })).toBeTruthy();
     expect(screen.queryByRole('option', { name: 'Mötesanteckning' })).toBeNull();
 
     const titleMatches = screen.getAllByText('Projekt Alpha');
@@ -71,6 +74,8 @@ describe('SidebarTree e2e project dropdown behavior', () => {
     expect(thirdTitleMatches.length).toBe(1);
     const fourthTitleMatches = screen.getAllByText('Projekt Delta');
     expect(fourthTitleMatches.length).toBe(1);
+    const fifthTitleMatches = screen.getAllByText('Projekt Låst');
+    expect(fifthTitleMatches.length).toBe(1);
     expect(screen.getByText('Vanlig anteckning')).toBeTruthy();
     expect(screen.getByText('Mötesanteckning')).toBeTruthy();
     expect(screen.getByText('Mötesanteckning barn')).toBeTruthy();

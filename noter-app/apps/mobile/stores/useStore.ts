@@ -359,7 +359,18 @@ export const useStore = create<AppState>((set, get) => ({
 
   setActiveProject: (id) => {
     const normalized = id ? normalizeId(id) : null;
-    set({ activeProjectId: normalized });
+    set((state) => {
+      const previous = state.activeProjectId ? normalizeId(state.activeProjectId) : null;
+      if (previous && previous !== normalized) {
+        const nextUnlocked = state.unlockedProtectedNoteIds.filter((item) => normalizeId(item) !== previous);
+        return {
+          activeProjectId: normalized,
+          unlockedProtectedNoteIds: nextUnlocked,
+          notes: materializeNotesFromEncrypted(state.notes as any, new Set(nextUnlocked)),
+        };
+      }
+      return { activeProjectId: normalized };
+    });
     AsyncStorage.setItem('activeProjectId', normalized || '').catch(() => {});
   },
   setToken: (token) => {

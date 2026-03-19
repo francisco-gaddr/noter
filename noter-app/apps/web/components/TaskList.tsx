@@ -224,17 +224,19 @@ export default function TaskList() {
 
     const getPersistedSetting = useCallback(async (key: string): Promise<string | null> => {
         if (typeof window === 'undefined') return null;
-        const fromLocal = localStorage.getItem(key);
-        if (fromLocal !== null) return fromLocal;
         const mlc = (window as any).mlc;
         if (mlc?.isElectron && typeof mlc.getSetting === 'function') {
             try {
                 const value = await mlc.getSetting(key);
-                return typeof value === 'string' ? value : null;
+                if (typeof value === 'string') {
+                    localStorage.setItem(key, value);
+                    return value;
+                }
             } catch {
-                return null;
             }
         }
+        const fromLocal = localStorage.getItem(key);
+        if (fromLocal !== null) return fromLocal;
         return null;
     }, []);
 

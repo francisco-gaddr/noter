@@ -7,7 +7,7 @@ import { FaPlus, FaTrash, FaSort, FaChevronRight, FaChevronDown, FaFolder, FaFol
 import * as FaIcons from 'react-icons/fa';
 import Fuse from 'fuse.js';
 import { orderBy } from 'lodash';
-import { Note } from '@repo/shared';
+import { Note, normalizeNoteType, normalizeId } from '@repo/shared';
 import { IconPicker } from './IconPicker';
 import { CreateNodeModal } from './CreateNodeModal';
 import { ConfirmationModal } from './ConfirmationModal';
@@ -35,47 +35,10 @@ interface TreeNodeProps {
 type DragItem = { id: string; type: string };
 type NodeDropCollected = { isOver: boolean; canDrop: boolean };
 
-const normalizeNoteType = (value: unknown): string => {
-    if (typeof value !== 'string') return 'note';
-    let normalized = value.trim().toLowerCase();
-    while (
-      normalized.length >= 2 &&
-      (
-        (normalized.startsWith('"') && normalized.endsWith('"')) ||
-        (normalized.startsWith("'") && normalized.endsWith("'")) ||
-        (normalized.startsWith('`') && normalized.endsWith('`'))
-      )
-    ) {
-        normalized = normalized.slice(1, -1).trim();
-    }
-    normalized = normalized.replace(/\s+/g, '_');
-    normalized = normalized.replace(/-/g, '_');
-    if (normalized === 'projectfolder' || normalized === 'project_folder') return 'project';
-    if (normalized === 'tasklist' || normalized === 'task_list' || normalized === 'task-list') return 'task_list';
-    if (normalized.includes('task') && normalized.includes('list')) return 'task_list';
-    if (normalized.includes('project') || normalized.includes('folder')) return 'project';
-    if (normalized === 'folder') return 'project';
-    if (normalized === 'project' || normalized === 'note') return normalized;
-    return normalized || 'note';
+const isProjectType = (value: unknown): boolean => {
+    const type = normalizeNoteType(value);
+    return type === 'project';
 };
-
-const normalizeId = (value: unknown): string | null => {
-    if (typeof value !== 'string') return null;
-    let normalized = value.trim();
-    while (
-      normalized.length >= 2 &&
-      (
-        (normalized.startsWith('"') && normalized.endsWith('"')) ||
-        (normalized.startsWith("'") && normalized.endsWith("'")) ||
-        (normalized.startsWith('`') && normalized.endsWith('`'))
-      )
-    ) {
-      normalized = normalized.slice(1, -1).trim();
-    }
-    return normalized || null;
-};
-
-const isProjectType = (value: unknown): boolean => normalizeNoteType(value) === 'project';
 const isTaskListType = (value: unknown): boolean => normalizeNoteType(value) === 'task_list';
 
 const sortNotes = (nodes: Note[], order: string) => {
@@ -402,9 +365,25 @@ export default function SidebarTree() {
 
   const inferredProjectIds = useMemo(() => {
     const ids = new Set<string>();
+    const parentIds = new Set<string>();
+    safeNotes.forEach((note) => {
+      const parentId = normalizeId(note.parentId);
+      if (parentId) parentIds.add(parentId);
+    });
     safeNotes.forEach((note) => {
       const type = normalizeNoteType((note as any).type);
       if (type === 'project') {
+        ids.add(note._id);
+        return;
+      }
+      if (type === 'task_list') return;
+      if (!parentIds.has(note._id)) return;
+      const content = typeof note.content === 'string' ? note.content.trim() : '';
+      if (type !== 'note' && content.length === 0) {
+        ids.add(note._id);
+        return;
+      }
+      if (type === 'note' && note.locked && content.length === 0) {
         ids.add(note._id);
       }
     });
@@ -452,7 +431,6 @@ export default function SidebarTree() {
       return readable;
     };
     if (searchQuery) {
-      // Only search when there's actually a search query to avoid unnecessary computation
       const fuse = new Fuse(safeNotes, {
         keys: ['title', 'content', 'tags'],
         threshold: 0.4,
@@ -462,7 +440,7 @@ export default function SidebarTree() {
       const filtered = matches.filter(n => {
         const noteType = normalizeNoteType((n as any).type);
         const isTaskList = noteType === 'task_list' || inferredTaskListIds.has(n._id);
-        const isProject = inferredProjectIds.has(n._id);
+        const isProject = noteType === 'project' || inferredProjectIds.has(n._id);
         const base = activeTab === 'tasks' ? isTaskList : (!isTaskList && !isProject);
         return base && isReadable(n);
       });
@@ -474,7 +452,7 @@ export default function SidebarTree() {
       const filtered = safeNotes.filter(n => {
         const noteType = normalizeNoteType((n as any).type);
         const isTaskList = noteType === 'task_list' || inferredTaskListIds.has(n._id);
-        const isProject = inferredProjectIds.has(n._id);
+        const isProject = noteType === 'project' || inferredProjectIds.has(n._id);
         if (activeTab === 'tasks') return isTaskList && isReadable(n);
         
         if (activeProjectId) {
@@ -507,10 +485,11 @@ export default function SidebarTree() {
     // Tree view
     const roots = safeNotes.filter(n => {
         const parent = n.parentId ? noteById.get(n.parentId) : null;
-        const isRoot = (!n.parentId || !parent || inferredProjectIds.has(parent._id));
         const noteType = normalizeNoteType((n as any).type);
+        const isProject = noteType === 'project' || inferredProjectIds.has(n._id);
+        
+        const isRoot = (!n.parentId || !parent || (parent && normalizeNoteType((parent as any).type) === 'project'));
         const isTaskList = noteType === 'task_list' || inferredTaskListIds.has(n._id);
-        const isProject = inferredProjectIds.has(n._id);
         
         if (activeTab === 'tasks') return isTaskList && isReadable(n);
 

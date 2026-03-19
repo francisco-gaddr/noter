@@ -42,6 +42,41 @@ const STORAGE_KEY_VIEW = 'last_view_mode';
 const STORAGE_KEY_FILTERS = 'task_filters';
 const STORAGE_KEY_SORT = 'task_sort';
 
+const getQuickFilterRange = (type: string) => {
+  const start = new Date();
+  const end = new Date();
+  if (type === 'today') {
+    start.setHours(0, 0, 0, 0);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+  }
+  if (type === 'tomorrow') {
+    start.setDate(start.getDate() + 1);
+    start.setHours(0, 0, 0, 0);
+    end.setDate(end.getDate() + 1);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+  }
+  if (type === 'week') {
+    const day = start.getDay() || 7;
+    if (day !== 1) start.setHours(-24 * (day - 1));
+    else start.setHours(0, 0, 0, 0);
+    end.setTime(start.getTime());
+    end.setDate(end.getDate() + 6);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+  }
+  if (type === 'month') {
+    start.setDate(1);
+    start.setHours(0, 0, 0, 0);
+    end.setMonth(end.getMonth() + 1);
+    end.setDate(0);
+    end.setHours(23, 59, 59, 999);
+    return { start, end };
+  }
+  return { start: null, end: null } as { start: Date | null; end: Date | null };
+};
+
 const normalizeNoteType = (value: unknown): string => {
   if (typeof value !== 'string') return 'note';
   const normalized = value.trim().toLowerCase();
@@ -89,6 +124,7 @@ export default function TasksScreen() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'completed'>('all');
   const [showDatePicker, setShowDatePicker] = useState<'start' | 'end' | null>(null);
   const selectedChipBg = useMemo(() => theme.colors.primary, [theme]);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
 
   // Load persistence
   useEffect(() => {
@@ -104,10 +140,14 @@ export default function TasksScreen() {
             const parsed = JSON.parse(savedFilters);
             setQuickFilter(parsed.quickFilter);
             setStatusFilter(parsed.statusFilter || 'all');
-            setFilterDateRange({
+            if (parsed.quickFilter && ['today', 'tomorrow', 'week', 'month'].includes(parsed.quickFilter)) {
+              setFilterDateRange(getQuickFilterRange(parsed.quickFilter));
+            } else {
+              setFilterDateRange({
                 start: parsed.start ? new Date(parsed.start) : null,
                 end: parsed.end ? new Date(parsed.end) : null
-            });
+              });
+            }
         }
         const savedSort = await AsyncStorage.getItem(STORAGE_KEY_SORT);
         if (savedSort) {
@@ -117,6 +157,8 @@ export default function TasksScreen() {
         }
       } catch (e) {
         console.log('Failed to load state', e);
+      } finally {
+        setSettingsLoaded(true);
       }
     };
     loadState();
@@ -124,6 +166,7 @@ export default function TasksScreen() {
 
   // Save persistence
   useEffect(() => {
+    if (!settingsLoaded) return;
     const saveState = async () => {
         await AsyncStorage.setItem(STORAGE_KEY_LIST, selectedListId || 'all');
         await AsyncStorage.setItem(STORAGE_KEY_VIEW, viewMode);
@@ -136,37 +179,10 @@ export default function TasksScreen() {
         await AsyncStorage.setItem(STORAGE_KEY_SORT, JSON.stringify({ sortBy, sortOrder }));
     };
     saveState();
-  }, [selectedListId, viewMode, filterDateRange, quickFilter, statusFilter, sortBy, sortOrder]);
+  }, [selectedListId, viewMode, filterDateRange, quickFilter, statusFilter, sortBy, sortOrder, settingsLoaded]);
 
   const applyQuickFilter = (type: string) => {
-      const now = new Date();
-      let start = new Date();
-      let end = new Date();
-      
-      if (type === 'today') {
-          start.setHours(0,0,0,0);
-          end.setHours(23,59,59,999);
-      } else if (type === 'tomorrow') {
-          start.setDate(start.getDate() + 1);
-          start.setHours(0,0,0,0);
-          end.setDate(end.getDate() + 1);
-          end.setHours(23,59,59,999);
-      } else if (type === 'week') {
-          const day = start.getDay() || 7; // Get current day number, converting Sunday (0) to 7
-          if (day !== 1) start.setHours(-24 * (day - 1)); // Set to Monday past
-          else start.setHours(0,0,0,0); // Today is Monday
-          
-          end = new Date(start);
-          end.setDate(end.getDate() + 6);
-          end.setHours(23,59,59,999);
-      } else if (type === 'month') {
-          start.setDate(1);
-          start.setHours(0,0,0,0);
-          end.setMonth(end.getMonth() + 1);
-          end.setDate(0);
-          end.setHours(23,59,59,999);
-      }
-
+      const { start, end } = getQuickFilterRange(type);
       setQuickFilter(type);
       setFilterDateRange({ start, end });
   };

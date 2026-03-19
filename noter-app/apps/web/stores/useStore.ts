@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Note, Task, UpdateTaskDto, User, decrypt, encrypt } from '@repo/shared';
+import { Note, Task, UpdateTaskDto, User, decrypt, encrypt, normalizeId } from '@repo/shared';
 import { api, getApiBaseUrl, getUUID, setApiBaseUrl, setApiToken } from '../services/api';
 import { socket, connectSocket, disconnectSocket, setSocketToken } from '../services/socket';
 import { db } from '../services/db';
@@ -411,8 +411,20 @@ export const useStore = create<StoreState>((set, get) => ({
   token: null,
   activeProjectId: null,
   setActiveProject: (id) => {
-    set({ activeProjectId: id });
-    localStorage.setItem('activeProjectId', id || '');
+    const normalized = id ? normalizeId(id) : null;
+    set((state) => {
+      const previous = state.activeProjectId ? normalizeId(state.activeProjectId) : null;
+      if (previous && previous !== normalized) {
+        const nextUnlocked = state.unlockedProtectedNoteIds.filter((item) => normalizeId(item) !== previous);
+        return {
+          activeProjectId: normalized,
+          unlockedProtectedNoteIds: nextUnlocked,
+          notes: materializeNotesFromEncrypted(state.notes as any, new Set(nextUnlocked)),
+        };
+      }
+      return { activeProjectId: normalized };
+    });
+    localStorage.setItem('activeProjectId', normalized || '');
   },
   language: 'sv',
   setLanguage: (lng) => {
@@ -432,7 +444,8 @@ export const useStore = create<StoreState>((set, get) => ({
         const savedSortOrder = (localStorage.getItem('sortOrder') as SortOrder) || 'date-desc';
         const selectedNoteId = localStorage.getItem('lastSelectedNoteId') || localStorage.getItem('selectedNoteId') || null;
         const selectedTaskListId = localStorage.getItem('lastSelectedTaskListId') || null;
-        const activeProjectId = localStorage.getItem('activeProjectId') || null;
+        const activeProjectIdRaw = localStorage.getItem('activeProjectId') || null;
+        const activeProjectId = activeProjectIdRaw ? normalizeId(activeProjectIdRaw) : null;
         const isElectron = Boolean((window as any).mlc?.isElectron);
         const isAppLocked = localStorage.getItem('isAppLocked') === 'true';
         const appLockPasswordHash = localStorage.getItem('appLockPasswordHash');

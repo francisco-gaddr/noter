@@ -83,6 +83,24 @@ describe('Mobile Store', () => {
     expect(useStore.getState().activeProjectId).toBe('project-quoted');
   });
 
+  it('should relock unlocked project content when leaving project', async () => {
+    useStore.setState({
+      activeProjectId: 'project-1',
+      unlockedProtectedNoteIds: ['project-1'],
+      notes: [
+        { _id: 'project-1', title: 'Projekt', content: '', type: 'project', parentId: null, locked: true, tags: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as any,
+        { _id: 'note-1', title: 'Synlig titel', content: 'Synligt', type: 'note', parentId: 'project-1', locked: false, tags: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() } as any,
+      ],
+    });
+
+    useStore.getState().setActiveProject(null);
+    await Promise.resolve();
+
+    const state = useStore.getState();
+    expect(state.unlockedProtectedNoteIds).not.toContain('project-1');
+    expect(state.notes.find((n: any) => n._id === 'note-1')?.locked).toBe(true);
+  });
+
   it('should unlock and load data on login when security lock is active', async () => {
     const { login, fetchWithAuth } = require('../services/api');
     const encryptedNow = encrypt(new Date().toISOString());

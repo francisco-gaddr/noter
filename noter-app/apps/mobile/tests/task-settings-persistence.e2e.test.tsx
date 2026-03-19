@@ -79,6 +79,7 @@ jest.mock('@react-native-community/datetimepicker', () => 'DateTimePicker');
 describe('Task settings persistence e2e', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGetItem.mockResolvedValue(null);
   });
 
   it('läser/sparar uppgiftsfilter och sortering', async () => {
@@ -89,5 +90,36 @@ describe('Task settings persistence e2e', () => {
     expect(mockGetItem).toHaveBeenCalledWith('task_sort');
     expect(mockGetItem).toHaveBeenCalledWith('task_filters');
     expect(mockSetItem).toHaveBeenCalledWith('task_sort', JSON.stringify({ sortBy: 'custom', sortOrder: 'desc' }));
+  });
+
+  it('återställer aktivt filter från lagring efter omladdning', async () => {
+    mockGetItem.mockImplementation(async (key: string) => {
+      if (key === 'task_filters') {
+        return JSON.stringify({
+          quickFilter: 'today',
+          statusFilter: 'active',
+          start: '2025-01-01T00:00:00.000Z',
+          end: '2025-01-01T23:59:59.999Z',
+        });
+      }
+      if (key === 'task_sort') {
+        return JSON.stringify({ sortBy: 'dueDate', sortOrder: 'asc' });
+      }
+      return null;
+    });
+
+    await act(async () => {
+      renderer.create(<TasksScreen />);
+    });
+
+    expect(mockSetItem).toHaveBeenCalledWith('task_sort', JSON.stringify({ sortBy: 'dueDate', sortOrder: 'asc' }));
+    expect(mockSetItem).toHaveBeenCalledWith(
+      'task_filters',
+      expect.stringContaining('"quickFilter":"today"')
+    );
+    expect(mockSetItem).toHaveBeenCalledWith(
+      'task_filters',
+      expect.stringContaining('"statusFilter":"active"')
+    );
   });
 });
