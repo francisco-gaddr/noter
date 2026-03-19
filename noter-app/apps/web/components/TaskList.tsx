@@ -164,6 +164,7 @@ const TaskItem: React.FC<TaskItemProps> = ({
                                 todayLabel: 'Idag',
                                 tomorrowLabel: 'Imorgon',
                                 yesterdayLabel: 'Igår',
+                                dayBeforeYesterdayLabel: 'I förrgår',
                                 timePrefix: 'kl',
                               });
                             })()}
@@ -219,38 +220,71 @@ export default function TaskList() {
     const lastSavedOrderKeyRef = useRef<string>('');
     const reorderPendingRef = useRef(false);
     const [listTitle, setListTitle] = useState('');
+    const [settingsLoaded, setSettingsLoaded] = useState(false);
 
-    // Load persisted settings
-    useEffect(() => {
-        if (typeof window !== 'undefined') {
-            const savedSort = localStorage.getItem('taskSortBy');
-            if (savedSort) setSortBy(savedSort as any);
-            
-            const savedView = localStorage.getItem('taskViewMode');
-            if (savedView) setViewMode(savedView as any);
+    const getPersistedSetting = useCallback(async (key: string): Promise<string | null> => {
+        if (typeof window === 'undefined') return null;
+        const fromLocal = localStorage.getItem(key);
+        if (fromLocal !== null) return fromLocal;
+        const mlc = (window as any).mlc;
+        if (mlc?.isElectron && typeof mlc.getSetting === 'function') {
+            try {
+                const value = await mlc.getSetting(key);
+                return typeof value === 'string' ? value : null;
+            } catch {
+                return null;
+            }
+        }
+        return null;
+    }, []);
 
-            const savedFilterRange = localStorage.getItem('taskFilterDateRange');
-            if (savedFilterRange) setFilterDateRange(JSON.parse(savedFilterRange));
-
-            const savedQuickFilter = localStorage.getItem('taskQuickFilter');
-            if (savedQuickFilter) setQuickFilter(savedQuickFilter);
-
-            const savedStatusFilter = localStorage.getItem('taskStatusFilter');
-            if (savedStatusFilter) setStatusFilter(savedStatusFilter as any);
+    const setPersistedSetting = useCallback((key: string, value: string | null) => {
+        if (typeof window === 'undefined') return;
+        const mlc = (window as any).mlc;
+        if (value === null) localStorage.removeItem(key);
+        else localStorage.setItem(key, value);
+        if (mlc?.isElectron && typeof mlc.setSetting === 'function') {
+            mlc.setSetting(key, value);
         }
     }, []);
 
+    // Load persisted settings
+    useEffect(() => {
+        let alive = true;
+        (async () => {
+            const savedSort = await getPersistedSetting('taskSortBy');
+            const savedView = await getPersistedSetting('taskViewMode');
+            const savedFilterRange = await getPersistedSetting('taskFilterDateRange');
+            const savedQuickFilter = await getPersistedSetting('taskQuickFilter');
+            const savedStatusFilter = await getPersistedSetting('taskStatusFilter');
+
+            if (!alive) return;
+            if (savedSort) setSortBy(savedSort as any);
+            if (savedView) setViewMode(savedView as any);
+            if (savedFilterRange) {
+                try {
+                    setFilterDateRange(JSON.parse(savedFilterRange));
+                } catch {}
+            }
+            if (savedQuickFilter) setQuickFilter(savedQuickFilter);
+            if (savedStatusFilter) setStatusFilter(savedStatusFilter as any);
+            setSettingsLoaded(true);
+        })();
+        return () => {
+            alive = false;
+        };
+    }, [getPersistedSetting]);
+
     // Save settings when changed
     useEffect(() => {
-        if (typeof window !== 'undefined') {
-            localStorage.setItem('taskSortBy', sortBy);
-            localStorage.setItem('taskViewMode', viewMode);
-            localStorage.setItem('taskFilterDateRange', JSON.stringify(filterDateRange));
-            localStorage.setItem('taskStatusFilter', statusFilter);
-            if (quickFilter) localStorage.setItem('taskQuickFilter', quickFilter);
-            else localStorage.removeItem('taskQuickFilter');
-        }
-    }, [sortBy, viewMode, filterDateRange, quickFilter, statusFilter]);
+        if (!settingsLoaded) return;
+        setPersistedSetting('taskSortBy', sortBy);
+        setPersistedSetting('taskViewMode', viewMode);
+        setPersistedSetting('taskFilterDateRange', JSON.stringify(filterDateRange));
+        setPersistedSetting('taskStatusFilter', statusFilter);
+        if (quickFilter) setPersistedSetting('taskQuickFilter', quickFilter);
+        else setPersistedSetting('taskQuickFilter', null);
+    }, [sortBy, viewMode, filterDateRange, quickFilter, statusFilter, settingsLoaded, setPersistedSetting]);
 
     const selectedList = useMemo(() => {
         if (!selectedTaskListId) return null;

@@ -131,14 +131,24 @@ const parseNoteLocked = (value: unknown): boolean => {
 const normalizeNoteType = (value: unknown): string => {
   if (typeof value !== 'string') return 'note';
   let normalized = value.trim().toLowerCase();
-  if ((normalized.startsWith('"') && normalized.endsWith('"')) || (normalized.startsWith("'") && normalized.endsWith("'")) || (normalized.startsWith('`') && normalized.endsWith('`'))) {
+  while (
+    normalized.length >= 2 &&
+    (
+      (normalized.startsWith('"') && normalized.endsWith('"')) ||
+      (normalized.startsWith("'") && normalized.endsWith("'")) ||
+      (normalized.startsWith('`') && normalized.endsWith('`'))
+    )
+  ) {
     normalized = normalized.slice(1, -1).trim();
   }
   normalized = normalized.replace(/\s+/g, '_');
-  if (normalized === 'task list') normalized = 'task_list';
+  normalized = normalized.replace(/-/g, '_');
+  if (normalized === 'projectfolder' || normalized === 'project_folder') return 'project';
+  if (normalized.includes('project') || normalized.includes('folder')) return 'project';
   if (normalized === 'folder') return 'project';
-  if (normalized === 'tasklist' || normalized === 'task-list') return 'task_list';
-  if (normalized === 'project' || normalized === 'task_list' || normalized === 'note') return normalized;
+  if (normalized === 'dir' || normalized === 'directory') return 'project';
+  if (normalized === 'tasklist' || normalized === 'task_list') return 'task_list';
+  if (normalized.includes('task') && normalized.includes('list')) return 'task_list';
   return normalized || 'note';
 };
 
@@ -149,6 +159,19 @@ const parseNoteDateValue = (value: unknown): string => {
   } catch {
     const parsed = new Date(value);
     return isNaN(parsed.getTime()) ? new Date().toISOString() : value;
+  }
+};
+
+const decryptOrRawString = (value: unknown): unknown => {
+  if (typeof value !== 'string') return value;
+  try {
+    const decrypted = decrypt(value);
+    if (typeof decrypted === 'string' && decrypted.length === 0 && value.trim().length > 0) {
+      return value;
+    }
+    return decrypted;
+  } catch {
+    return value;
   }
 };
 
@@ -270,8 +293,8 @@ const normalizeEncryptedNote = (note: Note): any => {
     tags: Array.isArray(rawTags) ? rawTags : [],
     icon: typeof rawIcon === 'string' ? rawIcon : undefined,
     iconColor: typeof rawIconColor === 'string' ? rawIconColor : undefined,
-    type: normalizeNoteType(note.type ? (() => { try { return decrypt(note.type) as any; } catch { return note.type; } })() : 'note'),
-    parentId: note.parentId ? (() => { try { return decrypt(note.parentId) } catch { return note.parentId } })() : null,
+    type: normalizeNoteType(note.type ? decryptOrRawString(note.type) : 'note'),
+    parentId: note.parentId ? (decryptOrRawString(note.parentId) as any) : null,
     locked: locked,
     order: parseNoteOrder((note as any).order),
     createdAt: parseNoteDateValue(note.createdAt),

@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import 'react-native-get-random-values';
 import * as Crypto from 'expo-crypto';
-import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, encrypt, decrypt } from '@repo/shared';
+import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, normalizeId } from '@repo/shared';
 import { fetchWithAuth, login as apiLogin, register as apiRegister, setAuthToken, initApiUrl, setUnauthorizedHandler } from '../services/api';
 import * as Database from '../services/database';
 import { initSocket, disconnectSocket, getSocket } from '../services/socket';
@@ -75,7 +75,11 @@ const processLocalNote = (note: Note): Note => ({
 const tryDecryptString = (value: unknown): any => {
   if (typeof value !== 'string') return value;
   try {
-    return decrypt(value);
+    const decrypted = decrypt(value);
+    if (typeof decrypted === 'string' && decrypted.length === 0 && value.trim().length > 0) {
+      return value;
+    }
+    return decrypted;
   } catch {
     return value;
   }
@@ -99,13 +103,24 @@ const parseNoteLocked = (value: unknown): boolean => {
 const normalizeNoteType = (value: unknown): string => {
   if (typeof value !== 'string') return 'note';
   let normalized = value.trim().toLowerCase();
-  if ((normalized.startsWith('"') && normalized.endsWith('"')) || (normalized.startsWith("'") && normalized.endsWith("'")) || (normalized.startsWith('`') && normalized.endsWith('`'))) {
+  while (
+    normalized.length >= 2 &&
+    (
+      (normalized.startsWith('"') && normalized.endsWith('"')) ||
+      (normalized.startsWith("'") && normalized.endsWith("'")) ||
+      (normalized.startsWith('`') && normalized.endsWith('`'))
+    )
+  ) {
     normalized = normalized.slice(1, -1).trim();
   }
   normalized = normalized.replace(/\s+/g, '_');
+  normalized = normalized.replace(/-/g, '_');
+  if (normalized === 'projectfolder' || normalized === 'project_folder') return 'project';
+  if (normalized.includes('project') || normalized.includes('folder')) return 'project';
   if (normalized === 'folder') return 'project';
-  if (normalized === 'tasklist' || normalized === 'task-list') return 'task_list';
-  if (normalized === 'project' || normalized === 'task_list' || normalized === 'note') return normalized;
+  if (normalized === 'dir' || normalized === 'directory') return 'project';
+  if (normalized === 'tasklist' || normalized === 'task_list') return 'task_list';
+  if (normalized.includes('task') && normalized.includes('list')) return 'task_list';
   return normalized || 'note';
 };
 
@@ -343,8 +358,9 @@ export const useStore = create<AppState>((set, get) => ({
   unlockedProtectedNoteIds: [],
 
   setActiveProject: (id) => {
-    set({ activeProjectId: id });
-    AsyncStorage.setItem('activeProjectId', id || '').catch(() => {});
+    const normalized = id ? normalizeId(id) : null;
+    set({ activeProjectId: normalized });
+    AsyncStorage.setItem('activeProjectId', normalized || '').catch(() => {});
   },
   setToken: (token) => {
     set({ token });
@@ -359,7 +375,10 @@ export const useStore = create<AppState>((set, get) => ({
         }
     }
   },
-  setViewMode: (mode) => set({ viewMode: mode }),
+  setViewMode: (mode) => {
+    set({ viewMode: mode });
+    AsyncStorage.setItem('viewMode', mode).catch(() => {});
+  },
   setSecurityLocked: async (locked) => {
     if (get().securityLocked === locked) return;
     if (locked) {
@@ -398,11 +417,15 @@ export const useStore = create<AppState>((set, get) => ({
     const storedToken = await SecureStore.getItemAsync('token');
     const storedNotifications = await AsyncStorage.getItem('notificationsEnabled');
     const storedActiveProjectId = await AsyncStorage.getItem('activeProjectId');
+    const storedViewMode = await AsyncStorage.getItem('viewMode');
     if (storedNotifications !== null) {
       set({ notificationsEnabled: storedNotifications === 'true' });
     }
     if (storedActiveProjectId && storedActiveProjectId !== 'null') {
-      set({ activeProjectId: storedActiveProjectId });
+      set({ activeProjectId: normalizeId(storedActiveProjectId) });
+    }
+    if (storedViewMode) {
+      set({ viewMode: storedViewMode as any });
     }
     if (storedToken) {
       setAuthToken(storedToken);

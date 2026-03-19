@@ -75,6 +75,14 @@ describe('Mobile Store', () => {
     expect(useStore.getState().activeProjectId).toBe('project-xyz');
   });
 
+  it('should normalize quoted active project selection', async () => {
+    const AsyncStorage = require('@react-native-async-storage/async-storage');
+    useStore.getState().setActiveProject('"project-quoted"');
+    await Promise.resolve();
+    expect(AsyncStorage.setItem).toHaveBeenCalledWith('activeProjectId', 'project-quoted');
+    expect(useStore.getState().activeProjectId).toBe('project-quoted');
+  });
+
   it('should unlock and load data on login when security lock is active', async () => {
     const { login, fetchWithAuth } = require('../services/api');
     const encryptedNow = encrypt(new Date().toISOString());

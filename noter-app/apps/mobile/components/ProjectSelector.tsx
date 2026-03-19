@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { Modal, Portal, Text, Button, IconButton, TextInput, Menu, useTheme, Divider, Dialog } from 'react-native-paper';
 import { useStore } from '@/stores/useStore';
-import { Note } from '@repo/shared';
+import { Note, normalizeId, normalizeNoteType } from '@repo/shared';
 import IconPickerModal from '@/components/IconPickerModal';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import { SvgUri } from 'react-native-svg';
@@ -16,28 +16,6 @@ interface ProjectSelectorProps {
   onSelect?: (projectId: string | null) => void;
   selectedProjectId?: string | null;
 }
-
-const normalizeNoteType = (value: unknown): string => {
-  if (typeof value !== 'string') return 'note';
-  let normalized = value.trim().toLowerCase();
-  while (
-    normalized.length >= 2 &&
-    (
-      (normalized.startsWith('"') && normalized.endsWith('"')) ||
-      (normalized.startsWith("'") && normalized.endsWith("'")) ||
-      (normalized.startsWith('`') && normalized.endsWith('`'))
-    )
-  ) {
-    normalized = normalized.slice(1, -1).trim();
-  }
-  normalized = normalized.replace(/\s+/g, '_').replace(/-/g, '_');
-  if (normalized === 'projectfolder' || normalized === 'project_folder') return 'project';
-  if (normalized.includes('project') || normalized.includes('folder')) return 'project';
-  if (normalized === 'folder') return 'project';
-  if (normalized === 'tasklist' || normalized === 'task-list' || normalized === 'task_list') return 'task_list';
-  if (normalized.includes('task') && normalized.includes('list')) return 'task_list';
-  return normalized || 'note';
-};
 
 const styles = StyleSheet.create({
   modal: {
@@ -174,6 +152,7 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
   const [lockDialogVisible, setLockDialogVisible] = useState(false);
   const [unlockDialogVisible, setUnlockDialogVisible] = useState(false);
   const [projectPassword, setProjectPassword] = useState('');
+  const [unlockError, setUnlockError] = useState('');
   const [pendingSelectProjectId, setPendingSelectProjectId] = useState<string | null>(null);
   const unlockPasswordRef = useRef<any>(null);
   
@@ -212,21 +191,27 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
     return () => clearTimeout(timer);
   }, [unlockDialogVisible]);
 
-  const currentSelected = selectedProjectId !== undefined ? selectedProjectId : activeProjectId;
+  const currentSelected = useMemo(() => {
+    const raw = selectedProjectId !== undefined ? selectedProjectId : activeProjectId;
+    return raw ? normalizeId(raw) : null;
+  }, [selectedProjectId, activeProjectId]);
 
   const handleSelect = (id: string | null) => {
+    const normalizedId = id ? normalizeId(id) : null;
     if (id) {
-      const selected = projects.find((project) => project._id === id);
+      const selected = projects.find((project) => normalizeId(project._id) === normalizedId);
       if (selected?.locked) {
-        setPendingSelectProjectId(id);
+        setPendingSelectProjectId(normalizedId);
+        setUnlockError('');
+        setProjectPassword('');
         setUnlockDialogVisible(true);
         return;
       }
     }
     if (onSelect) {
-        onSelect(id);
+        onSelect(normalizedId);
     } else {
-        setActiveProject(id);
+        setActiveProject(normalizedId);
     }
     onDismiss();
   };
@@ -292,17 +277,22 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
   const handleUnlockProject = async () => {
     const targetId = pendingSelectProjectId || selectedProjectForMenu?._id || null;
     if (!targetId || !projectPassword) return;
-    await verifyNoteLock(targetId, projectPassword);
-    setProjectPassword('');
-    setUnlockDialogVisible(false);
-    if (pendingSelectProjectId) {
-      if (onSelect) onSelect(pendingSelectProjectId);
-      else setActiveProject(pendingSelectProjectId);
-      onDismiss();
-      setPendingSelectProjectId(null);
+    try {
+      await verifyNoteLock(targetId, projectPassword);
+      setProjectPassword('');
+      setUnlockError('');
+      setUnlockDialogVisible(false);
+      if (pendingSelectProjectId) {
+        if (onSelect) onSelect(pendingSelectProjectId);
+        else setActiveProject(pendingSelectProjectId);
+        onDismiss();
+        setPendingSelectProjectId(null);
+      }
+      setMenuVisible(false);
+      setSelectedProjectForMenu(null);
+    } catch (e) {
+      setUnlockError(isSwedish ? 'Fel lösenord, försök igen.' : 'Incorrect password, try again.');
     }
-    setMenuVisible(false);
-    setSelectedProjectForMenu(null);
   };
 
   const openMenu = (event: any, project: Note) => {
@@ -361,7 +351,7 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
                 data={projects}
                 keyExtractor={(item) => item._id}
                 style={{ maxHeight: 260 }}
-                containerStyle={{ paddingBottom: 130 }}
+                contentContainerStyle={{ paddingBottom: 48 }}
                 activationDistance={8}
                 onDragEnd={({ data }) => handleReorder(data as Note[])}
                 renderItem={({ item, drag, isActive }: RenderItemParams<Note>) => (
@@ -452,6 +442,7 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
             <Menu.Item 
                 onPress={() => {
                     setProjectPassword('');
+                    setUnlockError('');
                     if (selectedProjectForMenu?.locked) {
                         setUnlockDialogVisible(true);
                     } else {
@@ -495,15 +486,25 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
               label="Password"
               secureTextEntry
               value={projectPassword}
-              onChangeText={setProjectPassword}
+              onChangeText={(text) => {
+                setProjectPassword(text);
+                if (unlockError) setUnlockError('');
+              }}
               autoFocus
               testID="unlock-project-password-input"
             />
+            {unlockError ? (
+              <Text style={{ color: theme.colors.error, marginTop: 8 }}>
+                {unlockError}
+              </Text>
+            ) : null}
           </Dialog.Content>
           <Dialog.Actions>
             <Button onPress={() => {
               setUnlockDialogVisible(false);
               setPendingSelectProjectId(null);
+              setUnlockError('');
+              setProjectPassword('');
             }}>Cancel</Button>
             <Button mode="contained" onPress={handleUnlockProject} disabled={!projectPassword}>Unlock</Button>
           </Dialog.Actions>

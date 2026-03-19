@@ -9,48 +9,8 @@ import ProjectSelector from '@/components/ProjectSelector';
 import IconPickerModal from '@/components/IconPickerModal';
 import { SvgUri } from 'react-native-svg';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
-import { Note } from '@repo/shared';
+import { Note, normalizeNoteType, normalizeId } from '@repo/shared';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
-const normalizeNoteType = (value: unknown): string => {
-  if (typeof value !== 'string') return 'note';
-  let normalized = value.trim().toLowerCase();
-  while (
-    normalized.length >= 2 &&
-    (
-      (normalized.startsWith('"') && normalized.endsWith('"')) ||
-      (normalized.startsWith("'") && normalized.endsWith("'")) ||
-      (normalized.startsWith('`') && normalized.endsWith('`'))
-    )
-  ) {
-    normalized = normalized.slice(1, -1).trim();
-  }
-  normalized = normalized.replace(/\s+/g, '_');
-  normalized = normalized.replace(/-/g, '_');
-  if (normalized === 'projectfolder' || normalized === 'project_folder') return 'project';
-  if (normalized.includes('project') || normalized.includes('folder')) return 'project';
-  if (normalized === 'folder') return 'project';
-  if (normalized === 'tasklist' || normalized === 'task-list' || normalized === 'task_list') return 'task_list';
-  if (normalized.includes('task') && normalized.includes('list')) return 'task_list';
-  return normalized || 'note';
-};
-
-const normalizeId = (value: unknown): string | null => {
-  if (typeof value !== 'string') return null;
-  let normalized = value.trim();
-  if (!normalized) return null;
-  while (
-    normalized.length >= 2 &&
-    (
-      (normalized.startsWith('"') && normalized.endsWith('"')) ||
-      (normalized.startsWith("'") && normalized.endsWith("'")) ||
-      (normalized.startsWith('`') && normalized.endsWith('`'))
-    )
-  ) {
-    normalized = normalized.slice(1, -1).trim();
-  }
-  return normalized || null;
-};
 
 const NOTES_SORT_KEY = 'notes_sort_settings';
 
@@ -94,10 +54,14 @@ export default function NotesScreen() {
   const [iconPickerVisible, setIconPickerVisible] = useState(false);
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const [sortBy, setSortBy] = useState<'createdAt' | 'title' | 'updatedAt' | 'custom'>('createdAt');
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
 
-  const activeProject = useMemo(() => 
-    activeProjectId ? notes.find(n => n._id === activeProjectId) : null
-  , [activeProjectId, notes]);
+  const activeProject = useMemo(() => {
+    if (!activeProjectId) return null;
+    const normalizedActive = normalizeId(activeProjectId);
+    if (!normalizedActive) return null;
+    return notes.find((n) => normalizeId(n._id) === normalizedActive) || null;
+  }, [activeProjectId, notes]);
 
   const handleIconSelect = async (icon: string) => {
     if (activeProjectId) {
@@ -121,17 +85,24 @@ export default function NotesScreen() {
   useEffect(() => {
     AsyncStorage.getItem(NOTES_SORT_KEY)
       .then((saved) => {
-        if (!saved) return;
+        if (!saved) {
+            setSettingsLoaded(true);
+            return;
+        }
         const parsed = JSON.parse(saved);
         if (parsed?.sortBy) setSortBy(parsed.sortBy);
         if (parsed?.sortOrder) setSortOrder(parsed.sortOrder);
+        setSettingsLoaded(true);
       })
-      .catch(() => {});
+      .catch(() => {
+          setSettingsLoaded(true);
+      });
   }, []);
 
   useEffect(() => {
+    if (!settingsLoaded) return;
     AsyncStorage.setItem(NOTES_SORT_KEY, JSON.stringify({ sortBy, sortOrder })).catch(() => {});
-  }, [sortBy, sortOrder]);
+  }, [sortBy, sortOrder, settingsLoaded]);
 
   const getNextViewMode = () => {
     return viewMode === 'list' ? 'tree' : 'list';
@@ -239,33 +210,27 @@ export default function NotesScreen() {
     });
 
     if (activeProjectId) {
-      const byParent = new Map<string, Note[]>();
       const normalizedActiveProjectId = normalizeId(activeProjectId);
       if (!normalizedActiveProjectId) return filtered;
-      for (const n of notes) {
-        const normalizedParentId = normalizeId(n.parentId);
-        if (!normalizedParentId) continue;
-        const arr = byParent.get(normalizedParentId);
-        if (arr) arr.push(n);
-        else byParent.set(normalizedParentId, [n]);
+
+      const noteById = new Map<string, Note>();
+      for (const note of notes) {
+        const noteId = normalizeId(note._id);
+        if (!noteId) continue;
+        noteById.set(noteId, note);
       }
 
-      const included = new Set<string>();
-      const queue: string[] = [normalizedActiveProjectId];
-      while (queue.length > 0) {
-        const current = queue.shift()!;
-        const children = byParent.get(current) ?? [];
-        for (const child of children) {
-          const normalizedChildId = normalizeId(child._id);
-          if (!normalizedChildId || included.has(normalizedChildId)) continue;
-          included.add(normalizedChildId);
-          queue.push(normalizedChildId);
+      filtered = filtered.filter((note) => {
+        let parentId = normalizeId(note.parentId);
+        let guard = 0;
+        while (parentId && guard < 200) {
+          if (parentId === normalizedActiveProjectId) return true;
+          const parent = noteById.get(parentId);
+          if (!parent) return false;
+          parentId = normalizeId(parent.parentId);
+          guard += 1;
         }
-      }
-
-      filtered = filtered.filter((n) => {
-        const normalizedId = normalizeId(n._id);
-        return normalizedId ? included.has(normalizedId) : false;
+        return false;
       });
     }
 

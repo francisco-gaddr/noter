@@ -68,4 +68,26 @@ describe('Noter App E2E', () => {
     cy.contains('Test task').click();
     cy.get('[role="dialog"]').should('be.visible');
   });
+
+  it('persists task filters and sort after reload', () => {
+    cy.contains(/Tasks|Uppgifter/).click();
+
+    cy.get('button[title="Filter"], button[title="Filtrera"]').first().click();
+    cy.contains('button', /Today|Idag/).click();
+
+    cy.get('select[aria-label="Sort"], select[aria-label="Sortering"], select[aria-label="Sortera"]').first().select('dueDate');
+
+    cy.window().then((win) => {
+      expect(win.localStorage.getItem('taskQuickFilter')).to.eq('today');
+      expect(win.localStorage.getItem('taskSortBy')).to.eq('dueDate');
+    });
+
+    cy.reload();
+    cy.contains(/Tasks|Uppgifter/).click();
+
+    cy.window().then((win) => {
+      expect(win.localStorage.getItem('taskQuickFilter')).to.eq('today');
+      expect(win.localStorage.getItem('taskSortBy')).to.eq('dueDate');
+    });
+  });
 });

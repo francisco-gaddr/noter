@@ -180,4 +180,27 @@ describe('Web Store', () => {
       expect(api.createNote).toHaveBeenCalledWith(expect.objectContaining({ title: 'New Note' }));
   });
 
+  it('should keep plain project type when decryption returns empty', async () => {
+    const { api } = require('../services/api');
+    api.fetchNotes.mockResolvedValueOnce([
+      {
+        _id: 'p1',
+        title: 'Projekt',
+        content: '',
+        type: 'project-folder',
+        parentId: null,
+        locked: 'false',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ]);
+
+    await act(async () => {
+      await useStore.getState().fetchNotes();
+    });
+
+    const state = useStore.getState();
+    expect(state.notes[0]?.type).toBe('project');
+  });
+
 });
