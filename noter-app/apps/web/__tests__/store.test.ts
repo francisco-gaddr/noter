@@ -78,7 +78,7 @@ describe('Web Store', () => {
   it('should init socket on hydrate when token exists', () => {
     const { connectSocket } = require('../services/socket');
     localStorage.setItem('user', JSON.stringify({ _id: '1', username: 'test' }));
-    localStorage.setItem('token', 'abc');
+    sessionStorage.setItem('token', 'abc');
 
     act(() => {
       useStore.getState().hydrate();
@@ -109,7 +109,7 @@ describe('Web Store', () => {
   it('should restore active project selection from localStorage on hydrate', () => {
     localStorage.setItem('activeProjectId', 'project-abc');
     localStorage.setItem('user', JSON.stringify({ _id: '1', username: 'test' }));
-    localStorage.setItem('token', 'abc');
+    sessionStorage.setItem('token', 'abc');
 
     act(() => {
       useStore.getState().hydrate();
@@ -121,7 +121,7 @@ describe('Web Store', () => {
   it('should restore sort order from localStorage on hydrate', () => {
     localStorage.setItem('sortOrder', 'title-desc');
     localStorage.setItem('user', JSON.stringify({ _id: '1', username: 'test' }));
-    localStorage.setItem('token', 'abc');
+    sessionStorage.setItem('token', 'abc');
 
     act(() => {
       useStore.getState().hydrate();
@@ -132,7 +132,7 @@ describe('Web Store', () => {
 
   it('should ignore stale isAppLocked flag on hydrate when no app lock password is configured', () => {
     localStorage.setItem('user', JSON.stringify({ _id: '1', username: 'test' }));
-    localStorage.setItem('token', 'abc');
+    sessionStorage.setItem('token', 'abc');
     localStorage.setItem('isAppLocked', 'true');
     localStorage.removeItem('appLockPasswordHash');
 

@@ -16,6 +16,8 @@ import { ApiProviderType, generateApiProviderResponse } from '../services/ai/api
 import { pullAiSync, pushAiSync } from '../services/ai/sync';
 import { connectSocket, socket } from '../services/socket';
 import { buildSecurityNoteMap, isReadableWithLocks } from '../services/ai/security';
+import i18n from '../app/i18n';
+import { getWebAuthTokenSync } from '../services/authStorage';
 
 type LocalConversation = Conversation & { localOnly?: boolean; userId?: string };
 type LocalAIProject = AIProject & { localOnly?: boolean; userId?: string };
@@ -1654,23 +1656,14 @@ export const AISidebar = () => {
   };
 
   const resolveAuthToken = async () => {
-    // 1. Try Zustand store state directly to avoid closure staleness
     const stateToken = useStore.getState().token;
     if (stateToken) return stateToken;
-    
-    // 2. Try localStorage/sessionStorage
-    if (typeof window !== 'undefined') {
-        const local = localStorage.getItem('token') || localStorage.getItem('auth_token') || sessionStorage.getItem('token') || sessionStorage.getItem('auth_token');
-        if (local) return local;
-    }
-
-    // 3. Try Electron settings (async) via bridge
+    const inMemory = getWebAuthTokenSync();
+    if (inMemory) return inMemory;
     if (isElectron && (window as any).mlc?.getSetting) {
         const stored = await (window as any).mlc.getSetting('token');
         if (stored) return stored;
     }
-    
-    // 4. Try legacy setting
     const legacy = await getStoredValue('auth_token');
     return legacy || '';
   };
@@ -3585,7 +3578,7 @@ export const AISidebar = () => {
                     disabled={lmLoading}
                     data-testid="lmstudio-refresh-models"
                   >
-                    {lmLoading ? 'Laddar...' : 'Hämta modeller'}
+                    {lmLoading ? i18n.t('common.loading') : i18n.t('common.fetchModels')}
                   </button>
                   {lmError && <div className="text-xs text-red-500">{lmError}</div>}
                 </div>
@@ -3758,7 +3751,7 @@ export const AISidebar = () => {
                       disabled={mcpDashboardLoading}
                       data-testid="mcp-dashboard-refresh"
                     >
-                      {mcpDashboardLoading ? 'Laddar...' : 'Uppdatera'}
+                      {mcpDashboardLoading ? i18n.t('common.loading') : i18n.t('common.refresh')}
                     </button>
                     {mcpDashboardError ? <div className="text-xs text-red-500">{mcpDashboardError}</div> : null}
                   </div>
@@ -3880,7 +3873,7 @@ export const AISidebar = () => {
                         <input type="datetime-local" value={systemDashboardTo} onChange={(e) => setSystemDashboardTo(e.target.value)} className="w-full border rounded p-1.5 text-xs dark:bg-gray-900" />
                       </label>
                       <button className="text-xs px-2 py-1.5 rounded border bg-white hover:bg-gray-50 dark:bg-slate-900 dark:hover:bg-slate-800" onClick={async () => { await Promise.all([loadSystemDashboard(), loadLocalDbSnapshot()]); }} disabled={systemDashboardLoading} data-testid="system-dashboard-refresh">
-                        {systemDashboardLoading ? 'Laddar...' : 'Uppdatera'}
+                        {systemDashboardLoading ? i18n.t('common.loading') : i18n.t('common.refresh')}
                       </button>
                       <div className="flex gap-1">
                         <button className="text-xs px-2 py-1.5 rounded border bg-white hover:bg-gray-50 dark:bg-slate-900 dark:hover:bg-slate-800" onClick={exportSystemDashboardJson}>Export JSON</button>
@@ -4286,7 +4279,7 @@ export const AISidebar = () => {
                 <label className="text-xs"><span className="block mb-1">Sortering</span><select value={systemDashboardSort} onChange={(e) => setSystemDashboardSort(e.target.value as any)} className="w-full border rounded p-1.5 text-xs dark:bg-gray-900"><option value="desc">Senaste först</option><option value="asc">Äldsta först</option></select></label>
                 <label className="text-xs"><span className="block mb-1">Service</span><select value={systemDashboardServiceFilter} onChange={(e) => setSystemDashboardServiceFilter(e.target.value)} className="w-full border rounded p-1.5 text-xs dark:bg-gray-900">{(Array.isArray(systemDashboardData?.availableFilters?.services) ? systemDashboardData.availableFilters.services : ['all']).map((service: string) => <option key={service} value={service}>{service}</option>)}</select></label>
                 <label className="text-xs"><span className="block mb-1">Action</span><select value={systemDashboardActionFilter} onChange={(e) => setSystemDashboardActionFilter(e.target.value)} className="w-full border rounded p-1.5 text-xs dark:bg-gray-900">{(Array.isArray(systemDashboardData?.availableFilters?.actions) ? systemDashboardData.availableFilters.actions : ['all']).map((action: string) => <option key={action} value={action}>{action}</option>)}</select></label>
-                <button className="text-xs px-2 py-1.5 rounded border bg-white dark:bg-slate-900" onClick={async () => { await Promise.all([loadSystemDashboard(), loadLocalDbSnapshot()]); }} disabled={systemDashboardLoading} data-testid="system-dashboard-refresh">{systemDashboardLoading ? 'Laddar...' : 'Uppdatera'}</button>
+                <button className="text-xs px-2 py-1.5 rounded border bg-white dark:bg-slate-900" onClick={async () => { await Promise.all([loadSystemDashboard(), loadLocalDbSnapshot()]); }} disabled={systemDashboardLoading} data-testid="system-dashboard-refresh">{systemDashboardLoading ? i18n.t('common.loading') : i18n.t('common.refresh')}</button>
               </div>
               {systemDashboardError ? <div className="text-xs text-red-500 p-2 rounded border border-red-300 bg-red-50 dark:bg-red-950/30">{systemDashboardError}</div> : null}
               <div className="flex flex-wrap gap-2">

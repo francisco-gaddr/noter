@@ -7,6 +7,8 @@ import deepmerge from 'deepmerge';
 import { uniqBy } from 'lodash';
 import CryptoJS from 'crypto-js';
 import { buildSecurityNoteMap, findBlockingLockedAncestor } from '../services/ai/security';
+import i18n from '../app/i18n';
+import { getWebAuthTokenSync, setWebAuthToken } from '../services/authStorage';
 
 let networkListenersReady = false;
 
@@ -314,19 +316,19 @@ const materializeNotesFromEncrypted = (notes: Note[], unlockedIds: Set<string>):
     const blocking = findBlockingLockedAncestor(note, noteMap as any, unlockedIds);
     if (blocking) {
       const isDirectlyLockedProject = blocking._id === note._id && note.type === 'project';
-      let projectTitle = note.title;
+      let projectIcon: string | undefined = undefined;
+      let projectIconColor: string | undefined = undefined;
       if (isDirectlyLockedProject) {
-        try {
-          projectTitle = decrypt(note.__rawEncryptedTitle || note.title);
-        } catch {}
+        projectIcon = note.__rawEncryptedIcon ? (() => { try { return decrypt(note.__rawEncryptedIcon) } catch { return note.__rawEncryptedIcon } })() : undefined;
+        projectIconColor = note.__rawEncryptedIconColor ? (() => { try { return decrypt(note.__rawEncryptedIconColor) } catch { return note.__rawEncryptedIconColor } })() : undefined;
       }
       return {
         ...note,
-        title: isDirectlyLockedProject ? projectTitle : 'Låst anteckning',
+        title: isDirectlyLockedProject ? i18n.t('project.locked') : i18n.t('note.locked'),
         content: '',
         tags: [],
-        icon: undefined,
-        iconColor: undefined,
+        icon: isDirectlyLockedProject ? projectIcon : undefined,
+        iconColor: isDirectlyLockedProject ? projectIconColor : undefined,
         locked: true,
       };
     }
@@ -438,7 +440,7 @@ export const useStore = create<StoreState>((set, get) => ({
     if (typeof window === 'undefined') return;
     try {
         const user = JSON.parse(localStorage.getItem('user') || 'null');
-        const token = localStorage.getItem('token');
+        const token = getWebAuthTokenSync();
         const language = (localStorage.getItem('language') as 'sv' | 'en') || 'sv';
         const activeTab = (localStorage.getItem('activeTab') as any) || 'notes';
         const savedSortOrder = (localStorage.getItem('sortOrder') as SortOrder) || 'date-desc';
@@ -475,9 +477,7 @@ export const useStore = create<StoreState>((set, get) => ({
                     hasStoredApiUrl: Boolean(storedApiUrl),
                     hasStoredBackendUrl: Boolean(storedBackendUrl),
                 });
-                if (storedToken && !token) {
-                    localStorage.setItem('token', String(storedToken));
-                }
+                if (storedToken && !token) setWebAuthToken(String(storedToken));
                 if (storedUser && !user) {
                     const normalizedUser = typeof storedUser === 'string' ? JSON.parse(storedUser) : storedUser;
                     localStorage.setItem('user', JSON.stringify(normalizedUser));
@@ -534,7 +534,7 @@ export const useStore = create<StoreState>((set, get) => ({
   login: async (username, password) => {
     try {
         const { user, token } = await api.login(username, password);
-        localStorage.setItem('token', token);
+        setWebAuthToken(token);
         localStorage.setItem('user', JSON.stringify(user));
         localStorage.removeItem('isAppLocked');
         set({ user, token, isAppLocked: false });
@@ -555,7 +555,7 @@ export const useStore = create<StoreState>((set, get) => ({
   register: async (username, password) => {
     try {
         const { user, token } = await api.register(username, password);
-        localStorage.setItem('token', token);
+        setWebAuthToken(token);
         localStorage.setItem('user', JSON.stringify(user));
         localStorage.removeItem('isAppLocked');
         set({ user, token, isAppLocked: false });
@@ -574,7 +574,7 @@ export const useStore = create<StoreState>((set, get) => ({
   },
 
   logout: () => {
-    localStorage.removeItem('token');
+    setWebAuthToken(null);
     localStorage.removeItem('user');
     setApiToken(null);
     setSocketToken(null);
@@ -1301,7 +1301,7 @@ export const useStore = create<StoreState>((set, get) => ({
             stateUpdates.__rawEncryptedIcon = currentBeforeLock.__rawEncryptedIcon || (currentBeforeLock.icon ? encrypt(currentBeforeLock.icon) : undefined);
             stateUpdates.__rawEncryptedIconColor = currentBeforeLock.__rawEncryptedIconColor || (currentBeforeLock.iconColor ? encrypt(currentBeforeLock.iconColor) : undefined);
         }
-        stateUpdates.title = 'Låst anteckning';
+        stateUpdates.title = i18n.t('note.locked');
         stateUpdates.content = '';
         set((state) => ({ unlockedProtectedNoteIds: state.unlockedProtectedNoteIds.filter((item) => item !== id) }));
     }

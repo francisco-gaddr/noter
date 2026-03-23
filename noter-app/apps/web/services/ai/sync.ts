@@ -1,6 +1,7 @@
 import { AIProject, ChatMessage, Conversation } from '@repo/ai';
 import { decrypt, encrypt } from '@repo/shared';
 import { getApiBaseUrl } from '../api';
+import { getWebAuthTokenSync } from '../authStorage';
 
 type LocalConversation = Conversation & { localOnly?: boolean };
 type LocalAIProject = AIProject & { localOnly?: boolean };
@@ -16,7 +17,7 @@ let lastPullAt = 0;
 let lastPullResult: PullAiSyncResult | null = null;
 
 const getHeaders = () => {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+  const token = getWebAuthTokenSync();
   return {
     'Content-Type': 'application/json',
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
