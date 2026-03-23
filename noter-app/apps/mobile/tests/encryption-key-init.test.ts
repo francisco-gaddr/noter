@@ -1,10 +1,14 @@
 const mockGet = jest.fn();
 const mockSet = jest.fn();
 const mockSetEncryptionKey = jest.fn();
+const mockGetRandomBytesAsync = jest.fn();
 
 jest.mock('expo-secure-store', () => ({
   getItemAsync: (...args: any[]) => mockGet(...args),
   setItemAsync: (...args: any[]) => mockSet(...args),
+}));
+jest.mock('expo-crypto', () => ({
+  getRandomBytesAsync: (...args: any[]) => mockGetRandomBytesAsync(...args),
 }));
 
 jest.mock('@repo/shared', () => ({
@@ -17,6 +21,8 @@ describe('initLocalEncryptionKey', () => {
     mockGet.mockReset();
     mockSet.mockReset();
     mockSetEncryptionKey.mockReset();
+    mockGetRandomBytesAsync.mockReset();
+    mockGetRandomBytesAsync.mockResolvedValue(new Uint8Array(32).fill(1));
   });
 
   it('creates and stores key when missing', async () => {
@@ -29,11 +35,22 @@ describe('initLocalEncryptionKey', () => {
     expect(mockSetEncryptionKey).toHaveBeenCalledWith(key);
   });
 
-  it('reuses stored key when present', async () => {
+  it('rotates invalid stored key', async () => {
     mockGet.mockResolvedValue('stored-key');
     const { initLocalEncryptionKey } = require('../services/encryptionKey');
     const key = await initLocalEncryptionKey();
-    expect(key).toBe('stored-key');
-    expect(mockSetEncryptionKey).toHaveBeenCalledWith('stored-key');
+    expect(key).not.toBe('stored-key');
+    expect(key.length).toBe(64);
+    expect(mockSet).toHaveBeenCalled();
+    expect(mockSetEncryptionKey).toHaveBeenCalledWith(key);
+  });
+
+  it('reuses stored key when present', async () => {
+    const storedKey = 'c'.repeat(64);
+    mockGet.mockResolvedValue(storedKey);
+    const { initLocalEncryptionKey } = require('../services/encryptionKey');
+    const key = await initLocalEncryptionKey();
+    expect(key).toBe(storedKey);
+    expect(mockSetEncryptionKey).toHaveBeenCalledWith(storedKey);
   });
 });
