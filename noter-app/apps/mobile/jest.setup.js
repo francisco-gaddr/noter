@@ -24,6 +24,10 @@ global.structuredClone = (val) => JSON.parse(JSON.stringify(val));
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock')
 );
+jest.mock('@react-native-community/netinfo', () => ({
+  fetch: jest.fn(async () => ({ isConnected: true })),
+  addEventListener: jest.fn(() => jest.fn()),
+}));
 
 jest.mock('expo-notifications', () => ({
   getPermissionsAsync: jest.fn(),
@@ -33,4 +37,19 @@ jest.mock('expo-notifications', () => ({
   addNotificationReceivedListener: jest.fn(),
   addNotificationResponseReceivedListener: jest.fn(),
   removeNotificationSubscription: jest.fn(),
+}));
+
+jest.mock('expo-secure-store', () => ({
+  getItemAsync: jest.fn(async () => null),
+  setItemAsync: jest.fn(async () => true),
+  deleteItemAsync: jest.fn(async () => true),
+}));
+
+jest.mock('expo-localization', () => ({
+  getLocales: jest.fn(() => [{ languageCode: 'sv', regionCode: 'SE', languageTag: 'sv-SE' }]),
+}));
+
+jest.mock('expo-clipboard', () => ({
+  getStringAsync: jest.fn(async () => ''),
+  setStringAsync: jest.fn(async () => true),
 }));

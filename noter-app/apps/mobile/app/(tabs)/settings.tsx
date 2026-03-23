@@ -28,7 +28,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
   const [language, setLanguage] = useState<'sv' | 'en'>('sv');
-  const [lockTiming, setLockTiming] = useState<'immediate' | '5min' | '15min' | '30min' | '1h' | '3h'>('immediate');
+  const [lockTiming, setLockTiming] = useState<'immediate' | '5min' | '15min' | '30min' | '1h' | '3h' | '5h' | '8h'>('immediate');
   const [lockTimingDialogVisible, setLockTimingDialogVisible] = useState(false);
   
   // Backend URL state
@@ -38,6 +38,7 @@ export default function SettingsScreen() {
   const [clearDialogVisible, setClearDialogVisible] = useState(false);
   const [confirmClearVisible, setConfirmClearVisible] = useState(false);
   const [clearingLocalData, setClearingLocalData] = useState(false);
+  const [pressedItem, setPressedItem] = useState<string | null>(null);
   const [clearSelection, setClearSelection] = useState({
     all: false,
     notes: false,
@@ -74,7 +75,9 @@ export default function SettingsScreen() {
         savedLockTiming === '15min' ||
         savedLockTiming === '30min' ||
         savedLockTiming === '1h' ||
-        savedLockTiming === '3h'
+        savedLockTiming === '3h' ||
+        savedLockTiming === '5h' ||
+        savedLockTiming === '8h'
       ) {
         setLockTiming(savedLockTiming);
       }
@@ -100,6 +103,8 @@ export default function SettingsScreen() {
     if (v === '15min') return t('settings.lock15min', 'Efter 15 min');
     if (v === '30min') return t('settings.lock30min', 'Efter 30 min');
     if (v === '3h') return t('settings.lock3h', 'Efter 3 h');
+    if (v === '5h') return t('settings.lock5h', 'Efter 5 h');
+    if (v === '8h') return t('settings.lock8h', 'Efter 8 h');
     return t('settings.lock1h', 'Efter 1 h');
   };
 
@@ -228,10 +233,17 @@ export default function SettingsScreen() {
     }, 0);
   };
 
+  const pressedStyle = (key: string) => (
+    pressedItem === key
+      ? { backgroundColor: paperTheme.colors.secondaryContainer }
+      : undefined
+  );
+
   return (
     <ScrollView style={[styles.container, { backgroundColor: paperTheme.colors.background }]}>
       <List.Section title={t('common.appearance')}>
         <List.Item
+          style={pressedStyle('appearance-theme')}
           title={t('common.theme')}
           description={`${t('settings.currentTheme', 'Current')}: ${theme.charAt(0).toUpperCase() + theme.slice(1)}`}
           left={props => <List.Icon {...props} icon="theme-light-dark" />}
@@ -244,6 +256,8 @@ export default function SettingsScreen() {
              </View>
           )}
           onPress={cycleTheme}
+          onPressIn={() => setPressedItem('appearance-theme')}
+          onPressOut={() => setPressedItem(null)}
           rippleColor={touchRippleColor}
         />
         <View style={styles.hint}>
@@ -257,8 +271,9 @@ export default function SettingsScreen() {
 
       <List.Section title={t('common.language')}>
         <List.Item
+          style={pressedStyle('language-toggle')}
           title={t('common.language')}
-          description={language === 'sv' ? 'Svenska' : 'English'}
+          description={language === 'sv' ? t('common.languageSv') : t('common.languageEn')}
           left={props => <List.Icon {...props} icon="translate" />}
           right={() => (
             <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 10 }}>
@@ -269,6 +284,8 @@ export default function SettingsScreen() {
             </View>
           )}
           onPress={() => saveLanguage(language === 'sv' ? 'en' : 'sv')}
+          onPressIn={() => setPressedItem('language-toggle')}
+          onPressOut={() => setPressedItem(null)}
           rippleColor={touchRippleColor}
         />
         <View style={styles.hint}>
@@ -282,10 +299,13 @@ export default function SettingsScreen() {
 
       <List.Section title={t('common.security')}>
         <List.Item
+          style={pressedStyle('security-autolock')}
           title={t('settings.autoLock')}
           description={`${t('settings.lock', 'Lås')}: ${lockTimingLabel(lockTiming)}`}
           left={props => <List.Icon {...props} icon="lock" />}
           onPress={() => setLockTimingDialogVisible(true)}
+          onPressIn={() => setPressedItem('security-autolock')}
+          onPressOut={() => setPressedItem(null)}
           rippleColor={touchRippleColor}
         />
         <View style={styles.hint}>
@@ -299,6 +319,7 @@ export default function SettingsScreen() {
 
       <List.Section title={t('common.notifications')}>
         <List.Item
+          style={pressedStyle('notifications-toggle')}
           title={t('settings.pushNotifications')}
           description={notificationsEnabled ? t('common.on', 'På') : t('common.off', 'Av')}
           left={props => <List.Icon {...props} icon="bell" />}
@@ -310,11 +331,13 @@ export default function SettingsScreen() {
               />
             </View>
           )}
+          onPressIn={() => setPressedItem('notifications-toggle')}
+          onPressOut={() => setPressedItem(null)}
           rippleColor={touchRippleColor}
         />
         <View style={styles.hint}>
            <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
-             {t('settings.notificationsHint', 'Slå på för att få påminnelser om tasks')}
+             {t('settings.notificationsHint', 'Slå på för att få påminnelser om uppgifter')}
            </Text>
         </View>
       </List.Section>
@@ -323,19 +346,25 @@ export default function SettingsScreen() {
 
       <List.Section title={t('common.developer')}>
         <List.Item
+          style={pressedStyle('developer-backend')}
           title={t('settings.backendUrl')}
           description={backendUrl}
           left={props => <List.Icon {...props} icon="server" />}
           onPress={() => {
             setBackendUrlDialogVisible(true);
           }}
+          onPressIn={() => setPressedItem('developer-backend')}
+          onPressOut={() => setPressedItem(null)}
           rippleColor={touchRippleColor}
         />
         <List.Item
+          style={pressedStyle('developer-resync')}
           title={t('settings.resync', 'Synka om')}
           description={t('settings.resyncHint', 'Tvinga ny hämtning av anteckningar, projekt och tasks från backend')}
           left={props => <List.Icon {...props} icon="sync" />}
           onPress={handleResync}
+          onPressIn={() => setPressedItem('developer-resync')}
+          onPressOut={() => setPressedItem(null)}
           rippleColor={touchRippleColor}
         />
         <View style={styles.hint}>
@@ -347,29 +376,35 @@ export default function SettingsScreen() {
 
       <Divider />
 
-      <List.Section title="Lagring">
+      <List.Section title={t('storage.title')}>
         <List.Item
-          title="Rensa lokal lagring"
-          description="Tar bort anteckningar, projekt, tasks och AI-data lokalt"
+          style={pressedStyle('storage-clear')}
+          title={t('storage.clearLocal')}
+          description={t('storage.clearLocalDescription')}
           left={props => <List.Icon {...props} icon="database-remove" />}
           onPress={() => setClearDialogVisible(true)}
+          onPressIn={() => setPressedItem('storage-clear')}
+          onPressOut={() => setPressedItem(null)}
           rippleColor={touchRippleColor}
         />
         <View style={styles.hint}>
           <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
-            Rensar allt lokalt och hämtar nytt från servern när internet finns.
+            {t('storage.clearLocalHint')}
           </Text>
         </View>
       </List.Section>
 
       <Divider />
 
-      <List.Section title="What's New">
+      <List.Section title={t('settings.whatsNewTitle', 'Nyheter')}>
         <List.Item
-          title="What's New"
-          description="Visa senaste uppdateringar"
+          style={pressedStyle('whats-new')}
+          title={t('settings.whatsNewTitle', 'Nyheter')}
+          description={t('whatsNew.latestExpanded')}
           left={(props) => <List.Icon {...props} icon="new-box" />}
           onPress={() => router.push('/whats-new')}
+          onPressIn={() => setPressedItem('whats-new')}
+          onPressOut={() => setPressedItem(null)}
           rippleColor={touchRippleColor}
         />
       </List.Section>
@@ -378,9 +413,12 @@ export default function SettingsScreen() {
 
       <List.Section title={t('common.account')}>
         <List.Item
+          style={pressedStyle('account-logout')}
           title={t('common.logout')}
           left={props => <List.Icon {...props} icon="logout" />}
           onPress={handleLogout}
+          onPressIn={() => setPressedItem('account-logout')}
+          onPressOut={() => setPressedItem(null)}
           rippleColor={touchRippleColor}
         />
       </List.Section>
@@ -409,6 +447,8 @@ export default function SettingsScreen() {
               <RadioButton.Item label={t('settings.lock30min', 'Efter 30 min')} value="30min" />
               <RadioButton.Item label={t('settings.lock1h', 'Efter 1 h')} value="1h" />
               <RadioButton.Item label={t('settings.lock3h', 'Efter 3 h')} value="3h" />
+              <RadioButton.Item label={t('settings.lock5h', 'Efter 5 h')} value="5h" />
+              <RadioButton.Item label={t('settings.lock8h', 'Efter 8 h')} value="8h" />
             </RadioButton.Group>
           </Dialog.Content>
           <Dialog.Actions>
@@ -425,10 +465,10 @@ export default function SettingsScreen() {
         />
 
         <Dialog visible={clearDialogVisible} onDismiss={() => setClearDialogVisible(false)}>
-          <Dialog.Title>Välj vad som ska rensas</Dialog.Title>
+          <Dialog.Title>{t('storage.clearTitle')}</Dialog.Title>
           <Dialog.Content>
             <Checkbox.Item
-              label="Allt"
+              label={t('storage.all')}
               status={clearSelection.all ? 'checked' : 'unchecked'}
               onPress={() => setClearSelection(prev => ({
                 all: !prev.all,
@@ -440,33 +480,33 @@ export default function SettingsScreen() {
               }))}
             />
             <Checkbox.Item
-              label="Anteckningar"
+              label={t('storage.notes')}
               status={clearSelection.notes ? 'checked' : 'unchecked'}
               onPress={() => setClearSelection(prev => ({ ...prev, all: false, notes: !prev.notes }))}
             />
             <Checkbox.Item
-              label="Projektmappar"
+              label={t('storage.projects')}
               status={clearSelection.projects ? 'checked' : 'unchecked'}
               onPress={() => setClearSelection(prev => ({ ...prev, all: false, projects: !prev.projects }))}
             />
             <Checkbox.Item
-              label="Tasklistor"
+              label={t('storage.taskLists')}
               status={clearSelection.taskLists ? 'checked' : 'unchecked'}
               onPress={() => setClearSelection(prev => ({ ...prev, all: false, taskLists: !prev.taskLists }))}
             />
             <Checkbox.Item
-              label="Tasks"
+              label={t('storage.tasks')}
               status={clearSelection.tasks ? 'checked' : 'unchecked'}
               onPress={() => setClearSelection(prev => ({ ...prev, all: false, tasks: !prev.tasks }))}
             />
             <Checkbox.Item
-              label="AI‑modeller"
+              label={t('storage.aiModels')}
               status={clearSelection.aiModels ? 'checked' : 'unchecked'}
               onPress={() => setClearSelection(prev => ({ ...prev, all: false, aiModels: !prev.aiModels }))}
             />
           </Dialog.Content>
           <Dialog.Actions>
-            <Button onPress={() => setClearDialogVisible(false)}>Avbryt</Button>
+            <Button onPress={() => setClearDialogVisible(false)}>{t('common.cancel')}</Button>
             <Button
               onPress={() => {
                 setClearDialogVisible(false);
@@ -474,19 +514,19 @@ export default function SettingsScreen() {
               }}
               disabled={!hasClearSelection}
             >
-              Nästa
+              {t('common.next')}
             </Button>
           </Dialog.Actions>
         </Dialog>
 
         <Dialog visible={confirmClearVisible} onDismiss={() => setConfirmClearVisible(false)}>
-          <Dialog.Title>Rensa valda data?</Dialog.Title>
+          <Dialog.Title>{t('storage.confirmTitle')}</Dialog.Title>
           <Dialog.Content>
-            <Text>Detta tar bort vald data lokalt och kan inte ångras.</Text>
+            <Text>{t('storage.confirmMessage')}</Text>
           </Dialog.Content>
           <Dialog.Actions>
-            <Button onPress={() => setConfirmClearVisible(false)}>Avbryt</Button>
-            <Button onPress={handleClearLocalData} loading={clearingLocalData}>Rensa</Button>
+            <Button onPress={() => setConfirmClearVisible(false)}>{t('common.cancel')}</Button>
+            <Button onPress={handleClearLocalData} loading={clearingLocalData}>{t('storage.clear')}</Button>
           </Dialog.Actions>
         </Dialog>
       </Portal>

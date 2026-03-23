@@ -1,12 +1,17 @@
 const path = require('path');
 const { spawn } = require('child_process');
 const http = require('http');
+const fs = require('fs');
+const os = require('os');
 const { _electron: electron } = require('playwright');
 const { test, expect } = require('@playwright/test');
 
 const webDir = path.join(__dirname, '..', '..', '..', 'noter-app', 'apps', 'web');
 const electronRoot = path.join(__dirname, '..', '..');
-const devUrl = 'http://localhost:3001/app/';
+const webPort = Number(process.env.E2E_WEB_PORT || '3001');
+const devUrl = `http://localhost:${webPort}/app/`;
+const rendererUrl = process.env.E2E_RENDERER_URL || devUrl;
+const localRenderer = rendererUrl.startsWith('http://localhost');
 
 let webProcess;
 let lmServer;
@@ -26,7 +31,7 @@ const fetchWithTimeout = async (url, timeoutMs) => {
 
 const isServerUp = async () => {
   try {
-    const res = await fetchWithTimeout(devUrl, 2000);
+    const res = await fetchWithTimeout(rendererUrl, 2000);
     return res.ok || (res.status >= 300 && res.status < 400);
   } catch {
     return false;
@@ -37,7 +42,7 @@ const waitForServer = async () => {
   const start = Date.now();
   while (Date.now() - start < 120000) {
     try {
-      const res = await fetchWithTimeout(devUrl, 1000);
+      const res = await fetchWithTimeout(rendererUrl, 1000);
       if (res.ok || (res.status >= 300 && res.status < 400)) return true;
     } catch {}
     await new Promise(r => setTimeout(r, 500));
@@ -80,8 +85,8 @@ test.beforeAll(async () => {
     lmServer.on('error', reject);
   });
 
-  if (!(await isServerUp())) {
-    webProcess = spawn('npm', ['run', 'dev'], { cwd: webDir, stdio: 'inherit', shell: true });
+  if (!(await isServerUp()) && rendererUrl.startsWith('http://localhost')) {
+    webProcess = spawn('npm', ['run', 'dev', '--', '-p', String(webPort)], { cwd: webDir, stdio: 'inherit', shell: true });
     const ready = await waitForServer();
     if (!ready) {
       uiAvailable = false;
@@ -102,7 +107,7 @@ test('loads main UI from dev server', async () => {
   test.skip(!uiAvailable, 'UI not available');
   const app = await electron.launch({
     args: [path.join(electronRoot, 'main.js')],
-    env: { ...process.env, NODE_ENV: 'development' },
+    env: { ...process.env, NODE_ENV: 'development', ELECTRON_RENDERER_URL: rendererUrl },
   });
   const page = await app.firstWindow();
   await page.waitForTimeout(3000);
@@ -111,10 +116,10 @@ test('loads main UI from dev server', async () => {
 });
 
 test('lm studio chat flow works', async () => {
-  test.skip(!uiAvailable, 'UI not available');
+  test.skip(!uiAvailable || !localRenderer, 'UI not available for local LM flow');
   const app = await electron.launch({
     args: [path.join(electronRoot, 'main.js')],
-    env: { ...process.env, NODE_ENV: 'development' },
+    env: { ...process.env, NODE_ENV: 'development', ELECTRON_RENDERER_URL: rendererUrl },
   });
   const page = await app.firstWindow();
   await page.waitForTimeout(2000);
@@ -130,6 +135,11 @@ test('lm studio chat flow works', async () => {
   await page.selectOption('[data-testid="ai-provider-select"]', 'lmstudio');
   await page.fill('[data-testid="lmstudio-base-url"]', `http://localhost:${lmPort}`);
   await page.click('[data-testid="lmstudio-refresh-models"]');
+  await page.waitForFunction(() => {
+    const el = document.querySelector('[data-testid="lmstudio-model-select"]');
+    if (!el) return false;
+    return Array.from(el.querySelectorAll('option')).some((opt) => opt.value === 'lmstudio-test');
+  });
   await page.selectOption('[data-testid="lmstudio-model-select"]', 'lmstudio-test');
 
   await page.getByLabel('Öppna AI-inställningar').click();
@@ -142,10 +152,10 @@ test('lm studio chat flow works', async () => {
 });
 
 test('project folders and new chat are available', async () => {
-  test.skip(!uiAvailable, 'UI not available');
+  test.skip(!uiAvailable || !localRenderer, 'UI not available for local project flow');
   const app = await electron.launch({
     args: [path.join(electronRoot, 'main.js')],
-    env: { ...process.env, NODE_ENV: 'development' },
+    env: { ...process.env, NODE_ENV: 'development', ELECTRON_RENDERER_URL: rendererUrl },
   });
   const page = await app.firstWindow();
   await page.waitForTimeout(2000);
@@ -162,6 +172,8 @@ test('project folders and new chat are available', async () => {
   await page.fill('[data-testid="ai-project-name"]', 'Projekt A');
   await page.fill('[data-testid="ai-project-prompt"]', 'System för projekt A');
   await page.click('[data-testid="ai-project-save"]');
+  await page.keyboard.press('Escape');
+  await page.getByLabel('Öppna AI-meny').click();
   await expect(page.getByText('Projekt A')).toBeVisible();
   await page.getByText('Projekt A').click();
   await page.getByLabel('Ny chatt').click();
@@ -169,4 +181,30 @@ test('project folders and new chat are available', async () => {
   await expect(page.getByText('New Chat')).toBeVisible();
 
   await app.close();
+});
+
+test('settings persistence is encrypted at rest', async () => {
+  test.skip(!uiAvailable, 'UI not available');
+  const tempUserData = fs.mkdtempSync(path.join(os.tmpdir(), 'noter-secure-'));
+  const app = await electron.launch({
+    args: [path.join(electronRoot, 'main.js')],
+    env: { ...process.env, NODE_ENV: 'development', ELECTRON_USER_DATA_DIR: tempUserData, ELECTRON_RENDERER_URL: rendererUrl },
+  });
+  const page = await app.firstWindow();
+  await page.waitForTimeout(1500);
+  await page.evaluate(async () => {
+    await window.mlc.setSetting('secretProbe', 'my-plain-secret');
+  });
+  await app.close();
+
+  const settingsPath = path.join(tempUserData, 'settings.json');
+  if (!fs.existsSync(settingsPath)) {
+    expect(fs.existsSync(settingsPath)).toBe(false);
+    return;
+  }
+  const raw = fs.readFileSync(settingsPath, 'utf8');
+  expect(raw).not.toContain('my-plain-secret');
+  const parsed = JSON.parse(raw);
+  expect(parsed.__encrypted).toBe(true);
+  expect(typeof parsed.payload).toBe('string');
 });

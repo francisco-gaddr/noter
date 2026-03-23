@@ -220,7 +220,7 @@ describe('Mobile Store', () => {
     const project = state.notes.find((n) => n._id === projectId) as any;
     const child = state.notes.find((n) => n._id === 'child-1') as any;
 
-    expect(project.title).toBe('Projekt A');
+    expect(project.title).toBe('Låst projekt');
     expect(project.content).toBe('');
     expect(child.title).toBe('Låst anteckning');
     expect(child.content).toBe('');

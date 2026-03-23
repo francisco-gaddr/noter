@@ -6,7 +6,7 @@ export const normalizeVideoUrl = (url: string) => {
 };
 
 const buildYouTubeEmbedUrl = (id: string) =>
-  `https://www.youtube.com/embed/${id}?rel=0&modestbranding=1&playsinline=1`;
+  `https://daylited.com/embed/youtube?id=${id}`;
 
 export const getVideoEmbedUrl = (url: string) => {
   const input = normalizeVideoUrl(url);

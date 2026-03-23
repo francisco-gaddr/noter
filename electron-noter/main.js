@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { getModels, downloadAndConvert, deleteModel, runChat, cancelChat, searchModels, getModelFiles } = require('./src/mlc');
@@ -9,6 +9,7 @@ const devUrl = 'http://localhost:3001/';
 const remoteUrl = 'https://daylited.com/';
 const userDataDir = process.env.ELECTRON_USER_DATA_DIR;
 const settingsFileName = 'settings.json';
+const encryptedSettingsVersion = 1;
 const rendererFallbackUrls = Array.from(new Set([
   process.env.ELECTRON_RENDERER_URL,
   'http://localhost:3001/app/',
@@ -28,19 +29,75 @@ const readSettings = () => {
     const filePath = path.join(app.getPath('userData'), settingsFileName);
     if (!fs.existsSync(filePath)) return {};
     const raw = fs.readFileSync(filePath, 'utf8');
-    const data = JSON.parse(raw);
-    return data && typeof data === 'object' ? data : {};
+    const parsed = JSON.parse(raw);
+    if (parsed?.__encrypted === true && typeof parsed.payload === 'string') {
+      if (!safeStorage?.isEncryptionAvailable?.()) return {};
+      const decrypted = safeStorage.decryptString(Buffer.from(parsed.payload, 'base64'));
+      const data = JSON.parse(decrypted);
+      return data && typeof data === 'object' ? data : {};
+    }
+    if (safeStorage?.isEncryptionAvailable?.()) {
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    }
+    return {};
   } catch {
     return {};
   }
 };
 
 const writeSettings = (next) => {
+  if (!safeStorage?.isEncryptionAvailable?.()) {
+    return false;
+  }
   const filePath = path.join(app.getPath('userData'), settingsFileName);
-  fs.writeFileSync(filePath, JSON.stringify(next, null, 2));
+  const encrypted = safeStorage.encryptString(JSON.stringify(next));
+  fs.writeFileSync(filePath, JSON.stringify({
+    __encrypted: true,
+    version: encryptedSettingsVersion,
+    payload: encrypted.toString('base64'),
+  }));
+  return true;
 };
 
-const errorScreenPath = path.join(__dirname, 'renderer', 'error.html');
+let settingsCache = {};
+let settingsWriteQueue = Promise.resolve();
+
+const enqueueSettingsWrite = (mutate) => {
+  settingsWriteQueue = settingsWriteQueue.then(() => {
+    const next = { ...(settingsCache || {}) };
+    mutate(next);
+    writeSettings(next);
+    settingsCache = next;
+  }).catch(() => {});
+  return settingsWriteQueue;
+};
+
+const loadErrorFallback = async (win) => {
+  const html = `
+  <!doctype html>
+  <html lang="en">
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <title>Noter</title>
+      <style>
+        body { margin: 0; background: #0f172a; color: #e2e8f0; font-family: Arial, sans-serif; }
+        .wrap { max-width: 620px; margin: 72px auto; padding: 24px; background: #111827; border: 1px solid #334155; border-radius: 12px; }
+        h1 { margin: 0 0 10px 0; font-size: 22px; }
+        p { margin: 0 0 14px 0; line-height: 1.5; }
+      </style>
+    </head>
+    <body>
+      <div class="wrap">
+        <h1>Noter kunde inte laddas</h1>
+        <p>Renderern är tillfälligt otillgänglig.</p>
+        <p>Försöker återansluta automatiskt…</p>
+      </div>
+    </body>
+  </html>
+  `;
+  await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+};
 
 const isUrlReachable = async (url) => {
   try {
@@ -87,10 +144,10 @@ const createWindow = () => {
     if (recovering || win.isDestroyed()) return;
     recovering = true;
     try {
-      await win.loadFile(errorScreenPath);
+      await loadErrorFallback(win);
       const loaded = await loadFirstReachableUrl(win);
       if (!loaded && !win.isDestroyed()) {
-        await win.loadFile(errorScreenPath);
+        await loadErrorFallback(win);
       }
     } finally {
       recovering = false;
@@ -113,6 +170,8 @@ const createWindow = () => {
 };
 
 app.whenReady().then(() => {
+  settingsCache = readSettings();
+  writeSettings(settingsCache);
   createWindow();
 
   app.on('activate', () => {
@@ -171,7 +230,7 @@ ipcMain.handle('mlc:cancel-chat', async (_event, payload) => {
 });
 
 ipcMain.handle('settings:get', async (_event, key) => {
-  const settings = readSettings();
+  const settings = settingsCache || readSettings();
   return settings[key];
 });
 
@@ -179,12 +238,12 @@ ipcMain.handle('settings:set', async (_event, payload) => {
   const key = payload?.key;
   if (!key) return false;
   const value = payload?.value;
-  const settings = readSettings();
-  if (value === null || value === undefined) {
-    delete settings[key];
-  } else {
-    settings[key] = value;
-  }
-  writeSettings(settings);
+  await enqueueSettingsWrite((settings) => {
+    if (value === null || value === undefined) {
+      delete settings[key];
+    } else {
+      settings[key] = value;
+    }
+  });
   return true;
 });

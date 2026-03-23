@@ -4,7 +4,7 @@ describe('video embed utils', () => {
   it('creates youtube embed url', () => {
     const url = 'https://youtu.be/abc123?si=1';
     const embed = getVideoEmbedUrl(url);
-    expect(embed).toContain('https://www.youtube.com/embed/abc123');
+    expect(embed).toContain('https://daylited.com/embed/youtube?id=abc123');
   });
 
   it('creates tiktok embed url', () => {
@@ -16,6 +16,6 @@ describe('video embed utils', () => {
   it('creates iframe html', () => {
     const html = getVideoEmbedHtml('https://youtu.be/abc123');
     expect(html).toContain('<iframe');
-    expect(html).toContain('https://www.youtube.com/embed/abc123');
+    expect(html).toContain('https://daylited.com/embed/youtube?id=abc123');
   });
 });

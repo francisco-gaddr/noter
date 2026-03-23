@@ -6,14 +6,11 @@ describe('video embed e2e', () => {
     const html = getVideoEmbedHtml('https://youtu.be/abc123');
     const rendered = tiptapJsonToHtml(html);
     expect(rendered).toContain('<iframe');
-    expect(rendered).toContain('https://www.youtube.com/embed/abc123');
+    expect(rendered).toContain('https://daylited.com/embed/youtube?id=abc123');
   });
 
-  it('renders video nodes as iframe', () => {
-    const rendered = tiptapJsonToHtml({
-      type: 'video',
-      attrs: { src: 'https://www.tiktok.com/@user/video/1234567890' },
-    } as any);
+  it('renders tiktok iframe html correctly', () => {
+    const rendered = tiptapJsonToHtml(getVideoEmbedHtml('https://www.tiktok.com/@user/video/1234567890'));
     expect(rendered).toContain('tiktok.com/embed/v2/1234567890');
     expect(rendered).toContain('padding-top:300%');
     expect(rendered).toContain('min-height:120vh');

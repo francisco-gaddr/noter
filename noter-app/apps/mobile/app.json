@@ -37,7 +37,7 @@
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.WAKE_LOCK"
       ],
-      "usesCleartextTraffic": true,
+      "usesCleartextTraffic": false,
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },

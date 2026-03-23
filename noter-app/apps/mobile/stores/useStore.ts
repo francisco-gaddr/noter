@@ -10,6 +10,8 @@ import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { scheduleTaskReminder, cancelTaskReminder, cancelAllTaskReminders } from '../services/notifications';
 import { buildSecurityNoteMap, findBlockingLockedAncestor } from '../services/ai/security';
+import i18n from '../services/i18n';
+import { initLocalEncryptionKey } from '../services/encryptionKey';
 
 let wasOffline = false;
 
@@ -180,18 +182,16 @@ const materializeNotesFromEncrypted = (notes: Note[], unlockedIds: Set<string>):
     const blocking = findBlockingLockedAncestor(note, noteMap as any, unlockedIds);
     if (blocking) {
       const isDirectlyLockedProject = blocking._id === note._id && note.type === 'project';
-      let projectTitle = note.title;
+      let projectIcon: string | undefined = undefined;
       if (isDirectlyLockedProject) {
-        try {
-          projectTitle = decrypt(note.__rawEncryptedTitle || note.title);
-        } catch {}
+        projectIcon = note.__rawEncryptedIcon ? tryDecryptString(note.__rawEncryptedIcon) : undefined;
       }
       return {
         ...note,
-        title: isDirectlyLockedProject ? projectTitle : 'Låst anteckning',
+        title: isDirectlyLockedProject ? i18n.t('projects.lockedProject') : i18n.t('note.locked'),
         content: '',
         tags: [],
-        icon: undefined,
+        icon: isDirectlyLockedProject ? projectIcon : undefined,
         iconColor: undefined,
         locked: true,
       };
@@ -422,6 +422,7 @@ export const useStore = create<AppState>((set, get) => ({
     if (get().isInitialized) return;
     set({ isInitialized: true });
 
+    await initLocalEncryptionKey();
     await initApiUrl();
     await Database.initDatabase();
 
@@ -863,7 +864,7 @@ export const useStore = create<AppState>((set, get) => ({
         (optimisticNote as any).__rawEncryptedContent = existingRawContent || encrypt(currentNote.content || '');
         (optimisticNote as any).__rawEncryptedTags = existingRawTags || encrypt(JSON.stringify(currentNote.tags || []));
         (optimisticNote as any).__rawEncryptedIcon = existingRawIcon || (currentNote.icon ? encrypt(currentNote.icon) : undefined);
-        optimisticNote.title = 'Låst anteckning';
+        optimisticNote.title = i18n.t('note.locked');
         optimisticNote.content = '';
         set((state) => ({ unlockedProtectedNoteIds: state.unlockedProtectedNoteIds.filter((item) => item !== id) }));
     }
@@ -1657,7 +1658,7 @@ export const useStore = create<AppState>((set, get) => ({
       }
 
       const decryptedContent = decrypt(response.content);
-      const decryptedTitle = response.title ? decrypt(response.title) : 'Låst anteckning';
+      const decryptedTitle = response.title ? decrypt(response.title) : i18n.t('note.locked');
 
       const effectiveUnlockId = response.unlockedId || id;
       const unlockIds = response.unlockedId && response.unlockedId !== id
@@ -1684,7 +1685,7 @@ export const useStore = create<AppState>((set, get) => ({
     if (!note) return;
     const masked: Note = {
       ...note,
-      title: 'Låst anteckning',
+      title: i18n.t('note.locked'),
       content: '',
       locked: true,
     };
