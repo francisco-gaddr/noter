@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, safeStorage, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { getModels, downloadAndConvert, deleteModel, runChat, cancelChat, searchModels, getModelFiles } = require('./src/mlc');
@@ -130,15 +130,32 @@ const createWindow = () => {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
     },
   });
 
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (url) {
+      shell.openExternal(url).catch(() => {});
+    }
+    return { action: 'deny' };
+  });
+
+  win.webContents.on('will-navigate', (event, url) => {
+    const currentUrl = win.webContents.getURL();
+    if (url && currentUrl && url !== currentUrl) {
+      event.preventDefault();
+      shell.openExternal(url).catch(() => {});
+    }
+  });
+
   if (isTest) {
-    win.loadFile(path.join(__dirname, 'renderer', 'test.html'));
+    win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent('<!doctype html><html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Electron Noter Test</title></head><body data-mlc="ready"><main id="app">Electron Noter Test</main></body></html>')}`);
     return win;
   }
 
-  const rendererIndex = path.join(__dirname, 'renderer', 'app', 'index.html');
+  const rendererIndex = path.join(__dirname, 'renderer', 'index.html');
+  const legacyRendererIndex = path.join(__dirname, 'renderer', 'app', 'index.html');
   let recovering = false;
   const recoverRenderer = async () => {
     if (recovering || win.isDestroyed()) return;
@@ -158,6 +175,8 @@ const createWindow = () => {
     win.loadURL(devUrl);
   } else if (fs.existsSync(rendererIndex)) {
     win.loadFile(rendererIndex);
+  } else if (fs.existsSync(legacyRendererIndex)) {
+    win.loadFile(legacyRendererIndex);
   } else {
     recoverRenderer();
   }

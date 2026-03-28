@@ -17,7 +17,6 @@
   "devDependencies": {
     "@expo/config-plugins": "^54.0.4",
     "husky": "^9.1.7",
-    "jest-expo": "^54.0.16",
     "patch-package": "^8.0.0",
     "prettier": "^3.7.4",
     "turbo": "^2.7.2",

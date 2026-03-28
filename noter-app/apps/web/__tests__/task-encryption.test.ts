@@ -242,8 +242,8 @@ describe('Task E2E Encryption Tests', () => {
       const result = await api.decryptTasks(encrypted);
 
       const first = result[0]!;
-      expect(first.title).toBe('');
-      expect(first.description).toBe('');
+      expect(first.title).toBe('invalid-encrypted-data');
+      expect(first.description).toBe('invalid-encrypted-data');
       expect(first.completed).toBe(false);
       expect(first.priority).toBe('medium');
       expect(first.dueDate).toBe(null);

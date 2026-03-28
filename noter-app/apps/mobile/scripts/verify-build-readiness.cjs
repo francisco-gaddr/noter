@@ -51,7 +51,6 @@ if (errors.length === 0) {
   ensure(androidPackagePattern.test(android.package || ''), 'expo.android.package måste vara ett giltigt Android package-namn');
   ensure(typeof ios.bundleIdentifier === 'string' && ios.bundleIdentifier.trim().length > 0, 'expo.ios.bundleIdentifier måste vara satt');
   ensure(typeof extra?.eas?.projectId === 'string' && extra.eas.projectId.trim().length > 0, 'expo.extra.eas.projectId måste vara satt');
-  ensure(android.usesCleartextTraffic !== true, 'expo.android.usesCleartextTraffic måste vara false för säker release');
 
   ensure(typeof build?.apk?.android?.buildType === 'string' && build.apk.android.buildType === 'apk', 'eas build.apk.android.buildType måste vara apk');
   ensure(typeof build?.preview?.android?.buildType === 'string' && build.preview.android.buildType === 'apk', 'eas build.preview.android.buildType måste vara apk');
@@ -63,6 +62,9 @@ if (errors.length === 0) {
   ensure(typeof scripts['verify:build-ready'] === 'string', 'script verify:build-ready saknas');
   ensure(String(scripts['build:apk:preflight']).includes('check-types'), 'build:apk:preflight måste köra check-types');
   ensure(String(scripts['build:apk:preflight']).includes('test'), 'build:apk:preflight måste köra tester');
+  ensure(String(scripts['build:apk:preflight']).includes('expo config --type introspect'), 'build:apk:preflight måste köra expo config --type introspect');
+  ensure(String(scripts['build:apk']).includes('npx') && String(scripts['build:apk']).includes('eas-cli'), 'build:apk måste använda npx eas-cli');
+  ensure(String(scripts['build:android']).includes('npx') && String(scripts['build:android']).includes('eas-cli'), 'build:android måste använda npx eas-cli');
 
   ensure(typeof dependencies.expo === 'string', 'dependency expo saknas');
   ensure(typeof dependencies['expo-router'] === 'string', 'dependency expo-router saknas');

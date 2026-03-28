@@ -1,3 +1,5 @@
+import path from 'path';
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // If the app is hosted at daylited.com/app, we need basePath set to /app
@@ -6,6 +8,7 @@ const nextConfig = {
   // The user says "https://daylited.com/app/_next/...", so basePath must be /app.
   basePath: '/app',
   assetPrefix: '/app',
+  outputFileTracingRoot: path.join(process.cwd(), '..', '..'),
   // Trailing slash is often needed for subpath deployments to handle redirects correctly
   trailingSlash: true,
   

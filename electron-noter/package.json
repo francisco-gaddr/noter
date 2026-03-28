@@ -1,15 +1,18 @@
 {
   "name": "electron-noter",
   "version": "1.0.0",
-  "description": "",
+  "description": "Noter desktop application",
   "main": "main.js",
   "scripts": {
     "dev": "node src/dev.js",
     "start": "node src/start.js",
+    "clean:packaging": "node src/clean-dist.js",
     "build:web": "node src/build-web.js",
-    "build": "npm run build:web && electron-builder",
+    "build": "npm run clean:packaging && npm run build:web && node src/build-electron.js",
+    "build:ready": "npm run verify:build-ready && npm run test && npm run test:e2e && npm run clean:packaging && npm run build:web && node src/build-ready.js",
+    "verify:build-ready": "node src/verify-build-readiness.js",
     "test": "jest",
-    "test:e2e": "playwright test"
+    "test:e2e": "node src/run-e2e.js"
   },
   "keywords": [],
   "author": "",
@@ -19,7 +22,26 @@
     "appId": "com.noter.electron",
     "productName": "Noter",
     "directories": {
-      "output": "dist"
+      "output": "dist-electron-build"
+    },
+    "asar": true,
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**/*.js",
+      "renderer/**/*",
+      "package.json",
+      "!dist{,/**/*}",
+      "!dist-electron{,/**/*}",
+      "!dist-electron-build{,/**/*}",
+      "!dist-electron-ready{,/**/*}",
+      "!tests{,/**/*}",
+      "!test-results{,/**/*}",
+      "!scripts{,/**/*}",
+      "!**/*.map"
+    ],
+    "extraMetadata": {
+      "main": "main.js"
     },
     "win": {
       "target": "nsis"

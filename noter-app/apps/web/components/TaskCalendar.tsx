@@ -8,6 +8,7 @@ import { useTranslation } from 'react-i18next';
 import 'react-big-calendar/lib/css/react-big-calendar.css';
 import 'react-big-calendar/lib/addons/dragAndDrop/styles.css';
 import { useStore } from '../stores/useStore';
+import { formatTaskDateLabel } from '../lib/formatTaskDue';
 
 const locales = {
   'en': enUS,
@@ -33,7 +34,7 @@ export default function TaskCalendar({ tasks, onTaskClick, onCreateTask, view: i
     const { t, i18n } = useTranslation();
     const currentLocale = i18n.language?.startsWith('sv') ? 'sv' : 'en';
     const { updateTask } = useStore();
-    const DnDCalendar = withDragAndDrop(Calendar as any);
+    const DnDCalendar = withDragAndDrop(Calendar as any) as any;
     const [isMounted, setIsMounted] = React.useState(false);
     const [currentTime, setCurrentTime] = React.useState(new Date());
 
@@ -146,7 +147,7 @@ export default function TaskCalendar({ tasks, onTaskClick, onCreateTask, view: i
     };
 
     if (!isMounted) {
-        return <div className="h-full p-2 bg-white dark:bg-gray-900 rounded-lg shadow-sm flex items-center justify-center">Loading...</div>;
+        return <div className="h-full p-2 bg-white dark:bg-gray-900 rounded-lg shadow-sm flex items-center justify-center">{t('common.loading')}</div>;
     }
 
     return (
@@ -195,6 +196,22 @@ export default function TaskCalendar({ tasks, onTaskClick, onCreateTask, view: i
                 components={components}
                 formats={{
                     eventTimeRangeFormat: () => '', // Hide default time range in header
+                    agendaDateFormat: (date: Date) =>
+                        formatTaskDateLabel(date, {
+                            locale: currentLocale === 'sv' ? 'sv-SE' : 'en-US',
+                            todayLabel: 'Idag',
+                            tomorrowLabel: 'Imorgon',
+                            yesterdayLabel: 'Igår',
+                            dayBeforeYesterdayLabel: 'I förrgår',
+                        }),
+                    dayHeaderFormat: (date: Date) =>
+                        formatTaskDateLabel(date, {
+                            locale: currentLocale === 'sv' ? 'sv-SE' : 'en-US',
+                            todayLabel: 'Idag',
+                            tomorrowLabel: 'Imorgon',
+                            yesterdayLabel: 'Igår',
+                            dayBeforeYesterdayLabel: 'I förrgår',
+                        }),
                 }}
                 eventPropGetter={(event) => {
                     const task = event.resource as Task;

@@ -1,6 +1,13 @@
-**/node_modules
-**/.git
-**/.expo
+node_modules/
+.git/
+.expo/
+.turbo/
+apps/web/
+apps/backend/
+apps/docs/
+**/node_modules/
+**/.git/
+**/.expo/
 **/*.log
 npm-debug.log
 yarn-error.log

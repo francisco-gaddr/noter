@@ -13,6 +13,15 @@ const e2eEnabled = process.env.E2E_ELECTRON === '1';
 test.beforeAll(async () => {
   if (!e2eEnabled) return;
   lmServer = http.createServer((req, res) => {
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      });
+      res.end();
+      return;
+    }
     if (req.url.startsWith('/api/v1/models')) {
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify({ models: [{ key: 'lmstudio-test', display_name: 'LM Studio Test' }] }));

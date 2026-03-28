@@ -74,6 +74,7 @@ const steps = [
       'tests/ai-sync-service.test.ts',
       'tests/api-url-security.test.ts',
       'tests/api-auth-reliability.test.ts',
+      'tests/build-readiness.test.ts',
       'tests/database-at-rest.test.ts',
       'tests/notifications-e2e.test.ts',
       'tests/reminder-defaults.test.ts',
@@ -86,10 +87,34 @@ const steps = [
     args: ['run', 'check-types'],
   },
   {
+    label: 'Mobile EAS readiness',
+    cwd: path.join(repoRoot, 'apps', 'mobile'),
+    command: 'npm',
+    args: ['run', 'build:apk:ready'],
+  },
+  {
+    label: 'Electron build readiness',
+    cwd: path.resolve(repoRoot, '..', 'electron-noter'),
+    command: 'npm',
+    args: ['run', 'verify:build-ready'],
+  },
+  {
     label: 'Electron critical tests',
     cwd: path.resolve(repoRoot, '..', 'electron-noter'),
     command: 'npm',
     args: ['run', 'test'],
+  },
+  {
+    label: 'Electron critical E2E',
+    cwd: path.resolve(repoRoot, '..', 'electron-noter'),
+    command: 'npm',
+    args: ['run', 'test:e2e'],
+  },
+  {
+    label: 'Electron build web',
+    cwd: path.resolve(repoRoot, '..', 'electron-noter'),
+    command: 'npm',
+    args: ['run', 'build:web'],
   },
 ];
 
