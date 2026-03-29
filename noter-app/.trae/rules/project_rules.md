@@ -44,6 +44,8 @@
 - State-uppdateringar ska vara idempotenta och tåla dubbla events från sync/socket utan datakorruption.
 - Funktioner som hämtar stora listor ska undvika onödiga full-reloads och använda chunking/batching där det finns stöd.
 - Ändringar i synkflöden ska verifieras för race conditions mellan lokal cache, socket-events och HTTP-respons.
+- Optimistiska mutationer för tasks/notes får inte slå på global loading-state om UI redan kan uppdateras lokalt säkert.
+- Reminder-planering, lokal DB-persistens och sync ska flyttas bort från kritiska UI-paths när samma slutresultat kan säkras i bakgrunden.
 - UI-komponenter i inställningar och säkerhetsflöden ska ha stabila testID/data-testid för E2E-automation.
 - Backendflöden med externa integrationer ska ha rate-limit, input-sanitization, retries med kontrollerad budget och tydlig circuit-breaker-strategi.
 - Nya observability-flöden ska inkludera health-endpoint eller dashboard-support med åtkomstkontroll och minimal dataexponering.
@@ -104,9 +106,11 @@
 
 - Electron-leveranser ska validera `electron-noter` med `npm run verify:build-ready`, `npm test` och minst en `build:web` i samma leverans.
 - Mobilleveranser som påverkar Expo/EAS ska validera `apps/mobile` med `npm run verify:build-ready`, `npm run build:apk:ready` och `npm run build:apk:preflight`.
+- Mobilleveranser som påverkar Expo/EAS ska dessutom verifiera att `i18next`, `react-i18next`, Expo-plugins och `.easignore`-regler täcks av tester eller readiness-script.
 - EAS-profiler för APK ska bibehålla `android.buildType: apk` i både `preview` och `apk` om inte en medveten releaseändring dokumenteras.
 - Build readiness-dokumentation ska uppdateras när scripts, profiler eller releaseflöden ändras.
 - CI ska ha separat verifiering för mobile EAS och electron build, inklusive dependency-installation och byggbara artefakter.
+- När releasekravet uttryckligen gäller APK ska leveransbevis inkludera EAS build-id, status och eventuell nästa blockerare om cloud-build ännu inte är klar.
 
 ## GitHub-flöde och Branch-policy
 

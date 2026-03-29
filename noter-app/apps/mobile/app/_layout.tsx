@@ -6,7 +6,7 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import 'react-native-reanimated';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Provider as PaperProvider, Snackbar, Text, useTheme } from 'react-native-paper';
@@ -26,26 +26,34 @@ export const unstable_settings = {
 };
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
-SplashScreen.preventAutoHideAsync();
+void SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export default function RootLayout() {
   const [loaded, error] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
     ...FontAwesome.font,
   });
+  const [fontTimeoutElapsed, setFontTimeoutElapsed] = useState(false);
+  const appReady = loaded || Boolean(error) || fontTimeoutElapsed;
 
-  // Expo Router uses Error Boundaries to catch errors in the navigation tree.
   useEffect(() => {
-    if (error) throw error;
+    if (!error) return;
+    console.warn('Font loading failed, continuing without custom fonts', error);
   }, [error]);
 
   useEffect(() => {
-    if (loaded) {
-      SplashScreen.hideAsync();
-    }
-  }, [loaded]);
+    const timeout = setTimeout(() => {
+      setFontTimeoutElapsed(true);
+    }, isExpoGo() ? 1500 : 3000);
+    return () => clearTimeout(timeout);
+  }, []);
 
-  if (!loaded) {
+  useEffect(() => {
+    if (!appReady) return;
+    void SplashScreen.hideAsync().catch(() => {});
+  }, [appReady]);
+
+  if (!appReady) {
     return null;
   }
 
@@ -65,24 +73,39 @@ import { useStore } from '@/stores/useStore';
 import { initApiUrl } from '@/services/api';
 import { Alert, View } from 'react-native';
 import { useRouter, useSegments } from 'expo-router';
+import { extractTaskIdFromNotificationResponse, NotificationTaskIntentQueue } from '@/utils/notificationTaskIntent';
+import { useTranslation } from 'react-i18next';
+import { isExpoGo } from '@/utils/runtime';
+import { runStartupBootstrap } from '@/services/startup';
 
-function RootLayoutNav() {
+export function RootLayoutNav() {
   const { actualTheme } = useThemeContext();
   const colorScheme = actualTheme;
   const { init } = require('@/stores/useStore').useStore.getState();
   require('react').useEffect(() => {
-    const bootstrap = async () => {
-        await initApiUrl();
-        await init();
+    let active = true;
+    void runStartupBootstrap(initApiUrl, init, (message, startupError) => {
+      if (!active) return;
+      console.error('RootLayoutNav bootstrap failed', startupError);
+      useStore.setState({
+        error: `Startfel: ${message}`,
+        isInitialized: true,
+        isLoading: false,
+      });
+    });
+    return () => {
+      active = false;
     };
-    bootstrap();
   }, []);
 
   const router = useRouter();
   const segments = useSegments();
   const token = useStore((s) => s.token);
   const isInitialized = useStore((s) => s.isInitialized);
+  const securityLocked = useStore((s) => s.securityLocked);
   const inAuth = segments[0] === 'auth';
+  const taskIntentQueueRef = useRef(new NotificationTaskIntentQueue());
+  const lastHandledNotificationRef = useRef<string | null>(null);
 
   useEffect(() => {
     console.log('RootLayoutNav: Auth State Change', { 
@@ -99,10 +122,30 @@ function RootLayoutNav() {
       return;
     }
     if (token && inAuth) {
+      const pendingTaskId = taskIntentQueueRef.current.consumeIfReady({
+        isInitialized,
+        hasToken: Boolean(token),
+        securityLocked,
+      });
+      if (pendingTaskId) {
+        router.replace(`/task/${pendingTaskId}`);
+        return;
+      }
       console.log('RootLayoutNav: Redirecting to tabs');
       router.replace('/(tabs)');
     }
-  }, [token, inAuth, isInitialized, router, segments]);
+  }, [token, inAuth, isInitialized, router, segments, securityLocked]);
+
+  useEffect(() => {
+    const pendingTaskId = taskIntentQueueRef.current.consumeIfReady({
+      isInitialized,
+      hasToken: Boolean(token),
+      securityLocked,
+    });
+    if (pendingTaskId) {
+      router.push(`/task/${pendingTaskId}`);
+    }
+  }, [isInitialized, token, securityLocked, router]);
 
   useEffect(() => {
     let unsub: (() => void) | null = null;
@@ -119,11 +162,45 @@ function RootLayoutNav() {
           }),
         });
         const subscription = Notifications.addNotificationResponseReceivedListener((response: any) => {
-          const taskId = response?.notification?.request?.content?.data?.taskId;
+          const responseId = response?.notification?.request?.identifier;
+          if (typeof responseId === 'string' && responseId === lastHandledNotificationRef.current) {
+            return;
+          }
+          if (typeof responseId === 'string') {
+            lastHandledNotificationRef.current = responseId;
+          }
+          const taskId = extractTaskIdFromNotificationResponse(response);
           if (taskId) {
-            router.push(`/task/${taskId}`);
+            taskIntentQueueRef.current.setPending(taskId);
+            const pendingTaskId = taskIntentQueueRef.current.consumeIfReady({
+              isInitialized,
+              hasToken: Boolean(token),
+              securityLocked,
+            });
+            if (pendingTaskId) {
+              router.push(`/task/${pendingTaskId}`);
+            }
           }
         });
+        const lastResponse = await Notifications.getLastNotificationResponseAsync?.();
+        if (lastResponse) {
+          const responseId = lastResponse?.notification?.request?.identifier;
+          if (typeof responseId === 'string' && responseId !== lastHandledNotificationRef.current) {
+            lastHandledNotificationRef.current = responseId;
+            const taskId = extractTaskIdFromNotificationResponse(lastResponse);
+            if (taskId) {
+              taskIntentQueueRef.current.setPending(taskId);
+              const pendingTaskId = taskIntentQueueRef.current.consumeIfReady({
+                isInitialized,
+                hasToken: Boolean(token),
+                securityLocked,
+              });
+              if (pendingTaskId) {
+                router.push(`/task/${pendingTaskId}`);
+              }
+            }
+          }
+        }
         unsub = () => subscription.remove();
       } catch {
       }
@@ -131,7 +208,7 @@ function RootLayoutNav() {
     return () => {
       if (unsub) unsub();
     };
-  }, [router]);
+  }, [router, isInitialized, token, securityLocked]);
 
   const paperTheme = colorScheme === 'dark' ? MD3DarkTheme : MD3LightTheme;
 
@@ -149,6 +226,7 @@ function RootLayoutNav() {
                 <Stack.Screen name="auth/register" options={{ headerShown: false }} />
                 <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
                 <Stack.Screen name="note/[id]" options={{ headerShown: false }} />
+                <Stack.Screen name="task/[id]" options={{ headerShown: false }} />
               </Stack>
             </AppLock>
           </CustomErrorBoundary>
@@ -159,6 +237,7 @@ function RootLayoutNav() {
 }
 
 function ErrorToaster() {
+  const { t } = useTranslation();
   const theme = useTheme();
   const error = useStore((s) => s.error);
   const [visible, setVisible] = useState(false);
@@ -194,8 +273,8 @@ function ErrorToaster() {
           borderRadius: 12,
         }}
         action={{
-          label: 'Visa',
-          onPress: () => Alert.alert('Fel', message),
+          label: t('common.error'),
+          onPress: () => Alert.alert(t('common.error'), message),
         }}
       >
         <Text numberOfLines={2}>{short}</Text>

@@ -5,6 +5,7 @@ import { Task } from '@repo/shared';
 import * as Haptics from 'expo-haptics';
 import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { formatTaskDueLabel } from '@/utils/date';
+import { useTranslation } from 'react-i18next';
 
 interface TaskItemProps {
   task: Task;
@@ -18,7 +19,7 @@ interface TaskItemProps {
   showDragHandle?: boolean;
 }
 
-export const TaskItem: React.FC<TaskItemProps> = ({
+export const TaskItem: React.FC<TaskItemProps> = React.memo(({
   task,
   onToggleComplete,
   onDelete,
@@ -30,6 +31,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({
   showDragHandle,
 }) => {
   const theme = useTheme();
+  const { t, i18n } = useTranslation();
   const handleLongPress = () => {
     onLongPress?.();
     onDragStart?.();
@@ -52,7 +54,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({
       >
         <Animated.View style={[styles.deleteActionContent, { transform: [{ scale }] }]}>
           <IconButton icon="delete" iconColor="white" size={24} />
-          <Text style={{ color: 'white', fontWeight: 'bold' }}>Delete</Text>
+          <Text style={{ color: 'white', fontWeight: 'bold' }}>{t('common.delete')}</Text>
         </Animated.View>
       </TouchableOpacity>
     );
@@ -113,12 +115,15 @@ export const TaskItem: React.FC<TaskItemProps> = ({
             ) : null}
             <View style={styles.metaContainer}>
               <Chip
-                textStyle={{ fontSize: 10, lineHeight: 10, marginVertical: 2, marginHorizontal: 4 }}
+                textStyle={{ fontSize: 10, lineHeight: 12, marginVertical: 0, marginHorizontal: 4 }}
                 style={[styles.chip, { borderColor: priorityColor }]}
                 mode="outlined"
                 compact
               >
-                {task.priority}
+                {task.priority === 'low' ? t('tasks.priorityLow') : 
+                 task.priority === 'medium' ? t('tasks.priorityMedium') : 
+                 task.priority === 'high' ? t('tasks.priorityHigh') : 
+                 task.priority}
               </Chip>
               {task.dueDate && (
                 <Text variant="labelSmall" style={styles.date}>
@@ -126,11 +131,12 @@ export const TaskItem: React.FC<TaskItemProps> = ({
                     const d = new Date(task.dueDate as any);
                     if (isNaN(d.getTime())) return '';
                     const label = formatTaskDueLabel(d, {
-                      locale: 'sv-SE',
-                      todayLabel: 'Idag',
-                      tomorrowLabel: 'Imorgon',
-                      yesterdayLabel: 'Igår',
-                      timePrefix: 'kl',
+                      locale: i18n.language?.toLowerCase().startsWith('sv') ? 'sv-SE' : 'en-US',
+                      todayLabel: t('common.today'),
+                      tomorrowLabel: t('common.tomorrow'),
+                      yesterdayLabel: t('common.yesterday'),
+                      dayBeforeYesterdayLabel: t('common.dayBeforeYesterday'),
+                      timePrefix: t('common.timeAt'),
                     });
                     return `${task.reminderEnabled ? '⏰ ' : ''}${label}`;
                   })()}
@@ -142,7 +148,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({
       </TouchableRipple>
     </Swipeable>
   );
-};
+});
 
 const styles = StyleSheet.create({
   itemContainer: {
@@ -174,8 +180,10 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   chip: {
-    height: 20,
+    minHeight: 20,
     backgroundColor: 'transparent',
+    paddingVertical: 0,
+    justifyContent: 'center',
   },
   date: {
     opacity: 0.6,

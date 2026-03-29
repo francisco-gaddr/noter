@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import 'react-native-get-random-values';
 import * as Crypto from 'expo-crypto';
-import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, normalizeId } from '@repo/shared';
+import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, decryptWithSource, normalizeId } from '@repo/shared';
 import { fetchWithAuth, login as apiLogin, register as apiRegister, setAuthToken, initApiUrl, setUnauthorizedHandler } from '../services/api';
 import * as Database from '../services/database';
 import { initSocket, disconnectSocket, getSocket } from '../services/socket';
@@ -87,6 +87,25 @@ const tryDecryptString = (value: unknown): any => {
   }
 };
 
+const decryptOrFallback = (value: unknown, fallback = ''): string => {
+  if (typeof value !== 'string') return fallback;
+  const result = decryptWithSource(value);
+  return result.source === 'failed' ? fallback : result.value;
+};
+
+const toStoredString = (value: unknown): string => {
+  if (typeof value === 'string') return value;
+  if (value == null) return '';
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
+};
+
 const parseNoteLocked = (value: unknown): boolean => {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'number') return value === 1;
@@ -144,8 +163,8 @@ const normalizeEncryptedNote = (note: Note): any => {
   const locked = parseNoteLocked(note.locked);
   return {
   ...note,
-  title: typeof rawTitle === 'string' ? rawTitle : '',
-  content: typeof rawContent === 'string' ? rawContent : '',
+  title: toStoredString(rawTitle),
+  content: toStoredString(rawContent),
   tags: Array.isArray(rawTags) ? rawTags : (typeof rawTags === 'string' ? [rawTags] : []),
   icon: typeof rawIcon === 'string' ? rawIcon : undefined,
   type: normalizeNoteType((note as any).type ? tryDecryptString((note as any).type) : (note as any).type),
@@ -168,8 +187,8 @@ const normalizeEncryptedNote = (note: Note): any => {
   })(),
   createdAt: parseNoteDateValue(note.createdAt),
   updatedAt: parseNoteDateValue(note.updatedAt),
-  __rawEncryptedTitle: typeof rawTitle === 'string' ? rawTitle : '',
-  __rawEncryptedContent: typeof rawContent === 'string' ? rawContent : '',
+  __rawEncryptedTitle: toStoredString(rawTitle),
+  __rawEncryptedContent: toStoredString(rawContent),
   __rawEncryptedTags: Array.isArray(rawTags) ? rawTags : rawTags,
   __rawEncryptedIcon: typeof rawIcon === 'string' ? rawIcon : undefined,
   };
@@ -198,8 +217,8 @@ const materializeNotesFromEncrypted = (notes: Note[], unlockedIds: Set<string>):
     }
     return {
       ...note,
-      title: (() => { try { return decrypt(note.__rawEncryptedTitle || note.title) } catch { return note.title } })(),
-      content: (() => { try { return decrypt(note.__rawEncryptedContent || note.content) } catch { return note.content } })(),
+      title: decryptOrFallback(note.__rawEncryptedTitle || note.title, ''),
+      content: decryptOrFallback(note.__rawEncryptedContent || note.content, ''),
       tags: Array.isArray(note.__rawEncryptedTags)
         ? note.__rawEncryptedTags.map((t: any) => tryDecryptString(t))
         : (() => {
@@ -298,8 +317,8 @@ const parseReminderOffsets = (value: string): number[] => {
 
 const processApiTask = (task: any): Task => ({
   ...(task as Task),
-  title: decrypt(task.title),
-  description: decrypt(task.description),
+  title: decryptOrFallback(task.title, ''),
+  description: task.description ? decryptOrFallback(task.description, '') : '',
   completed: parseTaskCompleted(task.completed),
   priority: parseTaskPriority(task.priority),
   dueDate: task.dueDate ? (typeof task.dueDate === 'string' ? decrypt(task.dueDate) : task.dueDate) : null,
@@ -340,6 +359,33 @@ const shouldFallbackToOffline = (error: unknown) => {
   const isRateLimit = status === 429;
 
   return isConnectivity || isServer || isRateLimit;
+};
+
+const syncTaskReminder = async (task: Task, notificationsEnabled: boolean) => {
+  if (!notificationsEnabled || !task.reminderEnabled) {
+    await cancelTaskReminder(task._id);
+    return;
+  }
+  await scheduleTaskReminder(task);
+};
+
+const syncTaskReminderDeferred = (task: Task, notificationsEnabled: boolean, previousTaskId?: string) => {
+  void (async () => {
+    try {
+      if (previousTaskId && previousTaskId !== task._id) {
+        await cancelTaskReminder(previousTaskId);
+      }
+      await syncTaskReminder(task, notificationsEnabled);
+    } catch (error) {
+      console.warn('Task reminder sync failed', error);
+    }
+  })();
+};
+
+const cancelTaskReminderDeferred = (taskId: string) => {
+  void cancelTaskReminder(taskId).catch((error) => {
+    console.warn('Task reminder cancel failed', error);
+  });
 };
 
 export const useStore = create<AppState>((set, get) => ({
@@ -420,48 +466,60 @@ export const useStore = create<AppState>((set, get) => ({
 
   init: async () => {
     if (get().isInitialized) return;
-    set({ isInitialized: true });
+    let storedToken: string | null = null;
+    let databaseReady = false;
+    try {
+      await initLocalEncryptionKey();
+      await initApiUrl();
+      await Database.initDatabase();
+      await Database.migrateLocalEncryptedData();
+      databaseReady = true;
 
-    await initLocalEncryptionKey();
-    await initApiUrl();
-    await Database.initDatabase();
+      storedToken = await SecureStore.getItemAsync('token');
+      const storedNotifications = await AsyncStorage.getItem('notificationsEnabled');
+      const storedActiveProjectId = await AsyncStorage.getItem('activeProjectId');
+      const storedViewMode = await AsyncStorage.getItem('viewMode');
+      if (storedNotifications !== null) {
+        set({ notificationsEnabled: storedNotifications === 'true' });
+      }
+      if (storedActiveProjectId && storedActiveProjectId !== 'null') {
+        set({ activeProjectId: normalizeId(storedActiveProjectId) });
+      }
+      if (storedViewMode) {
+        set({ viewMode: storedViewMode as any });
+      }
+      if (storedToken) {
+        setAuthToken(storedToken);
+        set({ token: storedToken });
+      }
 
-    const storedToken = await SecureStore.getItemAsync('token');
-    const storedNotifications = await AsyncStorage.getItem('notificationsEnabled');
-    const storedActiveProjectId = await AsyncStorage.getItem('activeProjectId');
-    const storedViewMode = await AsyncStorage.getItem('viewMode');
-    if (storedNotifications !== null) {
-      set({ notificationsEnabled: storedNotifications === 'true' });
-    }
-    if (storedActiveProjectId && storedActiveProjectId !== 'null') {
-      set({ activeProjectId: normalizeId(storedActiveProjectId) });
-    }
-    if (storedViewMode) {
-      set({ viewMode: storedViewMode as any });
-    }
-    if (storedToken) {
-      setAuthToken(storedToken);
-      set({ token: storedToken });
-    }
+      setUnauthorizedHandler(async () => {
+        await get().logout();
+      });
 
-    setUnauthorizedHandler(async () => {
-      await get().logout();
-    });
-    
-    // Load local data immediately
-    if (!get().securityLocked) {
-      const localNotes = await Database.getNotesLocal();
-      const localTasks = await Database.getTasksLocal();
+      if (!get().securityLocked) {
+        const localNotes = await Database.getNotesLocal();
+        const localTasks = await Database.getTasksLocal();
+        const unlocked = new Set(get().unlockedProtectedNoteIds || []);
+        set({
+          notes: materializeNotesFromEncrypted(localNotes.map(processLocalNote), unlocked),
+          tasks: localTasks.map(processLocalTask)
+        });
+      }
+    } catch (error: any) {
+      console.error('[Store] Init failed:', error);
       set({
-        notes: localNotes.map(processLocalNote),
-        tasks: localTasks.map(processLocalTask)
+        error: error?.message || 'Appstart misslyckades',
+        notes: [],
+        tasks: [],
+        isLoading: false,
       });
     }
 
-    // Setup network listener
     NetInfo.addEventListener(state => {
       const isOffline = !state.isConnected;
       set({ isOffline });
+      if (!databaseReady) return;
       if (!isOffline) {
         if (wasOffline) {
           get().fetchNotes();
@@ -474,13 +532,15 @@ export const useStore = create<AppState>((set, get) => ({
       }
     });
 
-    if (storedToken && !get().securityLocked) {
+    if (databaseReady && storedToken && !get().securityLocked) {
       await get().fetchNotes();
       await get().fetchTasks();
       get().connectSocket();
-    } else if (!get().securityLocked) {
+    } else if (databaseReady && !get().securityLocked) {
       get().connectSocket();
     }
+
+    set({ isInitialized: true });
   },
 
   // Fallback sync method when WebSocket fails
@@ -727,9 +787,10 @@ export const useStore = create<AppState>((set, get) => ({
         const notes = await fetchWithAuth('/notes');
         const safeNotes = Array.isArray(notes) ? notes : [];
         const securedNotes = materializeNotesFromEncrypted(safeNotes as any, new Set(get().unlockedProtectedNoteIds));
+        const persistableNotes = (safeNotes as any[]).map((note) => normalizeEncryptedNote(note as Note));
         
         // Update local DB
-        for (const note of securedNotes) {
+        for (const note of persistableNotes) {
           await Database.saveNoteLocal(note, true);
         }
         set({ notes: securedNotes, isLoading: false });
@@ -786,6 +847,9 @@ export const useStore = create<AppState>((set, get) => ({
         ...data,
         title: encrypt(data.title),
         content: encrypt(data.content),
+        tags: data.tags ? data.tags.map(t => encrypt(t)) : [],
+        icon: data.icon ? encrypt(data.icon) : undefined,
+        iconColor: data.iconColor ? encrypt(data.iconColor) : undefined,
         type: encrypt(data.type || 'note'),
         locked: encrypt(String(data.locked || false)),
         order: data.order !== undefined ? encrypt(String(data.order)) : undefined,
@@ -1083,8 +1147,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   createTask: async (data) => {
-    // Optimistic Update Pattern
-    set({ isLoading: true, error: null });
+    set({ error: null });
     const clientId = Crypto.randomUUID();
     const tempId = `local_task_${Date.now()}`;
     
@@ -1114,17 +1177,12 @@ export const useStore = create<AppState>((set, get) => ({
     // 2. Update State immediately
     set((state) => ({
       tasks: [optimisticTask, ...state.tasks],
-      isLoading: false 
     }));
 
     try {
-      // 3. Save to Local DB
       await Database.saveTaskLocal(optimisticTask, false);
-      if (get().notificationsEnabled) {
-        await scheduleTaskReminder(optimisticTask);
-      }
+      syncTaskReminderDeferred(optimisticTask, get().notificationsEnabled);
 
-      // 4. Encrypt for Sync/Queue
       const encryptedData = {
         ...data,
         title: encrypt(data.title),
@@ -1142,7 +1200,6 @@ export const useStore = create<AppState>((set, get) => ({
         clientId,
       };
 
-      // 5. Try Sync if Online
       const netState = await NetInfo.fetch();
       if (netState.isConnected) {
         try {
@@ -1150,16 +1207,11 @@ export const useStore = create<AppState>((set, get) => ({
             method: 'POST',
             body: JSON.stringify(encryptedData),
           });
-          
-          // Success: Replace temp with real
           const realTask = processApiTask(created);
-          
-          // Update State
+
           set((state) => {
-            // Check if realTask is already in the list (e.g. from background sync)
             const exists = state.tasks.some(t => t._id === realTask._id);
             if (exists) {
-                // If it exists, we just remove the optimistic task to avoid duplicates
                 return {
                     tasks: state.tasks.filter(t => t._id !== tempId)
                 };
@@ -1169,43 +1221,33 @@ export const useStore = create<AppState>((set, get) => ({
             };
           });
 
-          // Update DB
           await Database.deleteTaskLocal(tempId);
           await Database.saveTaskLocal(realTask, true);
-          if (get().notificationsEnabled) {
-            await cancelTaskReminder(tempId);
-            await scheduleTaskReminder(realTask);
-          }
+          syncTaskReminderDeferred(realTask, get().notificationsEnabled, tempId);
 
           return realTask;
         } catch (error) {
-          // Sync failed, fallback to queue
           if (!shouldFallbackToOffline(error)) throw error; 
           
           await Database.addToSyncQueue('CREATE', 'TASK', { ...encryptedData, tempId });
           return optimisticTask;
         }
       } else {
-        // Offline
         await Database.addToSyncQueue('CREATE', 'TASK', { ...encryptedData, tempId });
         return optimisticTask;
       }
     } catch (error: any) {
-      // If local save fails, we have a problem. Revert state?
       set((state) => ({
         tasks: state.tasks.filter(t => t._id !== tempId),
         error: error.message,
-        isLoading: false
       }));
       throw error;
     }
   },
 
   updateTask: async (id, data) => {
-    // Optimistic Update
-    set({ isLoading: true, error: null });
+    set({ error: null });
 
-    // 1. Get current task to create optimistic version
     const state = get();
     const currentTask = state.tasks.find((t) => t._id === id);
     if (!currentTask) {
@@ -1232,7 +1274,7 @@ export const useStore = create<AppState>((set, get) => ({
     if (shouldCreateNext && optimisticTask.recurrenceType && optimisticTask.recurrenceType !== 'none') {
       const nextDueDate = getNextRecurringDueDate(optimisticTask);
       if (nextDueDate) {
-        await get().createTask({
+        void get().createTask({
           title: optimisticTask.title,
           description: optimisticTask.description,
           dueDate: nextDueDate,
@@ -1243,21 +1285,17 @@ export const useStore = create<AppState>((set, get) => ({
           recurrenceDays: optimisticTask.recurrenceDays,
           reminderEnabled: optimisticTask.reminderEnabled,
           reminderOffsetMinutes: optimisticTask.reminderOffsetMinutes,
+        }).catch((error) => {
+          console.error('Failed to create recurring task', error);
         });
       }
     }
 
-    // 2. Update State immediately
     set((state) => ({
       tasks: state.tasks.map((t) => (t._id === id ? optimisticTask : t)),
-      isLoading: false,
     }));
-    if (get().notificationsEnabled) {
-      await scheduleTaskReminder(optimisticTask);
-    }
 
     try {
-      // 3. Encrypt Data
       const encryptedData = { ...data } as any;
       const toIso = (value: unknown) => {
         if (value instanceof Date) return value.toISOString();
@@ -1290,10 +1328,9 @@ export const useStore = create<AppState>((set, get) => ({
       encryptedData.updatedAt = encrypt(new Date().toISOString());
       if (data.position !== undefined) encryptedData.position = encrypt(String(data.position));
 
-      // 4. Save Local (mark as unsynced initially)
       await Database.saveTaskLocal(optimisticTask, false);
+      syncTaskReminderDeferred(optimisticTask, get().notificationsEnabled);
 
-      // 5. Try Sync
       const netState = await NetInfo.fetch();
       if (netState.isConnected) {
         try {
@@ -1308,9 +1345,7 @@ export const useStore = create<AppState>((set, get) => ({
             tasks: state.tasks.map((t) => (t._id === id ? realTask : t)),
           }));
           await Database.saveTaskLocal(realTask, true);
-          if (get().notificationsEnabled) {
-            await scheduleTaskReminder(realTask);
-          }
+          syncTaskReminderDeferred(realTask, get().notificationsEnabled);
 
           return realTask;
         } catch (error) {
@@ -1323,13 +1358,13 @@ export const useStore = create<AppState>((set, get) => ({
         return optimisticTask;
       }
     } catch (error: any) {
-      set({ error: error.message, isLoading: false });
+      set({ error: error.message });
       throw error;
     }
   },
 
   deleteTask: async (id) => {
-    set({ isLoading: true, error: null });
+    set({ error: null });
     try {
       const netState = await NetInfo.fetch();
       if (netState.isConnected) {
@@ -1346,16 +1381,13 @@ export const useStore = create<AppState>((set, get) => ({
       }
       
       await Database.deleteTaskLocal(id);
-      if (get().notificationsEnabled) {
-        await cancelTaskReminder(id);
-      }
+      cancelTaskReminderDeferred(id);
 
       set((state) => ({
         tasks: state.tasks.filter((t) => t._id !== id),
-        isLoading: false,
       }));
     } catch (error: any) {
-      set({ error: error.message, isLoading: false });
+      set({ error: error.message });
       throw error;
     }
   },
@@ -1657,8 +1689,8 @@ export const useStore = create<AppState>((set, get) => ({
         throw new Error('Incorrect password');
       }
 
-      const decryptedContent = decrypt(response.content);
-      const decryptedTitle = response.title ? decrypt(response.title) : i18n.t('note.locked');
+      const decryptedContent = decryptOrFallback(response.content, response.content || '');
+      const decryptedTitle = response.title ? decryptOrFallback(response.title, i18n.t('note.locked')) : i18n.t('note.locked');
 
       const effectiveUnlockId = response.unlockedId || id;
       const unlockIds = response.unlockedId && response.unlockedId !== id

@@ -290,19 +290,30 @@ export default function TasksScreen() {
     } catch {}
   };
 
-  const handleToggleComplete = async (task: Task) => {
+  const handleToggleComplete = useCallback(async (task: Task) => {
     try {
       await updateTask(task._id, { completed: !task.completed });
     } catch (error) {
       console.error('Failed to update task', error);
     }
-  };
+  }, [updateTask]);
 
-  const handleReorder = (newTasks: Task[]) => {
+  const handleReorder = useCallback((newTasks: Task[]) => {
     if (sortBy === 'custom') {
         reorderTasks(newTasks);
     }
-  };
+  }, [reorderTasks, sortBy]);
+
+  const handleDeleteTask = useCallback((task: Task) => {
+    Alert.alert(
+      t('tasks.deleteTitle'),
+      t('tasks.deleteConfirm'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('common.delete'), style: 'destructive', onPress: () => deleteTask(task._id) }
+      ]
+    );
+  }, [deleteTask, t]);
 
   const handleLongPressList = (list: any) => {
     setEditingList({ id: list._id, title: list.title });
@@ -392,41 +403,41 @@ export default function TasksScreen() {
             >
               <Menu.Item 
                 onPress={() => { setSortBy('custom'); setSortMenuVisible(false); }} 
-                title="Custom Order"
+                title={t('tasks.sort.custom')}
                 leadingIcon={sortBy === 'custom' ? 'check' : undefined}
               />
               <Divider />
               <Menu.Item 
                 onPress={() => { setSortBy('createdAt'); setSortOrder('desc'); setSortMenuVisible(false); }} 
-                title="Newest first" 
+                title={t('sort.newest')} 
                 leadingIcon={sortBy === 'createdAt' && sortOrder === 'desc' ? 'check' : undefined}
               />
               <Menu.Item 
                 onPress={() => { setSortBy('createdAt'); setSortOrder('asc'); setSortMenuVisible(false); }} 
-                title="Oldest first"
+                title={t('sort.oldest')}
                 leadingIcon={sortBy === 'createdAt' && sortOrder === 'asc' ? 'check' : undefined}
               />
               <Divider />
               <Menu.Item 
                 onPress={() => { setSortBy('dueDate'); setSortOrder('asc'); setSortMenuVisible(false); }} 
-                title="Due Date (Earliest)"
+                title={t('tasks.sort.dueDateAsc')}
                 leadingIcon={sortBy === 'dueDate' && sortOrder === 'asc' ? 'check' : undefined}
               />
               <Menu.Item 
                 onPress={() => { setSortBy('dueDate'); setSortOrder('desc'); setSortMenuVisible(false); }} 
-                title="Due Date (Latest)"
+                title={t('tasks.sort.dueDateDesc')}
                 leadingIcon={sortBy === 'dueDate' && sortOrder === 'desc' ? 'check' : undefined}
               />
               <Divider />
               <Menu.Item 
                 onPress={() => { setSortBy('priority'); setSortOrder('asc'); setSortMenuVisible(false); }} 
-                title="Priority (High first)"
+                title={t('tasks.sort.priority')}
                 leadingIcon={sortBy === 'priority' ? 'check' : undefined}
               />
               <Divider />
               <Menu.Item 
                 onPress={() => { setSortBy('title'); setSortOrder('asc'); setSortMenuVisible(false); }} 
-                title="Title A-Z"
+                title={t('sort.titleAsc')}
                 leadingIcon={sortBy === 'title' && sortOrder === 'asc' ? 'check' : undefined}
               />
             </Menu>
@@ -472,16 +483,7 @@ export default function TasksScreen() {
           onReorder={sortBy === 'custom' ? handleReorder : undefined}
           showViewToggle={false}
           onCreateTask={handleCreateTaskWithDate}
-          onDelete={(task) => {
-            Alert.alert(
-              "Delete Task",
-              "Are you sure you want to delete this task?",
-              [
-                { text: "Cancel", style: "cancel" },
-                { text: "Delete", style: "destructive", onPress: () => deleteTask(task._id) }
-              ]
-            );
-          }}
+          onDelete={handleDeleteTask}
         />
       ) : viewMode === 'board' ? (
         <TaskBoard
@@ -528,38 +530,38 @@ export default function TasksScreen() {
       />
 
         <Dialog visible={filterDialogVisible} onDismiss={() => setFilterDialogVisible(false)}>
-            <Dialog.Title>Filtrera uppgifter</Dialog.Title>
+            <Dialog.Title>{t('tasks.filter.title')}</Dialog.Title>
             <Dialog.Content>
-                <Text variant="bodyMedium" style={{marginBottom: 8}}>Status</Text>
+                <Text variant="bodyMedium" style={{marginBottom: 8}}>{t('tasks.filter.status')}</Text>
                 <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16}}>
-                    <Chip selected={statusFilter === 'all'} onPress={() => setStatusFilter('all')}>Alla</Chip>
-                    <Chip selected={statusFilter === 'active'} onPress={() => setStatusFilter('active')}>Aktiva</Chip>
-                    <Chip selected={statusFilter === 'completed'} onPress={() => setStatusFilter('completed')}>Klara</Chip>
+                    <Chip selected={statusFilter === 'all'} onPress={() => setStatusFilter('all')}>{t('common.all')}</Chip>
+                    <Chip selected={statusFilter === 'active'} onPress={() => setStatusFilter('active')}>{t('tasks.status.active')}</Chip>
+                    <Chip selected={statusFilter === 'completed'} onPress={() => setStatusFilter('completed')}>{t('tasks.status.completed')}</Chip>
                 </View>
 
                 <Divider style={{marginBottom: 16}} />
 
-                <Text variant="bodyMedium" style={{marginBottom: 8}}>Snabba Datumval</Text>
+                <Text variant="bodyMedium" style={{marginBottom: 8}}>{t('tasks.filter.quickDates')}</Text>
                 <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16}}>
-                    <Chip selected={quickFilter === 'today'} onPress={() => applyQuickFilter('today')}>Idag</Chip>
-                    <Chip selected={quickFilter === 'tomorrow'} onPress={() => applyQuickFilter('tomorrow')}>Imorgon</Chip>
-                    <Chip selected={quickFilter === 'week'} onPress={() => applyQuickFilter('week')}>Denna vecka</Chip>
-                    <Chip selected={quickFilter === 'month'} onPress={() => applyQuickFilter('month')}>Denna månad</Chip>
+                    <Chip selected={quickFilter === 'today'} onPress={() => applyQuickFilter('today')}>{t('tasks.filter.today')}</Chip>
+                    <Chip selected={quickFilter === 'tomorrow'} onPress={() => applyQuickFilter('tomorrow')}>{t('tasks.filter.tomorrow')}</Chip>
+                    <Chip selected={quickFilter === 'week'} onPress={() => applyQuickFilter('week')}>{t('tasks.filter.week')}</Chip>
+                    <Chip selected={quickFilter === 'month'} onPress={() => applyQuickFilter('month')}>{t('tasks.filter.month')}</Chip>
                 </View>
                 <Divider style={{marginBottom: 16}} />
-                <Text variant="bodyMedium" style={{marginBottom: 8}}>Datumintervall</Text>
+                <Text variant="bodyMedium" style={{marginBottom: 8}}>{t('tasks.filter.dateRange')}</Text>
                 <View style={{flexDirection: 'row', gap: 8}}>
                     <Button mode="outlined" onPress={() => setShowDatePicker('start')} style={{flex: 1}}>
-                        {filterDateRange.start ? filterDateRange.start.toLocaleDateString() : 'Startdatum'}
+                        {filterDateRange.start ? filterDateRange.start.toLocaleDateString() : t('tasks.filter.startDate')}
                     </Button>
                     <Button mode="outlined" onPress={() => setShowDatePicker('end')} style={{flex: 1}}>
-                        {filterDateRange.end ? filterDateRange.end.toLocaleDateString() : 'Slutdatum'}
+                        {filterDateRange.end ? filterDateRange.end.toLocaleDateString() : t('tasks.filter.endDate')}
                     </Button>
                 </View>
             </Dialog.Content>
             <Dialog.Actions>
-                <Button onPress={clearFilters}>Rensa</Button>
-                <Button onPress={() => setFilterDialogVisible(false)}>Klar</Button>
+                <Button onPress={clearFilters}>{t('tasks.filter.clear')}</Button>
+                <Button onPress={() => setFilterDialogVisible(false)}>{t('common.ok')}</Button>
             </Dialog.Actions>
         </Dialog>
         

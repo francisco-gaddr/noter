@@ -22,6 +22,7 @@ const easJsonPath = path.join(rootDir, 'eas.json');
 const packageJsonPath = path.join(rootDir, 'package.json');
 const repoRoot = path.resolve(rootDir, '..', '..');
 const easIgnorePath = path.join(repoRoot, '.easignore');
+const workspaceParentEasIgnorePath = path.resolve(repoRoot, '..', '.easignore');
 const workspaceEasPath = path.join(repoRoot, 'eas.json');
 const rootEasPath = path.resolve(repoRoot, '..', 'eas.json');
 
@@ -70,6 +71,8 @@ if (errors.length === 0) {
   ensure(typeof dependencies['expo-router'] === 'string', 'dependency expo-router saknas');
   ensure(typeof dependencies['expo-secure-store'] === 'string', 'dependency expo-secure-store saknas');
   ensure(typeof dependencies['expo-sqlite'] === 'string', 'dependency expo-sqlite saknas');
+  ensure(typeof dependencies.i18next === 'string', 'dependency i18next saknas');
+  ensure(typeof dependencies['react-i18next'] === 'string', 'dependency react-i18next saknas');
   ensure(typeof dependencies['react-native'] === 'string', 'dependency react-native saknas');
 
   const hasRouterPlugin = plugins.some((plugin) => plugin === 'expo-router');
@@ -81,6 +84,11 @@ if (errors.length === 0) {
   ensure(easIgnore.includes('apps/web/'), '.easignore bör exkludera apps/web/');
   ensure(easIgnore.includes('apps/backend/'), '.easignore bör exkludera apps/backend/');
   ensure(easIgnore.includes('apps/docs/'), '.easignore bör exkludera apps/docs/');
+  if (fs.existsSync(workspaceParentEasIgnorePath)) {
+    const workspaceParentEasIgnore = fs.readFileSync(workspaceParentEasIgnorePath, 'utf8');
+    ensure(workspaceParentEasIgnore.includes('electron-noter/'), 'yttre .easignore bör exkludera electron-noter/');
+    ensure(workspaceParentEasIgnore.includes('noter-app/apps/web/'), 'yttre .easignore bör exkludera noter-app/apps/web/');
+  }
 
   const hasWorkspaceEas = fs.existsSync(workspaceEasPath);
   const hasRootEas = fs.existsSync(rootEasPath);

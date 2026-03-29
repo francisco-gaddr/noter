@@ -5,6 +5,8 @@ const mobileRoot = path.resolve(__dirname, '..');
 const packageJson = JSON.parse(fs.readFileSync(path.join(mobileRoot, 'package.json'), 'utf8'));
 const appJson = JSON.parse(fs.readFileSync(path.join(mobileRoot, 'app.json'), 'utf8'));
 const easJson = JSON.parse(fs.readFileSync(path.join(mobileRoot, 'eas.json'), 'utf8'));
+const workspaceRoot = path.resolve(mobileRoot, '..', '..');
+const workspaceEasIgnore = fs.readFileSync(path.join(workspaceRoot, '.easignore'), 'utf8');
 
 describe('mobile EAS build readiness', () => {
   it('uses npx eas-cli scripts and preflight introspection', () => {
@@ -21,5 +23,13 @@ describe('mobile EAS build readiness', () => {
     expect(appJson.expo?.extra?.eas?.projectId).toBeTruthy();
     expect(easJson.build?.apk?.android?.buildType).toBe('apk');
     expect(easJson.build?.preview?.android?.buildType).toBe('apk');
+  });
+
+  it('keeps required mobile runtime dependencies and EAS exclusions', () => {
+    expect(packageJson.dependencies?.i18next).toBeTruthy();
+    expect(packageJson.dependencies?.['react-i18next']).toBeTruthy();
+    expect(workspaceEasIgnore).toContain('apps/web/');
+    expect(workspaceEasIgnore).toContain('apps/backend/');
+    expect(workspaceEasIgnore).toContain('apps/docs/');
   });
 });

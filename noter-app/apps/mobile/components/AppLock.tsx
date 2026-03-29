@@ -6,12 +6,14 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useStore } from '@/stores/useStore';
+import { useTranslation } from 'react-i18next';
+import { isExpoGo } from '@/utils/runtime';
 
 interface AppLockProps {
   children: React.ReactNode;
 }
 
-type LockTiming = 'immediate' | '5min' | '15min' | '30min' | '1h' | '3h';
+type LockTiming = 'immediate' | '5min' | '15min' | '30min' | '1h' | '3h' | '5h' | '8h';
 
 const LOCK_TIMING_KEY = 'lockTiming';
 const LAST_BACKGROUND_KEY = 'lastBackgroundAt';
@@ -22,15 +24,19 @@ const lockTimingToMs = (timing: LockTiming) => {
   if (timing === '15min') return 15 * 60 * 1000;
   if (timing === '30min') return 30 * 60 * 1000;
   if (timing === '3h') return 3 * 60 * 60 * 1000;
+  if (timing === '5h') return 5 * 60 * 60 * 1000;
+  if (timing === '8h') return 8 * 60 * 60 * 1000;
   return 60 * 60 * 1000;
 };
 
 export const AppLock: React.FC<AppLockProps> = ({ children }) => {
+  const { t } = useTranslation();
+  const expoGo = isExpoGo();
   const appState = useRef(AppState.currentState);
-  const [isLocked, setIsLocked] = useState(true); // Default to locked
+  const [isLocked, setIsLocked] = useState(!expoGo);
   const { isSupported, isEnrolled, authenticate, getBiometryLabel } = useBiometrics();
   const theme = useTheme();
-  const [checking, setChecking] = useState(true);
+  const [checking, setChecking] = useState(!expoGo);
   const [lockTiming, setLockTiming] = useState<LockTiming>('immediate');
   const lastBackgroundAtRef = useRef<number | null>(null);
   const isMounted = useRef(false);
@@ -39,6 +45,12 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
   useEffect(() => {
     isMounted.current = true;
     const load = async () => {
+      if (expoGo) {
+        setIsLocked(false);
+        await setSecurityLocked(false);
+        setChecking(false);
+        return;
+      }
       try {
         const [saved, savedLastBg] = await Promise.all([
           SecureStore.getItemAsync(LOCK_TIMING_KEY),
@@ -46,7 +58,7 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
         ]);
 
         let currentTiming: LockTiming = 'immediate';
-        if (saved === 'immediate' || saved === '5min' || saved === '15min' || saved === '30min' || saved === '1h' || saved === '3h') {
+        if (saved === 'immediate' || saved === '5min' || saved === '15min' || saved === '30min' || saved === '1h' || saved === '3h' || saved === '5h' || saved === '8h') {
           setLockTiming(saved);
           currentTiming = saved;
         }
@@ -72,7 +84,7 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
     };
     load();
     return () => { isMounted.current = false; };
-  }, [setSecurityLocked]);
+  }, [expoGo, setSecurityLocked]);
 
   const checkBiometrics = async () => {
     // Wait for hook to initialize
@@ -102,7 +114,7 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
   };
 
   const unlockApp = async () => {
-    const result = await authenticate('Lås upp Noter');
+    const result = await authenticate(t('passwordModal.unlock'));
     if (result.success) {
       setIsLocked(false);
       await setSecurityLocked(false);
@@ -112,6 +124,7 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
 
   // AppState listener
   useEffect(() => {
+    if (expoGo) return;
     const subscription = AppState.addEventListener('change', nextAppState => {
       if (
         appState.current.match(/inactive|background/) &&
@@ -125,7 +138,7 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
           let timingToUse: LockTiming = lockTiming;
           try {
             const saved = await SecureStore.getItemAsync(LOCK_TIMING_KEY);
-            if (saved === 'immediate' || saved === '5min' || saved === '15min' || saved === '30min' || saved === '1h' || saved === '3h') {
+            if (saved === 'immediate' || saved === '5min' || saved === '15min' || saved === '30min' || saved === '1h' || saved === '3h' || saved === '5h' || saved === '8h') {
               timingToUse = saved;
               if (saved !== lockTiming) setLockTiming(saved);
             }
@@ -159,7 +172,7 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
     return () => {
       subscription.remove();
     };
-  }, [lockTiming, setSecurityLocked]);
+  }, [expoGo, lockTiming, setSecurityLocked]);
 
   // Effect to trigger auth when locked becomes true
   useEffect(() => {
@@ -178,17 +191,17 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <Surface style={styles.surface} elevation={4}>
         <Text variant="headlineMedium" style={{ marginBottom: 20 }}>
-          Noter är låst
+          {t('settings.lock')}
         </Text>
         <Text style={{ marginBottom: 20, textAlign: 'center' }}>
-          Verifiera din identitet för att fortsätta.
+          {t('note.lockedMessage')}
         </Text>
         <Button 
           mode="contained" 
           onPress={unlockApp}
           icon="lock-open"
         >
-          Lås upp med {getBiometryLabel()}
+          {`${t('passwordModal.unlock')} ${t('common.with')} ${getBiometryLabel()}`}
         </Button>
       </Surface>
     </View>

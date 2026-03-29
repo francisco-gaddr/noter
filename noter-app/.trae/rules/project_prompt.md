@@ -25,6 +25,8 @@ Bygg plattformen med säkerhet, stabilitet och produktkvalitet som primära mål
 - Nya AI-inställningar ska designas med minst privilegium, säkra default-värden och tydliga valideringsfel.
 - Mobil och Electron ska hållas funktionellt pariterade i kärnflöden för uppgifter, påminnelser och AI-inställningar.
 - Vid skillnad mellan plattformar ska mobilappens UX och säkerhetsnivå höjas till minst samma nivå som Electron, inte tvärtom.
+- Task- och checkboxflöden i mobilappen ska ge omedelbar respons i UI; lokal persistens, reminder-planering och sync får inte skapa tydligt hack eller global loading-flicker.
+- Expo Go, dev builds och EAS APK ska dela samma robusta bootstrapprinciper: fail-soft startup, tydliga fallback-fel och ingen blockerande init som fastnar på splash.
 
 ## Säkerhetspolicy
 
@@ -62,9 +64,12 @@ Bygg plattformen med säkerhet, stabilitet och produktkvalitet som primära mål
 - Valideringskommandot ska täcka backend, web/electron, mobile och electron-noter med kritiska tester för notes, tasks, AI-chatt, kryptering, auth/lock och fallback/felhantering.
 - Push får inte göras om någon gate fallerar; först fix, därefter ny full validering.
 - Dokumentation ska uppdateras i samma leverans när nya säkerhetsflöden, endpoints eller dashboards införs.
-- `packages/shared/src/whatsNew.ts` ska uppdateras i varje leverans med ny version/build/datum och konkreta highlights för ändringen; leverans är inte klar förrän detta är gjort.
+- `packages/shared/src/whatsNew.ts` ska uppdateras i varje leverans med ny version/build/datum och konkreta highlights för ändringen; leverans är inte klar förrän detta är gjort. Detta är ett strikt krav.
+- What's New-vyn i både mobilappen och Electron/web måste visa den nya posten efter varje leverans; om posten inte syns är leveransen inte klar.
 - Verifiering ska bevisa kryptering i varje fas: payload före transport, server-side validering, server persistens, lokal persistens och återläsning.
 - Testbevis ska vara konkreta och spårbara med tydliga assertions för `ingen plaintext-lagring`.
+- Releasebevis för EAS ska inkludera faktisk cloud-build eller motsvarande EAS-buildstatus, inte bara lokal preflight.
+- AI-validering ska täcka lokal modellväg, API-provider-väg, tool-use och fel/fallback utan att hemligheter exponeras i loggar.
 
 ## Valideringsmatris
 

@@ -1,5 +1,5 @@
 import { useStore } from '../stores/useStore';
-import { encrypt, decrypt } from '@repo/shared';
+import { encrypt, decrypt, setEncryptionKey } from '@repo/shared';
 
 // Mocks
 jest.mock('@react-native-community/netinfo', () => ({
@@ -31,6 +31,7 @@ jest.mock('../services/api', () => ({
 
 jest.mock('../services/database', () => ({
   initDatabase: jest.fn(),
+  migrateLocalEncryptedData: jest.fn().mockResolvedValue({ migratedNotes: 0, migratedTasks: 0 }),
   getNotesLocal: jest.fn().mockResolvedValue([]),
   saveNoteLocal: jest.fn(),
   deleteNoteLocal: jest.fn(),
@@ -46,8 +47,15 @@ jest.mock('../services/socket', () => ({
   getSocket: jest.fn(() => null),
 }));
 
+jest.mock('../services/notifications', () => ({
+  scheduleTaskReminder: jest.fn(),
+  cancelTaskReminder: jest.fn(),
+  cancelAllTaskReminders: jest.fn(),
+}));
+
 describe('Mobile Store', () => {
   beforeEach(() => {
+    setEncryptionKey('noter-default-key');
     jest.clearAllMocks();
     useStore.setState({
       notes: [],
@@ -164,6 +172,33 @@ describe('Mobile Store', () => {
     const state = useStore.getState();
     expect(state.notes.length).toBe(1);
     expect(state.notes[0]._id).toBe('1');
+    expect(state.notes[0].title).toBe('Test Note');
+    expect(state.notes[0].content).toBe('Content');
+  });
+
+  it('should keep note content when API returns json document content', async () => {
+    const { fetchWithAuth } = require('../services/api');
+    const Database = require('../services/database');
+    const doc = { type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Hej innehåll' }] }] };
+    fetchWithAuth.mockResolvedValueOnce([
+      {
+        _id: 'doc-1',
+        title: encrypt('Doc note'),
+        content: doc,
+        locked: encrypt('false'),
+        type: encrypt('note'),
+        createdAt: encrypt(new Date().toISOString()),
+        updatedAt: encrypt(new Date().toISOString()),
+      },
+    ]);
+
+    await useStore.getState().fetchNotes();
+    const state = useStore.getState();
+    expect(state.notes[0].title).toBe('Doc note');
+    expect(state.notes[0].content).toContain('"type":"doc"');
+    expect(Database.saveNoteLocal).toHaveBeenCalled();
+    const persisted = Database.saveNoteLocal.mock.calls[0][0];
+    expect(persisted.__rawEncryptedContent).toContain('"type":"doc"');
   });
 
   it('should mask locked notes from API', async () => {
@@ -186,6 +221,9 @@ describe('Mobile Store', () => {
     expect(state.notes[0].title).toBe('Låst anteckning');
     expect(state.notes[0].content).toBe('');
     expect(state.notes[0].locked).toBe(true);
+    const Database = require('../services/database');
+    const persisted = Database.saveNoteLocal.mock.calls[0][0];
+    expect(persisted.__rawEncryptedContent).toBe(mockNotes[0].content);
   });
 
   it('should keep project name visible but mask all descendants under locked project', async () => {
@@ -253,6 +291,58 @@ describe('Mobile Store', () => {
      const state = useStore.getState();
      expect(state.notes.length).toBe(1);
      expect(state.notes[0]._id).toBe('local_1');
+  });
+
+  it('should materialize mixed plaintext and encrypted local notes', async () => {
+    const NetInfo = require('@react-native-community/netinfo');
+    NetInfo.fetch.mockResolvedValueOnce({ isConnected: false });
+    const Database = require('../services/database');
+    const encryptedTitle = encrypt('Krypterad titel');
+    const encryptedContent = encrypt('Krypterat innehåll');
+    Database.getNotesLocal.mockResolvedValueOnce([
+      {
+        _id: 'n-mixed',
+        title: encryptedTitle,
+        content: 'Plaintext innehåll',
+        locked: encrypt('false'),
+        type: encrypt('note'),
+        createdAt: encrypt(new Date().toISOString()),
+        updatedAt: encrypt(new Date().toISOString()),
+        __rawEncryptedTitle: encryptedTitle,
+        __rawEncryptedContent: 'Plaintext innehåll',
+        __rawEncryptedTags: encrypt('[]'),
+      },
+    ]);
+
+    await useStore.getState().fetchNotes();
+    const state = useStore.getState();
+    expect(state.notes[0]?.title).toBe('Krypterad titel');
+    expect(state.notes[0]?.content).toBe('Plaintext innehåll');
+  });
+
+  it('should keep task title and description visible for mixed encrypted payload', async () => {
+    const { fetchWithAuth } = require('../services/api');
+    fetchWithAuth.mockResolvedValueOnce([
+      {
+        _id: 't-visible',
+        title: 'Plain task title',
+        description: encrypt('Krypterad task-beskrivning'),
+        completed: encrypt('false'),
+        priority: encrypt('high'),
+        dueDate: null,
+        recurrenceType: encrypt('none'),
+        recurrenceDays: encrypt('[]'),
+        reminderEnabled: encrypt('false'),
+        reminderOffsetMinutes: encrypt('[]'),
+        createdAt: encrypt(new Date().toISOString()),
+        updatedAt: encrypt(new Date().toISOString()),
+      },
+    ]);
+
+    await useStore.getState().fetchTasks();
+    const state = useStore.getState();
+    expect(state.tasks[0]?.title).toBe('Plain task title');
+    expect(state.tasks[0]?.description).toBe('Krypterad task-beskrivning');
   });
 
   it('should unlock note content without logging out', async () => {
@@ -324,5 +414,102 @@ describe('Mobile Store', () => {
     const optimisticSaved = Database.saveNoteLocal.mock.calls[0]?.[0];
     expect(decrypt(optimisticSaved.__rawEncryptedTitle)).toBe('Test Title');
     expect(decrypt(optimisticSaved.__rawEncryptedContent)).toBe('Test Content');
+  });
+
+  it('should keep task creation responsive while server confirmation is pending', async () => {
+    const { fetchWithAuth } = require('../services/api');
+    const Database = require('../services/database');
+
+    let resolveRequest: (value: any) => void = () => undefined;
+    fetchWithAuth.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveRequest = resolve;
+    }));
+
+    const createPromise = useStore.getState().createTask({
+      title: 'Snabb task',
+      completed: false,
+      priority: 'medium',
+      reminderEnabled: false,
+    } as any);
+
+    const optimisticState = useStore.getState();
+    expect(optimisticState.isLoading).toBe(false);
+    expect(optimisticState.tasks[0]?.title).toBe('Snabb task');
+    expect(optimisticState.tasks[0]?._id).toContain('local_task_');
+    expect(Database.saveTaskLocal).toHaveBeenCalled();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    resolveRequest({
+      _id: 'task-real',
+      title: encrypt('Snabb task'),
+      description: encrypt(''),
+      completed: encrypt('false'),
+      priority: encrypt('medium'),
+      dueDate: '',
+      recurrenceType: encrypt('none'),
+      recurrenceDays: encrypt('[]'),
+      reminderEnabled: encrypt('false'),
+      reminderOffsetMinutes: encrypt('[]'),
+      position: encrypt('0'),
+      createdAt: encrypt(new Date().toISOString()),
+      updatedAt: encrypt(new Date().toISOString()),
+    });
+
+    await createPromise;
+    expect(useStore.getState().tasks[0]?._id).toBe('task-real');
+  });
+
+  it('should toggle task completion optimistically without global loading flicker', async () => {
+    const { fetchWithAuth } = require('../services/api');
+    const Database = require('../services/database');
+
+    useStore.setState({
+      tasks: [
+        {
+          _id: 'task-1',
+          title: 'Task',
+          description: '',
+          completed: false,
+          priority: 'medium',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          reminderEnabled: false,
+          reminderOffsetMinutes: [],
+        } as any,
+      ],
+    });
+
+    let resolveRequest: (value: any) => void = () => undefined;
+    fetchWithAuth.mockImplementationOnce(() => new Promise((resolve) => {
+      resolveRequest = resolve;
+    }));
+
+    const updatePromise = useStore.getState().updateTask('task-1', { completed: true });
+
+    expect(useStore.getState().isLoading).toBe(false);
+    expect(useStore.getState().tasks[0]?.completed).toBe(true);
+    expect(Database.saveTaskLocal).toHaveBeenCalled();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    resolveRequest({
+      _id: 'task-1',
+      title: encrypt('Task'),
+      description: encrypt(''),
+      completed: encrypt('true'),
+      priority: encrypt('medium'),
+      dueDate: '',
+      recurrenceType: encrypt('none'),
+      recurrenceDays: encrypt('[]'),
+      reminderEnabled: encrypt('false'),
+      reminderOffsetMinutes: encrypt('[]'),
+      position: encrypt('0'),
+      createdAt: encrypt(new Date().toISOString()),
+      updatedAt: encrypt(new Date().toISOString()),
+    });
+
+    await updatePromise;
+    expect(useStore.getState().tasks[0]?.completed).toBe(true);
   });
 });

@@ -1,12 +1,11 @@
 import React, { useCallback, useState } from 'react';
-import { StyleSheet, View, RefreshControl, TouchableOpacity, Animated } from 'react-native';
+import { StyleSheet, View, RefreshControl } from 'react-native';
 import DraggableFlatList, { ScaleDecorator, RenderItemParams, ShadowDecorator, OpacityDecorator } from 'react-native-draggable-flatlist';
-import { Text, Checkbox, TouchableRipple, useTheme, Chip, IconButton, SegmentedButtons, Menu, Divider } from 'react-native-paper';
+import { SegmentedButtons } from 'react-native-paper';
 import { Task } from '@repo/shared';
 import { useRouter } from 'expo-router';
 import { orderBy } from 'lodash';
 import * as Haptics from 'expo-haptics';
-import Swipeable from 'react-native-gesture-handler/Swipeable';
 import { TaskBoard } from './TaskBoard';
 import { TaskTimeline } from './TaskTimeline';
 
@@ -25,11 +24,9 @@ interface TaskListProps {
 import { TaskItem } from './TaskItem';
 
 export default function TaskList({ tasks, onRefresh, refreshing, onToggleComplete, onReorder, showViewToggle = true, onCreateTask, onDelete, scrollEnabled = true }: TaskListProps) {
-  const theme = useTheme();
   const router = useRouter();
   const [viewMode, setViewMode] = useState<string>('list');
   const [sortBy, setSortBy] = useState<'custom' | 'createdAt' | 'dueDate' | 'priority'>('custom');
-  const [sortMenuVisible, setSortMenuVisible] = useState(false);
 
   const getSortedTasks = useCallback(() => {
     let sorted = [...tasks];
@@ -55,9 +52,9 @@ export default function TaskList({ tasks, onRefresh, refreshing, onToggleComplet
   const sortedTasks = getSortedTasks();
   const isCustomSort = sortBy === 'custom';
 
-  const handlePress = (task: Task) => {
+  const handlePress = useCallback((task: Task) => {
     router.push(`/task/${task._id}`);
-  };
+  }, [router]);
 
   const renderItem = useCallback(({ item, drag, isActive }: RenderItemParams<Task>) => {
     return (
@@ -84,7 +81,7 @@ export default function TaskList({ tasks, onRefresh, refreshing, onToggleComplet
         </OpacityDecorator>
       </ScaleDecorator>
     );
-  }, [theme, onToggleComplete, onReorder, isCustomSort, onDelete]);
+  }, [handlePress, onDelete, onReorder, onToggleComplete, isCustomSort]);
 
   if (!scrollEnabled && viewMode === 'list') {
       return (

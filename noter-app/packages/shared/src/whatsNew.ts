@@ -7,6 +7,90 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    version: '1.0.9',
+    build: '2026.03.29.1',
+    date: '2026-03-29',
+    highlights: [
+      'Mobil: EAS APK-readiness hårdnad med tydligare build-gates, dependency-kontroller och utökad valideringsmatris',
+      'Mobil: Expo Go- och startupflödet är robustare och fastnar inte lika lätt på splash eller blockerande init',
+      'Mobil: Taskflöden känns snabbare genom optimistiska uppdateringar utan global loading-flicker vid checkbox och ny task',
+      'Kryptering: Kritiska tester täcker nu tydligare notes/tasks i transit, lokal lagring och build-ready-regressioner',
+      'Process: Agentfiler och promptregler uppdaterade för releasebevis, EAS cloud-buildstatus och prestandaregressioner',
+    ],
+  },
+  {
+    version: '1.0.8',
+    build: '2026.03.23.3',
+    date: '2026-03-23',
+    highlights: [
+      'Mobil: Åtgärdad visning så anteckningars innehåll avkrypteras läsbart efter upplåsning',
+      'Mobil: Förbättrad fallback för rubriker och innehåll så krypterad råtext inte visas i UI',
+      'Mobil: Uppgifter med blandad legacy/plaintext data visas nu med korrekt rubrik och beskrivning',
+      'Electron: Build-script återhämtar sig från låst output-mapp genom automatisk fallback till ny output-katalog',
+    ],
+  },
+  {
+    version: '1.0.7',
+    build: '2026.03.23.2',
+    date: '2026-03-23',
+    highlights: [
+      'Mobil: Automatisk migrering re-krypterar äldre lokala anteckningar och uppgifter till aktiv nyckel',
+      'Kryptering: Dekryptering klassar nu källa (aktiv, legacy, plaintext) för säkrare och tydligare fallback',
+      'Säkerhet: Legacy/plaintext-fält i lokal SQLite normaliseras tillbaka till krypterat format',
+      'Stabilitet: Innehåll visas korrekt efter nyckelrotation utan tomma listor eller saknade titlar',
+    ],
+  },
+  {
+    version: '1.0.6',
+    build: '2026.03.23.1',
+    date: '2026-03-23',
+    highlights: [
+      'Mobil: Åtgärdad avkryptering så anteckningar, projektmappar, uppgifter och uppgiftslistor visas korrekt igen',
+      'Kryptering: Förbättrad bakåtkompatibilitet för äldre lokalt krypterad data vid nyckelrotation',
+      'Kryptering: Robust hantering av plaintext-värden i blandade datamängder för att undvika tomma fält',
+      'Säkerhet: Behåller stark runtime-nyckel men återställer läsbarhet för historisk data',
+    ],
+  },
+  {
+    version: '1.0.5',
+    build: '2026.03.16.3',
+    date: '2026-03-16',
+    highlights: [
+      'Electron: Projektmappar filtreras nu strikt bort från anteckningslistan och visas i projektdropdown',
+      'Mobil: Projektväljaren har justerad bottenpadding till en rimlig nivå (48px)',
+      'Mobil: Projektfiltrering av anteckningar följer hela parent-kedjan och visar nu rätt anteckningar i vald mapp',
+      'Mobil: Fel lösenord för låst projekt visas som diskret inline-text istället för popup',
+      'Persistens: Åtgärdad race condition så sparad sortering/filtrering för uppgifter inte skrivs över vid uppstart',
+      'Process: Projektprompt uppdaterad med strikt krav att What’s New måste synas i både mobil och Electron/web'
+    ],
+  },
+  {
+    version: '1.0.4',
+    build: '2026.03.16.2',
+    date: '2026-03-16',
+    highlights: [
+      'Electron: Fixat problem där projektmappar felaktigt visades bland anteckningar (strikare typfiltrering)',
+      'Mobil: Ökat avstånd (padding) i botten av projektväljaren för bättre scrollning',
+      'Mobil: Åtgärdat problem där anteckningar inte visades när en specifik projektmapp var vald',
+      'Mobil: Sparar nu filtrering och sortering för både uppgifter och anteckningar mellan sessioner',
+      'Mobil: Förbättrad och snyggare felhantering vid felaktigt lösenord för låsta mappar',
+      'Process: Uppdaterad What\'s New och versionshistorik'
+    ],
+  },
+  {
+    version: '1.0.3',
+    build: '2026.03.16.1',
+    date: '2026-03-16',
+    highlights: [
+      'Electron: Fixad bugg där projektmappar visades felaktigt i anteckningslistan',
+      'Mobil: Ökad padding i botten av projektväljaren för bättre åtkomst',
+      'Mobil: Fixad bugg där anteckningar inte visades vid val av specifikt projekt',
+      'Mobil: Spara och återställ senaste vy-läge (lista/träd) mellan sessioner',
+      'Mobil: Bättre felhantering vid felaktigt lösenord för låsta mappar',
+      'Process: Uppdaterad What\'s New och projektregler'
+    ],
+  },
+  {
     version: '1.0.2',
     build: '2026.03.15.2',
     date: '2026-03-15',

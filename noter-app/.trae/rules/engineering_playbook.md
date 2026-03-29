@@ -17,10 +17,11 @@ Detta dokument operationaliserar reglerna i `project_rules.md` till konkreta ver
 | Backend security/auth/MCP | backend unit/integration + typecheck + lint | `cd apps/backend && npm test -- __tests__/mcp-runtime.test.ts __tests__/mcp-routes.test.ts` |
 | Web/Electron AI-inställningar | web unit + web e2e + typecheck + lint | `cd apps/web && npm test -- __tests__/mcp-settings.test.ts` + `npx cypress run --spec "cypress/e2e/app.cy.ts"` |
 | Mobile AI-inställningar/API | mobile unit + typecheck + lint | `cd apps/mobile && npm test -- tests/mcp-settings.test.ts tests/api-url-security.test.ts` |
-| Kryptering/key-rotation | crypto-specifika tester + scope-test + docs update | `cd apps/backend && npm test -- __tests__/mcp-audit-store.test.ts` |
+| Kryptering/key-rotation | crypto-specifika tester + scope-test + docs update | `cd apps/backend && npm test -- __tests__/mcp-audit-store.test.ts __tests__/encryption-validation.test.ts` + `cd apps/mobile && npm test -- __tests__/e2e-encryption.test.ts __tests__/task-encryption.test.ts tests/database-at-rest.test.ts tests/encryption-key-init.test.ts` |
 | Dashboard-förändring | route-test + UI-test (web eller mobile) + e2e där tillämpligt | `cd apps/backend && npm test -- __tests__/mcp-routes.test.ts` |
-| Notes/Tasks E2E-kryptering | backend validering + web at-rest + mobile at-rest + sync transporttest | `cd apps/backend && npm test -- __tests__/encryption-validation.test.ts __tests__/ai-sync.test.ts` + `cd apps/web && npm test -- services/db.security.test.ts __tests__/ai-sync-service.test.ts` + `cd apps/mobile && npm test -- tests/database-at-rest.test.ts tests/ai-sync-service.test.ts` |
+| Notes/Tasks E2E-kryptering | backend validering + web at-rest + mobile at-rest + sync transporttest | `cd apps/backend && npm test -- __tests__/encryption-validation.test.ts __tests__/ai-sync.test.ts` + `cd apps/web && npm test -- __tests__/e2e-encryption.test.ts __tests__/task-encryption.test.ts __tests__/ai-sync-service.test.ts` + `cd apps/mobile && npm test -- __tests__/e2e-encryption.test.ts __tests__/task-encryption.test.ts tests/database-at-rest.test.ts tests/ai-sync-service.test.ts` |
 | Mobil/Electron-paritet (Tasks/AI) | mobile kontraktstest + mobile UI-strukturtest + web paritytest | `cd apps/mobile && npm test -- tests/task-editor-contract.test.ts tests/ai-settings-structure.test.tsx` + `cd apps/web && npm test -- components/NoteEditor.test.tsx` |
+| Mobil task-prestanda | mobile store-regression + UI-listtest + typecheck | `cd apps/mobile && npm test -- __tests__/store.test.ts tests/task-settings-persistence.e2e.test.tsx` + `npm run check-types` |
 | API/DB attackhärdning | middleware-unit + api-integration för injektion/content-type + typecheck/lint | `cd apps/backend && npm test -- __tests__/request-security.test.ts __tests__/api-hardening.test.ts` |
 
 ## 3. Verifiering per regelklass
@@ -92,6 +93,7 @@ Detta dokument operationaliserar reglerna i `project_rules.md` till konkreta ver
 - `npm run build:apk:ready`
 - `npm run build:apk:preflight`
 - `npm run build:apk`
+- Dokumentera EAS build-id och senaste status efter faktisk cloud-build
 
 - **Obligatorisk dokumentation**:
 - Uppdatera `Doc/Electron & Mobile Build Readiness Runbook.md` när buildprofiler, scripts eller releaseflöden ändras.
