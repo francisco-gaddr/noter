@@ -5,6 +5,11 @@ import TasksScreen from '../app/(tabs)/tasks';
 const mockSetOptions = jest.fn();
 const mockGetItem = jest.fn().mockResolvedValue(null);
 const mockSetItem = jest.fn().mockResolvedValue(undefined);
+const mockMultiSet = jest.fn().mockImplementation(async (entries: [string, string][]) => {
+  for (const [key, value] of entries) {
+    await mockSetItem(key, value);
+  }
+});
 
 jest.mock('expo-router', () => ({
   useRouter: () => ({ push: jest.fn() }),
@@ -16,6 +21,11 @@ jest.mock('expo-router', () => ({
 jest.mock('@react-native-async-storage/async-storage', () => ({
   getItem: (...args: any[]) => mockGetItem(...args),
   setItem: (...args: any[]) => mockSetItem(...args),
+  multiSet: (...args: any[]) => mockMultiSet(...args),
+}));
+
+jest.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (key: string) => key }),
 }));
 
 jest.mock('react-native-paper', () => {
@@ -52,19 +62,22 @@ jest.mock('react-native', () => ({
 }));
 
 jest.mock('@/stores/useStore', () => ({
-  useStore: () => ({
-    tasks: [],
-    notes: [],
-    isLoading: false,
-    fetchTasks: jest.fn(),
-    fetchNotes: jest.fn(),
-    updateTask: jest.fn(),
-    reorderTasks: jest.fn(),
-    createNote: jest.fn(),
-    updateNote: jest.fn(),
-    deleteNote: jest.fn(),
-    deleteTask: jest.fn(),
-  }),
+  useStore: (selector?: any) => {
+    const state = {
+      tasks: [],
+      notes: [],
+      isLoading: false,
+      fetchTasks: jest.fn(),
+      fetchNotes: jest.fn(),
+      updateTask: jest.fn(),
+      reorderTasks: jest.fn(),
+      createNote: jest.fn(),
+      updateNote: jest.fn(),
+      deleteNote: jest.fn(),
+      deleteTask: jest.fn(),
+    };
+    return selector ? selector(state) : state;
+  },
 }));
 
 jest.mock('@/components/TaskList', () => 'TaskList');
@@ -77,6 +90,24 @@ jest.mock('@expo/vector-icons/FontAwesome5', () => 'FontAwesome5');
 jest.mock('@react-native-community/datetimepicker', () => 'DateTimePicker');
 
 describe('Task settings persistence e2e', () => {
+  const flushPendingWork = async () => {
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      jest.runAllTimers();
+      await Promise.resolve();
+      jest.runAllTimers();
+    });
+  };
+
+  beforeAll(() => {
+    jest.useFakeTimers();
+  });
+
+  afterAll(() => {
+    jest.useRealTimers();
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     mockGetItem.mockResolvedValue(null);
@@ -86,6 +117,7 @@ describe('Task settings persistence e2e', () => {
     await act(async () => {
       renderer.create(<TasksScreen />);
     });
+    await flushPendingWork();
 
     expect(mockGetItem).toHaveBeenCalledWith('task_sort');
     expect(mockGetItem).toHaveBeenCalledWith('task_filters');
@@ -111,6 +143,7 @@ describe('Task settings persistence e2e', () => {
     await act(async () => {
       renderer.create(<TasksScreen />);
     });
+    await flushPendingWork();
 
     expect(mockSetItem).toHaveBeenCalledWith('task_sort', JSON.stringify({ sortBy: 'dueDate', sortOrder: 'asc' }));
     expect(mockSetItem).toHaveBeenCalledWith(

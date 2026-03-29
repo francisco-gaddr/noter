@@ -71,7 +71,7 @@ import { MD3DarkTheme, MD3LightTheme } from 'react-native-paper';
 import { useStore } from '@/stores/useStore';
 
 import { initApiUrl } from '@/services/api';
-import { Alert, View } from 'react-native';
+import { Alert, InteractionManager, View } from 'react-native';
 import { useRouter, useSegments } from 'expo-router';
 import { extractTaskIdFromNotificationResponse, NotificationTaskIntentQueue } from '@/utils/notificationTaskIntent';
 import { useTranslation } from 'react-i18next';
@@ -108,16 +108,8 @@ export function RootLayoutNav() {
   const lastHandledNotificationRef = useRef<string | null>(null);
 
   useEffect(() => {
-    console.log('RootLayoutNav: Auth State Change', { 
-        isInitialized, 
-        token: !!token, 
-        segments, 
-        inAuth 
-    });
-
     if (!isInitialized) return;
     if (!token && !inAuth) {
-      console.log('RootLayoutNav: Redirecting to login');
       router.replace('/auth/login');
       return;
     }
@@ -131,7 +123,6 @@ export function RootLayoutNav() {
         router.replace(`/task/${pendingTaskId}`);
         return;
       }
-      console.log('RootLayoutNav: Redirecting to tabs');
       router.replace('/(tabs)');
     }
   }, [token, inAuth, isInitialized, router, segments, securityLocked]);
@@ -149,45 +140,28 @@ export function RootLayoutNav() {
 
   useEffect(() => {
     let unsub: (() => void) | null = null;
-    (async () => {
-      try {
-        const Notifications = await import('expo-notifications');
-        await Notifications.setNotificationHandler({
-          handleNotification: async () => ({
-            shouldShowAlert: true,
-            shouldPlaySound: true,
-            shouldSetBadge: false,
-            shouldShowBanner: true,
-            shouldShowList: true,
-          }),
-        });
-        const subscription = Notifications.addNotificationResponseReceivedListener((response: any) => {
-          const responseId = response?.notification?.request?.identifier;
-          if (typeof responseId === 'string' && responseId === lastHandledNotificationRef.current) {
-            return;
-          }
-          if (typeof responseId === 'string') {
-            lastHandledNotificationRef.current = responseId;
-          }
-          const taskId = extractTaskIdFromNotificationResponse(response);
-          if (taskId) {
-            taskIntentQueueRef.current.setPending(taskId);
-            const pendingTaskId = taskIntentQueueRef.current.consumeIfReady({
-              isInitialized,
-              hasToken: Boolean(token),
-              securityLocked,
-            });
-            if (pendingTaskId) {
-              router.push(`/task/${pendingTaskId}`);
+    const interactionHandle = InteractionManager.runAfterInteractions(() => {
+      void (async () => {
+        try {
+          const Notifications = await import('expo-notifications');
+          await Notifications.setNotificationHandler({
+            handleNotification: async () => ({
+              shouldShowAlert: true,
+              shouldPlaySound: true,
+              shouldSetBadge: false,
+              shouldShowBanner: true,
+              shouldShowList: true,
+            }),
+          });
+          const subscription = Notifications.addNotificationResponseReceivedListener((response: any) => {
+            const responseId = response?.notification?.request?.identifier;
+            if (typeof responseId === 'string' && responseId === lastHandledNotificationRef.current) {
+              return;
             }
-          }
-        });
-        const lastResponse = await Notifications.getLastNotificationResponseAsync?.();
-        if (lastResponse) {
-          const responseId = lastResponse?.notification?.request?.identifier;
-          if (typeof responseId === 'string' && responseId !== lastHandledNotificationRef.current) {
-            lastHandledNotificationRef.current = responseId;
-            const taskId = extractTaskIdFromNotificationResponse(lastResponse);
+            if (typeof responseId === 'string') {
+              lastHandledNotificationRef.current = responseId;
+            }
+            const taskId = extractTaskIdFromNotificationResponse(response);
             if (taskId) {
               taskIntentQueueRef.current.setPending(taskId);
               const pendingTaskId = taskIntentQueueRef.current.consumeIfReady({
@@ -199,13 +173,33 @@ export function RootLayoutNav() {
                 router.push(`/task/${pendingTaskId}`);
               }
             }
+          });
+          const lastResponse = await Notifications.getLastNotificationResponseAsync?.();
+          if (lastResponse) {
+            const responseId = lastResponse?.notification?.request?.identifier;
+            if (typeof responseId === 'string' && responseId !== lastHandledNotificationRef.current) {
+              lastHandledNotificationRef.current = responseId;
+              const taskId = extractTaskIdFromNotificationResponse(lastResponse);
+              if (taskId) {
+                taskIntentQueueRef.current.setPending(taskId);
+                const pendingTaskId = taskIntentQueueRef.current.consumeIfReady({
+                  isInitialized,
+                  hasToken: Boolean(token),
+                  securityLocked,
+                });
+                if (pendingTaskId) {
+                  router.push(`/task/${pendingTaskId}`);
+                }
+              }
+            }
           }
+          unsub = () => subscription.remove();
+        } catch {
         }
-        unsub = () => subscription.remove();
-      } catch {
-      }
-    })();
+      })();
+    });
     return () => {
+      interactionHandle.cancel();
       if (unsub) unsub();
     };
   }, [router, isInitialized, token, securityLocked]);

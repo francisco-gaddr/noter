@@ -10,6 +10,7 @@ const remoteUrl = 'https://daylited.com/';
 const userDataDir = process.env.ELECTRON_USER_DATA_DIR;
 const settingsFileName = 'settings.json';
 const encryptedSettingsVersion = 1;
+const allowedExternalProtocols = new Set(['https:', 'http:']);
 const rendererFallbackUrls = Array.from(new Set([
   process.env.ELECTRON_RENDERER_URL,
   'http://localhost:3001/app/',
@@ -61,16 +62,44 @@ const writeSettings = (next) => {
 
 let settingsCache = {};
 let settingsWriteQueue = Promise.resolve();
+let pendingSettingsSnapshot = null;
+let pendingSettingsResolvers = [];
+let settingsFlushTimer = null;
+
+const flushPendingSettingsWrite = () => {
+  if (!pendingSettingsSnapshot) return;
+  const snapshot = pendingSettingsSnapshot;
+  const resolvers = pendingSettingsResolvers.splice(0);
+  pendingSettingsSnapshot = null;
+  writeSettings(snapshot);
+  settingsCache = snapshot;
+  resolvers.forEach((resolve) => resolve());
+};
 
 const enqueueSettingsWrite = (mutate) => {
-  settingsWriteQueue = settingsWriteQueue.then(() => {
-    const next = { ...(settingsCache || {}) };
+  settingsWriteQueue = settingsWriteQueue.then(() => new Promise((resolve) => {
+    const next = { ...((pendingSettingsSnapshot || settingsCache) || {}) };
     mutate(next);
-    writeSettings(next);
-    settingsCache = next;
-  }).catch(() => {});
+    pendingSettingsSnapshot = next;
+    pendingSettingsResolvers.push(resolve);
+    if (settingsFlushTimer) {
+      clearTimeout(settingsFlushTimer);
+    }
+    settingsFlushTimer = setTimeout(() => {
+      settingsFlushTimer = null;
+      flushPendingSettingsWrite();
+    }, 120);
+  })).catch(() => {});
   return settingsWriteQueue;
 };
+
+app.on('before-quit', () => {
+  if (settingsFlushTimer) {
+    clearTimeout(settingsFlushTimer);
+    settingsFlushTimer = null;
+  }
+  flushPendingSettingsWrite();
+});
 
 const loadErrorFallback = async (win) => {
   const html = `
@@ -122,6 +151,23 @@ const loadFirstReachableUrl = async (win) => {
   return false;
 };
 
+const isSafeExternalUrl = (url) => {
+  try {
+    const parsed = new URL(url);
+    return allowedExternalProtocols.has(parsed.protocol);
+  } catch {
+    return false;
+  }
+};
+
+const openExternalSafely = (url) => {
+  if (!url || !isSafeExternalUrl(url)) {
+    return false;
+  }
+  shell.openExternal(url).catch(() => {});
+  return true;
+};
+
 const createWindow = () => {
   const win = new BrowserWindow({
     width: 1280,
@@ -135,9 +181,7 @@ const createWindow = () => {
   });
 
   win.webContents.setWindowOpenHandler(({ url }) => {
-    if (url) {
-      shell.openExternal(url).catch(() => {});
-    }
+    openExternalSafely(url);
     return { action: 'deny' };
   });
 
@@ -145,7 +189,7 @@ const createWindow = () => {
     const currentUrl = win.webContents.getURL();
     if (url && currentUrl && url !== currentUrl) {
       event.preventDefault();
-      shell.openExternal(url).catch(() => {});
+      openExternalSafely(url);
     }
   });
 

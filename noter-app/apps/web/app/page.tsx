@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Navbar from '../components/Navbar';
 import SidebarTree from '../components/SidebarTree';
 import NoteEditor from '../components/NoteEditor';
@@ -12,7 +12,10 @@ import { HTML5Backend } from 'react-dnd-html5-backend';
 import { loadHotkeys, matchesHotkey } from '../lib/hotkeys';
 
 export default function Home() {
-  const { initSocket, user, activeTab, isHydrated } = useStore();
+  const initSocket = useStore((state) => state.initSocket);
+  const user = useStore((state) => state.user);
+  const activeTab = useStore((state) => state.activeTab);
+  const isHydrated = useStore((state) => state.isHydrated);
   const [sidebarWidth, setSidebarWidth] = useState(256);
   const [isResizing, setIsResizing] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -20,6 +23,18 @@ export default function Home() {
   const [isSplitView, setIsSplitView] = useState(false);
   const [splitRatio, setSplitRatio] = useState(0.5);
   const [isSplitResizing, setIsSplitResizing] = useState(false);
+  const sidebarWidthRef = useRef(256);
+  const splitRatioRef = useRef(0.5);
+  const sidebarResizeFrameRef = useRef<number | null>(null);
+  const splitResizeFrameRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    sidebarWidthRef.current = sidebarWidth;
+  }, [sidebarWidth]);
+
+  useEffect(() => {
+    splitRatioRef.current = splitRatio;
+  }, [splitRatio]);
 
   const startResizing = useCallback(() => {
     setIsResizing(true);
@@ -27,17 +42,23 @@ export default function Home() {
 
   const stopResizing = useCallback(() => {
     setIsResizing(false);
-    localStorage.setItem('sidebarWidth', sidebarWidth.toString());
-  }, [sidebarWidth]);
+    localStorage.setItem('sidebarWidth', sidebarWidthRef.current.toString());
+  }, []);
 
   const resize = useCallback(
     (mouseMoveEvent: MouseEvent) => {
-      if (isResizing) {
-        const newWidth = Math.max(150, Math.min(mouseMoveEvent.clientX, 600));
-        setSidebarWidth(newWidth);
+      if (!isResizing) return;
+      const newWidth = Math.max(150, Math.min(mouseMoveEvent.clientX, 600));
+      if (sidebarResizeFrameRef.current !== null) {
+        cancelAnimationFrame(sidebarResizeFrameRef.current);
       }
+      sidebarResizeFrameRef.current = window.requestAnimationFrame(() => {
+        sidebarWidthRef.current = newWidth;
+        setSidebarWidth((prev) => (prev === newWidth ? prev : newWidth));
+        sidebarResizeFrameRef.current = null;
+      });
     },
-    [isResizing, setSidebarWidth]
+    [isResizing]
   );
 
   useEffect(() => {
@@ -72,6 +93,9 @@ export default function Home() {
     return () => {
       window.removeEventListener("mousemove", resize);
       window.removeEventListener("mouseup", stopResizing);
+      if (sidebarResizeFrameRef.current !== null) {
+        cancelAnimationFrame(sidebarResizeFrameRef.current);
+      }
     };
   }, [resize, stopResizing]);
 
@@ -114,17 +138,35 @@ export default function Home() {
       const rect = el.getBoundingClientRect();
       if (rect.width <= 0) return;
       const next = Math.max(0.25, Math.min((event.clientX - rect.left) / rect.width, 0.75));
-      setSplitRatio(next);
-      localStorage.setItem('splitViewRatio', String(next));
+      if (splitResizeFrameRef.current !== null) {
+        cancelAnimationFrame(splitResizeFrameRef.current);
+      }
+      splitResizeFrameRef.current = window.requestAnimationFrame(() => {
+        splitRatioRef.current = next;
+        setSplitRatio((prev) => (prev === next ? prev : next));
+        splitResizeFrameRef.current = null;
+      });
     };
-    const onUp = () => setIsSplitResizing(false);
+    const onUp = () => {
+      setIsSplitResizing(false);
+      localStorage.setItem('splitViewRatio', String(splitRatioRef.current));
+    };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
     return () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
+      if (splitResizeFrameRef.current !== null) {
+        cancelAnimationFrame(splitResizeFrameRef.current);
+      }
     };
   }, [isSplitResizing]);
+
+  const toggleSidebar = useCallback(() => {
+    const next = !isSidebarCollapsed;
+    setIsSidebarCollapsed(next);
+    localStorage.setItem('sidebarCollapsed', String(next));
+  }, [isSidebarCollapsed]);
 
   if (!mounted || !isHydrated) {
     return null;
@@ -146,11 +188,7 @@ export default function Home() {
       >
         <header role="banner">
           <Navbar
-            onToggleSidebar={() => {
-              const next = !isSidebarCollapsed;
-              setIsSidebarCollapsed(next);
-              localStorage.setItem('sidebarCollapsed', String(next));
-            }}
+            onToggleSidebar={toggleSidebar}
             isSidebarCollapsed={isSidebarCollapsed}
           />
         </header>

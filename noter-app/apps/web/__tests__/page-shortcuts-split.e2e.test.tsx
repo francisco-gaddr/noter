@@ -22,12 +22,15 @@ jest.mock('../components/TaskList', () => () => <div data-testid="task-list">Tas
 jest.mock('../components/Auth', () => () => <div data-testid="auth-view">Auth</div>);
 
 jest.mock('../stores/useStore', () => ({
-  useStore: () => ({
-    initSocket: jest.fn(),
-    user: { _id: 'u1', username: 'user' },
-    activeTab: 'notes',
-    isHydrated: true,
-  }),
+  useStore: (selector?: any) => {
+    const state = {
+      initSocket: jest.fn(),
+      user: { _id: 'u1', username: 'user' },
+      activeTab: 'notes',
+      isHydrated: true,
+    };
+    return selector ? selector(state) : state;
+  },
 }));
 
 describe('Home shortcuts and split view', () => {

@@ -230,6 +230,32 @@ export const AISidebar = () => {
     else localStorage.setItem(key, value);
   };
 
+  const settingsWriteTimersRef = useRef<Map<string, number>>(new Map());
+  const sidebarResizeFrameRef = useRef<number | null>(null);
+
+  const persistStoredValue = (key: string, value: string | null, delay = 160) => {
+    if (typeof window === 'undefined') return;
+    const existing = settingsWriteTimersRef.current.get(key);
+    if (existing !== undefined) {
+      window.clearTimeout(existing);
+    }
+    const timeoutId = window.setTimeout(() => {
+      settingsWriteTimersRef.current.delete(key);
+      setStoredValue(key, value);
+    }, delay);
+    settingsWriteTimersRef.current.set(key, timeoutId);
+  };
+
+  useEffect(() => {
+    return () => {
+      settingsWriteTimersRef.current.forEach((timeoutId) => window.clearTimeout(timeoutId));
+      settingsWriteTimersRef.current.clear();
+      if (sidebarResizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(sidebarResizeFrameRef.current);
+      }
+    };
+  }, []);
+
   const getMcpEnvValues = (): Record<string, string | undefined> => {
     const env = process.env as Record<string, string | undefined>;
     return {
@@ -273,12 +299,10 @@ export const AISidebar = () => {
   };
 
   useEffect(() => {
-    // Load settings once on mount (or when user logs in/isElectron known)
     if (typeof window === 'undefined') return;
     
     let mounted = true;
     (async () => {
-      console.log('[AISidebar] Loading Settings...');
       const savedApiToggle = await getStoredValue('aiUseApiProviders');
       if (mounted && savedApiToggle) setAiUseApiProviders(savedApiToggle === 'true');
       const savedProvider = await getStoredValue('aiProvider');
@@ -351,7 +375,6 @@ export const AISidebar = () => {
       }
       if (mounted) {
           setSettingsLoaded(true);
-          console.log('[AISidebar] Settings Loaded');
       }
     })();
     return () => { mounted = false; };
@@ -359,12 +382,12 @@ export const AISidebar = () => {
 
   useEffect(() => {
     if (!settingsLoaded) return;
-    setStoredValue('aiProvider', aiProvider);
+    persistStoredValue('aiProvider', aiProvider);
   }, [aiProvider, settingsLoaded]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
-    setStoredValue('aiUseApiProviders', String(aiUseApiProviders));
+    persistStoredValue('aiUseApiProviders', String(aiUseApiProviders));
   }, [aiUseApiProviders, settingsLoaded]);
 
   useEffect(() => {
@@ -384,80 +407,80 @@ export const AISidebar = () => {
 
   useEffect(() => {
     if (!settingsLoaded) return;
-    setStoredValue('aiApiProvider', apiProvider);
+    persistStoredValue('aiApiProvider', apiProvider);
   }, [apiProvider, settingsLoaded]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
-    setStoredValue('openrouterApiKey', openRouterApiKey ? encrypt(openRouterApiKey) : null);
+    persistStoredValue('openrouterApiKey', openRouterApiKey ? encrypt(openRouterApiKey) : null, 260);
   }, [openRouterApiKey, settingsLoaded]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
-    setStoredValue('openrouterModel', openRouterModel || null);
+    persistStoredValue('openrouterModel', openRouterModel || null);
   }, [openRouterModel, settingsLoaded]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
-    setStoredValue('geminiApiKey', geminiApiKey ? encrypt(geminiApiKey) : null);
+    persistStoredValue('geminiApiKey', geminiApiKey ? encrypt(geminiApiKey) : null, 260);
   }, [geminiApiKey, settingsLoaded]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
-    setStoredValue('geminiModel', geminiModel || null);
+    persistStoredValue('geminiModel', geminiModel || null);
   }, [geminiModel, settingsLoaded]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
-    setStoredValue(getMcpSettingsKey(), encrypt(JSON.stringify(mcpSettings)));
+    persistStoredValue(getMcpSettingsKey(), encrypt(JSON.stringify(mcpSettings)), 220);
   }, [mcpSettings, settingsLoaded, user]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
-    setStoredValue(getSystemPromptKey(), encrypt(systemPrompt));
+    persistStoredValue(getSystemPromptKey(), encrypt(systemPrompt), 220);
   }, [systemPrompt, settingsLoaded]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
-    setStoredValue('aiShowThinking', String(showThinking));
+    persistStoredValue('aiShowThinking', String(showThinking));
   }, [showThinking, settingsLoaded]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
-    setStoredValue('aiShowTokensPerSecond', String(showTokensPerSecond));
+    persistStoredValue('aiShowTokensPerSecond', String(showTokensPerSecond));
   }, [showTokensPerSecond, settingsLoaded]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
-    setStoredValue('aiAutoScroll', String(autoScrollOnSend));
+    persistStoredValue('aiAutoScroll', String(autoScrollOnSend));
   }, [autoScrollOnSend, settingsLoaded]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
-    setStoredValue('aiEnableEmoji', String(enableEmojiPicker));
+    persistStoredValue('aiEnableEmoji', String(enableEmojiPicker));
     if (!enableEmojiPicker) setEmojiOpen(false);
   }, [enableEmojiPicker, settingsLoaded]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
-    setStoredValue('aiEnableAttachments', String(enableAttachments));
+    persistStoredValue('aiEnableAttachments', String(enableAttachments));
     if (!enableAttachments) setAttachments([]);
   }, [enableAttachments, settingsLoaded]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
-    setStoredValue('aiToolUseEnabled', String(enableToolUse));
+    persistStoredValue('aiToolUseEnabled', String(enableToolUse));
   }, [enableToolUse, settingsLoaded]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
-    setStoredValue('aiSidebarWidth', String(width));
+    persistStoredValue('aiSidebarWidth', String(width), 100);
   }, [width, settingsLoaded]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
-    if (activeProjectId) setStoredValue('aiActiveProjectId', activeProjectId);
-    else setStoredValue('aiActiveProjectId', null);
+    if (activeProjectId) persistStoredValue('aiActiveProjectId', activeProjectId);
+    else persistStoredValue('aiActiveProjectId', null);
   }, [activeProjectId, settingsLoaded]);
 
   useEffect(() => {
@@ -475,7 +498,13 @@ export const AISidebar = () => {
     if (!isResizing) return;
     const handleMove = (event: MouseEvent) => {
       const nextWidth = Math.max(260, Math.min(window.innerWidth - event.clientX, 600));
-      setWidth(nextWidth);
+      if (sidebarResizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(sidebarResizeFrameRef.current);
+      }
+      sidebarResizeFrameRef.current = window.requestAnimationFrame(() => {
+        setWidth((prev) => (prev === nextWidth ? prev : nextWidth));
+        sidebarResizeFrameRef.current = null;
+      });
     };
     const handleUp = () => setIsResizing(false);
     window.addEventListener('mousemove', handleMove);
@@ -483,6 +512,10 @@ export const AISidebar = () => {
     return () => {
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
+      if (sidebarResizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(sidebarResizeFrameRef.current);
+        sidebarResizeFrameRef.current = null;
+      }
     };
   }, [isResizing]);
 
@@ -556,14 +589,15 @@ export const AISidebar = () => {
   }, [user]);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !isOpen) return;
     const handler = () => {
+      if (document.visibilityState === 'hidden') return;
       loadConversations();
       loadProjects();
     };
     connectSocket();
     socket.on('ai:sync-updated', handler);
-    const refreshInterval = window.setInterval(handler, 15000);
+    const refreshInterval = window.setInterval(handler, 20000);
     const focusHandler = () => handler();
     window.addEventListener('focus', focusHandler);
     document.addEventListener('visibilitychange', focusHandler);
@@ -573,7 +607,7 @@ export const AISidebar = () => {
       window.removeEventListener('focus', focusHandler);
       document.removeEventListener('visibilitychange', focusHandler);
     };
-  }, [user]);
+  }, [user, isOpen]);
 
   useEffect(() => {
     if (!user) return;
@@ -2729,9 +2763,9 @@ export const AISidebar = () => {
 
   const persistLmStudioSettings = (next: { baseUrl?: string; token?: string; model?: string }) => {
     if (typeof window === 'undefined') return;
-    if (next.baseUrl !== undefined) setStoredValue('lmstudioBaseUrl', next.baseUrl);
-    if (next.token !== undefined) setStoredValue('lmstudioToken', next.token);
-    if (next.model !== undefined) setStoredValue('lmstudioModel', next.model);
+    if (next.baseUrl !== undefined) persistStoredValue('lmstudioBaseUrl', next.baseUrl);
+    if (next.token !== undefined) persistStoredValue('lmstudioToken', next.token, 220);
+    if (next.model !== undefined) persistStoredValue('lmstudioModel', next.model);
   };
 
   const handleRefreshLmModels = async () => {

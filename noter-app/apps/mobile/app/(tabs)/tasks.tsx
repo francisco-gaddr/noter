@@ -104,7 +104,17 @@ export default function TasksScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const theme = useTheme();
-  const { tasks, notes, isLoading, fetchTasks, fetchNotes, updateTask, reorderTasks, createNote, updateNote, deleteNote, deleteTask } = useStore();
+  const tasks = useStore((state) => state.tasks);
+  const notes = useStore((state) => state.notes);
+  const isLoading = useStore((state) => state.isLoading);
+  const fetchTasks = useStore((state) => state.fetchTasks);
+  const fetchNotes = useStore((state) => state.fetchNotes);
+  const updateTask = useStore((state) => state.updateTask);
+  const reorderTasks = useStore((state) => state.reorderTasks);
+  const createNote = useStore((state) => state.createNote);
+  const updateNote = useStore((state) => state.updateNote);
+  const deleteNote = useStore((state) => state.deleteNote);
+  const deleteTask = useStore((state) => state.deleteTask);
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'board' | 'calendar'>('list');
 
@@ -125,6 +135,7 @@ export default function TasksScreen() {
   const [showDatePicker, setShowDatePicker] = useState<'start' | 'end' | null>(null);
   const selectedChipBg = useMemo(() => theme.colors.primary, [theme]);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const settingsPersistTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load persistence
   useEffect(() => {
@@ -167,18 +178,28 @@ export default function TasksScreen() {
   // Save persistence
   useEffect(() => {
     if (!settingsLoaded) return;
-    const saveState = async () => {
-        await AsyncStorage.setItem(STORAGE_KEY_LIST, selectedListId || 'all');
-        await AsyncStorage.setItem(STORAGE_KEY_VIEW, viewMode);
-        await AsyncStorage.setItem(STORAGE_KEY_FILTERS, JSON.stringify({
-            quickFilter,
-            statusFilter,
-            start: filterDateRange.start ? filterDateRange.start.toISOString() : null,
-            end: filterDateRange.end ? filterDateRange.end.toISOString() : null
-        }));
-        await AsyncStorage.setItem(STORAGE_KEY_SORT, JSON.stringify({ sortBy, sortOrder }));
+    if (settingsPersistTimeoutRef.current) {
+      clearTimeout(settingsPersistTimeoutRef.current);
+    }
+    settingsPersistTimeoutRef.current = setTimeout(() => {
+      void AsyncStorage.multiSet([
+        [STORAGE_KEY_LIST, selectedListId || 'all'],
+        [STORAGE_KEY_VIEW, viewMode],
+        [STORAGE_KEY_FILTERS, JSON.stringify({
+          quickFilter,
+          statusFilter,
+          start: filterDateRange.start ? filterDateRange.start.toISOString() : null,
+          end: filterDateRange.end ? filterDateRange.end.toISOString() : null
+        })],
+        [STORAGE_KEY_SORT, JSON.stringify({ sortBy, sortOrder })],
+      ]);
+    }, 180);
+    return () => {
+      if (settingsPersistTimeoutRef.current) {
+        clearTimeout(settingsPersistTimeoutRef.current);
+        settingsPersistTimeoutRef.current = null;
+      }
     };
-    saveState();
   }, [selectedListId, viewMode, filterDateRange, quickFilter, statusFilter, sortBy, sortOrder, settingsLoaded]);
 
   const applyQuickFilter = (type: string) => {
@@ -484,6 +505,7 @@ export default function TasksScreen() {
           showViewToggle={false}
           onCreateTask={handleCreateTaskWithDate}
           onDelete={handleDeleteTask}
+          preSorted={true}
         />
       ) : viewMode === 'board' ? (
         <TaskBoard

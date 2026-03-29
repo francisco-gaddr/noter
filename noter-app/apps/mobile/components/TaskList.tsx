@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { StyleSheet, View, RefreshControl } from 'react-native';
 import DraggableFlatList, { ScaleDecorator, RenderItemParams, ShadowDecorator, OpacityDecorator } from 'react-native-draggable-flatlist';
 import { SegmentedButtons } from 'react-native-paper';
@@ -19,16 +19,20 @@ interface TaskListProps {
   onCreateTask?: (date: Date) => void;
   onDelete?: (task: Task) => void;
   scrollEnabled?: boolean;
+  preSorted?: boolean;
 }
 
 import { TaskItem } from './TaskItem';
 
-export default function TaskList({ tasks, onRefresh, refreshing, onToggleComplete, onReorder, showViewToggle = true, onCreateTask, onDelete, scrollEnabled = true }: TaskListProps) {
+export default function TaskList({ tasks, onRefresh, refreshing, onToggleComplete, onReorder, showViewToggle = true, onCreateTask, onDelete, scrollEnabled = true, preSorted = false }: TaskListProps) {
   const router = useRouter();
   const [viewMode, setViewMode] = useState<string>('list');
   const [sortBy, setSortBy] = useState<'custom' | 'createdAt' | 'dueDate' | 'priority'>('custom');
 
   const getSortedTasks = useCallback(() => {
+    if (preSorted) {
+      return tasks;
+    }
     let sorted = [...tasks];
     
     if (sortBy === 'priority') {
@@ -49,7 +53,7 @@ export default function TaskList({ tasks, onRefresh, refreshing, onToggleComplet
     return sorted;
   }, [tasks, sortBy]);
 
-  const sortedTasks = getSortedTasks();
+  const sortedTasks = useMemo(() => getSortedTasks(), [getSortedTasks]);
   const isCustomSort = sortBy === 'custom';
 
   const handlePress = useCallback((task: Task) => {
