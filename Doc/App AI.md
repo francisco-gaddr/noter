@@ -14,6 +14,8 @@ här kommer en komplett, steg-för-steg guide för att ta din befintliga Next.js
 - [x] E2E‑test för mockad nedladdning + chat via IPC
 - [x] GPU‑fallback (automatiskt CPU vid CUDA‑fel)
 - [x] Dev‑rendering med retry/fallback för att undvika vit app
+- [x] Electron-chat returnerar faktisk assistenttext tillbaka till chattkedjan utan DB-workaround
+- [x] Endast stdout streamas som chat-token; stderr används för felhantering
 - [ ] Verifiera MLC‑binär i PATH på Windows‑maskinen
 - [ ] End‑to‑end‑test med riktig modellnedladdning och chat
 

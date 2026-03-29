@@ -1,5 +1,5 @@
 const path = require('path');
-const { resolveQuant, ensureModelDir } = require('../src/mlc');
+const { resolveQuant, ensureModelDir, shouldRetryOnCpu } = require('../src/mlc');
 
 describe('mlc utilities', () => {
   it('maps quantization to mlc values', () => {
@@ -12,5 +12,11 @@ describe('mlc utilities', () => {
     const base = path.join('C:', 'temp');
     const dir = ensureModelDir(base, 'user/model', 'Q4_K_M');
     expect(dir).toContain(path.join('mlc_models', 'user_model', 'Q4_K_M'));
+  });
+
+  it('retries on GPU-related runtime failures only', () => {
+    expect(shouldRetryOnCpu(new Error('CUDA driver failed'))).toBe(true);
+    expect(shouldRetryOnCpu(new Error('GPU device unavailable'))).toBe(true);
+    expect(shouldRetryOnCpu(new Error('model package invalid'))).toBe(false);
   });
 });

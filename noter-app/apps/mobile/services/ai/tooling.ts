@@ -12,13 +12,16 @@ const allowedTools = new Set([
 ]);
 
 export const buildToolSystemPrompt = (baseUrl: string, enabledMcpServices: string[] = []) => {
+  const now = new Date();
   const enabledMcpText = enabledMcpServices.length > 0 ? enabledMcpServices.join(', ') : 'inga';
   return [
     'När tool use är aktiverat: använd tool calls proaktivt när användaren vill skapa, uppdatera, ta bort, lista, hämta eller sammanfatta anteckningar/projekt/tasklistor/uppgifter.',
     'Tolkar även planering, påminnelser, agenda, och uppgifter/anteckningar kopplade till datum som signal att använda tool calls.',
     'För vanliga chattar, resonemang eller allmänna frågor: svara som vanlig text utan tool calls.',
     `Base URL: ${baseUrl}`,
+    `Aktuellt datum/tid (ISO): ${now.toISOString()}`,
     'GraphQL endpoint: {BASE_URL}/graphql',
+    'MCP endpoint: {BASE_URL}/mcp/tools och {BASE_URL}/mcp/call',
     'Autentisering: använd samma Bearer-token som appen använder.',
     `Aktiva MCP-tjänster: ${enabledMcpText}.`,
     'Svara med ENDAST ett JSON-block i ```json ... ``` när du vill anropa tools.',
@@ -28,6 +31,12 @@ export const buildToolSystemPrompt = (baseUrl: string, enabledMcpServices: strin
     '[{"tool":"<name>","arguments":{...}}, {"tool":"<name2>","arguments":{...}}]',
     'Om användaren ber om ändring i data, utför nödvändiga tool calls direkt.',
     'Använd inte tool calls när användaren uttryckligen vill ha resonemang utan ändring.',
+    'Kedja verktyg när det behövs: discover -> select -> create/update -> verify -> explain.',
+    'Discover: använd list_* för att hitta rätt note, projekt eller tasklista.',
+    'Select: välj bästa kandidat baserat på titel, parent, typ och användarens intention.',
+    'Verify: kör list_*/get_* efter mutation när resultatet behöver bekräftas.',
+    'Anti-loop: upprepa inte samma tool call med identiska argument.',
+    'När tool use är avstängt: skriv aldrig JSON-tool-calls.',
     'Frasexempel som ska trigga tool use:',
     '- "lägg till uppgift att ringa tandläkaren imorgon 09:00".',
     '- "visa mina uppgifter med deadline denna vecka".',

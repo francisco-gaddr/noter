@@ -46,6 +46,33 @@ describe('web ai sync service', () => {
     expect(result.conversations[0]?.title).toBe('Plain title');
   });
 
+  it('masks ciphertext values when decryption fails', async () => {
+    jest.doMock('../services/api', () => ({
+      getApiBaseUrl: () => 'http://localhost:3001/api',
+    }));
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        conversations: [{
+          id: 'c2',
+          titleEnc: 'U2FsdGVkX19ciphertextpayloadthatshouldnotrender',
+          modelEnc: '',
+          projectIdEnc: '',
+          iconEnc: '',
+          iconColorEnc: '',
+          createdAtEnc: encrypt('2026-03-12T00:00:00.000Z'),
+          updatedAtEnc: encrypt('2026-03-12T00:00:00.000Z'),
+        }],
+        messages: [],
+        projects: [],
+      }),
+    });
+    global.fetch = fetchMock as any;
+    const sync = await import('../services/ai/sync');
+    const result = await sync.pullAiSync();
+    expect(result.conversations[0]?.title).toBe('');
+  });
+
   it('pushes encrypted payload for conversations, messages and projects', async () => {
     jest.doMock('../services/api', () => ({
       getApiBaseUrl: () => 'http://localhost:3001/api',

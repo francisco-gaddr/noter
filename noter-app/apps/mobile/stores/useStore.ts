@@ -8,7 +8,7 @@ import { initSocket, disconnectSocket, getSocket } from '../services/socket';
 import NetInfo from '@react-native-community/netinfo';
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { scheduleTaskReminder, cancelTaskReminder, cancelAllTaskReminders } from '../services/notifications';
+import { scheduleTaskReminder, cancelTaskReminder, cancelAllTaskReminders, syncAllTaskReminders } from '../services/notifications';
 import { buildSecurityNoteMap, findBlockingLockedAncestor } from '../services/ai/security';
 import i18n from '../services/i18n';
 import { initLocalEncryptionKey } from '../services/encryptionKey';
@@ -459,10 +459,7 @@ export const useStore = create<AppState>((set, get) => ({
       await cancelAllTaskReminders();
       return;
     }
-    const tasks = get().tasks;
-    for (const task of tasks) {
-      await scheduleTaskReminder(task);
-    }
+    await syncAllTaskReminders(get().tasks, true);
   },
 
   init: async () => {
@@ -681,6 +678,7 @@ export const useStore = create<AppState>((set, get) => ({
         Database.saveTaskLocal(parsed, true);
         return { tasks: [...state.tasks, parsed] };
       });
+      syncTaskReminderDeferred(parsed, get().notificationsEnabled);
     });
 
     socket.on('task:updated', (task: Task) => {
@@ -691,6 +689,7 @@ export const useStore = create<AppState>((set, get) => ({
           tasks: state.tasks.map(t => t._id === parsed._id ? parsed : t)
         };
       });
+      syncTaskReminderDeferred(parsed, get().notificationsEnabled);
     });
 
     socket.on('task:deleted', (id: string) => {
@@ -700,6 +699,7 @@ export const useStore = create<AppState>((set, get) => ({
           tasks: state.tasks.filter(t => t._id !== id)
         };
       });
+      cancelTaskReminderDeferred(id);
     });
 
     socket.on('tasks:reordered', (reorderedTasks: { _id: string; position: any }[]) => {
@@ -1085,9 +1085,7 @@ export const useStore = create<AppState>((set, get) => ({
         const mergedTasks = [...decryptedTasks, ...localOnlyTasks];
         set({ tasks: mergedTasks, isLoading: false });
         if (get().notificationsEnabled) {
-          for (const task of mergedTasks) {
-            await scheduleTaskReminder(task);
-          }
+          await syncAllTaskReminders(mergedTasks, true);
         }
       } else {
         const localTasks = await Database.getTasksLocal();
@@ -1095,9 +1093,7 @@ export const useStore = create<AppState>((set, get) => ({
         const mapped = filtered.map(processLocalTask);
         set({ tasks: mapped, isLoading: false });
         if (get().notificationsEnabled) {
-          for (const task of mapped) {
-            await scheduleTaskReminder(task);
-          }
+          await syncAllTaskReminders(mapped, true);
         }
       }
     } catch (error: any) {
@@ -1106,9 +1102,7 @@ export const useStore = create<AppState>((set, get) => ({
       const mapped = filtered.map(processLocalTask);
       set({ tasks: mapped, isLoading: false, error: error.message });
       if (get().notificationsEnabled) {
-        for (const task of mapped) {
-          await scheduleTaskReminder(task);
-        }
+        await syncAllTaskReminders(mapped, true);
       }
     }
   },
@@ -1138,9 +1132,7 @@ export const useStore = create<AppState>((set, get) => ({
       const mergedTasks = [...decryptedTasks, ...localOnlyTasks];
       set({ tasks: mergedTasks });
       if (get().notificationsEnabled) {
-        for (const task of mergedTasks) {
-          await scheduleTaskReminder(task);
-        }
+        await syncAllTaskReminders(mergedTasks, true);
       }
     } catch (error) {
       console.error('Background refresh failed', error);

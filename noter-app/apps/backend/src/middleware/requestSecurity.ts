@@ -45,7 +45,9 @@ export const enforceJsonApiRequests = (req: Request, res: Response, next: NextFu
 
 export const blockSuspiciousRequestPatterns = (req: Request, res: Response, next: NextFunction) => {
   if (!req.path.startsWith('/api/')) return next();
-  if (req.originalUrl.length > 2048) return res.status(414).json({ message: 'Request URL is too long' });
+  if ((req.originalUrl || '').length > 2048) {
+    return res.status(414).json({ message: 'Request URL is too long' });
+  }
   if (hasDangerousUrlPattern(req.originalUrl)) {
     return res.status(400).json({ message: 'Suspicious request blocked' });
   }

@@ -28,6 +28,8 @@ Denna arkitektur möjliggör lokal AI på mobilen genom att använda **GGUF-mode
 - [x] **UI Feedback:** Tydlig progress-bar och "Finalizing..." status.
 - [x] **Automatisk paketvalidering:** Efter unzip/konvertering söker appen upp faktisk paketrot med `mlc-chat-config.json` även om zip-filen innehåller extra toppmapp.
 - [x] **Bakgrundsflöde:** Nedladdning och konvertering fortsätter i bakgrunden och kan återupptas från installerad modellväg.
+- [x] **Runtime-gating:** Modeller får inte installeras eller aktiveras om MLC-runtime saknas i den installerade native-builden.
+- [x] **Krypterad AI-historik:** Användarmeddelanden, assistentsvar och tool-use-historik sparas krypterat lokalt och i AI-sync.
 
 ### Fas 3: Lokal Inferens (Chat) (✅ Klar)
 - [x] **Uppdatera `MobileLlamaProvider`:**
@@ -66,6 +68,7 @@ Denna arkitektur möjliggör lokal AI på mobilen genom att använda **GGUF-mode
 - Om modellen redan finns lokalt men ligger i en zip-rot med extra undermapp, ska appen automatiskt hitta rätt paketrot i stället för att kräva ominstallation.
 - Om lokal konvertering inte stöds i aktuell build ska appen tydligt fortsätta med serverkonvertering och fortfarande visa progress.
 - Om modellen inte kan valideras efter nedladdning ska användaren få tydligt fel i UI i stället för tyst misslyckande i chattflödet.
+- Om dekryptering av AI-sync misslyckas ska appen maska värdet i stället för att visa rå ciphertext i chatthistoriken.
 
 ## Detaljerad Arbetsgång (Next Steps)
 

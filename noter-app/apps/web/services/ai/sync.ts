@@ -26,10 +26,15 @@ const getHeaders = () => {
 
 const baseUrl = () => `${getApiBaseUrl().replace(/\/+$/, '')}/ai/sync`;
 
+const looksEncrypted = (value: string) =>
+  value.startsWith('U2FsdGVkX1') ||
+  /^[A-Za-z0-9+/=]{32,}$/.test(value);
+
 const safeDecrypt = (value: unknown) => {
   if (typeof value !== 'string') return '';
   const decrypted = decrypt(value);
-  return decrypted || value;
+  if (decrypted) return decrypted;
+  return looksEncrypted(value) ? '' : value;
 };
 
 const fetchJsonWithRetry = async (url: string, options: RequestInit, retries = 2) => {

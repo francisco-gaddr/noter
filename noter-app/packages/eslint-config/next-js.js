@@ -5,7 +5,7 @@ const compat = new FlatCompat({
 });
 
 const nextJsConfig = [
-  ...compat.extends('turbo', 'prettier'),
+  ...compat.extends('prettier'),
   {
     rules: {
       '@next/next/no-html-link-for-pages': 'off',

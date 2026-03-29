@@ -52,4 +52,23 @@ describe('AI native runtime', () => {
 
     expect(getModelInstallBlocker()).toContain('Expo Go');
   });
+
+  it('returns blocker when MLC runtime is missing in native build', () => {
+    jest.doMock('../utils/runtime', () => ({
+      isExpoGo: () => false,
+    }));
+    jest.doMock('react-native', () => ({
+      NativeModules: {},
+    }));
+    jest.doMock('react-native-fs', () => ({
+      DocumentDirectoryPath: '/docs',
+    }));
+    jest.doMock('react-native-zip-archive', () => ({
+      unzip: jest.fn(),
+    }));
+
+    const { getModelInstallBlocker } = require('../services/ai/nativeRuntime');
+
+    expect(getModelInstallBlocker()).toContain('MLC-runtime');
+  });
 });

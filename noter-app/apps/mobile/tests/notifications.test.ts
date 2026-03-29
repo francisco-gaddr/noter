@@ -18,7 +18,7 @@ jest.mock('expo-notifications', () => ({
   cancelScheduledNotificationAsync: (...args: any[]) => mockCancelScheduledNotificationAsync(...args),
 }));
 
-import { scheduleTaskReminder, cancelTaskReminder } from '../services/notifications';
+import { scheduleTaskReminder, cancelTaskReminder, cancelAllTaskReminders } from '../services/notifications';
 import { Task } from '@repo/shared';
 
 describe('task notifications', () => {
@@ -105,5 +105,70 @@ describe('task notifications', () => {
     await scheduleTaskReminder(task);
 
     expect(mockScheduleNotificationAsync).not.toHaveBeenCalled();
+  });
+
+  it('replaces existing reminders when the same task is rescheduled concurrently', async () => {
+    mockScheduleNotificationAsync
+      .mockResolvedValueOnce('first-0')
+      .mockResolvedValueOnce('first-10')
+      .mockResolvedValueOnce('second-0')
+      .mockResolvedValueOnce('second-10');
+
+    const task: Task = {
+      _id: 'task-4',
+      userId: 'user-1',
+      title: 'Concurrent task',
+      description: '',
+      dueDate: new Date('2026-06-01T12:30:00Z').toISOString(),
+      completed: false,
+      priority: 'medium',
+      reminderEnabled: true,
+      reminderOffsetMinutes: [0, 10],
+      createdAt: new Date('2026-06-01T09:00:00Z').toISOString(),
+      updatedAt: new Date('2026-06-01T09:00:00Z').toISOString(),
+    };
+
+    await Promise.all([scheduleTaskReminder(task), scheduleTaskReminder(task)]);
+
+    expect(mockScheduleNotificationAsync).toHaveBeenCalledTimes(4);
+    expect(mockCancelScheduledNotificationAsync).toHaveBeenCalledWith('first-0');
+    expect(mockCancelScheduledNotificationAsync).toHaveBeenCalledWith('first-10');
+  });
+
+  it('cancels every stored reminder when notifications are disabled globally', async () => {
+    mockScheduleNotificationAsync
+      .mockResolvedValueOnce('id-a1')
+      .mockResolvedValueOnce('id-a2')
+      .mockResolvedValueOnce('id-b1')
+      .mockResolvedValueOnce('id-b2');
+
+    const first: Task = {
+      _id: 'task-5',
+      userId: 'user-1',
+      title: 'First task',
+      description: '',
+      dueDate: new Date('2026-06-01T13:00:00Z').toISOString(),
+      completed: false,
+      priority: 'medium',
+      reminderEnabled: true,
+      reminderOffsetMinutes: [0, 10],
+      createdAt: new Date('2026-06-01T09:00:00Z').toISOString(),
+      updatedAt: new Date('2026-06-01T09:00:00Z').toISOString(),
+    };
+    const second: Task = {
+      ...first,
+      _id: 'task-6',
+      title: 'Second task',
+      dueDate: new Date('2026-06-01T14:00:00Z').toISOString(),
+    };
+
+    await scheduleTaskReminder(first);
+    await scheduleTaskReminder(second);
+    await cancelAllTaskReminders();
+
+    expect(mockCancelScheduledNotificationAsync).toHaveBeenCalledWith('id-a1');
+    expect(mockCancelScheduledNotificationAsync).toHaveBeenCalledWith('id-a2');
+    expect(mockCancelScheduledNotificationAsync).toHaveBeenCalledWith('id-b1');
+    expect(mockCancelScheduledNotificationAsync).toHaveBeenCalledWith('id-b2');
   });
 });

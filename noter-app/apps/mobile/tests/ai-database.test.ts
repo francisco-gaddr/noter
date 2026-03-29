@@ -85,4 +85,44 @@ describe('mobile AI database', () => {
     expect(clearProjectCall).toBeTruthy();
     expect(decrypt((clearProjectCall as any)[1][0])).toBe('project-1');
   });
+
+  it('stores assistant replies and tool history encrypted in local AI messages', async () => {
+    const runAsync = jest.fn(async () => {});
+    const execAsync = jest.fn(async () => {});
+
+    jest.doMock('expo-sqlite', () => ({
+      openDatabaseSync: () => ({
+        execAsync,
+        runAsync,
+        getAllAsync: jest.fn(async () => []),
+        getFirstAsync: jest.fn(async () => null),
+      }),
+    }));
+
+    let database: any;
+    jest.isolateModules(() => {
+      database = require('../services/database');
+    });
+
+    await database.saveMessageLocal('conv-2', {
+      id: 'm2',
+      role: 'assistant',
+      content: 'Här är svaret',
+      toolCalls: [{ tool: 'list_tasks', arguments: { completed: false } }],
+      toolCallId: 'tool-1',
+      createdAt: '2026-03-29T12:30:00.000Z',
+    });
+
+    const insertCall = runAsync.mock.calls.find((call: any[]) =>
+      String(call?.[0] || '').includes('INSERT OR REPLACE INTO messages')
+    ) as [string, any[]] | undefined;
+
+    expect(insertCall).toBeTruthy();
+    const params = insertCall?.[1] || [];
+    expect(params[2]).toMatch(/^U2FsdGVkX1/);
+    expect(params[3]).toMatch(/^U2FsdGVkX1/);
+    expect(params[4]).toMatch(/^U2FsdGVkX1/);
+    expect(params[5]).toMatch(/^U2FsdGVkX1/);
+    expect(params[3]).not.toContain('Här är svaret');
+  });
 });

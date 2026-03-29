@@ -4,6 +4,8 @@ export const combineSystemPrompts = (mainPrompt?: string, projectPrompt?: string
 };
 
 export const buildToolUseNotice = (enabled: boolean) => {
-  if (!enabled) return '';
-  return 'Tool-use är aktiverat. Assistenten kan utföra säkra verktygsanrop för att läsa/uppdatera dina anteckningar, uppgifter och projekt.';
+  if (!enabled) {
+    return 'Tool-use är avstängt. Svara som vanlig chatt utan JSON-tool-calls och utan att försöka köra verktyg.';
+  }
+  return 'Tool-use är aktiverat. Assistenten kan utföra säkra verktygsanrop för att läsa, skapa, uppdatera och verifiera anteckningar, uppgifter och projekt.';
 };

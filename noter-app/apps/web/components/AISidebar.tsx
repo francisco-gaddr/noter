@@ -1307,37 +1307,17 @@ export const AISidebar = () => {
     }
 
     if (isElectron) {
-        await (window as any).mlc.chat({
+        const result = await (window as any).mlc.chat({
             chatId: assistantMsg.id,
             modelPath,
             prompt: promptText
         });
-        // Electron MLC updates messages via 'mlc:chat-token' listener in useEffect
-        // But we need to return the full text here.
-        // The listener updates state 'messages'.
-        // We can wait until it's done?
-        // Actually, mlc.chat is a promise that resolves when done?
-        // Based on main.js: `return runChat(..., (token) => broadcast(...))`
-        // runChat awaits the python script.
-        // But runChat doesn't return the text.
-        // We need to capture the text from the state or a ref.
-        // The useEffect listener updates `setMessages` and `assistantSaveRef`.
-        // We can check `assistantSaveRef`? No, that's a timestamp.
-        // We can rely on the fact that when `mlc.chat` resolves, the generation is done.
-        // But we need the content.
-        // We can fetch the message from DB? Or ref?
-        // We can use a promise wrapper around the event listener?
-        // Actually, the listener updates `messages` state.
-        // We can access the latest content via `assistantConvRef` mapping to `convId`? No.
-        
-        // Hack: The listener updates `messages`. We can't easily get the return value here synchronously.
-        // But `runAIGeneration` needs it to pass to `processToolCalls`.
-        // We can fetch the message from DB after `mlc.chat` resolves.
-        // `saveAssistantProgress` saves to DB.
-        
-        const storedMsg = await db.getMessages(convId);
-        const myMsg = storedMsg.find(m => m.id === assistantMsg.id);
-        return myMsg?.content || '';
+        const fullText = typeof result?.content === 'string' ? result.content : '';
+        if (fullText) {
+          setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: fullText } : m));
+          await saveAssistantProgress(convId, assistantMsg.id as string, fullText);
+        }
+        return fullText;
     }
 
     const controller = new AbortController();

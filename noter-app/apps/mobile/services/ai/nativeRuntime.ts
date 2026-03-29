@@ -47,5 +47,9 @@ export const getModelInstallBlocker = () => {
     return 'Den installerade appen saknar native zip-stöd för AI-modeller. Bygg och installera en ny EAS APK.';
   }
 
+  if (!runtime.mlcModuleAvailable) {
+    return 'Den installerade appen saknar MLC-runtime för AI-modeller. Installera en ny EAS APK med native AI-stöd.';
+  }
+
   return null;
 };

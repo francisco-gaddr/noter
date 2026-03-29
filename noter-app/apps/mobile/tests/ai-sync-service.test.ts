@@ -43,6 +43,26 @@ describe('mobile ai sync service', () => {
     expect(result.conversations[0]?.title).toBe('Plain title');
   });
 
+  it('masks ciphertext values when decryption fails', async () => {
+    mockFetchWithAuth.mockResolvedValue({
+      conversations: [{
+        id: 'c2',
+        titleEnc: 'U2FsdGVkX19ciphertextpayloadthatshouldnotrender',
+        modelEnc: '',
+        projectIdEnc: '',
+        iconEnc: '',
+        iconColorEnc: '',
+        createdAtEnc: encrypt('2026-03-12T00:00:00.000Z'),
+        updatedAtEnc: encrypt('2026-03-12T00:00:00.000Z'),
+      }],
+      messages: [],
+      projects: [],
+    });
+    const sync = require('../services/ai/sync');
+    const result = await sync.pullAiSync();
+    expect(result.conversations[0]?.title).toBe('');
+  });
+
   it('pushes encrypted payload for conversations, messages and projects', async () => {
     mockFetchWithAuth.mockResolvedValue({});
     const sync = require('../services/ai/sync');

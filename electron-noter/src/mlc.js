@@ -160,14 +160,30 @@ const deleteModel = (baseDir, id) => {
 
 const chatProcesses = new Map();
 
+const shouldRetryOnCpu = (error) => {
+  const message = String(error?.message || error || '').toLowerCase();
+  return (
+    message.includes('cuda') ||
+    message.includes('gpu') ||
+    message.includes('metal') ||
+    message.includes('vulkan') ||
+    message.includes('rocm') ||
+    message.includes('device')
+  );
+};
+
 const runChatCommand = (chatId, args, onToken) => new Promise((resolve, reject) => {
   const proc = spawn('mlc_llm', args, { stdio: ['pipe', 'pipe', 'pipe'] });
   if (chatId) chatProcesses.set(chatId, proc);
+  let stdoutText = '';
+  let stderrText = '';
   proc.stdout.on('data', (data) => {
-    if (onToken) onToken(data.toString());
+    const chunk = data.toString();
+    stdoutText += chunk;
+    if (onToken) onToken(chunk);
   });
   proc.stderr.on('data', (data) => {
-    if (onToken) onToken(data.toString());
+    stderrText += data.toString();
   });
   proc.on('error', (err) => {
     if (chatId) chatProcesses.delete(chatId);
@@ -175,8 +191,12 @@ const runChatCommand = (chatId, args, onToken) => new Promise((resolve, reject) 
   });
   proc.on('close', (code) => {
     if (chatId) chatProcesses.delete(chatId);
-    if (code === 0) resolve(true);
-    else reject(new Error(`mlc_llm exited with ${code}`));
+    if (code === 0) {
+      resolve({ content: stdoutText, stderr: stderrText });
+      return;
+    }
+    const details = stderrText.trim();
+    reject(new Error(details ? `mlc_llm exited with ${code}: ${details}` : `mlc_llm exited with ${code}`));
   });
 });
 
@@ -187,15 +207,19 @@ const runChat = async (_baseDir, payload, onToken) => {
   if (!modelPath) throw new Error('modelPath required');
   if (isMock) {
     if (onToken) onToken(`Mock: ${prompt}`);
-    return true;
+    return { content: `Mock: ${prompt}`, usedDevice: 'mock' };
   }
   const args = ['chat', modelPath, '--prompt', prompt];
   try {
-    await runChatCommand(chatId, args, onToken);
+    const result = await runChatCommand(chatId, args, onToken);
+    return { content: result.content, usedDevice: 'default' };
   } catch (error) {
-    await runChatCommand(chatId, [...args, '--device', 'cpu'], onToken);
+    if (!shouldRetryOnCpu(error)) {
+      throw error;
+    }
+    const result = await runChatCommand(chatId, [...args, '--device', 'cpu'], onToken);
+    return { content: result.content, usedDevice: 'cpu' };
   }
-  return true;
 };
 
 const cancelChat = (chatId) => {
@@ -272,6 +296,7 @@ module.exports = {
   cancelChat,
   resolveQuant,
   ensureModelDir,
+  shouldRetryOnCpu,
   searchModels,
   getModelFiles,
 };
