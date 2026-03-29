@@ -1,6 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import CryptoJS from 'crypto-js';
-import { Note, Task, Conversation, Message, AIModel, AIProject, encrypt, decrypt } from '@repo/shared';
+import { Note, Task, Conversation, Message, AIModel, AIProject, encrypt, decrypt, decryptWithSource } from '@repo/shared';
 
 type LocalConversation = Conversation & { localOnly?: boolean };
 type LocalAIProject = AIProject & { localOnly?: boolean };
@@ -37,6 +37,20 @@ const decryptText = (value: unknown, fallback: string | null = null): string | n
 };
 
 const encryptText = (value: unknown): string => encrypt(String(value ?? ''));
+const decryptDisplayText = (value: unknown, fallback = ''): string => {
+  if (value == null) return fallback;
+  const raw = typeof value === 'string' ? value : String(value);
+  const result = decryptWithSource(raw);
+  return result.source === 'failed' ? fallback : result.value;
+};
+const shouldReencrypt = (value: unknown) => {
+  if (typeof value !== 'string' || value.length === 0) return null;
+  const result = decryptWithSource(value);
+  if (result.source === 'legacy' || result.source === 'plaintext') {
+    return encrypt(result.value);
+  }
+  return null;
+};
 
 const decryptNumber = (value: unknown): number | null => {
   const text = decryptText(value);
@@ -596,8 +610,8 @@ export const getTasksLocal = async (): Promise<Task[]> => {
 
     return {
         _id: row._id,
-        title: decrypt(row.title),
-        description: row.description ? decrypt(row.description) : '',
+        title: decryptDisplayText(row.title, ''),
+        description: row.description ? decryptDisplayText(row.description, '') : '',
         priority: priority,
         completed: completed,
         dueDate: dueDate,
@@ -615,6 +629,49 @@ export const getTasksLocal = async (): Promise<Task[]> => {
     } as unknown as Task;
   });
   return tasks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+};
+
+export const migrateLocalEncryptedData = async () => {
+  const noteColumns = ['title', 'content', 'tags', 'createdAt', 'updatedAt', 'userId', 'clientId', 'type', 'parentId', 'noteOrder', 'icon', 'iconColor', 'locked', 'password', 'isSynced'];
+  const taskColumns = ['title', 'description', 'priority', 'completed', 'dueDate', 'createdAt', 'updatedAt', 'userId', 'parentNoteId', 'parentId', 'position', 'recurrenceType', 'recurrenceDays', 'reminderEnabled', 'reminderOffsetMinutes', 'clientId', 'isSynced'];
+  let migratedNotes = 0;
+  let migratedTasks = 0;
+
+  const noteRows = await db.getAllAsync<any>(`SELECT _id, ${noteColumns.join(', ')} FROM notes`);
+  for (const row of noteRows) {
+    const updates: string[] = [];
+    const params: any[] = [];
+    for (const column of noteColumns) {
+      const next = shouldReencrypt(row[column]);
+      if (next && next !== row[column]) {
+        updates.push(`${column} = ?`);
+        params.push(next);
+      }
+    }
+    if (updates.length > 0) {
+      await db.runAsync(`UPDATE notes SET ${updates.join(', ')} WHERE _id = ?`, [...params, row._id]);
+      migratedNotes += 1;
+    }
+  }
+
+  const taskRows = await db.getAllAsync<any>(`SELECT _id, ${taskColumns.join(', ')} FROM tasks`);
+  for (const row of taskRows) {
+    const updates: string[] = [];
+    const params: any[] = [];
+    for (const column of taskColumns) {
+      const next = shouldReencrypt(row[column]);
+      if (next && next !== row[column]) {
+        updates.push(`${column} = ?`);
+        params.push(next);
+      }
+    }
+    if (updates.length > 0) {
+      await db.runAsync(`UPDATE tasks SET ${updates.join(', ')} WHERE _id = ?`, [...params, row._id]);
+      migratedTasks += 1;
+    }
+  }
+
+  return { migratedNotes, migratedTasks };
 };
 
 export const deleteTaskLocal = async (id: string) => {
@@ -680,7 +737,7 @@ export const saveConversationLocal = async (conversation: LocalConversation) => 
 };
 
 export const getConversationsLocal = async (): Promise<LocalConversation[]> => {
-  const result = await db.getAllAsync<any>('SELECT * FROM conversations ORDER BY updatedAt DESC');
+  const result = await db.getAllAsync<any>('SELECT * FROM conversations');
   return result.map((row: any) => ({
     id: row.id,
     title: decrypt(row.title),
@@ -692,7 +749,7 @@ export const getConversationsLocal = async (): Promise<LocalConversation[]> => {
     createdAt: decrypt(row.createdAt),
     updatedAt: decrypt(row.updatedAt),
     messages: []
-  }));
+  })).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 };
 
 export const deleteConversationLocal = async (id: string) => {
@@ -705,17 +762,19 @@ export const saveMessageLocal = async (conversationId: string, message: Message)
   const encryptedContent = encrypt(message.content);
   const encryptedToolCalls = message.toolCalls ? encrypt(JSON.stringify(message.toolCalls)) : null;
   const encryptedToolCallId = message.toolCallId ? encrypt(message.toolCallId) : null;
-  const encryptedCreatedAt = encrypt(message.createdAt ?? new Date().toISOString());
+  const createdAt = message.createdAt ?? new Date().toISOString();
+  const encryptedCreatedAt = encrypt(createdAt);
 
   await db.runAsync(
     `INSERT OR REPLACE INTO messages (id, conversationId, role, content, toolCalls, toolCallId, createdAt)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [messageId, conversationId, encryptedRole, encryptedContent, encryptedToolCalls, encryptedToolCallId, encryptedCreatedAt]
   );
+  await db.runAsync('UPDATE conversations SET updatedAt = ? WHERE id = ?', [encryptedCreatedAt, conversationId]);
 };
 
 export const getMessagesLocal = async (conversationId: string): Promise<Message[]> => {
-  const result = await db.getAllAsync<any>('SELECT * FROM messages WHERE conversationId = ? ORDER BY createdAt ASC', [conversationId]);
+  const result = await db.getAllAsync<any>('SELECT * FROM messages WHERE conversationId = ?', [conversationId]);
   return result.map((row: any) => {
     let toolCalls = undefined;
     if (row.toolCalls) {
@@ -731,7 +790,7 @@ export const getMessagesLocal = async (conversationId: string): Promise<Message[
       toolCallId: row.toolCallId ? decrypt(row.toolCallId) : undefined,
       createdAt: decrypt(row.createdAt)
     };
-  });
+  }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 };
 
 // AI Models
@@ -787,7 +846,7 @@ export const saveProjectLocal = async (project: LocalAIProject, userId?: string)
 };
 
 export const getProjectsLocal = async (userId?: string): Promise<LocalAIProject[]> => {
-  const result = await db.getAllAsync<any>('SELECT * FROM ai_projects ORDER BY updatedAt DESC');
+  const result = await db.getAllAsync<any>('SELECT * FROM ai_projects');
   return result
     .map((row: any) => ({
       id: row.id,
@@ -800,12 +859,13 @@ export const getProjectsLocal = async (userId?: string): Promise<LocalAIProject[
       createdAt: decrypt(row.createdAt),
       updatedAt: decrypt(row.updatedAt),
     }))
-    .filter((project) => !userId || project.userId === userId);
+    .filter((project) => !userId || project.userId === userId)
+    .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 };
 
 export const deleteProjectLocal = async (id: string) => {
   await db.runAsync('DELETE FROM ai_projects WHERE id = ?', [id]);
-  await db.runAsync('UPDATE conversations SET projectId = NULL WHERE projectId = ?', [id]);
+  await db.runAsync('UPDATE conversations SET projectId = NULL WHERE projectId = ?', [encrypt(id)]);
 };
 
 export const clearNotesLocal = async () => {

@@ -29,6 +29,8 @@ Bygg plattformen med säkerhet, stabilitet och produktkvalitet som primära mål
 - Expo Go, dev builds och EAS APK ska dela samma robusta bootstrapprinciper: fail-soft startup, tydliga fallback-fel och ingen blockerande init som fastnar på splash.
 - AI-modellflödet på mobil ska särskilja Expo Go från saknade native moduler i EAS-build; feltexter måste spegla faktisk runtime-orsak.
 - Upplåsta låsta anteckningar får dekrypteras i editor/runtime efter korrekt lösenord, men UI får aldrig falla tillbaka till att visa rå ciphertext.
+- AI-konversationslagring på mobil ska sortera och uppdatera aktivitet utifrån dekrypterade tidsvärden; krypterade SQL-fält får inte användas som enda ordningskälla.
+- API-provider-läge och lokal modell-läge ska båda verifieras med samma krav på felhantering, prompt-konsistens och användbar chattrespons.
 
 ## Säkerhetspolicy
 

@@ -1207,6 +1207,7 @@ export default function AIScreen() {
           setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: cleaned } : m));
           const cleanedMsg = { id: assistantId, role: 'assistant', content: cleaned, createdAt: new Date().toISOString() } as ChatMessage;
           await saveMessageLocal(conversationId, cleanedMsg);
+          refreshConversationActivity(conversationId, cleanedMsg.createdAt);
           if (!isConversationLocalOnly(conversationId)) {
               pushAiSync({ messages: [{ conversationId, message: cleanedMsg }] }).catch(() => {});
           }
@@ -1220,6 +1221,7 @@ export default function AIScreen() {
           const toolMsg: ChatMessage = { id: uuidv4(), role: 'tool', content: `Tool call: ${call.tool} ${safePreview({ args: call.arguments || {} })}`, createdAt: new Date().toISOString() };
           setMessages(prev => [...prev, toolMsg]);
           await saveMessageLocal(conversationId, toolMsg);
+          refreshConversationActivity(conversationId, toolMsg.createdAt);
           if (!isConversationLocalOnly(conversationId)) {
               pushAiSync({ messages: [{ conversationId, message: toolMsg }] }).catch(() => {});
           }
@@ -1241,6 +1243,7 @@ export default function AIScreen() {
               const resultMsg: ChatMessage = { id: uuidv4(), role: 'tool', content: `Tool result: ${call.tool} ${safePreview({ entitiesRead, result })}`, createdAt: new Date().toISOString() };
               setMessages(prev => [...prev, resultMsg]);
               await saveMessageLocal(conversationId, resultMsg);
+              refreshConversationActivity(conversationId, resultMsg.createdAt);
               if (!isConversationLocalOnly(conversationId)) {
                   pushAiSync({ messages: [{ conversationId, message: resultMsg }] }).catch(() => {});
               }
@@ -1251,6 +1254,7 @@ export default function AIScreen() {
               const errMsg: ChatMessage = { id: uuidv4(), role: 'tool', content: `Tool error: ${call.tool} ${errorText}`, createdAt: new Date().toISOString() };
               setMessages(prev => [...prev, errMsg]);
               await saveMessageLocal(conversationId, errMsg);
+              refreshConversationActivity(conversationId, errMsg.createdAt);
               if (!isConversationLocalOnly(conversationId)) {
                   pushAiSync({ messages: [{ conversationId, message: errMsg }] }).catch(() => {});
               }
@@ -1298,12 +1302,21 @@ export default function AIScreen() {
           let generationError: any = null;
           if (aiUseApiProviders) {
               try {
-                  const response = await generateApiProviderResponse({
+                  const requestResponse = async () => generateApiProviderResponse({
                       provider: apiProvider,
                       apiKey: apiProvider === 'openrouter' ? openRouterApiKey : geminiApiKey,
                       model: apiProvider === 'openrouter' ? openRouterModel : geminiModel,
                       history: currentHistory,
                   });
+                  let response = '';
+                  try {
+                      response = await requestResponse();
+                  } catch (firstApiError: any) {
+                      generationError = firstApiError;
+                      await new Promise((resolve) => setTimeout(resolve, 400));
+                      response = await requestResponse();
+                      generationError = null;
+                  }
                   const chunks = response.split(/(\s+)/).filter(Boolean);
                   for (const chunk of chunks) {
                       if (stopRequestedRef.current) break;
@@ -1382,6 +1395,7 @@ export default function AIScreen() {
           updateTps();
           const savedMsg: ChatMessage = { ...assistantMsg, content: (fullContent || '').toString() };
           await saveMessageLocal(conversationId, savedMsg);
+          refreshConversationActivity(conversationId, savedMsg.createdAt);
           if (!isConversationLocalOnly(conversationId)) {
               pushAiSync({ messages: [{ conversationId, message: savedMsg }] }).catch(() => {});
           }
@@ -1439,6 +1453,15 @@ export default function AIScreen() {
           return `Size: ${mb.toFixed(1)} MB`;
       }
       return 'Size: ?';
+  };
+
+  const refreshConversationActivity = (conversationId: string, updatedAt?: string) => {
+      const nextUpdatedAt = updatedAt || new Date().toISOString();
+      setConversations(prev =>
+          [...prev]
+              .map((conversation) => conversation.id === conversationId ? { ...conversation, updatedAt: nextUpdatedAt } : conversation)
+              .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+      );
   };
 
   const createNewChat = async () => {
@@ -1743,6 +1766,7 @@ export default function AIScreen() {
             setDownloadProgress(prev => ({ ...prev, [model.id]: percent }));
         }, {
             preferLocalConversion: true,
+            strictLocalConversion: true,
             onStageChange: (stage) => {
               if (stage === 'converting_locally') localStageObserved = true;
               setDownloadStage(prev => ({ ...prev, [model.id]: stage }));
@@ -1863,10 +1887,15 @@ export default function AIScreen() {
 
     try {
       await saveMessageLocal(conversationId, userMsg);
+      refreshConversationActivity(conversationId, userMsg.createdAt);
       if (!isConversationLocalOnly(conversationId)) {
           pushAiSync({ messages: [{ conversationId, message: userMsg }] }).catch(() => {});
       }
       if (!aiUseApiProviders) {
+          const blocker = getModelInstallBlocker();
+          if (blocker) {
+              throw new Error(blocker);
+          }
           await provider.loadModel(activeModel as string);
       }
       await runAIGeneration(conversationId, buildHistory(userMsg));

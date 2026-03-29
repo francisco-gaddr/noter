@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { downloadCompiledModel, getModelDir, getPlatformTarget } from './ModelDownloader';
 import { requestModelConversion, getConversionStatus, getCompiledModelUrl } from './huggingface';
 import { getReactNativeFs } from './nativeRuntime';
+import { convertGGUFToMLC, getLocalConversionCapabilities } from './native/MLCModule';
 
 const getModelsDir = () => {
   const RNFS = getReactNativeFs();
@@ -37,12 +38,76 @@ export const getBestQuantization = (files: HFFile[]): HFFile | undefined => {
     return files.sort((a, b) => a.size - b.size)[0];
 };
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const swallowAsync = async (operation: unknown) => {
+    try {
+        await Promise.resolve(operation);
+    } catch {}
+};
+
+const verifyModelPackage = async (RNFS: any, targetPath: string) => {
+    const configExists = await RNFS.exists(`${targetPath}/mlc-chat-config.json`);
+    if (!configExists) {
+        throw new Error('Invalid model package');
+    }
+};
+
+const tryLocalConversion = async (
+    RNFS: any,
+    model: HFModel,
+    file: HFFile,
+    modelDir: string,
+    platform: 'iphone' | 'android',
+    onProgress?: (percent: number) => void,
+    onStageChange?: (stage: 'queued' | 'downloading' | 'converting' | 'converting_locally' | 'zipping' | 'completed' | 'failed') => void
+) => {
+    const capabilities = await getLocalConversionCapabilities();
+    if (!capabilities.engineAvailable || !capabilities.converterAvailable) {
+        throw new Error('Local conversion unsupported');
+    }
+
+    await swallowAsync(RNFS.mkdir(modelDir));
+    const tempDir = `${RNFS.DocumentDirectoryPath}/mlc_models_tmp`;
+    await swallowAsync(RNFS.mkdir(tempDir));
+    const safeModelId = model.id.replace(/[^a-zA-Z0-9._-]+/g, '_');
+    const safeQuantization = (file.quantization || 'Q4_K_M').toUpperCase().replace(/[^a-zA-Z0-9._-]+/g, '_');
+    const ggufPath = `${tempDir}/${safeModelId}_${safeQuantization}.gguf`;
+
+    onStageChange?.('downloading');
+    const download = RNFS.downloadFile({
+        fromUrl: file.url,
+        toFile: ggufPath,
+        background: true,
+        discretionary: true,
+        progress: (res: { bytesWritten: number; contentLength: number }) => {
+            if (!onProgress || !res.contentLength) return;
+            onProgress(Math.min(0.6, (res.bytesWritten / res.contentLength) * 0.6));
+        },
+    });
+    const result = await download.promise;
+    if (result.statusCode !== 200) {
+        await swallowAsync(RNFS.unlink(ggufPath));
+        throw new Error('Failed to download GGUF');
+    }
+
+    onStageChange?.('converting_locally');
+    onProgress?.(0.7);
+    const convertedPath = await convertGGUFToMLC(ggufPath, modelDir, file.quantization || 'Q4_K_M', platform);
+    const finalPath = typeof convertedPath === 'string' && convertedPath ? convertedPath : modelDir;
+    await verifyModelPackage(RNFS, finalPath);
+    await swallowAsync(RNFS.unlink(ggufPath));
+    onProgress?.(1);
+    onStageChange?.('completed');
+    return finalPath;
+};
+
 export const downloadModel = async (
     model: HFModel, 
     file: HFFile, 
     onProgress?: (percent: number) => void,
     options?: {
       preferLocalConversion?: boolean;
+      strictLocalConversion?: boolean;
       onStageChange?: (stage: 'queued' | 'downloading' | 'converting' | 'converting_locally' | 'zipping' | 'completed' | 'failed') => void;
     }
 ): Promise<string> => {
@@ -53,48 +118,69 @@ export const downloadModel = async (
         throw new Error('Native filesystem not available');
     }
     const exists = await RNFS.exists(modelDir);
+    let resolvedModelDir = modelDir;
     if (!exists) {
         options?.onStageChange?.('queued');
-        const { jobId } = await requestModelConversion({
-            modelId: model.id,
-            ggufUrl: file.url,
-            quantization: file.quantization,
-            platform
-        });
-
-        const maxAttempts = 120;
-        let outputUrl: string | undefined;
-        for (let i = 0; i < maxAttempts; i += 1) {
-            const status = await getConversionStatus(jobId);
-            const nextStage = status.status === 'converting' && options?.preferLocalConversion ? 'converting_locally' : status.status;
-            options?.onStageChange?.(nextStage as any);
-            if (typeof status.progress === 'number') {
-                onProgress?.(Math.min(0.9, Math.max(0, status.progress)));
+        if (options?.preferLocalConversion) {
+            try {
+                resolvedModelDir = await tryLocalConversion(
+                    RNFS,
+                    model,
+                    file,
+                    modelDir,
+                    platform,
+                    onProgress,
+                    options?.onStageChange
+                );
+            } catch (error) {
+                if (options?.strictLocalConversion) {
+                    throw error;
+                }
             }
-            if (status.status === 'completed') {
-                outputUrl = status.outputUrl;
-                break;
-            }
-            if (status.status === 'failed') {
-                throw new Error(status.message || 'Conversion failed');
-            }
-            await new Promise(resolve => setTimeout(resolve, 2000));
         }
 
-        if (!outputUrl) {
-            const compiled = await getCompiledModelUrl({
+        const locallyExists = await RNFS.exists(`${resolvedModelDir}/mlc-chat-config.json`);
+        if (!locallyExists) {
+            const { jobId } = await requestModelConversion({
                 modelId: model.id,
+                ggufUrl: file.url,
                 quantization: file.quantization,
                 platform
             });
-            outputUrl = compiled.url;
-        }
 
-        options?.onStageChange?.('downloading');
-        await downloadCompiledModel(outputUrl, model.id, file.quantization, (p) => {
-            onProgress?.(0.9 + p * 0.1);
-        });
-        options?.onStageChange?.('completed');
+            const maxAttempts = 120;
+            let outputUrl: string | undefined;
+            for (let i = 0; i < maxAttempts; i += 1) {
+                const status = await getConversionStatus(jobId);
+                options?.onStageChange?.(status.status as any);
+                if (typeof status.progress === 'number') {
+                    onProgress?.(Math.min(0.9, Math.max(0, status.progress)));
+                }
+                if (status.status === 'completed') {
+                    outputUrl = status.outputUrl;
+                    break;
+                }
+                if (status.status === 'failed') {
+                    throw new Error(status.message || 'Conversion failed');
+                }
+                await sleep(2000);
+            }
+
+            if (!outputUrl) {
+                const compiled = await getCompiledModelUrl({
+                    modelId: model.id,
+                    quantization: file.quantization,
+                    platform
+                });
+                outputUrl = compiled.url;
+            }
+
+            options?.onStageChange?.('downloading');
+            resolvedModelDir = await downloadCompiledModel(outputUrl, model.id, file.quantization, (p) => {
+                onProgress?.(0.9 + p * 0.1);
+            });
+            options?.onStageChange?.('completed');
+        }
     }
 
     const filename = (file.quantization ? `${file.quantization}.zip` : 'model.zip');
@@ -102,19 +188,19 @@ export const downloadModel = async (
         id: uuidv4(),
         name: model.name,
         filename: filename,
-        path: modelDir,
+        path: resolvedModelDir,
         size: file.size,
         downloaded: true,
         quantization: file.quantization
     });
 
-    return modelDir;
+    return resolvedModelDir;
 };
 
 export const deleteModel = async (id: string, path: string) => {
     const RNFS = getReactNativeFs();
     try {
-        await RNFS.unlink(path).catch(() => {});
+        await swallowAsync(RNFS.unlink(path));
         await deleteModelLocal(id);
     } catch (error) {
         console.error("Failed to delete model file:", error);

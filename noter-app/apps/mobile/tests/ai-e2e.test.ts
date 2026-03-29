@@ -6,6 +6,10 @@ jest.mock('uuid', () => ({
   v4: () => 'test-uuid',
 }));
 
+jest.mock('../utils/runtime', () => ({
+  isExpoGo: () => false,
+}));
+
 jest.mock('../services/ai/ModelManager', () => ({
   modelManager: {
     load: (...args: any[]) => mockLoad(...args),
@@ -32,6 +36,9 @@ jest.mock('../services/ai/huggingface', () => ({
 }));
 
 jest.mock('react-native-fs', () => ({
+  DocumentDirectoryPath: '/docs',
+  exists: jest.fn().mockResolvedValue(true),
+  unlink: jest.fn(),
   default: {
     DocumentDirectoryPath: '/docs',
     exists: jest.fn().mockResolvedValue(true),

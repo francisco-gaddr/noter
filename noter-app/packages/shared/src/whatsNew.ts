@@ -7,6 +7,17 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    version: '1.0.11',
+    build: '2026.03.29.3',
+    date: '2026-03-29',
+    highlights: [
+      'Mobil AI: Lokal modellpipeline stöder nu verklig native konvertering när device-capabilities finns och faller annars tillbaka säkert',
+      'Mobil AI: Chattlistor, senaste aktivitet och projektkopplingar i lokal lagring hanteras nu stabilt trots krypterade tids- och projektfält',
+      'Mobil AI: OpenRouter och Gemini får robustare historikmappning för systempromptar, tool-resultat och felmeddelanden',
+      'Tester: Nya regressioner täcker lokal AI-konvertering, AI-databassortering, projekt-cleanup och både lokal/API-baserad chattstabilitet',
+    ],
+  },
+  {
     version: '1.0.10',
     build: '2026.03.29.2',
     date: '2026-03-29',

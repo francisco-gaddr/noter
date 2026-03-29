@@ -64,6 +64,7 @@
   - Säkerställ EAS-profiler och ignore-regler.
   - Kör faktisk EAS Android-build när release-readiness är en del av leveransen och dokumentera build-id/status.
   - Native AI-stöd ska verifiera filsystem, zip-stöd och MLC-modul i installerad EAS-build; Expo Go-feltext får inte användas för andra native fel.
+  - AI-modellflödet ska verifiera hela kedjan: sök -> filval -> lokal lagring -> lokal eller serverstödd konvertering -> modell-load -> chatt.
 - Web:
   - Bygg med konfiguration som undviker kända Turbopack/symlink-problem på Windows.
 - Electron:
