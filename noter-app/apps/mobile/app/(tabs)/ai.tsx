@@ -7,7 +7,7 @@ import { MobileLlamaProvider } from '@/services/ai/provider';
 import { useStore } from '@/stores/useStore';
 import { ChatMessage, Conversation, HFModel, AIProject } from '@repo/ai';
 import { searchHuggingFaceModels, getModelFiles, getConversionHealth } from '@/services/ai/huggingface';
-import { downloadModel as serviceDownloadModel, getBestQuantization, deleteModel as serviceDeleteModel, cancelDownload as cancelModelDownload } from '@/services/ai/modelService';
+import { downloadModel as serviceDownloadModel, getBestQuantization, deleteModel as serviceDeleteModel, cancelDownload as cancelModelDownload, prepareModelForChat } from '@/services/ai/modelService';
 import { saveConversationLocal, getConversationsLocal, deleteConversationLocal, saveMessageLocal, getMessagesLocal, getModelsLocal, saveProjectLocal, getProjectsLocal, deleteProjectLocal } from '@/services/database';
 import { combineSystemPrompts, buildToolUseNotice } from '@/services/ai/prompt';
 import { API_URL, fetchWithAuth } from '@/services/api';
@@ -537,9 +537,17 @@ export default function AIScreen() {
 
   const loadModels = async () => {
       const models = await getModelsLocal();
-      setLocalModels(models);
-      if (models.length > 0 && !activeModel) {
-          setActiveModel(models[0].path);
+      const normalizedModels = await Promise.all(models.map(async (model) => {
+          try {
+              const resolvedPath = await prepareModelForChat(model.path);
+              return resolvedPath === model.path ? model : { ...model, path: resolvedPath };
+          } catch {
+              return model;
+          }
+      }));
+      setLocalModels(normalizedModels);
+      if (normalizedModels.length > 0 && !activeModel) {
+          setActiveModel(normalizedModels[0].path);
       }
   };
 
@@ -604,6 +612,7 @@ export default function AIScreen() {
       if (message.includes('Local conversion unsupported')) return 'Lokal konvertering stöds inte i denna build. Server-fallback används.';
       if (message.includes('Failed to download GGUF')) return 'Kunde inte ladda ner GGUF-filen för lokal konvertering.';
       if (message.includes('Invalid model package')) return 'Modellpaketet är ogiltigt eller saknar filer.';
+      if (message.includes('Model path not found')) return 'Den nedladdade modellen kunde inte hittas längre. Ladda ner eller välj modellen igen.';
       if (message.includes('Conversion failed')) return 'Konvertering misslyckades på servern.';
       if (message.includes('job not found')) return 'Konverteringsjobb saknas eller har löpt ut.';
       return message;
@@ -631,6 +640,7 @@ export default function AIScreen() {
           downloading: t('ai.downloadStageDownloadingGguf'),
           converting: t('ai.downloadStageConvertingServer'),
           zipping: t('ai.downloadStagePacking'),
+          validating: t('ai.downloadStageFinalizing'),
           completed: t('ai.downloadStageCompleted'),
           finalizing: t('ai.downloadStageFinalizing'),
       };
@@ -1830,6 +1840,15 @@ export default function AIScreen() {
       }
   };
 
+  const handleActivateModel = async (path: string) => {
+      try {
+          const preparedPath = await prepareModelForChat(path);
+          setActiveModel(preparedPath);
+      } catch (error) {
+          alert(formatError(error));
+      }
+  };
+
   const handleSend = async () => {
     if (!input.trim() || loading) return;
 
@@ -1896,7 +1915,11 @@ export default function AIScreen() {
           if (blocker) {
               throw new Error(blocker);
           }
-          await provider.loadModel(activeModel as string);
+          const preparedPath = await prepareModelForChat(activeModel as string);
+          if (preparedPath !== activeModel) {
+              setActiveModel(preparedPath);
+          }
+          await provider.loadModel(preparedPath);
       }
       await runAIGeneration(conversationId, buildHistory(userMsg));
     } catch (error) {
@@ -2173,7 +2196,7 @@ export default function AIScreen() {
                           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                             <Button
                               mode={activeModel === m.path ? 'contained' : 'outlined'}
-                              onPress={() => setActiveModel(m.path)}
+                              onPress={() => handleActivateModel(m.path)}
                               style={{ marginRight: 8 }}
                             >
                               {activeModel === m.path ? t('ai.active') : t('ai.select')}

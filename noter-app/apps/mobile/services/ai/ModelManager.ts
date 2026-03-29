@@ -1,7 +1,7 @@
 import { AppState } from "react-native";
 
 import { loadModel, chat, unloadModel } from "./native/MLCModule";
-import { downloadCompiledModel } from "./ModelDownloader";
+import { downloadCompiledModel, validateModelPackage } from "./ModelDownloader";
 import { isAiBackgroundWorkEnabled } from "./runtimeSettings";
 import { getReactNativeFs } from "./nativeRuntime";
 
@@ -20,13 +20,14 @@ class ModelManager {
     const RNFS = getReactNativeFs() || {
       exists: async () => false,
     };
-    if (this.isModelLoaded && this.currentModelPath === path) return;
-    const exists = await RNFS.exists(path);
+    const resolvedPath = await validateModelPackage(path);
+    if (this.isModelLoaded && this.currentModelPath === resolvedPath) return;
+    const exists = await RNFS.exists(resolvedPath);
     if (!exists) throw new Error("Model path not found");
-    const configExists = await RNFS.exists(`${path}/mlc-chat-config.json`);
+    const configExists = await RNFS.exists(`${resolvedPath}/mlc-chat-config.json`);
     if (!configExists) throw new Error("Invalid model package");
-    await loadModel(path);
-    this.currentModelPath = path;
+    await loadModel(resolvedPath);
+    this.currentModelPath = resolvedPath;
     this.isModelLoaded = true;
   }
 

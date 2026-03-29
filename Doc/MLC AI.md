@@ -46,6 +46,8 @@ GGUF är inputformat. MLC‑format är runtime‑format. Appen hanterar automati
 - [x] Unit‑tester för AI‑modeller
 - [x] End‑to‑end‑test för AI‑flöde
 - [x] API för konvertering och polling av kompilerade paket
+- [x] Paketrot valideras efter unzip så att `mlc-chat-config.json` kan hittas även i zippar med extra toppmapp
+- [x] Modellval i mobilen verifierar installerat paket före chatt
 - [ ] Server/offline‑konvertering med mlc_llm
 - [ ] Publicering av kompilerade MLC‑paket
 
@@ -148,6 +150,18 @@ För automatisk konvertering används API:
 
 - `POST /api/ai/models/convert` med `{ modelId, ggufUrl, quant, platform }`
 - `GET /api/ai/models/convert?jobId=...` för status och `outputUrl`
+- `GET /api/ai/models/health` för att verifiera serverns konverteringsläge före felsökning
+
+Efter nedladdning måste mobilappen alltid verifiera den faktiska paketroten. Vissa zip-filer packas upp som:
+
+```text
+Q4_K_M/
+  model/
+    mlc-chat-config.json
+    params_shard_0.bin
+```
+
+Appen ska då använda `Q4_K_M/model` som laddningsväg i stället för att felaktigt kasta "Invalid model package".
 
 ---
 

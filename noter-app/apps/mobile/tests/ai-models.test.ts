@@ -1,6 +1,7 @@
 const mockExists = jest.fn();
 const mockMkdir = jest.fn();
 const mockUnlink = jest.fn();
+const mockReadDir = jest.fn();
 const mockDownloadPromise = jest.fn();
 const mockDownloadFile = jest.fn();
 const mockUnzip = jest.fn();
@@ -16,6 +17,7 @@ jest.mock('react-native-fs', () => ({
   exists: (path: string) => mockExists(path),
   mkdir: (path: string) => mockMkdir(path),
   unlink: (path: string) => mockUnlink(path),
+    readDir: (path: string) => mockReadDir(path),
   downloadFile: (...args: any[]) => mockDownloadFile(...args),
   default: {
     DocumentDirectoryPath: '/docs',
@@ -23,8 +25,10 @@ jest.mock('react-native-fs', () => ({
     mkdir: (path: string) => mockMkdir(path),
     unlink: (path: string) => mockUnlink(path),
     downloadFile: (...args: any[]) => mockDownloadFile(...args),
+    readDir: (path: string) => mockReadDir(path),
   },
 }));
+
 
 jest.mock('react-native-zip-archive', () => ({
   unzip: (...args: any[]) => mockUnzip(...args),
@@ -57,6 +61,7 @@ jest.mock('../services/ai/ModelDownloader', () => ({
   downloadCompiledModel: jest.fn().mockResolvedValue('/docs/mlc_models/user_model/Q4_K_M'),
   getModelDir: jest.fn().mockReturnValue('/docs/mlc_models/user_model/Q4_K_M'),
   getPlatformTarget: jest.fn().mockReturnValue('iphone'),
+  validateModelPackage: jest.fn(async (path: string) => path),
 }));
 
 describe('AI Models', () => {
@@ -65,6 +70,7 @@ describe('AI Models', () => {
     mockExists.mockReset();
     mockMkdir.mockReset();
     mockUnlink.mockReset();
+    mockReadDir.mockReset();
     mockDownloadPromise.mockReset();
     mockDownloadFile.mockReset();
     mockUnzip.mockReset();

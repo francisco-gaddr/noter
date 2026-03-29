@@ -340,10 +340,13 @@ export default function NoteEditorScreen() {
     try {
       if (passwordMode === 'unlock') {
         const result = await verifyNoteLock(id!, password);
-        const html = tiptapJsonToHtml(result.content);
+        const decryptedContent = getReadableProtectedText(result.content, '', '');
+        const html = typeof decryptedContent === 'string' && /<\/?[a-z][\s\S]*>/i.test(decryptedContent)
+          ? decryptedContent
+          : tiptapJsonToHtml(decryptedContent);
         setInitialHtml(html);
         contentRef.current = html;
-        setTitle(result.title || '');
+        setTitle(getReadableProtectedText(result.title, '', ''));
         setEditorKey(`editor-${String(id)}-${Date.now()}`);
         setIsLocked(false);
         setShowPasswordModal(false);

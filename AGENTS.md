@@ -65,6 +65,8 @@
   - Kör faktisk EAS Android-build när release-readiness är en del av leveransen och dokumentera build-id/status.
   - Native AI-stöd ska verifiera filsystem, zip-stöd och MLC-modul i installerad EAS-build; Expo Go-feltext får inte användas för andra native fel.
   - AI-modellflödet ska verifiera hela kedjan: sök -> filval -> lokal lagring -> lokal eller serverstödd konvertering -> modell-load -> chatt.
+- AI-modellpaket ska valideras efter unzip/konvertering genom att hitta faktisk paketrot med `mlc-chat-config.json`; agenten får inte anta att zip packas upp platt.
+- Nedladdning/konvertering ska ha tydlig progress, kunna fortsätta i bakgrunden och ge begripligt fel om paketet inte går att ladda eller måste konverteras om.
 - Web:
   - Bygg med konfiguration som undviker kända Turbopack/symlink-problem på Windows.
 - Electron:
@@ -75,6 +77,7 @@
 - Leveransbevis ska täcka notes och tasks i transit, serverpersistens, lokal mobilpersistens och Electron/web-lagring där relevant.
 - Tester ska uttryckligen verifiera att plaintext inte sparas för känsliga fält.
 - Lås- och unlockflöden ska testas negativt för fel lösenord, låst parent och återläsning efter restart/resume.
+- Mobil unlock ska dessutom verifiera att korrekt lösenord ger redigerbart plaintext-innehåll i runtime, men att innehållet maskas igen när vy lämnas eller relock sker.
 
 ## Kodkvalitet
 - Följ filens lokala style och naming.

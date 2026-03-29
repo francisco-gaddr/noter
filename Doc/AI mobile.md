@@ -20,12 +20,14 @@ Denna arkitektur möjliggör lokal AI på mobilen genom att använda **GGUF-mode
 - [x] Skapa `HuggingFaceService` i `@repo/ai` för att söka GGUF-modeller.
 - [x] Implementera sök-UI i mobilappen (`ai.tsx`).
 
-### Fas 2: Nedladdning & Lagring (✅ Klar)
+### Fas 2: Nedladdning, konvertering & validering (✅ Klar)
 - [x] **Separera nedladdningslogik:** Flyttat till `services/ai/modelService.ts`.
 - [x] **Förbättra filval:** `getBestQuantization` väljer automatiskt optimal fil (Q4_K_M).
 - [x] **Robust nedladdning:** Använder `FileSystem.createDownloadResumable`.
 - [x] **Metadata-lagring:** Sparar modellinfo i SQLite via `saveModelLocal`.
 - [x] **UI Feedback:** Tydlig progress-bar och "Finalizing..." status.
+- [x] **Automatisk paketvalidering:** Efter unzip/konvertering söker appen upp faktisk paketrot med `mlc-chat-config.json` även om zip-filen innehåller extra toppmapp.
+- [x] **Bakgrundsflöde:** Nedladdning och konvertering fortsätter i bakgrunden och kan återupptas från installerad modellväg.
 
 ### Fas 3: Lokal Inferens (Chat) (✅ Klar)
 - [x] **Uppdatera `MobileLlamaProvider`:**
@@ -55,7 +57,15 @@ Denna arkitektur möjliggör lokal AI på mobilen genom att använda **GGUF-mode
 5.  Tryck **Select** på den nedladdade modellen.
 6.  Gå till **Chat**-fliken.
 7.  Skriv "Hello" och skicka.
-    *   *Verifiera:* Appen ska ladda modellen (kan ta några sekunder första gången) och sedan svara.
+    *   *Verifiera:* Appen ska först validera modellpaketet.
+    *   *Verifiera:* Om GGUF behöver konverteras ska status tydligt visa nedladdning, konvertering och slutförande.
+    *   *Verifiera:* Appen ska ladda modellen och sedan svara utan felet "Modellpaketet är ogiltigt eller saknar filer".
+
+## Felsökning
+
+- Om modellen redan finns lokalt men ligger i en zip-rot med extra undermapp, ska appen automatiskt hitta rätt paketrot i stället för att kräva ominstallation.
+- Om lokal konvertering inte stöds i aktuell build ska appen tydligt fortsätta med serverkonvertering och fortfarande visa progress.
+- Om modellen inte kan valideras efter nedladdning ska användaren få tydligt fel i UI i stället för tyst misslyckande i chattflödet.
 
 ## Detaljerad Arbetsgång (Next Steps)
 

@@ -27,6 +27,7 @@ jest.mock('../services/ai/ModelDownloader', () => ({
   downloadCompiledModel: jest.fn().mockResolvedValue('/docs/mlc_models/user_model/Q4_K_M'),
   getModelDir: jest.fn().mockReturnValue('/docs/mlc_models/user_model/Q4_K_M'),
   getPlatformTarget: jest.fn().mockReturnValue('iphone'),
+  validateModelPackage: jest.fn(async (path: string) => path),
 }));
 
 jest.mock('../services/ai/huggingface', () => ({

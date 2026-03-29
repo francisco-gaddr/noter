@@ -1709,7 +1709,6 @@ export const useStore = create<AppState>((set, get) => ({
         } : n),
         unlockedProtectedNoteIds: Array.from(new Set([...state.unlockedProtectedNoteIds, ...unlockIds])),
       }));
-      await get().fetchNotes();
 
       return { title: decryptedTitle, content: decryptedContent, unlockedId: response.unlockedId || null };
     } catch (error: any) {

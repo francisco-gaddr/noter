@@ -1,7 +1,7 @@
 import { HFFile, HFModel } from '@repo/ai';
 import { saveModelLocal, deleteModelLocal } from '@/services/database';
 import { v4 as uuidv4 } from 'uuid';
-import { downloadCompiledModel, getModelDir, getPlatformTarget } from './ModelDownloader';
+import { downloadCompiledModel, getModelDir, getPlatformTarget, validateModelPackage } from './ModelDownloader';
 import { requestModelConversion, getConversionStatus, getCompiledModelUrl } from './huggingface';
 import { getReactNativeFs } from './nativeRuntime';
 import { convertGGUFToMLC, getLocalConversionCapabilities } from './native/MLCModule';
@@ -45,12 +45,15 @@ const swallowAsync = async (operation: unknown) => {
     } catch {}
 };
 
-const verifyModelPackage = async (RNFS: any, targetPath: string) => {
-    const configExists = await RNFS.exists(`${targetPath}/mlc-chat-config.json`);
-    if (!configExists) {
-        throw new Error('Invalid model package');
-    }
-};
+type DownloadStage =
+    | 'queued'
+    | 'downloading'
+    | 'converting'
+    | 'converting_locally'
+    | 'zipping'
+    | 'validating'
+    | 'completed'
+    | 'failed';
 
 const tryLocalConversion = async (
     RNFS: any,
@@ -59,7 +62,7 @@ const tryLocalConversion = async (
     modelDir: string,
     platform: 'iphone' | 'android',
     onProgress?: (percent: number) => void,
-    onStageChange?: (stage: 'queued' | 'downloading' | 'converting' | 'converting_locally' | 'zipping' | 'completed' | 'failed') => void
+    onStageChange?: (stage: DownloadStage) => void
 ) => {
     const capabilities = await getLocalConversionCapabilities();
     if (!capabilities.engineAvailable || !capabilities.converterAvailable) {
@@ -94,11 +97,12 @@ const tryLocalConversion = async (
     onProgress?.(0.7);
     const convertedPath = await convertGGUFToMLC(ggufPath, modelDir, file.quantization || 'Q4_K_M', platform);
     const finalPath = typeof convertedPath === 'string' && convertedPath ? convertedPath : modelDir;
-    await verifyModelPackage(RNFS, finalPath);
+    onStageChange?.('validating');
+    const validatedPath = await validateModelPackage(finalPath);
     await swallowAsync(RNFS.unlink(ggufPath));
     onProgress?.(1);
     onStageChange?.('completed');
-    return finalPath;
+    return validatedPath;
 };
 
 export const downloadModel = async (
@@ -108,7 +112,7 @@ export const downloadModel = async (
     options?: {
       preferLocalConversion?: boolean;
       strictLocalConversion?: boolean;
-      onStageChange?: (stage: 'queued' | 'downloading' | 'converting' | 'converting_locally' | 'zipping' | 'completed' | 'failed') => void;
+      onStageChange?: (stage: DownloadStage) => void;
     }
 ): Promise<string> => {
     const RNFS = getReactNativeFs();
@@ -139,8 +143,12 @@ export const downloadModel = async (
             }
         }
 
-        const locallyExists = await RNFS.exists(`${resolvedModelDir}/mlc-chat-config.json`);
-        if (!locallyExists) {
+        let validExistingPath: string | null = null;
+        try {
+            validExistingPath = await validateModelPackage(resolvedModelDir);
+        } catch {}
+
+        if (!validExistingPath) {
             const { jobId } = await requestModelConversion({
                 modelId: model.id,
                 ggufUrl: file.url,
@@ -179,8 +187,21 @@ export const downloadModel = async (
             resolvedModelDir = await downloadCompiledModel(outputUrl, model.id, file.quantization, (p) => {
                 onProgress?.(0.9 + p * 0.1);
             });
+            options?.onStageChange?.('validating');
+            resolvedModelDir = await validateModelPackage(resolvedModelDir);
             options?.onStageChange?.('completed');
+        } else {
+            resolvedModelDir = validExistingPath;
         }
+    } else {
+        options?.onStageChange?.('validating');
+        try {
+            resolvedModelDir = await validateModelPackage(modelDir);
+        } catch {
+            await swallowAsync(RNFS.unlink(modelDir));
+            return downloadModel(model, file, onProgress, options);
+        }
+        options?.onStageChange?.('completed');
     }
 
     const filename = (file.quantization ? `${file.quantization}.zip` : 'model.zip');
@@ -195,6 +216,10 @@ export const downloadModel = async (
     });
 
     return resolvedModelDir;
+};
+
+export const prepareModelForChat = async (path: string) => {
+    return validateModelPackage(path);
 };
 
 export const deleteModel = async (id: string, path: string) => {

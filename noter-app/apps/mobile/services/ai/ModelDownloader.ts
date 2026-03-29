@@ -1,6 +1,8 @@
 import { Platform } from 'react-native';
 import { getReactNativeFs, getZipArchive } from './nativeRuntime';
 
+const MODEL_CONFIG_FILE = 'mlc-chat-config.json';
+
 const getBaseDir = () => {
   const RNFS = getReactNativeFs();
   if (!RNFS?.DocumentDirectoryPath) return null;
@@ -24,6 +26,66 @@ export const ensureModelsDir = async () => {
   if (!exists) {
     await RNFS.mkdir(base);
   }
+};
+
+const normalizeEntryPath = (entry: any) => {
+  if (!entry) return '';
+  if (typeof entry.path === 'string' && entry.path) return entry.path;
+  if (typeof entry.name === 'string' && entry.name) return entry.name;
+  return '';
+};
+
+const isDirectoryEntry = (entry: any) => {
+  if (!entry) return false;
+  if (typeof entry.isDirectory === 'function') return Boolean(entry.isDirectory());
+  if (typeof entry.isDirectory === 'boolean') return entry.isDirectory;
+  if (typeof entry.type === 'string') return entry.type === 'directory';
+  return false;
+};
+
+export const findModelPackageRoot = async (path: string, maxDepth = 3): Promise<string | null> => {
+  const RNFS = getReactNativeFs();
+  if (!RNFS?.exists || !path) return null;
+
+  const configPath = `${path}/${MODEL_CONFIG_FILE}`;
+  if (await RNFS.exists(configPath)) {
+    return path;
+  }
+
+  if (maxDepth <= 0 || typeof RNFS.readDir !== 'function') {
+    return null;
+  }
+
+  let entries: any[] = [];
+  try {
+    entries = await RNFS.readDir(path);
+  } catch {
+    return null;
+  }
+
+  for (const entry of entries) {
+    if (!isDirectoryEntry(entry)) continue;
+    const entryPath = normalizeEntryPath(entry);
+    if (!entryPath) continue;
+    const nested = await findModelPackageRoot(entryPath, maxDepth - 1);
+    if (nested) return nested;
+  }
+
+  return null;
+};
+
+export const validateModelPackage = async (path: string) => {
+  const RNFS = getReactNativeFs();
+  if (!RNFS?.exists || !path) {
+    throw new Error('Native filesystem not available');
+  }
+
+  const resolvedPath = await findModelPackageRoot(path);
+  if (!resolvedPath) {
+    throw new Error('Invalid model package');
+  }
+
+  return resolvedPath;
 };
 
 export const downloadCompiledModel = async (
@@ -66,14 +128,7 @@ export const downloadCompiledModel = async (
 
   await ZipArchive.unzip(zipPath, modelDir);
   await RNFS.unlink(zipPath).catch(() => {});
-
-  const configPath = `${modelDir}/mlc-chat-config.json`;
-  const configExists = await RNFS.exists(configPath);
-  if (!configExists) {
-    throw new Error('Invalid model package');
-  }
-
-  return modelDir;
+  return validateModelPackage(modelDir);
 };
 
 export const getPlatformTarget = () => (Platform.OS === 'ios' ? 'iphone' : 'android');

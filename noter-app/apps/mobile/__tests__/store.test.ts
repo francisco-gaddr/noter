@@ -362,14 +362,20 @@ describe('Mobile Store', () => {
     });
 
     const result = await useStore.getState().verifyNoteLock(noteId, 'secret');
+    const state = useStore.getState();
+    const unlocked = state.notes.find((note: any) => note._id === noteId);
 
     expect(fetchWithAuth).toHaveBeenCalledWith(`/notes/${noteId}/verify-lock`, {
       method: 'POST',
       body: JSON.stringify({ password: 'secret' }),
       skipUnauthorized: true,
     });
+    expect(fetchWithAuth).toHaveBeenCalledTimes(1);
     expect(result.title).toBe('Unlock Title');
     expect(result.content).toBe('Unlock Content');
+    expect(unlocked?.title).toBe('Unlock Title');
+    expect(unlocked?.content).toBe('Unlock Content');
+    expect(state.unlockedProtectedNoteIds).toContain(noteId);
   });
 
   it('should never expose ciphertext after successful unlock response', async () => {
