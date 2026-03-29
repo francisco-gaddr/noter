@@ -12,6 +12,7 @@ import { scheduleTaskReminder, cancelTaskReminder, cancelAllTaskReminders } from
 import { buildSecurityNoteMap, findBlockingLockedAncestor } from '../services/ai/security';
 import i18n from '../services/i18n';
 import { initLocalEncryptionKey } from '../services/encryptionKey';
+import { getReadableProtectedText } from '../utils/protectedNote';
 
 let wasOffline = false;
 
@@ -1689,15 +1690,23 @@ export const useStore = create<AppState>((set, get) => ({
         throw new Error('Incorrect password');
       }
 
-      const decryptedContent = decryptOrFallback(response.content, response.content || '');
-      const decryptedTitle = response.title ? decryptOrFallback(response.title, i18n.t('note.locked')) : i18n.t('note.locked');
+      const decryptedContent = getReadableProtectedText(response.content, '', '');
+      const decryptedTitle = response.title
+        ? getReadableProtectedText(response.title, i18n.t('note.locked'), i18n.t('note.locked'))
+        : i18n.t('note.locked');
 
       const effectiveUnlockId = response.unlockedId || id;
       const unlockIds = response.unlockedId && response.unlockedId !== id
         ? [id, response.unlockedId]
         : [effectiveUnlockId];
       set(state => ({
-        notes: state.notes.map(n => n._id === id ? { ...n, title: decryptedTitle, content: decryptedContent } : n),
+        notes: state.notes.map(n => n._id === id ? {
+          ...n,
+          title: decryptedTitle,
+          content: decryptedContent,
+          __rawEncryptedTitle: typeof response.title === 'string' ? response.title : (n as any).__rawEncryptedTitle,
+          __rawEncryptedContent: typeof response.content === 'string' ? response.content : (n as any).__rawEncryptedContent,
+        } : n),
         unlockedProtectedNoteIds: Array.from(new Set([...state.unlockedProtectedNoteIds, ...unlockIds])),
       }));
       await get().fetchNotes();

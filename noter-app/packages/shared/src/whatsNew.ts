@@ -7,6 +7,17 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    version: '1.0.10',
+    build: '2026.03.29.2',
+    date: '2026-03-29',
+    highlights: [
+      'Mobil AI: Native runtime skiljer nu korrekt mellan Expo Go och saknade native moduler i EAS APK-builds',
+      'Mobil AI: Modellinstallation verifierar filsystem och zip-stöd bättre så felmeddelanden pekar på riktig rotorsak',
+      'Mobil säkerhet: Låsta anteckningar dekrypteras korrekt efter rätt lösenord utan att rå ciphertext visas i editor eller listvyer',
+      'Tester: Nya regressionstester täcker AI-native runtime, model manager i bakgrunden och säker fallback vid note-dekryptering',
+    ],
+  },
+  {
     version: '1.0.9',
     build: '2026.03.29.1',
     date: '2026-03-29',

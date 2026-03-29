@@ -27,6 +27,8 @@ Bygg plattformen med säkerhet, stabilitet och produktkvalitet som primära mål
 - Vid skillnad mellan plattformar ska mobilappens UX och säkerhetsnivå höjas till minst samma nivå som Electron, inte tvärtom.
 - Task- och checkboxflöden i mobilappen ska ge omedelbar respons i UI; lokal persistens, reminder-planering och sync får inte skapa tydligt hack eller global loading-flicker.
 - Expo Go, dev builds och EAS APK ska dela samma robusta bootstrapprinciper: fail-soft startup, tydliga fallback-fel och ingen blockerande init som fastnar på splash.
+- AI-modellflödet på mobil ska särskilja Expo Go från saknade native moduler i EAS-build; feltexter måste spegla faktisk runtime-orsak.
+- Upplåsta låsta anteckningar får dekrypteras i editor/runtime efter korrekt lösenord, men UI får aldrig falla tillbaka till att visa rå ciphertext.
 
 ## Säkerhetspolicy
 

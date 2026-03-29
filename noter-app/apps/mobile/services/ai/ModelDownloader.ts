@@ -1,20 +1,8 @@
 import { Platform } from 'react-native';
-
-let RNFS: any;
-try {
-  RNFS = require('react-native-fs').default;
-} catch {
-  RNFS = null;
-}
-
-let ZipArchive: any;
-try {
-  ZipArchive = require('react-native-zip-archive');
-} catch {
-  ZipArchive = null;
-}
+import { getReactNativeFs, getZipArchive } from './nativeRuntime';
 
 const getBaseDir = () => {
+  const RNFS = getReactNativeFs();
   if (!RNFS?.DocumentDirectoryPath) return null;
   return `${RNFS.DocumentDirectoryPath}/mlc_models`;
 };
@@ -29,6 +17,7 @@ export const getModelDir = (modelId: string, quantization?: string) => {
 };
 
 export const ensureModelsDir = async () => {
+  const RNFS = getReactNativeFs();
   const base = getBaseDir();
   if (!base) throw new Error('Native filesystem not available');
   const exists = await RNFS.exists(base);
@@ -43,6 +32,8 @@ export const downloadCompiledModel = async (
   quantization?: string,
   onProgress?: (percent: number) => void
 ) => {
+  const RNFS = getReactNativeFs();
+  const ZipArchive = getZipArchive();
   await ensureModelsDir();
   const modelDir = getModelDir(modelId, quantization);
   if (!modelDir) throw new Error('Model directory unavailable');
@@ -87,4 +78,4 @@ export const downloadCompiledModel = async (
 
 export const getPlatformTarget = () => (Platform.OS === 'ios' ? 'iphone' : 'android');
 
-export const isNativeFileSystemAvailable = () => Boolean(RNFS?.DocumentDirectoryPath);
+export const isNativeFileSystemAvailable = () => Boolean(getReactNativeFs()?.DocumentDirectoryPath);

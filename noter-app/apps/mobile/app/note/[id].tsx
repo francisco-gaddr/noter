@@ -3,6 +3,7 @@ import { StyleSheet, View, TextInput, Alert, KeyboardAvoidingView, Platform, Mod
 import * as ImagePicker from 'expo-image-picker';
 import { Appbar, useTheme, Text, Menu, Button } from 'react-native-paper';
 import { FontAwesome5 } from '@expo/vector-icons';
+import { SvgUri } from 'react-native-svg';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useStore } from '@/stores/useStore';
 import { CreateNoteDto, UpdateNoteDto } from '@repo/shared';
@@ -15,6 +16,7 @@ import ProjectSelector from '@/components/ProjectSelector';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { buildSecurityNoteMap, findBlockingLockedAncestor } from '@/services/ai/security';
+import { getReadableProtectedText } from '@/utils/protectedNote';
 
 export default function NoteEditorScreen() {
   const params = useLocalSearchParams<{ id: string | string[]; parentId?: string | string[] }>();
@@ -66,6 +68,8 @@ export default function NoteEditorScreen() {
   const [selectedParentId, setSelectedParentId] = useState<string | null>(null);
 
   const initializedNoteIdRef = useRef<string | null>(null);
+  const userEditedRef = useRef(false);
+  const hydratedFingerprintRef = useRef<string>('');
 
   const isDeletedRef = useRef(false);
   const isSavingRef = useRef(false);
@@ -168,7 +172,9 @@ export default function NoteEditorScreen() {
 
   useEffect(() => {
     if (!isNew && existingNote) {
-      if (initializedNoteIdRef.current === id) return;
+      const fingerprint = `${String(id ?? '')}|${String(existingNote.updatedAt ?? '')}|${String(existingNote.title ?? '')}|${String(existingNote.content ?? '')}|${blockingLockedAncestor ? 'locked' : 'open'}`;
+      if (initializedNoteIdRef.current === id && hydratedFingerprintRef.current === fingerprint) return;
+      if (initializedNoteIdRef.current === id && userEditedRef.current) return;
       if (blockingLockedAncestor) {
         setIsLocked(true);
         setShowPasswordModal(true);
@@ -177,8 +183,16 @@ export default function NoteEditorScreen() {
         setIconColor(existingNote.iconColor);
         setSelectedParentId(existingNote.parentId || null);
       } else {
-        const html = tiptapJsonToHtml(existingNote.content);
-        setTitle(existingNote.title);
+        const rawContent = (existingNote as any).__rawEncryptedContent || existingNote.content;
+        const rawTitle = (existingNote as any).__rawEncryptedTitle || existingNote.title;
+        
+        const decryptedContent = getReadableProtectedText(rawContent, existingNote.content, '');
+        const decryptedTitle = getReadableProtectedText(rawTitle, existingNote.title, '');
+
+        const html = typeof decryptedContent === 'string' && /<\/?[a-z][\s\S]*>/i.test(decryptedContent) 
+          ? decryptedContent 
+          : tiptapJsonToHtml(decryptedContent);
+        setTitle(decryptedTitle);
         setIcon(existingNote.icon || '');
         setIconColor(existingNote.iconColor);
         setInitialHtml(html);
@@ -187,7 +201,9 @@ export default function NoteEditorScreen() {
         setSelectedParentId(existingNote.parentId || null);
         setTags(existingNote.tags || []);
       }
+      hydratedFingerprintRef.current = fingerprint;
       initializedNoteIdRef.current = id ?? null;
+      userEditedRef.current = false;
     } else if (!isNew && !existingNote) {
       fetchNotes(); 
     } else if (isNew) {
@@ -200,6 +216,8 @@ export default function NoteEditorScreen() {
       setSelectedParentId(parentId || null);
       setTags([]);
       initializedNoteIdRef.current = id ?? null;
+      hydratedFingerprintRef.current = '';
+      userEditedRef.current = false;
     }
   }, [id, existingNote, isNew, parentId, blockingLockedAncestor]);
 
@@ -216,10 +234,12 @@ export default function NoteEditorScreen() {
   };
 
   const handleTitleChange = (text: string) => {
+    userEditedRef.current = true;
     setTitle(text);
   };
 
   const handleContentChange = (html: string) => {
+    userEditedRef.current = true;
     contentRef.current = html;
   };
 
@@ -267,7 +287,8 @@ export default function NoteEditorScreen() {
           tags, 
           icon,
           iconColor,
-          parentId: selectedParentId
+          parentId: selectedParentId,
+          type: 'note'
         };
         await createNote(dto);
       } else {
@@ -525,7 +546,15 @@ export default function NoteEditorScreen() {
             onLongPress={() => setShowIconPicker(true)}
             style={({pressed}) => ({ justifyContent: 'center', marginLeft: 8, opacity: pressed ? 0.7 : 1 })}
           >
-            <FontAwesome5 name={icon.replace(/^Fa/, '').toLowerCase()} size={20} color={iconColor || theme.colors.onSurface} />
+            {icon.startsWith('Fa') ? (
+              <FontAwesome5
+                name={icon.slice(2).replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()}
+                size={20}
+                color={iconColor || theme.colors.onSurface}
+              />
+            ) : (
+              <SvgUri uri={icon} width={20} height={20} />
+            )}
           </Pressable>
         )}
         <TextInput

@@ -30,6 +30,7 @@
 - Lagra aldrig secrets i klartext i lokala filer eller localStorage för produktionsflöden.
 - Lagra API-nycklar med plattformens säkra mekanismer.
 - Exponera aldrig dekrypterat låst innehåll innan korrekt upplåsning.
+- Visa aldrig rå ciphertext som fallback i UI; vid dekrypteringsfel ska appen maska eller visa tomt innehåll.
 - Logga aldrig känslig data (token, lösenord, nycklar, rå-krypteringsnycklar).
 - Dekryptera endast i runtime-sammanhang där behörighetskontroll redan passerat.
 
@@ -62,6 +63,7 @@
   - Verifiera readiness-script före APK-build.
   - Säkerställ EAS-profiler och ignore-regler.
   - Kör faktisk EAS Android-build när release-readiness är en del av leveransen och dokumentera build-id/status.
+  - Native AI-stöd ska verifiera filsystem, zip-stöd och MLC-modul i installerad EAS-build; Expo Go-feltext får inte användas för andra native fel.
 - Web:
   - Bygg med konfiguration som undviker kända Turbopack/symlink-problem på Windows.
 - Electron:

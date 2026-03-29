@@ -3,16 +3,14 @@ import { saveModelLocal, deleteModelLocal } from '@/services/database';
 import { v4 as uuidv4 } from 'uuid';
 import { downloadCompiledModel, getModelDir, getPlatformTarget } from './ModelDownloader';
 import { requestModelConversion, getConversionStatus, getCompiledModelUrl } from './huggingface';
+import { getReactNativeFs } from './nativeRuntime';
 
-// Try to load RNFS safely
-let RNFS: any;
-try {
-  RNFS = require("react-native-fs").default;
-} catch (e) {
-  RNFS = null;
-}
+const getModelsDir = () => {
+  const RNFS = getReactNativeFs();
+  return RNFS?.DocumentDirectoryPath ? `${RNFS.DocumentDirectoryPath}/mlc_models/` : '';
+};
 
-export const MODELS_DIR = RNFS?.DocumentDirectoryPath ? `${RNFS.DocumentDirectoryPath}/mlc_models/` : '';
+export const MODELS_DIR = getModelsDir();
 
 export const getBestQuantization = (files: HFFile[]): HFFile | undefined => {
     // Priority list for mobile (balance size/performance)
@@ -48,6 +46,7 @@ export const downloadModel = async (
       onStageChange?: (stage: 'queued' | 'downloading' | 'converting' | 'converting_locally' | 'zipping' | 'completed' | 'failed') => void;
     }
 ): Promise<string> => {
+    const RNFS = getReactNativeFs();
     const platform = getPlatformTarget();
     const modelDir = getModelDir(model.id, file.quantization);
     if (!modelDir) {
@@ -113,6 +112,7 @@ export const downloadModel = async (
 };
 
 export const deleteModel = async (id: string, path: string) => {
+    const RNFS = getReactNativeFs();
     try {
         await RNFS.unlink(path).catch(() => {});
         await deleteModelLocal(id);

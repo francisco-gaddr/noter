@@ -1,21 +1,9 @@
 import { AppState } from "react-native";
 
-let RNFS: any;
-try {
-  RNFS = require("react-native-fs").default;
-} catch {
-  RNFS = {
-    DocumentDirectoryPath: null,
-    exists: async () => false,
-    mkdir: async () => {},
-    downloadFile: () => ({ promise: Promise.reject("Native module missing") }),
-    unlink: async () => {},
-  };
-}
-
 import { loadModel, chat, unloadModel } from "./native/MLCModule";
 import { downloadCompiledModel } from "./ModelDownloader";
 import { isAiBackgroundWorkEnabled } from "./runtimeSettings";
+import { getReactNativeFs } from "./nativeRuntime";
 
 class ModelManager {
   currentModelPath: string | null = null;
@@ -29,6 +17,9 @@ class ModelManager {
   }
 
   async load(path: string) {
+    const RNFS = getReactNativeFs() || {
+      exists: async () => false,
+    };
     if (this.isModelLoaded && this.currentModelPath === path) return;
     const exists = await RNFS.exists(path);
     if (!exists) throw new Error("Model path not found");

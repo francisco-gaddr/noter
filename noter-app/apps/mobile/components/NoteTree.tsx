@@ -5,10 +5,12 @@ import { Note } from '@repo/shared';
 import { useRouter } from 'expo-router';
 import { FlashList } from '@shopify/flash-list';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
+import { SvgUri } from 'react-native-svg';
 import DraggableFlatList, { RenderItemParams, ScaleDecorator } from 'react-native-draggable-flatlist';
 import { noteContentToPlainText } from '@/utils/tiptap';
 import * as Haptics from 'expo-haptics';
 import { NoteItem } from './NoteItem';
+import { getReadableProtectedText } from '@/utils/protectedNote';
 
 interface NoteTreeProps {
   notes: Note[];
@@ -174,6 +176,13 @@ export default function NoteTree({
     (item: TreeItem, drag?: () => void, isActive?: boolean) => {
       const tags = Array.isArray(item.tags) ? item.tags : [];
       const visibleTags = tags.slice(0, 3);
+      
+      const rawTitle = (item as any).__rawEncryptedTitle || item.title;
+      const decryptedTitle = getReadableProtectedText(rawTitle, item.title, '');
+
+      const rawContent = (item as any).__rawEncryptedContent || item.content;
+      const decryptedContent = getReadableProtectedText(rawContent, item.content, '');
+
       return (
         <Card
           style={[
@@ -202,7 +211,10 @@ export default function NoteTree({
                 {(() => {
                   const iconKey = (item as any).icon as string | undefined;
                   if (iconKey) {
-                    return <FontAwesome5 name={toFa5(iconKey) as any} size={18} color={theme.colors.onSurface} />;
+                    if (iconKey.startsWith('Fa')) {
+                      return <FontAwesome5 name={toFa5(iconKey) as any} size={18} color={theme.colors.onSurface} />;
+                    }
+                    return <SvgUri uri={iconKey} width={18} height={18} />;
                   }
 
                   if ((item as any).type === 'project') {
@@ -214,7 +226,7 @@ export default function NoteTree({
               </View>
 
               <Text variant="titleMedium" numberOfLines={1} style={styles.cardTitle}>
-                {item.title}
+                {decryptedTitle}
               </Text>
 
               {item.locked ? <IconButton icon="lock" size={16} style={{ margin: 0 }} /> : null}
@@ -222,7 +234,7 @@ export default function NoteTree({
 
             {!item.locked ? (
               <Text variant="bodyMedium" numberOfLines={3} style={styles.cardContent}>
-                {getPreviewContent(item.content)}
+                {getPreviewContent(decryptedContent)}
               </Text>
             ) : null}
 

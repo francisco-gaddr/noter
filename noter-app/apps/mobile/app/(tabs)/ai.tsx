@@ -8,7 +8,6 @@ import { useStore } from '@/stores/useStore';
 import { ChatMessage, Conversation, HFModel, AIProject } from '@repo/ai';
 import { searchHuggingFaceModels, getModelFiles, getConversionHealth } from '@/services/ai/huggingface';
 import { downloadModel as serviceDownloadModel, getBestQuantization, deleteModel as serviceDeleteModel, cancelDownload as cancelModelDownload } from '@/services/ai/modelService';
-import { isNativeFileSystemAvailable } from '@/services/ai/ModelDownloader';
 import { saveConversationLocal, getConversationsLocal, deleteConversationLocal, saveMessageLocal, getMessagesLocal, getModelsLocal, saveProjectLocal, getProjectsLocal, deleteProjectLocal } from '@/services/database';
 import { combineSystemPrompts, buildToolUseNotice } from '@/services/ai/prompt';
 import { API_URL, fetchWithAuth } from '@/services/api';
@@ -20,6 +19,7 @@ import { initSocket, getSocket } from '@/services/socket';
 import { buildSecurityNoteMap, isReadableWithLocks } from '@/services/ai/security';
 import { getLocalConversionCapabilities } from '@/services/ai/native/MLCModule';
 import { isAiBackgroundWorkEnabled, setAiBackgroundWorkEnabled } from '@/services/ai/runtimeSettings';
+import { getModelInstallBlocker, getLocalAiRuntimeStatus } from '@/services/ai/nativeRuntime';
 import IconPickerModal from '@/components/IconPickerModal';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import 'react-native-get-random-values';
@@ -598,9 +598,9 @@ export default function AIScreen() {
 
   const formatError = (error: unknown) => {
       const message = (error as any)?.message ? String((error as any).message) : String(error);
-      if (message.includes('Zip module not available')) return 'Zip-stöd saknas. Bygg en dev‑client.';
-      if (message.includes('Native filesystem not available')) return 'Filsystem saknas. Kör i dev‑client.';
-      if (message.includes('MLCModule')) return 'MLC‑modulen saknas. Bygg om appen.';
+      if (message.includes('Zip module not available')) return 'Zip-stöd saknas i denna build. Installera om den senaste EAS APK:n.';
+      if (message.includes('Native filesystem not available')) return 'Filsystem saknas i denna build. Installera om den senaste EAS APK:n.';
+      if (message.includes('MLCModule')) return 'MLC‑modulen saknas i denna build. Installera om den senaste EAS APK:n.';
       if (message.includes('Local conversion unsupported')) return 'Lokal konvertering stöds inte i denna build. Server-fallback används.';
       if (message.includes('Failed to download GGUF')) return 'Kunde inte ladda ner GGUF-filen för lokal konvertering.';
       if (message.includes('Invalid model package')) return 'Modellpaketet är ogiltigt eller saknar filer.';
@@ -1651,8 +1651,9 @@ export default function AIScreen() {
 
   const downloadModel = async (model: HFModel) => {
       try {
-        if (!isNativeFileSystemAvailable()) {
-            alert('AI-modeller kräver en dev build (inte Expo Go). Bygg appen med EAS och installera den innan nedladdning.');
+        const blocker = getModelInstallBlocker();
+        if (blocker) {
+            alert(blocker);
             return;
         }
         setProcessingModels(prev => ({ ...prev, [model.id]: true }));
@@ -1726,6 +1727,10 @@ export default function AIScreen() {
   const runDeviceLocalConversionCheck = async (model: HFModel) => {
       let localStageObserved = false;
       try {
+        const runtime = getLocalAiRuntimeStatus();
+        if (!runtime.mlcModuleAvailable) {
+          throw new Error('MLCModule not linked');
+        }
         setProcessingModels(prev => ({ ...prev, [model.id]: true }));
         setDownloadProgress(prev => ({ ...prev, [model.id]: 0 }));
         setDownloadStage(prev => ({ ...prev, [model.id]: 'queued' }));
@@ -1989,23 +1994,23 @@ export default function AIScreen() {
           onDismiss={() => setChatDialogVisible(false)}
         />
         <Dialog visible={!!confirmProjectDeleteId} onDismiss={() => setConfirmProjectDeleteId(null)}>
-          <Dialog.Title>Ta bort projekt</Dialog.Title>
+          <Dialog.Title>{t('projects.deleteConfirmTitle')}</Dialog.Title>
           <Dialog.Content>
-            <Text>Vill du ta bort projektmappen?</Text>
+            <Text>{t('projects.deleteConfirmMessage')}</Text>
           </Dialog.Content>
           <Dialog.Actions>
-            <Button onPress={() => setConfirmProjectDeleteId(null)}>Avbryt</Button>
-            <Button mode="contained" onPress={confirmDeleteProject}>Ta bort</Button>
+            <Button onPress={() => setConfirmProjectDeleteId(null)}>{t('common.cancel')}</Button>
+            <Button mode="contained" onPress={confirmDeleteProject}>{t('common.delete')}</Button>
           </Dialog.Actions>
         </Dialog>
         <Dialog visible={!!confirmChatDeleteId} onDismiss={() => setConfirmChatDeleteId(null)}>
-          <Dialog.Title>Ta bort chatt</Dialog.Title>
+          <Dialog.Title>{t('ai.deleteChatTitle')}</Dialog.Title>
           <Dialog.Content>
-            <Text>Vill du ta bort chatten?</Text>
+            <Text>{t('ai.deleteChatConfirm')}</Text>
           </Dialog.Content>
           <Dialog.Actions>
-            <Button onPress={() => setConfirmChatDeleteId(null)}>Avbryt</Button>
-            <Button mode="contained" onPress={confirmDeleteChat}>Ta bort</Button>
+            <Button onPress={() => setConfirmChatDeleteId(null)}>{t('common.cancel')}</Button>
+            <Button mode="contained" onPress={confirmDeleteChat}>{t('common.delete')}</Button>
           </Dialog.Actions>
         </Dialog>
         <Dialog visible={toolSettingsVisible} onDismiss={() => setToolSettingsVisible(false)}>
@@ -2050,25 +2055,25 @@ export default function AIScreen() {
         <View style={{ flex: 1, padding: 16 }}>
           <View style={{ flexDirection: 'row', marginBottom: 12 }}>
             <Button mode={settingsTab === 'models' ? 'contained' : 'text'} onPress={() => setSettingsTab('models')} style={{ marginRight: 8 }} testID="ai-settings-tab-models">
-              Modeller
+              {t('ai.models')}
             </Button>
             <Button mode={settingsTab === 'instructions' ? 'contained' : 'text'} onPress={() => setSettingsTab('instructions')} testID="ai-settings-tab-instructions">
-              AI Instruktioner
+              {t('ai.instructions')}
             </Button>
           </View>
 
           {settingsTab === 'models' && (
             <View style={{ flex: 1 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
-                <Text style={{ color: theme.colors.onSurface }}>Använd API-baserad AI</Text>
+                <Text style={{ color: theme.colors.onSurface }}>{t('ai.useApiProviders')}</Text>
                 <Switch value={aiUseApiProviders} onValueChange={setAiUseApiProviders} />
               </View>
               <Text style={{ marginTop: 6, color: theme.colors.onSurfaceVariant }}>
-                När detta är på används OpenRouter/Gemini. Annars används vald lokal modell.
+                {t('ai.useApiProvidersHint')}
               </Text>
               {aiUseApiProviders ? (
                 <View style={{ marginTop: 12 }}>
-                  <Text style={{ color: theme.colors.onSurface, marginBottom: 6 }}>API Provider</Text>
+                  <Text style={{ color: theme.colors.onSurface, marginBottom: 6 }}>{t('ai.apiProvider')}</Text>
                   <Menu
                     visible={providerMenuVisible}
                     onDismiss={() => setProviderMenuVisible(false)}
@@ -2085,7 +2090,7 @@ export default function AIScreen() {
                     <>
                       <PaperTextInput
                         mode="outlined"
-                        label="OpenRouter API Key"
+                        label={t('ai.openRouterApiKey')}
                         value={openRouterApiKey}
                         onChangeText={setOpenRouterApiKey}
                         autoCorrect={false}
@@ -2093,7 +2098,7 @@ export default function AIScreen() {
                       />
                       <PaperTextInput
                         mode="outlined"
-                        label="OpenRouter modell"
+                        label={t('ai.openRouterModel')}
                         value={openRouterModel}
                         onChangeText={setOpenRouterModel}
                         autoCorrect={false}
@@ -2104,7 +2109,7 @@ export default function AIScreen() {
                     <>
                       <PaperTextInput
                         mode="outlined"
-                        label="Gemini API Key"
+                        label={t('ai.geminiApiKey')}
                         value={geminiApiKey}
                         onChangeText={setGeminiApiKey}
                         autoCorrect={false}
@@ -2112,7 +2117,7 @@ export default function AIScreen() {
                       />
                       <PaperTextInput
                         mode="outlined"
-                        label="Gemini modell"
+                        label={t('ai.geminiModel')}
                         value={geminiModel}
                         onChangeText={setGeminiModel}
                         autoCorrect={false}
@@ -2123,9 +2128,9 @@ export default function AIScreen() {
                 </View>
               ) : (
                 <View style={{ marginTop: 12, flex: 1 }}>
-                  <Text variant="titleMedium" style={{ marginBottom: 8, color: theme.colors.onSurface }}>Nedladdade modeller</Text>
+                  <Text variant="titleMedium" style={{ marginBottom: 8, color: theme.colors.onSurface }}>{t('ai.downloadedModels')}</Text>
                   {localModels.length === 0 ? (
-                    <Text style={{ color: theme.colors.onSurfaceVariant, marginBottom: 16 }}>Inga modeller nedladdade</Text>
+                    <Text style={{ color: theme.colors.onSurfaceVariant, marginBottom: 16 }}>{t('ai.noModels')}</Text>
                   ) : (
                     <FlatList
                       data={localModels}
@@ -2142,7 +2147,7 @@ export default function AIScreen() {
                               onPress={() => setActiveModel(m.path)}
                               style={{ marginRight: 8 }}
                             >
-                              {activeModel === m.path ? 'Active' : 'Select'}
+                              {activeModel === m.path ? t('ai.active') : t('ai.select')}
                             </Button>
                             <IconButton icon="delete" onPress={() => handleDeleteModel(m.id, m.path)} />
                           </View>
@@ -2154,17 +2159,17 @@ export default function AIScreen() {
               )}
               <View style={{ marginTop: 12 }}>
                 <Button mode="contained" onPress={() => setDownloadDialogVisible(true)} testID="ai-open-download-models-dialog">
-                  Ladda ner nya AI-modeller
+                  {t('ai.downloadNewModels')}
                 </Button>
                 <Text style={{ marginTop: 6, color: theme.colors.onSurfaceVariant }}>
-                  Nedladdning och konvertering fortsätter i bakgrunden även om du stänger dialogen.
+                  {t('ai.downloadBackgroundHint')}
                 </Text>
               </View>
             </View>
           )}
           {settingsTab === 'instructions' && (
             <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }}>
-              <Text variant="titleMedium" style={{ marginBottom: 8, color: theme.colors.onSurface }}>AI Instruktioner</Text>
+              <Text variant="titleMedium" style={{ marginBottom: 8, color: theme.colors.onSurface }}>{t('ai.instructions')}</Text>
               <TextInput
                 style={[styles.input, { color: theme.colors.onSurface, borderColor: theme.colors.outline, borderWidth: 1, borderRadius: 8, padding: 8, height: 160, textAlignVertical: 'top' }]}
                 placeholder={t('ai.systemPromptPlaceholder')}
@@ -2210,9 +2215,9 @@ export default function AIScreen() {
                 </Button>
               </View>
               <View style={{ marginTop: 14, padding: 12, borderWidth: 1, borderColor: theme.colors.outline, borderRadius: 10 }}>
-                <Text variant="titleSmall" style={{ color: theme.colors.onSurface, marginBottom: 6 }}>MCP Integrationer</Text>
+                <Text variant="titleSmall" style={{ color: theme.colors.onSurface, marginBottom: 6 }}>{t('ai.mcpIntegrations')}</Text>
                 <Text style={{ color: theme.colors.onSurfaceVariant, marginBottom: 10 }}>
-                  Värden här sparas krypterat på enheten och prioriteras över motsvarande .env-värden.
+                  {t('ai.mcpIntegrationsHint')}
                 </Text>
                 {MCP_INTEGRATIONS.map((integration) => (
                   <View key={integration.id} style={{ marginBottom: 12, borderWidth: 1, borderColor: theme.colors.outlineVariant, borderRadius: 8, padding: 10 }}>
@@ -2261,7 +2266,7 @@ export default function AIScreen() {
               </View>
               <View style={{ marginTop: 14, padding: 12, borderWidth: 1, borderColor: theme.colors.outline, borderRadius: 10 }} testID="mcp-dashboard-section-mobile">
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <Text variant="titleSmall" style={{ color: theme.colors.onSurface }}>MCP Säkerhetsdashboard</Text>
+                  <Text variant="titleSmall" style={{ color: theme.colors.onSurface }}>{t('ai.mcpSecurityDashboard')}</Text>
                   <Button
                     mode="outlined"
                     onPress={async () => {
@@ -2273,7 +2278,7 @@ export default function AIScreen() {
                     }}
                     testID="mcp-dashboard-toggle-mobile"
                   >
-                    {mcpDashboardOpen ? 'Dölj' : 'Visa'}
+                    {mcpDashboardOpen ? t('common.hide') : t('common.show')}
                   </Button>
                 </View>
                 <Text style={{ color: theme.colors.onSurfaceVariant, marginBottom: 8 }}>
@@ -2283,7 +2288,7 @@ export default function AIScreen() {
                   <View>
                     <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
                       <Button mode="text" onPress={loadMcpDashboard} testID="mcp-dashboard-refresh-mobile">
-                        Uppdatera
+                        {t('common.retry')}
                       </Button>
                       {mcpDashboardLoading ? <ActivityIndicator size="small" style={{ marginLeft: 8 }} /> : null}
                     </View>
@@ -2293,12 +2298,12 @@ export default function AIScreen() {
                     <View style={{ maxHeight: 180 }}>
                       <ScrollView testID="mcp-dashboard-list-mobile">
                         {mcpDashboardRows.length === 0 ? (
-                          <Text style={{ color: theme.colors.onSurfaceVariant }}>Ingen spårning hittades.</Text>
+                          <Text style={{ color: theme.colors.onSurfaceVariant }}>{t('ai.noTrackingFound')}</Text>
                         ) : (
                           mcpDashboardRows.map((row: any, index: number) => (
                             <View key={`${row.at || index}-${row.service || ''}`} style={{ paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: theme.colors.outlineVariant }}>
                               <Text style={{ color: theme.colors.onSurface, fontWeight: '600' }}>
-                                {row.service || '-'} · {row.action || '-'} · {row.ok ? 'OK' : 'NEJ'}
+                                {row.service || '-'} · {row.action || '-'} · {row.ok ? t('common.ok') : t('common.off')}
                               </Text>
                               <Text style={{ color: theme.colors.onSurfaceVariant }}>
                                 {(row.at ? new Date(row.at).toLocaleString('sv-SE') : '-') + (row.toolName ? ` · ${row.toolName}` : '')}
@@ -2320,7 +2325,7 @@ export default function AIScreen() {
                   }}
                   style={{ marginRight: 8 }}
                 >
-                  Spara
+                  {t('common.save')}
                 </Button>
                 <Button
                   mode="outlined"
@@ -2330,13 +2335,13 @@ export default function AIScreen() {
                     await AsyncStorage.removeItem(`ai_system_prompt_${userScopeKey}`);
                   }}
                 >
-                  Rensa
+                  {t('tasks.filter.clear')}
                 </Button>
               </View>
             </ScrollView>
           )}
           <Dialog visible={downloadDialogVisible} onDismiss={() => setDownloadDialogVisible(false)}>
-            <Dialog.Title>Hämta AI-modeller från HuggingFace</Dialog.Title>
+            <Dialog.Title>{t('ai.downloadFromHf')}</Dialog.Title>
             <Dialog.Content>
               <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
                 <TextInput
@@ -2348,7 +2353,7 @@ export default function AIScreen() {
                   returnKeyType="search"
                   onSubmitEditing={handleSearch}
                 />
-                <Button mode="contained" onPress={handleSearch} loading={isSearching}>Search</Button>
+                <Button mode="contained" onPress={handleSearch} loading={isSearching}>{t('common.search', 'Search')}</Button>
               </View>
               <ScrollView style={{ maxHeight: 340 }}>
                 <View style={{ gap: 10 }}>
@@ -2364,7 +2369,7 @@ export default function AIScreen() {
                       <View style={{ alignItems: 'flex-end' }}>
                         {processingModels[item.id] ? (
                           <Button mode="outlined" onPress={() => handleCancelDownload(item.id)}>
-                            Cancel
+                            {t('common.cancel')}
                           </Button>
                         ) : (
                           <Button
@@ -2372,7 +2377,7 @@ export default function AIScreen() {
                             onPress={() => downloadModel(item)}
                             disabled={!!processingModels[item.id]}
                           >
-                            Download
+                            {t('ai.download')}
                           </Button>
                         )}
                         <Button
@@ -2421,11 +2426,11 @@ export default function AIScreen() {
                     const key = item.id ?? String(index);
                     const collapsed = collapsedTool[key] ?? true;
                     const label = item.content.startsWith('Tool call:')
-                      ? 'Tool call'
+                      ? t('ai.toolCall')
                       : item.content.startsWith('Tool result:')
-                      ? 'Tool result'
+                      ? t('ai.toolResult')
                       : item.content.startsWith('Tool error:')
-                      ? 'Tool error'
+                      ? t('ai.toolError')
                       : 'Tool';
                     return (
                       <View style={[styles.messageRow, styles.rowLeft]}>
@@ -2437,7 +2442,7 @@ export default function AIScreen() {
                             <View style={styles.toolHeaderLeft}>
                               <FontAwesome5 name="tools" size={14} color={theme.colors.primary} />
                               <Text style={[styles.toolTitle, { color: theme.colors.onSurface }]}>
-                                Tool use · {label}
+                                {`${t('ai.toolUseTitle')} · ${label}`}
                               </Text>
                             </View>
                             <FontAwesome5 name={collapsed ? 'chevron-down' : 'chevron-up'} size={12} color={theme.colors.onSurfaceVariant} />
@@ -2484,7 +2489,7 @@ export default function AIScreen() {
                 <View style={[styles.messageRow, styles.rowLeft]}>
                   <View style={[styles.bubble, styles.assistantBubble, { backgroundColor: theme.colors.surfaceVariant, flexDirection: 'row', alignItems: 'center' }]}>
                     <ActivityIndicator size="small" />
-                    <Text style={{ marginLeft: 8, color: theme.colors.onSurfaceVariant }}>AI tänker...</Text>
+                    <Text style={{ marginLeft: 8, color: theme.colors.onSurfaceVariant }}>{t('ai.thinking')}</Text>
                   </View>
                 </View>
               )}
@@ -2497,7 +2502,7 @@ export default function AIScreen() {
               )}
               {contextInfo ? (
                 <Text style={{ color: theme.colors.onSurfaceVariant, paddingHorizontal: 12, paddingBottom: 6 }}>
-                  Kontext: {contextInfo}
+                  {`${t('ai.contextLabel')}: ${contextInfo}`}
                 </Text>
               ) : null}
               <View style={[styles.inputContainer, { backgroundColor: theme.colors.surface, borderTopColor: theme.colors.outline }]}>

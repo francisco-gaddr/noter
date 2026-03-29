@@ -372,6 +372,28 @@ describe('Mobile Store', () => {
     expect(result.content).toBe('Unlock Content');
   });
 
+  it('should never expose ciphertext after successful unlock response', async () => {
+    const { fetchWithAuth } = require('../services/api');
+    const noteId = 'locked-3';
+    const brokenCiphertext = 'U2FsdGVkX1broken-payload';
+
+    useStore.setState({
+      notes: [{ _id: noteId, title: 'Låst anteckning', content: '', locked: true } as any],
+    });
+
+    fetchWithAuth.mockResolvedValueOnce({
+      success: true,
+      title: brokenCiphertext,
+      content: brokenCiphertext,
+    });
+
+    const result = await useStore.getState().verifyNoteLock(noteId, 'secret');
+    expect(result.title).toBe('Låst anteckning');
+    expect(result.content).toBe('');
+    expect(result.content).not.toBe(brokenCiphertext);
+    expect(result.title).not.toBe(brokenCiphertext);
+  });
+
   it('should reject incorrect note password without clearing session', async () => {
     const { fetchWithAuth } = require('../services/api');
     const noteId = 'locked-2';

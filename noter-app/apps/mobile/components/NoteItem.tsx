@@ -4,6 +4,8 @@ import { Text, IconButton, useTheme } from 'react-native-paper';
 import { Note } from '@repo/shared';
 import * as Haptics from 'expo-haptics';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
+import { SvgUri } from 'react-native-svg';
+import { getReadableProtectedText } from '@/utils/protectedNote';
 
 interface NoteItemProps {
   note: Note;
@@ -32,6 +34,9 @@ export const NoteItem: React.FC<NoteItemProps> = ({
     const name = faKey.startsWith('Fa') ? faKey.substring(2) : faKey;
     return name.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
   };
+
+  const rawTitle = (note as any).__rawEncryptedTitle || note.title;
+  const decryptedTitle = getReadableProtectedText(rawTitle, note.title, '');
 
   return (
     <TouchableOpacity
@@ -67,7 +72,10 @@ export const NoteItem: React.FC<NoteItemProps> = ({
           const iconKey = (note as any).icon as string | undefined;
 
           if (iconKey) {
-            return <FontAwesome5 name={toFa5(iconKey) as any} size={16} color={theme.colors.onSurface} />;
+            if (iconKey.startsWith('Fa')) {
+              return <FontAwesome5 name={toFa5(iconKey) as any} size={16} color={theme.colors.onSurface} />;
+            }
+            return <SvgUri uri={iconKey} width={16} height={16} />;
           }
 
           if ((note as any).type === 'project') {
@@ -79,7 +87,7 @@ export const NoteItem: React.FC<NoteItemProps> = ({
       </View>
 
       <Text style={[styles.title, { color: theme.colors.onSurface }]} numberOfLines={1}>
-        {note.title}
+        {decryptedTitle}
       </Text>
 
       {note.locked && <IconButton icon="lock" size={16} style={{ margin: 0 }} />}

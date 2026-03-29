@@ -12,6 +12,8 @@ Detta workspace använder följande agentkarta:
 - Säkerställ alltid kryptering at rest och in transit för notes, tasks, AI-inställningar och credentials.
 - Bevisa EAS APK-readiness med readiness-script, full valideringsmatris och faktisk EAS-buildstatus när release är i scope.
 - Håll mobilens task- och notes-flöden omedelbara i UI även när lokal persistens, sync och reminder-logik körs.
+- Säkerställ att AI-native runtime skiljer korrekt mellan Expo Go, saknat filsystem, saknat zip-stöd och saknad MLC-modul i EAS-builds.
+- Säkerställ att upplåsta låsta anteckningar dekrypteras för visning men aldrig faller tillbaka till att visa rå ciphertext.
 - Uppdatera dokumentation och testmatris i samma leverans när säkerhets-, build- eller agentflöden ändras.
 
 ## Skills som ska användas proaktivt

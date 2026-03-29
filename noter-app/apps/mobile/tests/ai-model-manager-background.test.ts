@@ -8,6 +8,10 @@ jest.mock('react-native', () => ({
   },
 }));
 
+jest.mock('../utils/runtime', () => ({
+  isExpoGo: () => false,
+}));
+
 jest.mock('react-native-fs', () => ({
   default: {
     exists: jest.fn().mockResolvedValue(true),
