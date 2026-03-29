@@ -1,18 +1,23 @@
 import { NativeModules } from 'react-native';
 import { isExpoGo } from '@/utils/runtime';
 
-const requireNativeModule = (moduleName: string) => {
+export const getReactNativeFs = () => {
   try {
-    const loaded = require(moduleName);
+    const loaded = require('react-native-fs');
     return loaded?.default ?? loaded ?? null;
   } catch {
     return null;
   }
 };
 
-export const getReactNativeFs = () => requireNativeModule('react-native-fs');
-
-export const getZipArchive = () => requireNativeModule('react-native-zip-archive');
+export const getZipArchive = () => {
+  try {
+    const loaded = require('react-native-zip-archive');
+    return loaded?.default ?? loaded ?? null;
+  } catch {
+    return null;
+  }
+};
 
 export const getLocalAiRuntimeStatus = () => {
   const fileSystem = getReactNativeFs();
