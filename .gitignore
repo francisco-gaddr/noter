@@ -26,7 +26,20 @@ coverage
 out/
 build
 dist
-
+electron-noter/dist-electron-build*/
+electron-noter/dist-electron-ready*/
+electron-noter/test-results/
+electron-noter/renderer/404/
+electron-noter/renderer/embed/
+electron-noter/renderer/_next/
+electron-noter/renderer/_not-found/
+electron-noter/renderer/*.txt
+electron-noter/renderer/index.html
+electron-noter/renderer/404.html
+electron-noter/renderer/favicon.ico
+electron-noter/renderer/manifest.json
+electron-noter/renderer/sw.js
+electron-noter/renderer/*.svg
 
 # Debug
 npm-debug.log*
