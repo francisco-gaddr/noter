@@ -7,9 +7,36 @@ import NoteEditor from '../components/NoteEditor';
 import TaskList from '../components/TaskList';
 import Auth from '../components/Auth';
 import { useStore } from '../stores/useStore';
-import { DndProvider } from 'react-dnd';
-import { HTML5Backend } from 'react-dnd-html5-backend';
 import { loadHotkeys, matchesHotkey } from '../lib/hotkeys';
+
+const AppLoadingShell = ({ timedOut }: { timedOut: boolean }) => (
+  <main
+    role="main"
+    className="flex min-h-screen items-center justify-center bg-white px-6 text-center text-gray-900 dark:bg-gray-900 dark:text-gray-100"
+  >
+    <div className="max-w-md rounded-2xl border border-gray-200 bg-white p-8 shadow-sm dark:border-gray-800 dark:bg-gray-950">
+      <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-4 border-gray-200 border-t-blue-500 dark:border-gray-700 dark:border-t-blue-400" />
+      <h1 className="text-xl font-semibold">Laddar Noter…</h1>
+      <p className="mt-3 text-sm text-gray-600 dark:text-gray-300">
+        Förbereder kryptering, lokal data och användarsession.
+      </p>
+      {timedOut ? (
+        <div className="mt-5 space-y-3">
+          <p className="text-sm text-amber-700 dark:text-amber-300">
+            Starten tar längre tid än väntat. Försök ladda om om appen inte fortsätter inom kort.
+          </p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700"
+          >
+            Ladda om
+          </button>
+        </div>
+      ) : null}
+    </div>
+  </main>
+);
 
 export default function Home() {
   const initSocket = useStore((state) => state.initSocket);
@@ -23,6 +50,7 @@ export default function Home() {
   const [isSplitView, setIsSplitView] = useState(false);
   const [splitRatio, setSplitRatio] = useState(0.5);
   const [isSplitResizing, setIsSplitResizing] = useState(false);
+  const [hydrationTimedOut, setHydrationTimedOut] = useState(false);
   const sidebarWidthRef = useRef(256);
   const splitRatioRef = useRef(0.5);
   const sidebarResizeFrameRef = useRef<number | null>(null);
@@ -131,6 +159,17 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    if (!mounted || isHydrated) {
+      setHydrationTimedOut(false);
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setHydrationTimedOut(true);
+    }, 4000);
+    return () => window.clearTimeout(timer);
+  }, [isHydrated, mounted]);
+
+  useEffect(() => {
     if (!isSplitResizing) return;
     const onMove = (event: MouseEvent) => {
       const el = document.getElementById('split-main-content');
@@ -169,7 +208,7 @@ export default function Home() {
   }, [isSidebarCollapsed]);
 
   if (!mounted || !isHydrated) {
-    return null;
+    return <AppLoadingShell timedOut={hydrationTimedOut} />;
   }
 
   if (!user) {
@@ -182,79 +221,77 @@ export default function Home() {
   }
 
   return (
-    <DndProvider backend={HTML5Backend}>
-      <div
-        className="flex flex-col h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-300"
-      >
-        <header role="banner">
-          <Navbar
-            onToggleSidebar={toggleSidebar}
-            isSidebarCollapsed={isSidebarCollapsed}
-          />
-        </header>
-        <div className="flex flex-1 overflow-hidden">
-          <nav 
-              className="relative flex-shrink-0 overflow-hidden flex flex-col"
-              style={{ width: isSidebarCollapsed ? 0 : sidebarWidth }}
-              aria-label="Huvudnavigering"
-              role="navigation"
-          >
-            {!isSidebarCollapsed && (
-              <>
-                <SidebarTree />
-                <div
-                  className={`absolute top-0 right-0 w-1 h-full cursor-col-resize bg-gray-200 dark:bg-gray-700 hover:bg-blue-500 transition-colors z-10 ${isResizing ? 'bg-blue-500' : ''}`}
-                  onMouseDown={startResizing}
-                  role="separator"
-                  aria-orientation="vertical"
-                  aria-label="Ändra sidopanelbredd"
-                  aria-valuenow={sidebarWidth}
-                  aria-valuemin={200}
-                  aria-valuemax={600}
-                  tabIndex={0}
-                />
-              </>
-            )}
-          </nav>
+    <div
+      className="flex flex-col h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-300"
+    >
+      <header role="banner">
+        <Navbar
+          onToggleSidebar={toggleSidebar}
+          isSidebarCollapsed={isSidebarCollapsed}
+        />
+      </header>
+      <div className="flex flex-1 overflow-hidden">
+        <nav 
+            className="relative flex-shrink-0 overflow-hidden flex flex-col"
+            style={{ width: isSidebarCollapsed ? 0 : sidebarWidth }}
+            aria-label="Huvudnavigering"
+            role="navigation"
+        >
+          {!isSidebarCollapsed && (
+            <>
+              <SidebarTree />
+              <div
+                className={`absolute top-0 right-0 w-1 h-full cursor-col-resize bg-gray-200 dark:bg-gray-700 hover:bg-blue-500 transition-colors z-10 ${isResizing ? 'bg-blue-500' : ''}`}
+                onMouseDown={startResizing}
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Ändra sidopanelbredd"
+                aria-valuenow={sidebarWidth}
+                aria-valuemin={200}
+                aria-valuemax={600}
+                tabIndex={0}
+              />
+            </>
+          )}
+        </nav>
 
-          <main className="flex-1 overflow-hidden bg-white dark:bg-gray-900" role="main" id="main-content">
-            <h1 className="sr-only">Noter Innehåll</h1>
-            {isSplitView ? (
-              <div className="h-full flex" id="split-main-content" data-testid="split-main-content">
-                <section
-                  className="h-full overflow-hidden min-w-0"
-                  style={{ width: `${splitRatio * 100}%` }}
-                  aria-label="Anteckningsvy"
-                  data-testid="split-notes-pane"
-                >
-                  <NoteEditor />
-                </section>
-                <div
-                  className={`w-1 h-full cursor-col-resize bg-gray-200 dark:bg-gray-700 hover:bg-blue-500 transition-colors ${isSplitResizing ? 'bg-blue-500' : ''}`}
-                  onMouseDown={() => setIsSplitResizing(true)}
-                  role="separator"
-                  aria-orientation="vertical"
-                  aria-label="Ändra split-vy bredd"
-                  tabIndex={0}
-                  data-testid="split-divider"
-                />
-                <section
-                  className="h-full overflow-hidden min-w-0"
-                  style={{ width: `${(1 - splitRatio) * 100}%` }}
-                  aria-label="Uppgiftsvy"
-                  data-testid="split-tasks-pane"
-                >
-                  <TaskList />
-                </section>
-              </div>
-            ) : activeTab === 'tasks' ? (
-              <TaskList />
-            ) : (
-              <NoteEditor />
-            )}
-          </main>
-        </div>
+        <main className="flex-1 overflow-hidden bg-white dark:bg-gray-900" role="main" id="main-content">
+          <h1 className="sr-only">Noter Innehåll</h1>
+          {isSplitView ? (
+            <div className="h-full flex" id="split-main-content" data-testid="split-main-content">
+              <section
+                className="h-full overflow-hidden min-w-0"
+                style={{ width: `${splitRatio * 100}%` }}
+                aria-label="Anteckningsvy"
+                data-testid="split-notes-pane"
+              >
+                <NoteEditor />
+              </section>
+              <div
+                className={`w-1 h-full cursor-col-resize bg-gray-200 dark:bg-gray-700 hover:bg-blue-500 transition-colors ${isSplitResizing ? 'bg-blue-500' : ''}`}
+                onMouseDown={() => setIsSplitResizing(true)}
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Ändra split-vy bredd"
+                tabIndex={0}
+                data-testid="split-divider"
+              />
+              <section
+                className="h-full overflow-hidden min-w-0"
+                style={{ width: `${(1 - splitRatio) * 100}%` }}
+                aria-label="Uppgiftsvy"
+                data-testid="split-tasks-pane"
+              >
+                <TaskList />
+              </section>
+            </div>
+          ) : activeTab === 'tasks' ? (
+            <TaskList />
+          ) : (
+            <NoteEditor />
+          )}
+        </main>
       </div>
-    </DndProvider>
+    </div>
   );
 }

@@ -6,7 +6,8 @@
   "scripts": {
     "lint": "eslint .",
     "test": "jest",
-    "build": "tsc"
+    "build": "tsc",
+    "check-types": "tsc --noEmit"
   },
   "devDependencies": {
     "@repo/eslint-config": "*",

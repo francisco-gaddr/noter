@@ -139,6 +139,37 @@ describe('Performance and Stability Tests', () => {
   });
 
   describe('App Loading Performance', () => {
+    it('shows a startup shell while hydration is pending', async () => {
+      (useStore as unknown as jest.Mock).mockImplementation((selector) => {
+        const state = {
+          user: { _id: 'user-1', username: 'testuser' },
+          token: 'test-token',
+          notes: [],
+          tasks: [],
+          selectedNoteId: null,
+          selectedTaskListId: null,
+          activeProjectId: null,
+          isLoading: false,
+          error: null,
+          searchQuery: '',
+          sortOrder: 'date-desc',
+          activeTab: 'notes',
+          activeUsers: {},
+          isAppLocked: false,
+          autoLockTimeout: 15,
+          isHydrated: false,
+          pendingCreated: { notes: {}, tasks: {} },
+          initSocket: jest.fn(),
+        };
+        return selector ? selector(state) : state;
+      });
+
+      render(<Home />);
+
+      expect(screen.getByText('Laddar Noter…')).toBeInTheDocument();
+      expect(screen.getByText(/Förbereder kryptering, lokal data och användarsession/i)).toBeInTheDocument();
+    });
+
     it('should load app without freezing', async () => {
       const { container } = render(<Home />);
       

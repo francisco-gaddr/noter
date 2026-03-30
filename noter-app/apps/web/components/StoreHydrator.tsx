@@ -10,7 +10,11 @@ export default function StoreHydrator() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      await initWebEncryptionKey();
+      try {
+        await initWebEncryptionKey();
+      } catch (error) {
+        console.error('Failed to initialize web encryption key', error);
+      }
       if (!cancelled) hydrate();
     })();
     return () => {

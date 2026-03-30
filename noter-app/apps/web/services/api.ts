@@ -92,6 +92,14 @@ const handleResponse = async (res: Response) => {
     return res.json();
 };
 
+const ensureArrayPayload = (value: unknown): any[] => {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === 'object' && (value as any).offline === true) {
+    return [];
+  }
+  return [];
+};
+
 const parseTaskCompleted = (value: unknown): boolean => {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'number') return value === 1;
@@ -217,7 +225,7 @@ export const api = {
   // Notes
   async fetchNotes(): Promise<any[]> {
     const res = await fetch(`${getBaseUrl()}/notes`, { headers: getHeaders() });
-    return handleResponse(res);
+    return ensureArrayPayload(await handleResponse(res));
   },
 
   async decryptNotes(encryptedNotes: any[]): Promise<Note[]> {
@@ -380,7 +388,7 @@ export const api = {
   async fetchTasks(parentNoteId?: string): Promise<any[]> {
     const url = parentNoteId ? `${getBaseUrl()}/tasks?parentNoteId=${parentNoteId}` : `${getBaseUrl()}/tasks`;
     const res = await fetch(url, { headers: getHeaders() });
-    return handleResponse(res);
+    return ensureArrayPayload(await handleResponse(res));
   },
 
   async decryptTasks(encryptedTasks: any[]): Promise<Task[]> {

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'noter-cache-v3';
+const CACHE_NAME = 'noter-cache-v4';
 const STATIC_ASSETS = [
   '/app/favicon.ico',
   '/app/manifest.json',
@@ -31,6 +31,13 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
+  const jsonHeaders = { 'Content-Type': 'application/json' };
+  const offlineApiFallback = (() => {
+    if (url.pathname.endsWith('/notes') || url.pathname.endsWith('/tasks')) {
+      return [];
+    }
+    return { offline: true, message: 'You are offline' };
+  })();
 
   // Ignore non-GET requests
   if (event.request.method !== 'GET') return;
@@ -43,8 +50,8 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(event.request)
         .catch(() => {
-          return new Response(JSON.stringify({ offline: true, message: 'You are offline' }), {
-            headers: { 'Content-Type': 'application/json' }
+          return new Response(JSON.stringify(offlineApiFallback), {
+            headers: jsonHeaders
           });
         })
     );

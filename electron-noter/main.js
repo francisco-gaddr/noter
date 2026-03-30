@@ -10,6 +10,7 @@ const remoteUrl = 'https://daylited.com/';
 const userDataDir = process.env.ELECTRON_USER_DATA_DIR;
 const settingsFileName = 'settings.json';
 const encryptedSettingsVersion = 1;
+const rendererRecoveryDelayMs = 2500;
 const allowedExternalProtocols = new Set(['https:', 'http:']);
 const rendererFallbackUrls = Array.from(new Set([
   process.env.ELECTRON_RENDERER_URL,
@@ -201,6 +202,14 @@ const createWindow = () => {
   const rendererIndex = path.join(__dirname, 'renderer', 'index.html');
   const legacyRendererIndex = path.join(__dirname, 'renderer', 'app', 'index.html');
   let recovering = false;
+  let recoveryTimer = null;
+  const scheduleRendererRecovery = () => {
+    if (recoveryTimer || win.isDestroyed()) return;
+    recoveryTimer = setTimeout(() => {
+      recoveryTimer = null;
+      recoverRenderer().catch(() => {});
+    }, rendererRecoveryDelayMs);
+  };
   const recoverRenderer = async () => {
     if (recovering || win.isDestroyed()) return;
     recovering = true;
@@ -209,6 +218,7 @@ const createWindow = () => {
       const loaded = await loadFirstReachableUrl(win);
       if (!loaded && !win.isDestroyed()) {
         await loadErrorFallback(win);
+        scheduleRendererRecovery();
       }
     } finally {
       recovering = false;
@@ -226,7 +236,21 @@ const createWindow = () => {
   }
 
   win.webContents.on('did-fail-load', () => {
-    recoverRenderer();
+    recoverRenderer().catch(() => {});
+  });
+
+  win.webContents.on('did-finish-load', () => {
+    if (recoveryTimer) {
+      clearTimeout(recoveryTimer);
+      recoveryTimer = null;
+    }
+  });
+
+  win.on('closed', () => {
+    if (recoveryTimer) {
+      clearTimeout(recoveryTimer);
+      recoveryTimer = null;
+    }
   });
 
   return win;

@@ -35,6 +35,16 @@ describe('E2E Encryption Tests', () => {
   });
 
   describe('fetchNotes', () => {
+    it('returns empty array for offline fallback payload', async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ offline: true, message: 'You are offline' }),
+      });
+
+      await expect(api.fetchNotes()).resolves.toEqual([]);
+    });
+
     it('should mask locked note content and title while keeping metadata', async () => {
       const mockNotes = [
         {
@@ -131,6 +141,18 @@ describe('E2E Encryption Tests', () => {
 
       const first = notes[0]!;
       expect(first.locked).toBe(false);
+    });
+  });
+
+  describe('fetchTasks', () => {
+    it('returns empty array for offline fallback payload', async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ offline: true, message: 'You are offline' }),
+      });
+
+      await expect(api.fetchTasks()).resolves.toEqual([]);
     });
   });
 

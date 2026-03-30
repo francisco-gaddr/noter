@@ -1,0 +1,46 @@
+name: Electron Build Verify
+
+on:
+  pull_request:
+    paths:
+      - 'electron-noter/**'
+      - 'noter-app/apps/web/**'
+      - 'noter-app/package.json'
+      - 'noter-app/package-lock.json'
+  push:
+    paths:
+      - 'electron-noter/**'
+      - 'noter-app/apps/web/**'
+      - 'noter-app/package.json'
+      - 'noter-app/package-lock.json'
+
+jobs:
+  verify-electron:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            noter-app/package-lock.json
+            electron-noter/package-lock.json
+      - name: Install monorepo deps
+        run: npm ci
+        working-directory: noter-app
+      - name: Install electron deps
+        run: npm ci
+        working-directory: electron-noter
+      - name: Verify readiness
+        run: npm run verify:build-ready
+        working-directory: electron-noter
+      - name: Unit tests
+        run: npm test
+        working-directory: electron-noter
+      - name: Build web renderer
+        run: npm run build:web
+        working-directory: electron-noter
+      - name: Electron E2E
+        run: npm run test:e2e
+        working-directory: electron-noter

@@ -21,6 +21,9 @@ describe('electron release readiness', () => {
     expect(mainJs).toContain('setWindowOpenHandler');
     expect(mainJs).toContain("const allowedExternalProtocols = new Set(['https:', 'http:'])");
     expect(mainJs).toContain('return allowedExternalProtocols.has(parsed.protocol);');
+    expect(mainJs).toContain('const rendererRecoveryDelayMs = 2500;');
+    expect(mainJs).toContain('scheduleRendererRecovery();');
+    expect(mainJs).toContain("win.webContents.on('did-finish-load'");
     expect(mainJs).toMatch(/if \(!safeStorage\?\.isEncryptionAvailable\?\.\(\)\) \{\s+return false;\s+\}/);
     expect(mainJs).toContain('__encrypted: true');
     expect(mainJs).toContain("payload: encrypted.toString('base64')");

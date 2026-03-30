@@ -56,6 +56,24 @@ const steps = [
     args: ['run', 'check-types'],
   },
   {
+    label: 'Web production build',
+    cwd: path.join(repoRoot, 'apps', 'web'),
+    command: 'npm',
+    args: ['run', 'build'],
+  },
+  {
+    label: '@repo/ai typecheck',
+    cwd: path.join(repoRoot, 'packages', 'ai'),
+    command: 'npm',
+    args: ['run', 'check-types'],
+  },
+  {
+    label: '@repo/shared typecheck',
+    cwd: path.join(repoRoot, 'packages', 'shared'),
+    command: 'npm',
+    args: ['run', 'check-types'],
+  },
+  {
     label: 'Mobile critical unit/e2e/security',
     cwd: path.join(repoRoot, 'apps', 'mobile'),
     command: 'npm',
