@@ -70,7 +70,6 @@ import { NetworkStatus } from '@/components/NetworkStatus';
 import { MD3DarkTheme, MD3LightTheme } from 'react-native-paper';
 import { useStore } from '@/stores/useStore';
 
-import { initApiUrl } from '@/services/api';
 import { Alert, InteractionManager, View } from 'react-native';
 import { useRouter, useSegments } from 'expo-router';
 import { extractTaskIdFromNotificationResponse, NotificationTaskIntentQueue } from '@/utils/notificationTaskIntent';
@@ -84,7 +83,7 @@ export function RootLayoutNav() {
   const { init } = require('@/stores/useStore').useStore.getState();
   require('react').useEffect(() => {
     let active = true;
-    void runStartupBootstrap(initApiUrl, init, (message, startupError) => {
+    void runStartupBootstrap(init, (message, startupError) => {
       if (!active) return;
       console.error('RootLayoutNav bootstrap failed', startupError);
       useStore.setState({

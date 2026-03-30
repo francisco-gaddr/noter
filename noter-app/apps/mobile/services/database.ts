@@ -88,7 +88,17 @@ const computeSyncDedupeKey = (action: string, entity: string, data: any): string
   }
 
   if (action === 'REORDER') {
-    return null;
+    const items = Array.isArray(data?.notes)
+      ? data.notes
+      : Array.isArray(data?.tasks)
+        ? data.tasks
+        : [];
+    const ids = items
+      .map((item: any) => (typeof item?._id === 'string' ? item._id : null))
+      .filter((value: string | null): value is string => Boolean(value))
+      .sort();
+    if (ids.length === 0) return `REORDER:${entity}`;
+    return `REORDER:${entity}:ids:${ids.join(',')}`;
   }
 
   return null;
@@ -685,9 +695,24 @@ export const addToSyncQueue = async (action: string, entity: string, data: any) 
   const encryptedEntity = encryptText(entity);
   const encryptedDedupeKey = dedupeKey ? encryptText(dedupeKey) : null;
   const dedupeKeyHash = dedupeKey ? hashText(dedupeKey) : null;
+  const encryptedTimestamp = encryptText(new Date().toISOString());
+  if (dedupeKeyHash) {
+    await db.runAsync(
+      `INSERT INTO sync_queue (action, entity, data, timestamp, dedupeKey, dedupeKeyHash)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(dedupeKeyHash) DO UPDATE SET
+         action = excluded.action,
+         entity = excluded.entity,
+         data = excluded.data,
+         timestamp = excluded.timestamp,
+         dedupeKey = excluded.dedupeKey`,
+      [encryptedAction, encryptedEntity, encryptedData, encryptedTimestamp, encryptedDedupeKey, dedupeKeyHash]
+    );
+    return;
+  }
   await db.runAsync(
-    `INSERT OR IGNORE INTO sync_queue (action, entity, data, timestamp, dedupeKey, dedupeKeyHash) VALUES (?, ?, ?, ?, ?, ?)`,
-    [encryptedAction, encryptedEntity, encryptedData, encryptText(new Date().toISOString()), encryptedDedupeKey, dedupeKeyHash]
+    `INSERT INTO sync_queue (action, entity, data, timestamp, dedupeKey, dedupeKeyHash) VALUES (?, ?, ?, ?, ?, ?)`,
+    [encryptedAction, encryptedEntity, encryptedData, encryptedTimestamp, encryptedDedupeKey, dedupeKeyHash]
   );
 };
 

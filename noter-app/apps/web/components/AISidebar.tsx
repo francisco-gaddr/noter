@@ -31,7 +31,10 @@ type McpFetchDiagnostics = {
 };
 
 export const AISidebar = () => {
-  const { user, token, notes, tasks } = useStore();
+  const user = useStore((state) => state.user);
+  const token = useStore((state) => state.token);
+  const notes = useStore((state) => state.notes);
+  const tasks = useStore((state) => state.tasks);
   const [isOpen, setIsOpen] = useState(false);
   const [width, setWidth] = useState(300);
   const [isResizing, setIsResizing] = useState(false);
@@ -280,7 +283,7 @@ export const AISidebar = () => {
   }, []);
 
   const getMcpEnvValues = (): Record<string, string | undefined> => {
-    const env = process.env as Record<string, string | undefined>;
+    const env = (typeof process !== 'undefined' ? process.env : {}) as Record<string, string | undefined>;
     return {
       MCP_SLACK_ENABLED: env.NEXT_PUBLIC_MCP_SLACK_ENABLED ?? env.MCP_SLACK_ENABLED,
       SLACK_MCP_ENABLED: env.NEXT_PUBLIC_SLACK_MCP_ENABLED ?? env.SLACK_MCP_ENABLED,

@@ -3,7 +3,6 @@ import { runStartupBootstrap } from '../services/startup';
 describe('runStartupBootstrap', () => {
   it('returns ok when startup completes', async () => {
     const result = await runStartupBootstrap(
-      async () => undefined,
       async () => undefined
     );
 
@@ -14,7 +13,6 @@ describe('runStartupBootstrap', () => {
     const onError = jest.fn();
 
     const result = await runStartupBootstrap(
-      async () => undefined,
       async () => {
         throw new Error('boom');
       },

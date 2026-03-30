@@ -203,6 +203,8 @@ export default function AIScreen() {
   const [contextInfo, setContextInfo] = useState('');
   const stopRequestedRef = useRef(false);
   const resumingDownloadsRef = useRef(false);
+  const isMountedRef = useRef(true);
+  const modelLoadRequestRef = useRef(0);
   const [tokensPerSecond, setTokensPerSecond] = useState<number | null>(null);
   const [enableToolUse, setEnableToolUse] = useState(true);
   const [toolAccessMode, setToolAccessMode] = useState<AiToolAccessMode>('full');
@@ -351,50 +353,68 @@ export default function AIScreen() {
   }, [params.openSettings, params.settingsTab]);
 
   useEffect(() => {
-    loadModels();
-    (async () => {
+    isMountedRef.current = true;
+    void loadModels();
+    void (async () => {
       const token = await SecureStore.getItemAsync('token');
       const scopeKey = token
         ? await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, token)
         : 'anon';
+      const [
+        saved,
+        savedToolUse,
+        savedToolAccessMode,
+        savedPromptPreset,
+        savedSyncEnabled,
+        savedLocalConvert,
+        savedBackgroundWork,
+        savedApiEnabled,
+        savedApiProvider,
+        savedOpenRouterModel,
+        savedGeminiModel,
+        openRouterKeyEnc,
+        geminiKeyEnc,
+        mcpSettingsRaw,
+        globalBackgroundWork,
+      ] = await Promise.all([
+        AsyncStorage.getItem(`ai_system_prompt_${scopeKey}`),
+        AsyncStorage.getItem(`ai_tool_use_enabled_${scopeKey}`),
+        AsyncStorage.getItem(`ai_tool_access_mode_${scopeKey}`),
+        AsyncStorage.getItem(`ai_prompt_preset_${scopeKey}`),
+        AsyncStorage.getItem(`ai_sync_enabled_${scopeKey}`),
+        AsyncStorage.getItem(`ai_local_convert_${scopeKey}`),
+        AsyncStorage.getItem(`ai_background_work_${scopeKey}`),
+        AsyncStorage.getItem(`ai_api_enabled_${scopeKey}`),
+        AsyncStorage.getItem(`ai_api_provider_${scopeKey}`),
+        AsyncStorage.getItem(`ai_openrouter_model_${scopeKey}`),
+        AsyncStorage.getItem(`ai_gemini_model_${scopeKey}`),
+        SecureStore.getItemAsync(`ai_openrouter_key_${scopeKey}`),
+        SecureStore.getItemAsync(`ai_gemini_key_${scopeKey}`),
+        SecureStore.getItemAsync(`ai_mcp_settings_${scopeKey}`),
+        isAiBackgroundWorkEnabled(),
+      ]);
+      if (!isMountedRef.current) return;
       setUserScopeKey(scopeKey);
-      const saved = await AsyncStorage.getItem(`ai_system_prompt_${scopeKey}`);
       if (saved) setSystemPrompt(decrypt(saved));
-      const savedToolUse = await AsyncStorage.getItem(`ai_tool_use_enabled_${scopeKey}`);
       if (savedToolUse !== null) setEnableToolUse(savedToolUse === 'true');
-      const savedToolAccessMode = await AsyncStorage.getItem(`ai_tool_access_mode_${scopeKey}`);
       if (savedToolAccessMode === 'read-only' || savedToolAccessMode === 'full') setToolAccessMode(savedToolAccessMode);
-      const savedPromptPreset = await AsyncStorage.getItem(`ai_prompt_preset_${scopeKey}`);
       if (savedPromptPreset === 'balanced' || savedPromptPreset === 'research' || savedPromptPreset === 'execution' || savedPromptPreset === 'concise') {
         setPromptPreset(savedPromptPreset);
       }
-      const savedSyncEnabled = await AsyncStorage.getItem(`ai_sync_enabled_${scopeKey}`);
       const resolvedSyncEnabled = savedSyncEnabled !== null ? savedSyncEnabled === 'true' : true;
       setSyncWithBackend(resolvedSyncEnabled);
-      const savedLocalConvert = await AsyncStorage.getItem(`ai_local_convert_${scopeKey}`);
       if (savedLocalConvert !== null) setPreferLocalConversion(savedLocalConvert === 'true');
-      const savedBackgroundWork = await AsyncStorage.getItem(`ai_background_work_${scopeKey}`);
-      if (savedBackgroundWork !== null) {
-        setAllowBackgroundAIWork(savedBackgroundWork === 'true');
-        await setAiBackgroundWorkEnabled(savedBackgroundWork === 'true');
-      } else {
-        const globalSetting = await isAiBackgroundWorkEnabled();
-        setAllowBackgroundAIWork(globalSetting);
-      }
+      const resolvedBackgroundWork = savedBackgroundWork !== null ? savedBackgroundWork === 'true' : globalBackgroundWork;
+      setAllowBackgroundAIWork(resolvedBackgroundWork);
+      await setAiBackgroundWorkEnabled(resolvedBackgroundWork);
       await refreshRemoteSync(scopeKey, resolvedSyncEnabled);
-      const savedApiEnabled = await AsyncStorage.getItem(`ai_api_enabled_${scopeKey}`);
+      if (!isMountedRef.current) return;
       if (savedApiEnabled !== null) setAiUseApiProviders(savedApiEnabled === 'true');
-      const savedApiProvider = await AsyncStorage.getItem(`ai_api_provider_${scopeKey}`);
       if (savedApiProvider === 'openrouter' || savedApiProvider === 'gemini') setApiProvider(savedApiProvider);
-      const savedOpenRouterModel = await AsyncStorage.getItem(`ai_openrouter_model_${scopeKey}`);
       if (savedOpenRouterModel) setOpenRouterModel(savedOpenRouterModel);
-      const savedGeminiModel = await AsyncStorage.getItem(`ai_gemini_model_${scopeKey}`);
       if (savedGeminiModel) setGeminiModel(savedGeminiModel);
-      const openRouterKeyEnc = await SecureStore.getItemAsync(`ai_openrouter_key_${scopeKey}`);
       if (openRouterKeyEnc) setOpenRouterApiKey(decrypt(openRouterKeyEnc) || '');
-      const geminiKeyEnc = await SecureStore.getItemAsync(`ai_gemini_key_${scopeKey}`);
       if (geminiKeyEnc) setGeminiApiKey(decrypt(geminiKeyEnc) || '');
-      const mcpSettingsRaw = await SecureStore.getItemAsync(`ai_mcp_settings_${scopeKey}`);
       let parsedMcpSettings = createEmptyMcpUiSettings();
       if (mcpSettingsRaw) {
         try {
@@ -405,6 +425,9 @@ export default function AIScreen() {
       setMcpSettings(toEffectiveMcpUiSettings(resolvedMcpSettings));
       setSyncPreferenceLoaded(true);
     })();
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -624,6 +647,7 @@ export default function AIScreen() {
   };
 
   const loadModels = async () => {
+      const requestId = ++modelLoadRequestRef.current;
       const models = await getModelsLocal();
       const normalizedModels = await Promise.all(models.map(async (model): Promise<LocalModelEntry> => {
           try {
@@ -634,6 +658,9 @@ export default function AIScreen() {
               return { ...model, invalidReason: message, sourcePath: model.path };
           }
       }));
+      if (!isMountedRef.current || requestId !== modelLoadRequestRef.current) {
+          return normalizedModels;
+      }
       setLocalModels(normalizedModels);
       const validModels = normalizedModels.filter((model) => !model.invalidReason);
       if (validModels.length > 0 && !activeModel) {
@@ -648,6 +675,7 @@ export default function AIScreen() {
               provider.unloadModel().catch(() => {});
           }
       }
+      return normalizedModels;
   };
 
   const resumeBackgroundModelInstalls = async () => {
@@ -656,16 +684,19 @@ export default function AIScreen() {
       try {
           await resumePendingModelDownloads({
               onProgress: (modelId, percent) => {
+                  if (!isMountedRef.current) return;
                   setProcessingModels(prev => ({ ...prev, [modelId]: true }));
                   setDownloadProgress(prev => ({ ...prev, [modelId]: percent }));
               },
               onStageChange: (modelId, stage) => {
+                  if (!isMountedRef.current) return;
                   setProcessingModels(prev => ({ ...prev, [modelId]: true }));
                   setDownloadStage(prev => ({ ...prev, [modelId]: stage }));
               },
               onCompleted: async (modelId, path) => {
                   const preparedPath = await prepareModelForChat(path);
                   await loadModels();
+                  if (!isMountedRef.current) return;
                   setActiveModel(preparedPath);
                   setProcessingModels(prev => {
                       const next = { ...prev };
@@ -684,6 +715,7 @@ export default function AIScreen() {
                   });
               },
               onFailed: (modelId) => {
+                  if (!isMountedRef.current) return;
                   setProcessingModels(prev => {
                       const next = { ...prev };
                       delete next[modelId];

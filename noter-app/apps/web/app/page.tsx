@@ -1,10 +1,9 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import dynamic from 'next/dynamic';
 import Navbar from '../components/Navbar';
 import SidebarTree from '../components/SidebarTree';
-import NoteEditor from '../components/NoteEditor';
-import TaskList from '../components/TaskList';
 import Auth from '../components/Auth';
 import { useStore } from '../stores/useStore';
 import { loadHotkeys, matchesHotkey } from '../lib/hotkeys';
@@ -37,6 +36,25 @@ const AppLoadingShell = ({ timedOut }: { timedOut: boolean }) => (
     </div>
   </main>
 );
+
+const ContentLoadingShell = () => (
+  <div className="flex h-full items-center justify-center bg-white px-6 text-center text-gray-600 dark:bg-gray-900 dark:text-gray-300">
+    <div className="max-w-sm">
+      <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-4 border-gray-200 border-t-blue-500 dark:border-gray-700 dark:border-t-blue-400" />
+      <p className="text-sm">Laddar vy…</p>
+    </div>
+  </div>
+);
+
+const NoteEditor = dynamic(() => import('../components/NoteEditor'), {
+  ssr: false,
+  loading: () => <ContentLoadingShell />,
+});
+
+const TaskList = dynamic(() => import('../components/TaskList'), {
+  ssr: false,
+  loading: () => <ContentLoadingShell />,
+});
 
 export default function Home() {
   const initSocket = useStore((state) => state.initSocket);

@@ -1,15 +1,28 @@
 import React, { useState, useMemo } from 'react';
-import { StyleSheet, View, ScrollView } from 'react-native';
-import { Searchbar, Text, Divider, useTheme } from 'react-native-paper';
+import { StyleSheet, View } from 'react-native';
+import { Searchbar, Text, useTheme } from 'react-native-paper';
+import { FlashList } from '@shopify/flash-list';
 import Fuse from 'fuse.js';
 import { useStore } from '@/stores/useStore';
-import NoteList from '@/components/NoteList';
-import TaskList from '@/components/TaskList';
-import { Note, Task } from '@repo/shared';
+import { NoteItem } from '@/components/NoteItem';
+import { TaskItem } from '@/components/TaskItem';
+import { Note, Task, normalizeNoteType } from '@repo/shared';
+import { buildSecurityNoteMap, findBlockingLockedAncestor } from '@/services/ai/security';
+import { useTranslation } from 'react-i18next';
+import { useRouter } from 'expo-router';
+
+type SearchResultRow =
+  | { id: string; type: 'header'; title: string }
+  | { id: string; type: 'note'; note: Note }
+  | { id: string; type: 'task'; task: Task };
+
+const SEARCH_RESULT_LIMIT = 200;
 
 export default function SearchScreen() {
   const { notes, tasks, updateTask } = useStore();
   const theme = useTheme();
+  const { t } = useTranslation();
+  const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
 
   const noteFuse = useMemo(() => {
@@ -28,13 +41,39 @@ export default function SearchScreen() {
 
   const filteredNotes = useMemo(() => {
     if (!searchQuery) return [];
-    return noteFuse.search(searchQuery).map(result => result.item);
-  }, [searchQuery, noteFuse]);
+    const map = buildSecurityNoteMap(notes as any);
+    return noteFuse
+      .search(searchQuery)
+      .map((result) => result.item)
+      .filter((note) => {
+        const type = normalizeNoteType((note as any).type);
+        if (type === 'project' && note.locked) return false;
+        const blocking = findBlockingLockedAncestor(note as any, map as any, new Set() as any);
+        return !blocking;
+      });
+  }, [searchQuery, noteFuse, notes]);
 
   const filteredTasks = useMemo(() => {
     if (!searchQuery) return [];
     return taskFuse.search(searchQuery).map(result => result.item);
   }, [searchQuery, taskFuse]);
+
+  const searchResults = useMemo<SearchResultRow[]>(() => {
+    if (!searchQuery) return [];
+    const rows: SearchResultRow[] = [];
+    const limitedNotes = filteredNotes.slice(0, SEARCH_RESULT_LIMIT);
+    const remainingSlots = Math.max(SEARCH_RESULT_LIMIT - limitedNotes.length, 0);
+    const limitedTasks = filteredTasks.slice(0, remainingSlots);
+    if (limitedNotes.length > 0) {
+      rows.push({ id: 'notes-header', type: 'header', title: t('search.notes', { count: filteredNotes.length }) });
+      rows.push(...limitedNotes.map((note) => ({ id: `note-${note._id}`, type: 'note' as const, note })));
+    }
+    if (limitedTasks.length > 0) {
+      rows.push({ id: 'tasks-header', type: 'header', title: t('search.tasks', { count: filteredTasks.length }) });
+      rows.push(...limitedTasks.map((task) => ({ id: `task-${task._id}`, type: 'task' as const, task })));
+    }
+    return rows;
+  }, [filteredNotes, filteredTasks, searchQuery, t]);
 
   const handleToggleTask = async (task: Task) => {
     try {
@@ -44,11 +83,27 @@ export default function SearchScreen() {
     }
   };
 
+  const renderSearchResult = ({ item }: { item: SearchResultRow }) => {
+    if (item.type === 'header') {
+      return <Text variant="titleMedium" style={styles.sectionTitle}>{item.title}</Text>;
+    }
+    if (item.type === 'note') {
+      return <NoteItem note={item.note} onPress={(note) => router.push(`/note/${note._id}`)} />;
+    }
+    return (
+      <TaskItem
+        task={item.task}
+        onPress={(task) => router.push(`/task/${task._id}`)}
+        onToggleComplete={handleToggleTask}
+      />
+    );
+  };
+
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <View style={[styles.searchContainer, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.outlineVariant }]}>
         <Searchbar
-          placeholder="Search notes & tasks..."
+          placeholder={t('search.placeholder')}
           onChangeText={setSearchQuery}
           value={searchQuery}
           autoFocus
@@ -56,32 +111,21 @@ export default function SearchScreen() {
       </View>
       
       {searchQuery ? (
-        <ScrollView style={styles.resultsContainer}>
-          {filteredNotes.length > 0 && (
-            <View>
-              <Text variant="titleMedium" style={styles.sectionTitle}>Notes ({filteredNotes.length})</Text>
-              <NoteList notes={filteredNotes} scrollEnabled={false} />
-            </View>
-          )}
-
-          {filteredNotes.length > 0 && filteredTasks.length > 0 && <Divider style={styles.divider} />}
-
-          {filteredTasks.length > 0 && (
-            <View>
-              <Text variant="titleMedium" style={styles.sectionTitle}>Tasks ({filteredTasks.length})</Text>
-              <TaskList tasks={filteredTasks} onToggleComplete={handleToggleTask} showViewToggle={false} scrollEnabled={false} />
-            </View>
-          )}
-
-          {filteredNotes.length === 0 && filteredTasks.length === 0 && (
-            <View style={styles.emptyContainer}>
-              <Text variant="bodyLarge">No results found</Text>
-            </View>
-          )}
-        </ScrollView>
+        searchResults.length > 0 ? (
+          <FlashList
+            data={searchResults}
+            renderItem={renderSearchResult}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.resultsContent}
+          />
+        ) : (
+          <View style={styles.emptyContainer}>
+            <Text variant="bodyLarge">{t('search.noResults')}</Text>
+          </View>
+        )
       ) : (
         <View style={styles.emptyContainer}>
-          <Text variant="bodyLarge" style={{ opacity: 0.5 }}>Type to search...</Text>
+          <Text variant="bodyLarge" style={{ opacity: 0.5 }}>{t('search.typeToSearch')}</Text>
         </View>
       )}
     </View>
@@ -97,15 +141,12 @@ const styles = StyleSheet.create({
     elevation: 2,
     borderBottomWidth: 1,
   },
-  resultsContainer: {
-    flex: 1,
-  },
   sectionTitle: {
     padding: 16,
     paddingBottom: 8,
   },
-  divider: {
-    marginVertical: 8,
+  resultsContent: {
+    paddingBottom: 24,
   },
   emptyContainer: {
     flex: 1,

@@ -201,7 +201,17 @@ const TaskItem: React.FC<TaskItemProps> = ({
 };
 
 export default function TaskList() {
-    const { notes, tasks, fetchTasks, createTask, updateTask, deleteTask, reorderTasks, selectedTaskListId, updateNote, isLoading, searchQuery } = useStore();
+    const notes = useStore((state) => state.notes);
+    const tasks = useStore((state) => state.tasks);
+    const fetchTasks = useStore((state) => state.fetchTasks);
+    const createTask = useStore((state) => state.createTask);
+    const updateTask = useStore((state) => state.updateTask);
+    const deleteTask = useStore((state) => state.deleteTask);
+    const reorderTasks = useStore((state) => state.reorderTasks);
+    const selectedTaskListId = useStore((state) => state.selectedTaskListId);
+    const updateNote = useStore((state) => state.updateNote);
+    const isLoading = useStore((state) => state.isLoading);
+    const searchQuery = useStore((state) => state.searchQuery);
     const [newTaskTitle, setNewTaskTitle] = useState('');
     const [selectedTask, setSelectedTask] = useState<Task | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -221,6 +231,7 @@ export default function TaskList() {
     const reorderPendingRef = useRef(false);
     const [listTitle, setListTitle] = useState('');
     const [settingsLoaded, setSettingsLoaded] = useState(false);
+    const [visibleTaskCount, setVisibleTaskCount] = useState(200);
 
     const getPersistedSetting = useCallback(async (key: string): Promise<string | null> => {
         if (typeof window === 'undefined') return null;
@@ -314,10 +325,30 @@ export default function TaskList() {
         fetchTasks(selectedTaskListId || undefined);
     }, [selectedTaskListId, fetchTasks]);
 
+    useEffect(() => {
+        setVisibleTaskCount(200);
+    }, [selectedTaskListId, searchQuery, quickFilter, statusFilter, sortBy, viewMode, tasks.length]);
+
     const openTaskDetail = useCallback((task: Task) => {
         setSelectedTask(task);
         setIsModalOpen(true);
     }, []);
+
+    const visibleListTasks = useMemo(() => {
+        if (viewMode !== 'list' || sortBy === 'custom' || localTasks.length <= visibleTaskCount) {
+            return localTasks;
+        }
+        return localTasks.slice(0, visibleTaskCount);
+    }, [localTasks, sortBy, viewMode, visibleTaskCount]);
+
+    const handleListScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+        if (sortBy === 'custom' || viewMode !== 'list') return;
+        const target = event.currentTarget;
+        const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
+        if (remaining < 320) {
+            setVisibleTaskCount((current) => Math.min(current + 200, localTasks.length));
+        }
+    }, [localTasks.length, sortBy, viewMode]);
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -676,8 +707,8 @@ export default function TaskList() {
                     </div>
                 )}
                 {viewMode === 'list' && (
-                    <div className="h-full overflow-auto p-2 space-y-2">
-                        {localTasks.map((task, index) => (
+                    <div className="h-full overflow-auto p-2 space-y-2" onScroll={handleListScroll}>
+                        {visibleListTasks.map((task, index) => (
                             <TaskItem 
                                 key={task._id} 
                                 index={index} 
@@ -693,6 +724,11 @@ export default function TaskList() {
                                 isCustomSort={sortBy === 'custom'}
                             />
                         ))}
+                        {visibleListTasks.length < localTasks.length && (
+                            <div className="py-3 text-center text-xs text-gray-500 dark:text-gray-400">
+                                Visar {visibleListTasks.length} av {localTasks.length} uppgifter. Scrolla för att ladda fler.
+                            </div>
+                        )}
                         {localTasks.length === 0 && (
                             <div className="text-center text-gray-600 dark:text-gray-400 text-sm mt-4">
                                 {selectedTaskListId ? t('tasks.noTasks') : t('tasks.selectList')}

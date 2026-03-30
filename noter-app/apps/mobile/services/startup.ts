@@ -1,10 +1,8 @@
 export const runStartupBootstrap = async (
-  initApiUrl: () => Promise<void>,
   init: () => Promise<void>,
   onError?: (message: string, error: unknown) => void
 ) => {
   try {
-    await initApiUrl();
     await init();
     return { ok: true as const };
   } catch (error) {

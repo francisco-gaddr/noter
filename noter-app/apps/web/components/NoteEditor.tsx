@@ -19,6 +19,7 @@ import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
 import { getTikTokEmbedUrl, resolveVideoEmbedUrl } from '../lib/videoEmbed';
 import { buildSecurityNoteMap, findBlockingLockedAncestor } from '../services/ai/security';
+import i18n from '../app/i18n';
 
 type CustomElement = { type: string; children: CustomText[]; url?: string; align?: string; checked?: boolean };
 type CustomText = { text: string; bold?: boolean; italic?: boolean; underline?: boolean; code?: boolean };
@@ -1166,12 +1167,12 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
       return (
         <div className="flex items-center justify-center h-full text-red-500 p-4 text-center">
           <div>
-            <h3 className="font-bold mb-2">Something went wrong loading this note.</h3>
+            <h3 className="font-bold mb-2">{i18n.t('noteEditor.loadError')}</h3>
             <button 
               className="px-4 py-2 bg-blue-500 text-white rounded"
               onClick={() => this.setState({ hasError: false })}
             >
-              Try again
+              {i18n.t('common.tryAgain')}
             </button>
           </div>
         </div>
@@ -1191,7 +1192,15 @@ export default function NoteEditor() {
 }
 
 function NoteEditorContent() {
-  const { selectedNoteId, notes, updateNote, unlockNote, joinNote, leaveNote, activeUsers, user, unlockedProtectedNoteIds } = useStore();
+  const selectedNoteId = useStore((state) => state.selectedNoteId);
+  const notes = useStore((state) => state.notes);
+  const updateNote = useStore((state) => state.updateNote);
+  const unlockNote = useStore((state) => state.unlockNote);
+  const joinNote = useStore((state) => state.joinNote);
+  const leaveNote = useStore((state) => state.leaveNote);
+  const activeUsers = useStore((state) => state.activeUsers);
+  const user = useStore((state) => state.user);
+  const unlockedProtectedNoteIds = useStore((state) => state.unlockedProtectedNoteIds);
   const editor = useMemo(() => withTrailingParagraph(withHtml(withEmbeds(withHistory(withReact(createEditor()))))), []);
   const { t } = useTranslation();
 

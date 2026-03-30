@@ -15,6 +15,11 @@ import { initLocalEncryptionKey } from '../services/encryptionKey';
 import { getReadableProtectedText } from '../utils/protectedNote';
 
 let wasOffline = false;
+let initPromise: Promise<void> | null = null;
+let netInfoUnsubscribe: (() => void) | null = null;
+let notesFetchPromise: Promise<void> | null = null;
+const taskFetchPromises = new Map<string, Promise<void>>();
+let lastRemoteCollectionsSyncAt = 0;
 
 interface AppState {
   notes: Note[];
@@ -59,7 +64,7 @@ interface AppState {
   backgroundRefresh: () => Promise<void>;
   
   // Offline Sync
-  syncOfflineChanges: () => Promise<void>;
+  syncOfflineChanges: (options?: { refreshAfterSync?: boolean }) => Promise<void>;
 
   // Security
   verifyNoteLock: (id: string, password: string) => Promise<{ title: string; content: string; unlockedId?: string | null }>;
@@ -145,6 +150,14 @@ const normalizeNoteType = (value: unknown): string => {
   if (normalized.includes('task') && normalized.includes('list')) return 'task_list';
   return normalized || 'note';
 };
+
+const taskFetchKey = (parentNoteId?: string) => parentNoteId || '__all__';
+
+const markRemoteCollectionsSynced = () => {
+  lastRemoteCollectionsSyncAt = Date.now();
+};
+
+const hasRecentRemoteCollectionsSync = () => Date.now() - lastRemoteCollectionsSyncAt < 3000;
 
 const parseNoteDateValue = (value: unknown): string => {
   if (typeof value !== 'string') return new Date().toISOString();
@@ -464,86 +477,94 @@ export const useStore = create<AppState>((set, get) => ({
 
   init: async () => {
     if (get().isInitialized) return;
-    let storedToken: string | null = null;
-    let databaseReady = false;
-    try {
-      await initLocalEncryptionKey();
-      await initApiUrl();
-      await Database.initDatabase();
-      await Database.migrateLocalEncryptedData();
-      databaseReady = true;
+    if (initPromise) return initPromise;
+    initPromise = (async () => {
+      let storedToken: string | null = null;
+      let databaseReady = false;
+      try {
+        await initLocalEncryptionKey();
+        await initApiUrl();
+        await Database.initDatabase();
+        await Database.migrateLocalEncryptedData();
+        databaseReady = true;
 
-      storedToken = await SecureStore.getItemAsync('token');
-      const storedNotifications = await AsyncStorage.getItem('notificationsEnabled');
-      const storedActiveProjectId = await AsyncStorage.getItem('activeProjectId');
-      const storedViewMode = await AsyncStorage.getItem('viewMode');
-      if (storedNotifications !== null) {
-        set({ notificationsEnabled: storedNotifications === 'true' });
-      }
-      if (storedActiveProjectId && storedActiveProjectId !== 'null') {
-        set({ activeProjectId: normalizeId(storedActiveProjectId) });
-      }
-      if (storedViewMode) {
-        set({ viewMode: storedViewMode as any });
-      }
-      if (storedToken) {
-        setAuthToken(storedToken);
-        set({ token: storedToken });
-      }
+        storedToken = await SecureStore.getItemAsync('token');
+        const storedNotifications = await AsyncStorage.getItem('notificationsEnabled');
+        const storedActiveProjectId = await AsyncStorage.getItem('activeProjectId');
+        const storedViewMode = await AsyncStorage.getItem('viewMode');
+        if (storedNotifications !== null) {
+          set({ notificationsEnabled: storedNotifications === 'true' });
+        }
+        if (storedActiveProjectId && storedActiveProjectId !== 'null') {
+          set({ activeProjectId: normalizeId(storedActiveProjectId) });
+        }
+        if (storedViewMode) {
+          set({ viewMode: storedViewMode as any });
+        }
+        if (storedToken) {
+          setAuthToken(storedToken);
+          set({ token: storedToken });
+        }
 
-      setUnauthorizedHandler(async () => {
-        await get().logout();
-      });
+        setUnauthorizedHandler(async () => {
+          await get().logout();
+        });
 
-      if (!get().securityLocked) {
-        const localNotes = await Database.getNotesLocal();
-        const localTasks = await Database.getTasksLocal();
-        const unlocked = new Set(get().unlockedProtectedNoteIds || []);
+        if (!get().securityLocked) {
+          const localNotes = await Database.getNotesLocal();
+          const localTasks = await Database.getTasksLocal();
+          const unlocked = new Set(get().unlockedProtectedNoteIds || []);
+          set({
+            notes: materializeNotesFromEncrypted(localNotes.map(processLocalNote), unlocked),
+            tasks: localTasks.map(processLocalTask)
+          });
+        }
+      } catch (error: any) {
+        console.error('[Store] Init failed:', error);
         set({
-          notes: materializeNotesFromEncrypted(localNotes.map(processLocalNote), unlocked),
-          tasks: localTasks.map(processLocalTask)
+          error: error?.message || 'Appstart misslyckades',
+          notes: [],
+          tasks: [],
+          isLoading: false,
         });
       }
-    } catch (error: any) {
-      console.error('[Store] Init failed:', error);
-      set({
-        error: error?.message || 'Appstart misslyckades',
-        notes: [],
-        tasks: [],
-        isLoading: false,
-      });
-    }
 
-    NetInfo.addEventListener(state => {
-      const isOffline = !state.isConnected;
-      set({ isOffline });
-      if (!databaseReady) return;
-      if (!isOffline) {
-        if (wasOffline) {
-          get().fetchNotes();
-          get().fetchTasks();
-        }
-        wasOffline = false;
-        get().syncOfflineChanges();
-      } else {
-        wasOffline = true;
+      if (!netInfoUnsubscribe) {
+        netInfoUnsubscribe = NetInfo.addEventListener(state => {
+          const isOffline = !state.isConnected;
+          set({ isOffline });
+          if (!databaseReady) return;
+          if (!isOffline) {
+            const refreshAfterSync = wasOffline;
+            wasOffline = false;
+            void get().syncOfflineChanges({ refreshAfterSync });
+          } else {
+            wasOffline = true;
+          }
+        });
       }
-    });
 
-    if (databaseReady && storedToken && !get().securityLocked) {
-      await get().fetchNotes();
-      await get().fetchTasks();
-      get().connectSocket();
-    } else if (databaseReady && !get().securityLocked) {
-      get().connectSocket();
+      if (databaseReady && storedToken && !get().securityLocked) {
+        await get().fetchNotes();
+        await get().fetchTasks();
+        get().connectSocket();
+      } else if (databaseReady && !get().securityLocked) {
+        get().connectSocket();
+      }
+
+      set({ isInitialized: true });
+    })();
+    try {
+      await initPromise;
+    } finally {
+      initPromise = null;
     }
-
-    set({ isInitialized: true });
   },
 
   // Fallback sync method when WebSocket fails
   syncViaHttp: async () => {
     if (get().securityLocked) return;
+    if (hasRecentRemoteCollectionsSync()) return;
     try {
       console.log('Attempting HTTP sync fallback due to WebSocket issues');
       await get().fetchNotes();
@@ -726,7 +747,7 @@ export const useStore = create<AppState>((set, get) => ({
     });
 
     socket.on('connect', () => {
-      get().syncViaHttp();
+      void get().syncViaHttp();
     });
   },
 
@@ -741,9 +762,6 @@ export const useStore = create<AppState>((set, get) => ({
         await get().setSecurityLocked(false);
       }
       await get().init();
-      await get().fetchNotes();
-      await get().fetchTasks();
-      get().connectSocket();
     } catch (error: any) {
       set({ error: error.message || 'Login failed' });
       throw error;
@@ -780,33 +798,38 @@ export const useStore = create<AppState>((set, get) => ({
       set({ isLoading: false });
       return;
     }
-    set({ isLoading: true, error: null });
-    try {
-      const netState = await NetInfo.fetch();
-      
-      if (netState.isConnected) {
-        const notes = await fetchWithAuth('/notes');
-        const safeNotes = Array.isArray(notes) ? notes : [];
-        const securedNotes = materializeNotesFromEncrypted(safeNotes as any, new Set(get().unlockedProtectedNoteIds));
-        const persistableNotes = (safeNotes as any[]).map((note) => normalizeEncryptedNote(note as Note));
+    if (notesFetchPromise) return notesFetchPromise;
+    notesFetchPromise = (async () => {
+      set({ isLoading: true, error: null });
+      try {
+        const netState = await NetInfo.fetch();
         
-        // Update local DB
-        for (const note of persistableNotes) {
-          await Database.saveNoteLocal(note, true);
+        if (netState.isConnected) {
+          const notes = await fetchWithAuth('/notes');
+          const safeNotes = Array.isArray(notes) ? notes : [];
+          const securedNotes = materializeNotesFromEncrypted(safeNotes as any, new Set(get().unlockedProtectedNoteIds));
+          const persistableNotes = (safeNotes as any[]).map((note) => normalizeEncryptedNote(note as Note));
+          
+          for (const note of persistableNotes) {
+            await Database.saveNoteLocal(note, true);
+          }
+          set({ notes: securedNotes, isLoading: false });
+        } else {
+          const localNotes = await Database.getNotesLocal();
+          const securedNotes = materializeNotesFromEncrypted(localNotes.map(processLocalNote) as any, new Set(get().unlockedProtectedNoteIds));
+          set({ notes: securedNotes, isLoading: false });
         }
-        set({ notes: securedNotes, isLoading: false });
-      } else {
-        // Already loaded from init, but refresh just in case
+      } catch (error: any) {
+        console.error('[Store] Fetch notes error:', error);
         const localNotes = await Database.getNotesLocal();
         const securedNotes = materializeNotesFromEncrypted(localNotes.map(processLocalNote) as any, new Set(get().unlockedProtectedNoteIds));
-        set({ notes: securedNotes, isLoading: false });
+        set({ notes: securedNotes, isLoading: false, error: error.message });
       }
-    } catch (error: any) {
-      console.error('[Store] Fetch notes error:', error);
-      // Fallback to local
-      const localNotes = await Database.getNotesLocal();
-      const securedNotes = materializeNotesFromEncrypted(localNotes.map(processLocalNote) as any, new Set(get().unlockedProtectedNoteIds));
-      set({ notes: securedNotes, isLoading: false, error: error.message });
+    })();
+    try {
+      await notesFetchPromise;
+    } finally {
+      notesFetchPromise = null;
     }
   },
 
@@ -1066,43 +1089,58 @@ export const useStore = create<AppState>((set, get) => ({
       set({ isLoading: false });
       return;
     }
-    set({ isLoading: true, error: null });
-    try {
-      const netState = await NetInfo.fetch();
-      if (netState.isConnected) {
-        const url = parentNoteId ? `/tasks?parentNoteId=${encodeURIComponent(parentNoteId)}` : '/tasks';
-        const tasks = await fetchWithAuth(url);
-        const decryptedTasks = tasks.map(processApiTask);
-        for (const task of decryptedTasks) {
-          await Database.saveTaskLocal(task, true);
+    const fetchKey = taskFetchKey(parentNoteId);
+    const inFlight = taskFetchPromises.get(fetchKey);
+    if (inFlight) return inFlight;
+    const fetchPromise = (async () => {
+      set({ isLoading: true, error: null });
+      try {
+        const netState = await NetInfo.fetch();
+        if (netState.isConnected) {
+          const url = parentNoteId ? `/tasks?parentNoteId=${encodeURIComponent(parentNoteId)}` : '/tasks';
+          const tasks = await fetchWithAuth(url);
+          const decryptedTasks = tasks.map(processApiTask);
+          for (const task of decryptedTasks) {
+            await Database.saveTaskLocal(task, true);
+          }
+          
+          const state = get();
+          const serverClientIds = new Set(decryptedTasks.map((t: any) => t.clientId).filter(Boolean));
+          const localOnlyTasks = state.tasks.filter(t => t._id.startsWith('local_task_') && !serverClientIds.has(t.clientId));
+          
+          const mergedTasks = [...decryptedTasks, ...localOnlyTasks];
+          set({ tasks: mergedTasks, isLoading: false });
+          if (!parentNoteId) {
+            markRemoteCollectionsSynced();
+          }
+          if (get().notificationsEnabled) {
+            await syncAllTaskReminders(mergedTasks, true);
+          }
+        } else {
+          const localTasks = await Database.getTasksLocal();
+          const filtered = parentNoteId ? localTasks.filter(t => t.parentNoteId === parentNoteId) : localTasks;
+          const mapped = filtered.map(processLocalTask);
+          set({ tasks: mapped, isLoading: false });
+          if (get().notificationsEnabled) {
+            await syncAllTaskReminders(mapped, true);
+          }
         }
-        
-        // Merge with local-only tasks (deduplicated by clientId if possible)
-        const state = get();
-        const serverClientIds = new Set(decryptedTasks.map((t: any) => t.clientId).filter(Boolean));
-        const localOnlyTasks = state.tasks.filter(t => t._id.startsWith('local_task_') && !serverClientIds.has(t.clientId));
-        
-        const mergedTasks = [...decryptedTasks, ...localOnlyTasks];
-        set({ tasks: mergedTasks, isLoading: false });
-        if (get().notificationsEnabled) {
-          await syncAllTaskReminders(mergedTasks, true);
-        }
-      } else {
+      } catch (error: any) {
         const localTasks = await Database.getTasksLocal();
         const filtered = parentNoteId ? localTasks.filter(t => t.parentNoteId === parentNoteId) : localTasks;
         const mapped = filtered.map(processLocalTask);
-        set({ tasks: mapped, isLoading: false });
+        set({ tasks: mapped, isLoading: false, error: error.message });
         if (get().notificationsEnabled) {
           await syncAllTaskReminders(mapped, true);
         }
       }
-    } catch (error: any) {
-      const localTasks = await Database.getTasksLocal();
-      const filtered = parentNoteId ? localTasks.filter(t => t.parentNoteId === parentNoteId) : localTasks;
-      const mapped = filtered.map(processLocalTask);
-      set({ tasks: mapped, isLoading: false, error: error.message });
-      if (get().notificationsEnabled) {
-        await syncAllTaskReminders(mapped, true);
+    })();
+    taskFetchPromises.set(fetchKey, fetchPromise);
+    try {
+      await fetchPromise;
+    } finally {
+      if (taskFetchPromises.get(fetchKey) === fetchPromise) {
+        taskFetchPromises.delete(fetchKey);
       }
     }
   },
@@ -1501,13 +1539,19 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
 
-  syncOfflineChanges: async () => {
+  syncOfflineChanges: async (options) => {
     if (get().securityLocked) return;
     if (get().isSyncingOffline) return;
     set({ isSyncingOffline: true });
     try {
       const queue = await Database.getSyncQueue();
-      if (queue.length === 0) return;
+      if (queue.length === 0) {
+        if (options?.refreshAfterSync) {
+          await get().fetchNotes();
+          await get().fetchTasks();
+        }
+        return;
+      }
 
       const tempIdMap = new Map<string, string>();
 
@@ -1654,7 +1698,6 @@ export const useStore = create<AppState>((set, get) => ({
         }
       }
       
-      // Refresh data
       await get().fetchNotes();
       await get().fetchTasks();
     } catch (error) {
