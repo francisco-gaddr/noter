@@ -7,7 +7,7 @@ import { MobileLlamaProvider } from '@/services/ai/provider';
 import { useStore } from '@/stores/useStore';
 import { ChatMessage, Conversation, HFModel, AIProject } from '@repo/ai';
 import { searchHuggingFaceModels, getModelFiles, getConversionHealth } from '@/services/ai/huggingface';
-import { downloadModel as serviceDownloadModel, getBestQuantization, deleteModel as serviceDeleteModel, cancelDownload as cancelModelDownload, prepareModelForChat } from '@/services/ai/modelService';
+import { downloadModel as serviceDownloadModel, getBestQuantization, deleteModel as serviceDeleteModel, cancelDownload as cancelModelDownload, prepareModelForChat, resumePendingModelDownloads } from '@/services/ai/modelService';
 import { saveConversationLocal, getConversationsLocal, deleteConversationLocal, saveMessageLocal, getMessagesLocal, getModelsLocal, saveProjectLocal, getProjectsLocal, deleteProjectLocal } from '@/services/database';
 import { combineSystemPrompts, buildPromptPresetNotice, buildToolUseNotice } from '@/services/ai/prompt';
 import { API_URL, fetchWithAuth } from '@/services/api';
@@ -201,6 +201,7 @@ export default function AIScreen() {
   const [systemPrompt, setSystemPrompt] = useState('');
   const [contextInfo, setContextInfo] = useState('');
   const stopRequestedRef = useRef(false);
+  const resumingDownloadsRef = useRef(false);
   const [tokensPerSecond, setTokensPerSecond] = useState<number | null>(null);
   const [enableToolUse, setEnableToolUse] = useState(true);
   const [toolAccessMode, setToolAccessMode] = useState<AiToolAccessMode>('full');
@@ -578,6 +579,16 @@ export default function AIScreen() {
       refreshConversionHealth().catch(() => {});
   }, []);
 
+  useEffect(() => {
+      resumeBackgroundModelInstalls().catch(() => {});
+      const sub = AppState.addEventListener('change', (nextState) => {
+          if (nextState === 'active') {
+              resumeBackgroundModelInstalls().catch(() => {});
+          }
+      });
+      return () => sub.remove();
+  }, []);
+
   const loadModels = async () => {
       const models = await getModelsLocal();
       const normalizedModels = await Promise.all(models.map(async (model) => {
@@ -591,6 +602,61 @@ export default function AIScreen() {
       setLocalModels(normalizedModels);
       if (normalizedModels.length > 0 && !activeModel) {
           setActiveModel(normalizedModels[0].path);
+      }
+  };
+
+  const resumeBackgroundModelInstalls = async () => {
+      if (resumingDownloadsRef.current) return;
+      resumingDownloadsRef.current = true;
+      try {
+          await resumePendingModelDownloads({
+              onProgress: (modelId, percent) => {
+                  setProcessingModels(prev => ({ ...prev, [modelId]: true }));
+                  setDownloadProgress(prev => ({ ...prev, [modelId]: percent }));
+              },
+              onStageChange: (modelId, stage) => {
+                  setProcessingModels(prev => ({ ...prev, [modelId]: true }));
+                  setDownloadStage(prev => ({ ...prev, [modelId]: stage }));
+              },
+              onCompleted: async (modelId, path) => {
+                  const preparedPath = await prepareModelForChat(path);
+                  await loadModels();
+                  setActiveModel(preparedPath);
+                  setProcessingModels(prev => {
+                      const next = { ...prev };
+                      delete next[modelId];
+                      return next;
+                  });
+                  setDownloadProgress(prev => {
+                      const next = { ...prev };
+                      delete next[modelId];
+                      return next;
+                  });
+                  setDownloadStage(prev => {
+                      const next = { ...prev };
+                      delete next[modelId];
+                      return next;
+                  });
+              },
+              onFailed: (modelId) => {
+                  setProcessingModels(prev => {
+                      const next = { ...prev };
+                      delete next[modelId];
+                      return next;
+                  });
+                  setDownloadProgress(prev => {
+                      const next = { ...prev };
+                      delete next[modelId];
+                      return next;
+                  });
+                  setDownloadStage(prev => ({
+                      ...prev,
+                      [modelId]: 'failed',
+                  }));
+              }
+          });
+      } finally {
+          resumingDownloadsRef.current = false;
       }
   };
 
@@ -676,6 +742,7 @@ export default function AIScreen() {
 
   const formatError = (error: unknown) => {
       const message = (error as any)?.message ? String((error as any).message) : String(error);
+      if (message.includes('spawn mlc_llm ENOENT') || message.includes('sparn mlc_llm ENOENT')) return 'MLC-binären saknas på konverteringsservern. Installera eller konfigurera MLC_LLM_BIN, eller använd py/python-fallback.';
       if (message.includes('Zip module not available')) return 'Zip-stöd saknas i denna build. Installera om den senaste EAS APK:n.';
       if (message.includes('Native filesystem not available')) return 'Filsystem saknas i denna build. Installera om den senaste EAS APK:n.';
       if (message.includes('MLCModule')) return 'MLC‑modulen saknas i denna build. Installera om den senaste EAS APK:n.';

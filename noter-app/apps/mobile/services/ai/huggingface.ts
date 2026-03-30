@@ -79,7 +79,7 @@ export const getCompiledModelUrl = async (params: {
     modelId: string;
     quantization?: string;
     platform: 'iphone' | 'android';
-}): Promise<{ url: string; filename: string }> => {
+}): Promise<{ url: string; filename: string; available: boolean }> => {
     const webBase = resolveWebBaseUrl();
     const quant = (params.quantization || 'Q4_K_M').toUpperCase();
     const url = `${webBase}/api/ai/models/compiled?modelId=${encodeURIComponent(params.modelId)}&quant=${encodeURIComponent(quant)}&platform=${params.platform}`;
@@ -87,7 +87,7 @@ export const getCompiledModelUrl = async (params: {
     if (!data?.url || !data?.filename) {
         throw new Error('Invalid compiled model response');
     }
-    return { url: data.url, filename: data.filename };
+    return { url: data.url, filename: data.filename, available: Boolean(data.available) };
 };
 
 export const requestModelConversion = async (params: {

@@ -43,6 +43,64 @@ const isDirectoryEntry = (entry: any) => {
   return false;
 };
 
+const getEntryName = (entry: any) => {
+  if (!entry) return '';
+  if (typeof entry.name === 'string' && entry.name) return entry.name;
+  const entryPath = normalizeEntryPath(entry);
+  if (!entryPath) return '';
+  return entryPath.split('/').pop() || '';
+};
+
+const hasRequiredArtifacts = async (path: string) => {
+  const RNFS = getReactNativeFs();
+  if (!RNFS?.exists) return false;
+  const configPath = `${path}/${MODEL_CONFIG_FILE}`;
+  if (!(await RNFS.exists(configPath))) {
+    return false;
+  }
+
+  if (typeof RNFS.readDir === 'function') {
+    try {
+      const entries = await RNFS.readDir(path);
+      const fileNames = entries.filter((entry: any) => !isDirectoryEntry(entry)).map((entry: any) => getEntryName(entry));
+      const hasParamShard = fileNames.some((name: string) => /^params(?:_shard)?[_0-9a-z.-]*\.(?:bin|params)$/i.test(name));
+      if (hasParamShard) {
+        return true;
+      }
+    } catch {}
+  }
+
+  if (typeof RNFS.readFile === 'function') {
+    try {
+      const raw = await RNFS.readFile(configPath, 'utf8');
+      const parsed = JSON.parse(raw);
+      const referencedFiles = [
+        ...(Array.isArray(parsed?.params_shards) ? parsed.params_shards : []),
+        ...(Array.isArray(parsed?.tokenizer_files) ? parsed.tokenizer_files : []),
+        parsed?.tokenizer_model,
+        parsed?.tokenizer_json,
+        parsed?.params_path,
+      ].filter((value) => typeof value === 'string' && value);
+
+      if (referencedFiles.length === 0) {
+        return true;
+      }
+
+      for (const file of referencedFiles) {
+        const normalized = String(file).replace(/^\.\/+/, '');
+        if (!(await RNFS.exists(`${path}/${normalized}`))) {
+          return false;
+        }
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  return true;
+};
+
 export const findModelPackageRoot = async (path: string, maxDepth = 3): Promise<string | null> => {
   const RNFS = getReactNativeFs();
   if (!RNFS?.exists || !path) return null;
@@ -82,6 +140,11 @@ export const validateModelPackage = async (path: string) => {
 
   const resolvedPath = await findModelPackageRoot(path);
   if (!resolvedPath) {
+    throw new Error('Invalid model package');
+  }
+
+  const validArtifacts = await hasRequiredArtifacts(resolvedPath);
+  if (!validArtifacts) {
     throw new Error('Invalid model package');
   }
 

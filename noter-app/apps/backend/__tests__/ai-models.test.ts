@@ -35,6 +35,7 @@ describe('AI Models API', () => {
     });
     expect(res.status).toBe(200);
     expect(res.body.url).toBe('https://models.example.com/iphone/user%2Fmodel/Q4_K_M.zip');
+    expect(typeof res.body.available).toBe('boolean');
   });
 
   it('starts conversion job', async () => {

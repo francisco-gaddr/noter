@@ -91,8 +91,9 @@ router.get('/compiled', async (req: Request, res: Response) => {
     return json(res, { error: 'modelId and platform required' }, 400);
   }
   const url = getCompiledUrl(modelId, platform, quant);
+  const available = await zipExists(modelId, platform, quant);
   const filename = `${(quant || 'Q4_K_M').toUpperCase()}.zip`;
-  return json(res, { url, filename });
+  return json(res, { url, filename, available });
 });
 
 router.get('/compiled-file', async (req: Request, res: Response) => {

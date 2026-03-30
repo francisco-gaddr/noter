@@ -114,6 +114,9 @@ Denna arkitektur möjliggör lokal AI på mobilen genom att använda **GGUF-mode
   - Mobilen använder backendens gemensamma konverteringsjobb via web-proxy i stället för att förlita sig på en separat lokal Next-konverterare.
   - Hälsokontrollen visar nu även upplöst MLC-kommando och installationshint om binären inte kan startas.
   - Efter färdig installation valideras modellen, aktiveras automatiskt och är direkt redo för chatt.
+  - Om ett kompilerat paket redan finns publicerat laddar mobilappen nu ned det direkt i stället för att starta ett onödigt konverteringsjobb.
+  - Om appen går till bakgrunden under serverkonvertering eller modellhämtning sparas installationssessionen lokalt och återupptas när appen blir aktiv igen.
+  - Paketvalideringen verifierar nu inte bara `mlc-chat-config.json` utan även att faktiska modellartefakter finns innan modellen får aktiveras.
 
 ## Motivering
 
@@ -122,3 +125,6 @@ Denna arkitektur möjliggör lokal AI på mobilen genom att använda **GGUF-mode
 - **Read-only tool-use** minskar risken för oavsiktliga ändringar när användaren vill ha AI-stöd för analys men inte för mutationer.
 - **Sessionsinsikter** gör det tydligt vilken AI-konfiguration som faktiskt används i stunden, vilket minskar felsökningstid.
 - **Härdad GGUF-pipeline** minskar Windows-specifika fel som `spawn mlc_llm ENOENT` och gör det tydligare varför konvertering lyckas eller blockeras.
+- **Direktval av färdigkompilerat paket** minskar väntetid, serverbelastning och felrisk när modellen redan finns i cache eller publicerad lagring.
+- **Återupptagning av installationssessioner** gör bakgrundsflödet användbart i verkligheten; användaren tappar inte installationen bara för att appen lämnas eller pausas.
+- **Striktare paketvalidering** stoppar trasiga MLC-paket före aktivering och förhindrar att chattflödet kraschar senare med filsaknadsfel.

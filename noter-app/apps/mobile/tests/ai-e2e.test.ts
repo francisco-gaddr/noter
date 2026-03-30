@@ -33,7 +33,15 @@ jest.mock('../services/ai/ModelDownloader', () => ({
 jest.mock('../services/ai/huggingface', () => ({
   requestModelConversion: jest.fn().mockResolvedValue({ jobId: 'job-1' }),
   getConversionStatus: jest.fn().mockResolvedValue({ status: 'completed', progress: 1, outputUrl: 'https://models.test/compiled.zip' }),
-  getCompiledModelUrl: jest.fn().mockResolvedValue({ url: 'https://models.test/compiled.zip', filename: 'Q4_K_M.zip' }),
+  getCompiledModelUrl: jest.fn().mockResolvedValue({ url: 'https://models.test/compiled.zip', filename: 'Q4_K_M.zip', available: false }),
+}));
+
+jest.mock('../services/ai/installSession', () => ({
+  getModelInstallSessionKey: jest.fn((modelId: string, quantization?: string) => `${modelId}::${(quantization || 'Q4_K_M').toUpperCase()}`),
+  listModelInstallSessions: jest.fn().mockResolvedValue([]),
+  patchModelInstallSession: jest.fn().mockResolvedValue(undefined),
+  removeModelInstallSession: jest.fn().mockResolvedValue(undefined),
+  upsertModelInstallSession: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('react-native-fs', () => ({

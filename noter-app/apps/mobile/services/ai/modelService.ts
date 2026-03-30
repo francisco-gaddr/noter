@@ -5,6 +5,13 @@ import { downloadCompiledModel, getModelDir, getPlatformTarget, validateModelPac
 import { requestModelConversion, getConversionStatus, getCompiledModelUrl } from './huggingface';
 import { getReactNativeFs } from './nativeRuntime';
 import { convertGGUFToMLC, getLocalConversionCapabilities } from './native/MLCModule';
+import {
+    getModelInstallSessionKey,
+    listModelInstallSessions,
+    patchModelInstallSession,
+    removeModelInstallSession,
+    upsertModelInstallSession,
+} from './installSession';
 
 const getModelsDir = () => {
   const RNFS = getReactNativeFs();
@@ -47,6 +54,13 @@ const swallowAsync = async (operation: unknown) => {
 
 type DownloadStage =
     | 'queued'
+    | 'local_conversion_requested'
+    | 'local_conversion_unavailable'
+    | 'local_conversion_failed'
+    | 'checking_compiled'
+    | 'converting_server'
+    | 'downloading_gguf'
+    | 'downloading_compiled'
     | 'downloading'
     | 'converting'
     | 'converting_locally'
@@ -54,6 +68,30 @@ type DownloadStage =
     | 'validating'
     | 'completed'
     | 'failed';
+
+type DownloadOptions = {
+    preferLocalConversion?: boolean;
+    strictLocalConversion?: boolean;
+    onStageChange?: (stage: DownloadStage) => void;
+    existingJobId?: string;
+};
+
+const updateInstallProgress = async (
+    sessionKey: string,
+    stage: DownloadStage,
+    progress: number,
+    onProgress?: (percent: number) => void,
+    onStageChange?: (stage: DownloadStage) => void,
+    extra?: Partial<{ jobId: string; outputUrl: string }>
+) => {
+    onStageChange?.(stage);
+    onProgress?.(progress);
+    await patchModelInstallSession(sessionKey, {
+        stage,
+        progress,
+        ...(extra || {}),
+    });
+};
 
 const tryLocalConversion = async (
     RNFS: any,
@@ -76,7 +114,7 @@ const tryLocalConversion = async (
     const safeQuantization = (file.quantization || 'Q4_K_M').toUpperCase().replace(/[^a-zA-Z0-9._-]+/g, '_');
     const ggufPath = `${tempDir}/${safeModelId}_${safeQuantization}.gguf`;
 
-    onStageChange?.('downloading');
+    onStageChange?.('downloading_gguf');
     const download = RNFS.downloadFile({
         fromUrl: file.url,
         toFile: ggufPath,
@@ -109,23 +147,34 @@ export const downloadModel = async (
     model: HFModel, 
     file: HFFile, 
     onProgress?: (percent: number) => void,
-    options?: {
-      preferLocalConversion?: boolean;
-      strictLocalConversion?: boolean;
-      onStageChange?: (stage: DownloadStage) => void;
-    }
+    options?: DownloadOptions
 ): Promise<string> => {
     const RNFS = getReactNativeFs();
     const platform = getPlatformTarget();
     const modelDir = getModelDir(model.id, file.quantization);
+    const sessionKey = getModelInstallSessionKey(model.id, file.quantization);
     if (!modelDir) {
         throw new Error('Native filesystem not available');
     }
+    await upsertModelInstallSession({
+        key: sessionKey,
+        model,
+        file,
+        preferLocalConversion: Boolean(options?.preferLocalConversion),
+        strictLocalConversion: Boolean(options?.strictLocalConversion),
+        stage: 'queued',
+        progress: 0,
+        platform,
+        jobId: options?.existingJobId,
+        updatedAt: new Date().toISOString(),
+    });
     const exists = await RNFS.exists(modelDir);
     let resolvedModelDir = modelDir;
-    if (!exists) {
-        options?.onStageChange?.('queued');
+    try {
+        if (!exists) {
+            await updateInstallProgress(sessionKey, 'queued', 0, onProgress, options?.onStageChange, options?.existingJobId ? { jobId: options.existingJobId } : undefined);
         if (options?.preferLocalConversion) {
+            await updateInstallProgress(sessionKey, 'local_conversion_requested', 0.02, onProgress, options?.onStageChange);
             try {
                 resolvedModelDir = await tryLocalConversion(
                     RNFS,
@@ -137,6 +186,13 @@ export const downloadModel = async (
                     options?.onStageChange
                 );
             } catch (error) {
+                await updateInstallProgress(
+                    sessionKey,
+                    String((error as any)?.message || '').includes('Local conversion unsupported') ? 'local_conversion_unavailable' : 'local_conversion_failed',
+                    0.05,
+                    onProgress,
+                    options?.onStageChange
+                );
                 if (options?.strictLocalConversion) {
                     throw error;
                 }
@@ -149,77 +205,155 @@ export const downloadModel = async (
         } catch {}
 
         if (!validExistingPath) {
-            const { jobId } = await requestModelConversion({
+            await updateInstallProgress(sessionKey, 'checking_compiled', 0.1, onProgress, options?.onStageChange);
+            const compiled = await getCompiledModelUrl({
                 modelId: model.id,
-                ggufUrl: file.url,
                 quantization: file.quantization,
                 platform
             });
+            let outputUrl: string | undefined = compiled.available ? compiled.url : undefined;
+            let jobId = options?.existingJobId;
+
+            if (!outputUrl && !jobId) {
+                const created = await requestModelConversion({
+                    modelId: model.id,
+                    ggufUrl: file.url,
+                    quantization: file.quantization,
+                    platform
+                });
+                jobId = created.jobId;
+                await patchModelInstallSession(sessionKey, {
+                    jobId,
+                    stage: 'converting_server',
+                    progress: 0.15,
+                });
+            }
 
             const maxAttempts = 120;
-            let outputUrl: string | undefined;
-            for (let i = 0; i < maxAttempts; i += 1) {
-                const status = await getConversionStatus(jobId);
-                options?.onStageChange?.(status.status as any);
-                if (typeof status.progress === 'number') {
-                    onProgress?.(Math.min(0.9, Math.max(0, status.progress)));
+            if (!outputUrl && jobId) {
+                for (let i = 0; i < maxAttempts; i += 1) {
+                    const status = await getConversionStatus(jobId);
+                    await updateInstallProgress(
+                        sessionKey,
+                        status.status === 'downloading' ? 'downloading_gguf' : status.status === 'converting' ? 'converting_server' : status.status === 'zipping' ? 'zipping' : (status.status as DownloadStage),
+                        typeof status.progress === 'number' ? Math.min(0.9, Math.max(0, status.progress)) : 0.2,
+                        onProgress,
+                        options?.onStageChange,
+                        { jobId, outputUrl: status.outputUrl }
+                    );
+                    if (status.status === 'completed') {
+                        outputUrl = status.outputUrl;
+                        break;
+                    }
+                    if (status.status === 'failed') {
+                        const compiledFallback = await getCompiledModelUrl({
+                            modelId: model.id,
+                            quantization: file.quantization,
+                            platform
+                        });
+                        if (compiledFallback.available) {
+                            outputUrl = compiledFallback.url;
+                            break;
+                        }
+                        throw new Error(status.message || 'Conversion failed');
+                    }
+                    await sleep(2000);
                 }
-                if (status.status === 'completed') {
-                    outputUrl = status.outputUrl;
-                    break;
-                }
-                if (status.status === 'failed') {
-                    throw new Error(status.message || 'Conversion failed');
-                }
-                await sleep(2000);
             }
 
             if (!outputUrl) {
-                const compiled = await getCompiledModelUrl({
+                const compiledFallback = await getCompiledModelUrl({
                     modelId: model.id,
                     quantization: file.quantization,
                     platform
                 });
-                outputUrl = compiled.url;
+                if (!compiledFallback.available) {
+                    throw new Error('Conversion failed');
+                }
+                outputUrl = compiledFallback.url;
             }
 
-            options?.onStageChange?.('downloading');
+            await updateInstallProgress(sessionKey, 'downloading_compiled', 0.92, onProgress, options?.onStageChange, { jobId: jobId || '', outputUrl });
             resolvedModelDir = await downloadCompiledModel(outputUrl, model.id, file.quantization, (p) => {
-                onProgress?.(0.9 + p * 0.1);
+                const nextProgress = 0.92 + p * 0.06;
+                onProgress?.(nextProgress);
+                patchModelInstallSession(sessionKey, { stage: 'downloading_compiled', progress: nextProgress }).catch(() => {});
             });
-            options?.onStageChange?.('validating');
+            await updateInstallProgress(sessionKey, 'validating', 0.99, onProgress, options?.onStageChange, { jobId: jobId || '', outputUrl });
             resolvedModelDir = await validateModelPackage(resolvedModelDir);
-            options?.onStageChange?.('completed');
         } else {
             resolvedModelDir = validExistingPath;
         }
-    } else {
-        options?.onStageChange?.('validating');
-        try {
-            resolvedModelDir = await validateModelPackage(modelDir);
-        } catch {
-            await swallowAsync(RNFS.unlink(modelDir));
-            return downloadModel(model, file, onProgress, options);
+        } else {
+            await updateInstallProgress(sessionKey, 'validating', 0.98, onProgress, options?.onStageChange);
+            try {
+                resolvedModelDir = await validateModelPackage(modelDir);
+            } catch {
+                await swallowAsync(RNFS.unlink(modelDir));
+                await removeModelInstallSession(sessionKey);
+                return downloadModel(model, file, onProgress, options);
+            }
         }
-        options?.onStageChange?.('completed');
+
+        const filename = (file.quantization ? `${file.quantization}.zip` : 'model.zip');
+        await saveModelLocal({
+            id: uuidv4(),
+            name: model.name,
+            filename: filename,
+            path: resolvedModelDir,
+            size: file.size,
+            downloaded: true,
+            quantization: file.quantization
+        });
+        await updateInstallProgress(sessionKey, 'completed', 1, onProgress, options?.onStageChange);
+        await removeModelInstallSession(sessionKey);
+
+        return resolvedModelDir;
+    } catch (error) {
+        await patchModelInstallSession(sessionKey, {
+            stage: 'failed',
+            progress: 0,
+        });
+        throw error;
     }
-
-    const filename = (file.quantization ? `${file.quantization}.zip` : 'model.zip');
-    await saveModelLocal({
-        id: uuidv4(),
-        name: model.name,
-        filename: filename,
-        path: resolvedModelDir,
-        size: file.size,
-        downloaded: true,
-        quantization: file.quantization
-    });
-
-    return resolvedModelDir;
 };
 
 export const prepareModelForChat = async (path: string) => {
     return validateModelPackage(path);
+};
+
+export const resumePendingModelDownloads = async (handlers?: {
+    onProgress?: (modelId: string, percent: number) => void;
+    onStageChange?: (modelId: string, stage: DownloadStage) => void;
+    onCompleted?: (modelId: string, path: string) => void;
+    onFailed?: (modelId: string, error: unknown) => void;
+}) => {
+    const sessions = await listModelInstallSessions();
+    for (const session of sessions) {
+        if (session.stage === 'completed') {
+            await removeModelInstallSession(session.key);
+            continue;
+        }
+        if (session.stage === 'failed') {
+            continue;
+        }
+        try {
+            const path = await downloadModel(
+                session.model,
+                session.file,
+                handlers?.onProgress ? (percent) => handlers.onProgress?.(session.model.id, percent) : undefined,
+                {
+                    preferLocalConversion: session.preferLocalConversion,
+                    strictLocalConversion: session.strictLocalConversion,
+                    existingJobId: session.jobId,
+                    onStageChange: handlers?.onStageChange ? (stage) => handlers.onStageChange?.(session.model.id, stage) : undefined,
+                }
+            );
+            handlers?.onCompleted?.(session.model.id, path);
+        } catch (error) {
+            handlers?.onFailed?.(session.model.id, error);
+        }
+    }
 };
 
 export const deleteModel = async (id: string, path: string) => {

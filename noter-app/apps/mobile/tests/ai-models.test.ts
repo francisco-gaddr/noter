@@ -54,7 +54,7 @@ jest.mock('../services/database', () => ({
 jest.mock('../services/ai/huggingface', () => ({
   requestModelConversion: jest.fn().mockResolvedValue({ jobId: 'job-1' }),
   getConversionStatus: jest.fn().mockResolvedValue({ status: 'completed', progress: 1, outputUrl: 'https://models.test/compiled.zip' }),
-  getCompiledModelUrl: jest.fn().mockResolvedValue({ url: 'https://models.test/compiled.zip', filename: 'Q4_K_M.zip' }),
+  getCompiledModelUrl: jest.fn().mockResolvedValue({ url: 'https://models.test/compiled.zip', filename: 'Q4_K_M.zip', available: false }),
 }));
 
 jest.mock('../services/ai/ModelDownloader', () => ({
@@ -62,6 +62,14 @@ jest.mock('../services/ai/ModelDownloader', () => ({
   getModelDir: jest.fn().mockReturnValue('/docs/mlc_models/user_model/Q4_K_M'),
   getPlatformTarget: jest.fn().mockReturnValue('iphone'),
   validateModelPackage: jest.fn(async (path: string) => path),
+}));
+
+jest.mock('../services/ai/installSession', () => ({
+  getModelInstallSessionKey: jest.fn((modelId: string, quantization?: string) => `${modelId}::${(quantization || 'Q4_K_M').toUpperCase()}`),
+  listModelInstallSessions: jest.fn().mockResolvedValue([]),
+  patchModelInstallSession: jest.fn().mockResolvedValue(undefined),
+  removeModelInstallSession: jest.fn().mockResolvedValue(undefined),
+  upsertModelInstallSession: jest.fn().mockResolvedValue(undefined),
 }));
 
 describe('AI Models', () => {
@@ -111,5 +119,45 @@ describe('AI Models', () => {
 
     expect(result).toBe('/docs/mlc_models/user_model/Q4_K_M');
     expect(mockConvertGGUFToMLC).toHaveBeenCalled();
+  });
+
+  it('downloads precompiled package directly when already available', async () => {
+    const { downloadModel } = require('../services/ai/modelService');
+    const { getCompiledModelUrl, requestModelConversion } = require('../services/ai/huggingface');
+    const model = { id: 'user/model', name: 'model', author: 'user', downloads: 0, likes: 0, tags: [] };
+    const file = { filename: 'model.Q4_K_M.gguf', size: 123, url: 'https://hf.test/model.gguf', quantization: 'Q4_K_M' };
+
+    mockExists.mockResolvedValue(false);
+    getCompiledModelUrl.mockResolvedValue({ url: 'https://models.test/compiled.zip', filename: 'Q4_K_M.zip', available: true });
+
+    const result = await downloadModel(model as any, file as any);
+
+    expect(result).toBe('/docs/mlc_models/user_model/Q4_K_M');
+    expect(requestModelConversion).not.toHaveBeenCalled();
+  });
+
+  it('resumes pending install sessions after background interruption', async () => {
+    const { resumePendingModelDownloads } = require('../services/ai/modelService');
+    const installSession = require('../services/ai/installSession');
+    const completed = jest.fn();
+    installSession.listModelInstallSessions.mockResolvedValue([
+      {
+        key: 'user/model::Q4_K_M',
+        model: { id: 'user/model', name: 'model', author: 'user', downloads: 0, likes: 0, tags: [] },
+        file: { filename: 'model.Q4_K_M.gguf', size: 123, url: 'https://hf.test/model.gguf', quantization: 'Q4_K_M' },
+        preferLocalConversion: false,
+        strictLocalConversion: false,
+        stage: 'converting_server',
+        progress: 0.4,
+        platform: 'iphone',
+        jobId: 'job-1',
+        updatedAt: new Date().toISOString(),
+      },
+    ]);
+    mockExists.mockResolvedValue(false);
+
+    await resumePendingModelDownloads({ onCompleted: completed });
+
+    expect(completed).toHaveBeenCalledWith('user/model', '/docs/mlc_models/user_model/Q4_K_M');
   });
 });

@@ -42,6 +42,7 @@ här kommer en komplett, steg-för-steg guide för att ta din befintliga Next.js
   - Electron och backend försöker nu inte bara `mlc_llm` i PATH utan kan falla tillbaka till `py -m mlc_llm` och `python -m mlc_llm`.
   - AI-inställningarna visar nu GGUF/MLC-diagnostik med aktiv kommandoupplösning och hint om installation saknas.
   - Efter nedladdning och konvertering aktiveras modellen automatiskt i Electron-klienten.
+  - Backendens compiled-endpoint rapporterar nu även om ett färdigt MLC-zip redan finns, så mobilappen kan hoppa över onödig konvertering och ladda ned paketet direkt.
 
 ---
 
