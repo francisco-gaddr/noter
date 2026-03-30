@@ -132,7 +132,10 @@ export const getConversionHealth = async (): Promise<{
     mode: 'external' | 'local';
     externalEndpoint?: string;
     localBinary?: string;
+    resolvedCommand?: string;
+    localBinarySource?: string;
     localBinaryAvailable: boolean;
+    installHint?: string;
     storageDir: string;
     storageWritable: boolean;
 }> => {

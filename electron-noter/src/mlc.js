@@ -9,6 +9,53 @@ const ensureDir = (dir) => {
 };
 
 const isMock = process.env.MLC_MOCK === '1';
+const isWindows = process.platform === 'win32';
+
+const getMlcCandidates = () => {
+  const candidates = [];
+  const envBinary = String(process.env.MLC_LLM_BIN || '').trim();
+  if (envBinary) {
+    candidates.push({ command: envBinary, prefixArgs: [], display: envBinary });
+  }
+  if (isWindows) {
+    candidates.push(
+      { command: 'py', prefixArgs: ['-m', 'mlc_llm'], display: 'py -m mlc_llm' },
+      { command: 'python', prefixArgs: ['-m', 'mlc_llm'], display: 'python -m mlc_llm' }
+    );
+  } else {
+    candidates.push(
+      { command: 'python3', prefixArgs: ['-m', 'mlc_llm'], display: 'python3 -m mlc_llm' },
+      { command: 'python', prefixArgs: ['-m', 'mlc_llm'], display: 'python -m mlc_llm' }
+    );
+  }
+  candidates.push({ command: 'mlc_llm', prefixArgs: [], display: 'mlc_llm' });
+  return candidates;
+};
+
+const canRunCommand = (command, args) => new Promise((resolve) => {
+  const proc = spawn(command, [...args, '--help'], { stdio: 'ignore' });
+  const timeout = setTimeout(() => {
+    proc.kill();
+    resolve(false);
+  }, 4000);
+  proc.on('error', () => {
+    clearTimeout(timeout);
+    resolve(false);
+  });
+  proc.on('exit', (code) => {
+    clearTimeout(timeout);
+    resolve(code === 0);
+  });
+});
+
+const resolveMlcCommand = async () => {
+  for (const candidate of getMlcCandidates()) {
+    if (await canRunCommand(candidate.command, candidate.prefixArgs)) {
+      return candidate;
+    }
+  }
+  throw new Error('MLC-binären hittades inte. Appen försökte mlc_llm, py -m mlc_llm och python -m mlc_llm.');
+};
 
 const getModelsRoot = (baseDir) => path.join(baseDir, 'mlc_models');
 const getIndexPath = (baseDir) => path.join(getModelsRoot(baseDir), 'index.json');
@@ -76,6 +123,15 @@ const runCommand = (cmd, args, onStdout) => new Promise((resolve, reject) => {
   return proc;
 });
 
+const runMlcCommand = async (args, onStdout) => {
+  const resolved = await resolveMlcCommand();
+  try {
+    await runCommand(resolved.command, [...resolved.prefixArgs, ...args], onStdout);
+  } catch (error) {
+    throw new Error(`${resolved.display}: ${error.message}`);
+  }
+};
+
 const ensureModelDir = (baseDir, modelId, quant) => {
   const safeId = String(modelId).replace(/[^\w.-]+/g, '_');
   const dir = path.join(getModelsRoot(baseDir), safeId, String(quant || 'Q4_K_M').toUpperCase());
@@ -122,11 +178,11 @@ const downloadAndConvert = async (baseDir, payload, onProgress) => {
   if (onProgress) onProgress(0.5);
   let usedTarget = target;
   try {
-    await runCommand('mlc_llm', ['convert', ggufPath, '--quantization', resolveQuant(quant), '--target', target, '-o', outDir]);
+    await runMlcCommand(['convert', ggufPath, '--quantization', resolveQuant(quant), '--target', target, '-o', outDir]);
   } catch (error) {
     if (target !== 'cpu') {
       usedTarget = 'cpu';
-      await runCommand('mlc_llm', ['convert', ggufPath, '--quantization', resolveQuant(quant), '--target', 'cpu', '-o', outDir]);
+      await runMlcCommand(['convert', ggufPath, '--quantization', resolveQuant(quant), '--target', 'cpu', '-o', outDir]);
     } else {
       throw error;
     }
@@ -173,7 +229,8 @@ const shouldRetryOnCpu = (error) => {
 };
 
 const runChatCommand = (chatId, args, onToken) => new Promise((resolve, reject) => {
-  const proc = spawn('mlc_llm', args, { stdio: ['pipe', 'pipe', 'pipe'] });
+  resolveMlcCommand().then((resolved) => {
+    const proc = spawn(resolved.command, [...resolved.prefixArgs, ...args], { stdio: ['pipe', 'pipe', 'pipe'] });
   if (chatId) chatProcesses.set(chatId, proc);
   let stdoutText = '';
   let stderrText = '';
@@ -196,8 +253,9 @@ const runChatCommand = (chatId, args, onToken) => new Promise((resolve, reject) 
       return;
     }
     const details = stderrText.trim();
-    reject(new Error(details ? `mlc_llm exited with ${code}: ${details}` : `mlc_llm exited with ${code}`));
+    reject(new Error(details ? `${resolved.display} exited with ${code}: ${details}` : `${resolved.display} exited with ${code}`));
   });
+  }).catch(reject);
 });
 
 const runChat = async (_baseDir, payload, onToken) => {
@@ -294,6 +352,7 @@ module.exports = {
   deleteModel,
   runChat,
   cancelChat,
+  resolveMlcCommand,
   resolveQuant,
   ensureModelDir,
   shouldRetryOnCpu,

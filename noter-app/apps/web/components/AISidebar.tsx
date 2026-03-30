@@ -106,6 +106,9 @@ export const AISidebar = () => {
   const [selectedModel, setSelectedModel] = useState<HFModel | null>(null);
   const [modelFiles, setModelFiles] = useState<HFFile[]>([]);
   const [modelFilesError, setModelFilesError] = useState<string | null>(null);
+  const [conversionHealthText, setConversionHealthText] = useState('');
+  const [conversionHealthDetailText, setConversionHealthDetailText] = useState('');
+  const [conversionHealthLoading, setConversionHealthLoading] = useState(false);
   const [useGpu, setUseGpu] = useState(false);
   const [gpuLayers, setGpuLayers] = useState(32);
   const [lmBaseUrl, setLmBaseUrl] = useState('http://localhost:1234');
@@ -692,6 +695,11 @@ export const AISidebar = () => {
     };
   }, [isElectron]);
 
+  useEffect(() => {
+    if (!isSettingsOpen) return;
+    refreshConversionHealth().catch(() => {});
+  }, [isSettingsOpen]);
+
   const loadConversations = async () => {
       const userId = getUserId();
       let convs = await db.getConversations(userId || undefined);
@@ -808,6 +816,34 @@ export const AISidebar = () => {
         }
     } catch (e) {
         console.error(e);
+    }
+  };
+
+  const refreshConversionHealth = async () => {
+    setConversionHealthLoading(true);
+    try {
+      const res = await fetch('/app/api/ai/models/health', { cache: 'no-store' });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || 'Health check failed');
+      }
+      if (data.mode === 'external') {
+        setConversionHealthText('Serverkonvertering används för GGUF → MLC.');
+      } else if (data.localBinaryAvailable && data.storageWritable) {
+        setConversionHealthText('Lokal MLC-konvertering är redo.');
+      } else if (!data.localBinaryAvailable) {
+        setConversionHealthText('MLC-binären saknas eller kan inte startas.');
+      } else if (!data.storageWritable) {
+        setConversionHealthText('MLC-lagringen är inte skrivbar.');
+      } else {
+        setConversionHealthText('');
+      }
+      setConversionHealthDetailText([data.resolvedCommand ? `MLC: ${data.resolvedCommand}` : '', data.installHint || ''].filter(Boolean).join(' · '));
+    } catch (error: any) {
+      setConversionHealthText(error?.message || 'Kunde inte läsa MLC-status.');
+      setConversionHealthDetailText('');
+    } finally {
+      setConversionHealthLoading(false);
     }
   };
 
@@ -2894,7 +2930,7 @@ export const AISidebar = () => {
       setDownloadProgress(prev => ({ ...prev, [key]: 0 }));
       try {
           if (isElectron) {
-              await (window as any).mlc.downloadAndConvert({
+              const installed = await (window as any).mlc.downloadAndConvert({
                   id: key,
                   modelId: model.id,
                   ggufUrl: file.url,
@@ -2903,6 +2939,9 @@ export const AISidebar = () => {
               });
               setDownloadProgress(prev => ({ ...prev, [key]: 100 }));
               await fetchLocalModels();
+              if (installed?.path) {
+                setModelPath(installed.path);
+              }
               setTimeout(() => {
                   setDownloadProgress(prev => {
                       const next = { ...prev };
@@ -2910,7 +2949,7 @@ export const AISidebar = () => {
                       return next;
                   });
               }, 2000);
-              alert(`Downloaded ${file.filename}`);
+              alert(`Downloaded, converted and activated ${file.filename}`);
               return;
           }
 
@@ -3564,6 +3603,27 @@ export const AISidebar = () => {
                     <div className="text-sm font-medium break-words">{item.value}</div>
                   </div>
                 ))}
+              </div>
+              <div className="mt-4 rounded border bg-white dark:bg-slate-900 p-3" data-testid="ai-conversion-health-panel">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-sm font-semibold">GGUF- och MLC-diagnostik</div>
+                  <button
+                    type="button"
+                    onClick={() => refreshConversionHealth()}
+                    className="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-700"
+                  >
+                    {conversionHealthLoading ? 'Kontrollerar…' : 'Uppdatera'}
+                  </button>
+                </div>
+                <div className="text-xs text-gray-500 dark:text-gray-300 mt-2">
+                  Visar om MLC-binären kan hittas, vilken kommando-upplösning som används och om GGUF → MLC-konvertering är redo.
+                </div>
+                {conversionHealthText ? (
+                  <div className="text-sm mt-2">{conversionHealthText}</div>
+                ) : null}
+                {conversionHealthDetailText ? (
+                  <div className="text-xs text-gray-500 dark:text-gray-300 mt-1 break-words">{conversionHealthDetailText}</div>
+                ) : null}
               </div>
             </div>
           </div>

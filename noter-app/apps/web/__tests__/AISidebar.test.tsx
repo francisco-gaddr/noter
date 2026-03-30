@@ -141,4 +141,47 @@ describe('AISidebar', () => {
             expect(localStorage.getItem('aiToolAccessMode')).toBe('read-only');
         });
     });
+
+    it('shows conversion diagnostics in settings', async () => {
+        (global.fetch as jest.Mock).mockImplementation((input: RequestInfo | URL) => {
+            const url = String(input);
+            if (url.includes('/app/api/ai/models/health')) {
+                return Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({
+                        mode: 'local',
+                        localBinaryAvailable: true,
+                        storageWritable: true,
+                        resolvedCommand: 'py -m mlc_llm',
+                        installHint: '',
+                    }),
+                });
+            }
+            return Promise.resolve({
+                ok: true,
+                json: () => Promise.resolve([]),
+                body: {
+                    getReader: () => ({
+                        read: () => Promise.resolve({ done: true, value: new Uint8Array() })
+                    })
+                }
+            });
+        });
+
+        await act(async () => {
+            render(<AISidebar />);
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: /AI/i }));
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByLabelText('Öppna AI-inställningar'));
+        });
+
+        await waitFor(() => {
+            expect(screen.getByTestId('ai-conversion-health-panel')).toBeInTheDocument();
+            expect(screen.getByText('Lokal MLC-konvertering är redo.')).toBeInTheDocument();
+            expect(screen.getByText(/py -m mlc_llm/)).toBeInTheDocument();
+        });
+    });
 });

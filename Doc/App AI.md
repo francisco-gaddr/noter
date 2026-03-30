@@ -19,7 +19,7 @@ här kommer en komplett, steg-för-steg guide för att ta din befintliga Next.js
 - [x] AI-inställningar har global backend-sync-toggle för krypterad lokal-only historik
 - [x] Tool-use har read-only/full access-lägen i UI och runtime
 - [x] Promptprofiler och sessionsinsikter visas i AI-inställningarna
-- [ ] Verifiera MLC‑binär i PATH på Windows‑maskinen
+- [x] Robust MLC-kommandoupplösning med fallback till `py -m mlc_llm` / `python -m mlc_llm`
 - [ ] End‑to‑end‑test med riktig modellnedladdning och chat
 
 ## Nya AI-utökningar
@@ -38,6 +38,10 @@ här kommer en komplett, steg-för-steg guide för att ta din befintliga Next.js
 - **Sessionsinsikter**
   - Electron-webbklienten visar aktiv provider, modell, sync-läge, promptprofil, tool-läge och aktiva MCP-tjänster.
   - Detta förbättrar debugging, support och verifiering vid release.
+- **GGUF-pipeline och diagnos**
+  - Electron och backend försöker nu inte bara `mlc_llm` i PATH utan kan falla tillbaka till `py -m mlc_llm` och `python -m mlc_llm`.
+  - AI-inställningarna visar nu GGUF/MLC-diagnostik med aktiv kommandoupplösning och hint om installation saknas.
+  - Efter nedladdning och konvertering aktiveras modellen automatiskt i Electron-klienten.
 
 ---
 

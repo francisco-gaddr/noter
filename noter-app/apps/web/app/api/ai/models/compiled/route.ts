@@ -1,29 +1,37 @@
 import { NextRequest } from 'next/server';
 
-const getBaseUrl = (origin?: string | null) =>
-  (process.env.NEXT_PUBLIC_MLC_MODELS_BASE_URL || process.env.MLC_MODELS_BASE_URL || (origin ? `${origin}/mlc-models` : 'https://daylited.com/mlc-models')).replace(/\/$/, '');
-
-const normalizeQuant = (value?: string | null) => (value || 'Q4_K_M').toUpperCase();
+const resolveApiBaseUrl = (req: NextRequest) => {
+  const explicit = process.env.NEXT_PUBLIC_API_URL || process.env.API_URL;
+  if (explicit) {
+    return explicit.replace(/\/$/, '');
+  }
+  const origin = new URL(req.url).origin;
+  return `${origin.replace(/\/$/, '')}/api`;
+};
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const modelId = searchParams.get('modelId');
-    const platformRaw = searchParams.get('platform');
-    const quant = normalizeQuant(searchParams.get('quant'));
 
     if (!modelId) {
       return new Response(JSON.stringify({ error: 'modelId required' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
 
-    const platform = platformRaw === 'android' ? 'android' : 'iphone';
-    const baseUrl = getBaseUrl(new URL(req.url).origin);
-    const encodedModel = encodeURIComponent(modelId);
-    const filename = `${quant}.zip`;
-    const url = `${baseUrl}/${platform}/${encodedModel}/${filename}`;
-
-    return new Response(JSON.stringify({ url, filename }), { headers: { 'Content-Type': 'application/json' } });
+    const apiBaseUrl = resolveApiBaseUrl(req);
+    const response = await fetch(`${apiBaseUrl}/ai/models/compiled?${searchParams.toString()}`, {
+      headers: {
+        Accept: 'application/json',
+        'Cache-Control': 'no-cache',
+      },
+      cache: 'no-store',
+    });
+    const bodyText = await response.text();
+    return new Response(bodyText, {
+      status: response.status,
+      headers: { 'Content-Type': 'application/json' },
+    });
   } catch (error: any) {
-    return new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify({ error: error?.message || 'Compiled proxy failed' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
   }
 }

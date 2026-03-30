@@ -2,7 +2,7 @@
 
 ## Översikt
 
-Denna arkitektur möjliggör lokal AI på mobilen genom att använda **GGUF-modeller** direkt via `llama.rn` (Llama.cpp bindings for React Native). Detta uppfyller kravet på "automatisk konvertering" genom att eliminera behovet av komplex konvertering på enheten – vi laddar ner GGUF-filer som är redo att köras direkt.
+Denna arkitektur möjliggör lokal AI på mobilen genom att använda **GGUF-modeller** som laddas ner, konverteras till **MLC-paket** och därefter valideras innan de aktiveras i appen. Flödet stöder lokal device-konvertering när native-stödet finns och faller annars tillbaka till bakgrundskonvertering via server med tydlig status i UI.
 
 ### Arkitektur
 
@@ -11,7 +11,7 @@ Denna arkitektur möjliggör lokal AI på mobilen genom att använda **GGUF-mode
     *   `HuggingFaceService`: Söker efter modeller på Hugging Face (filtrerar på `.gguf`).
     *   `ModelService`: Hanterar nedladdning, lagring och radering av modellfiler lokalt.
     *   `LlamaService` (`MobileLlamaProvider`): Hanterar initiering av `llama.rn`, context och inferens (chat).
-3.  **Native Layer:** `llama.rn` (kör `llama.cpp` native C++ kod).
+3.  **Native Layer:** MLC-runtime + native brygga för modelladdning, lokal konvertering och inferens.
 4.  **Storage:** `expo-file-system` för modellfiler, `sqlite` (via `database.ts`) för metadata och historik.
 
 ## Implementeringsplan & Progress
@@ -110,6 +110,10 @@ Denna arkitektur möjliggör lokal AI på mobilen genom att använda **GGUF-mode
 - **Sessionsinsikter visas i AI-inställningarna.**
   - Visar vald provider, modell, sync-läge, tool-use-läge, promptprofil och aktiva MCP-tjänster.
   - Detta gör felsökning och verifiering snabbare för användaren.
+- **GGUF → MLC-pipelinen är nu härdad.**
+  - Mobilen använder backendens gemensamma konverteringsjobb via web-proxy i stället för att förlita sig på en separat lokal Next-konverterare.
+  - Hälsokontrollen visar nu även upplöst MLC-kommando och installationshint om binären inte kan startas.
+  - Efter färdig installation valideras modellen, aktiveras automatiskt och är direkt redo för chatt.
 
 ## Motivering
 
@@ -117,3 +121,4 @@ Denna arkitektur möjliggör lokal AI på mobilen genom att använda **GGUF-mode
 - **Promptprofiler** gör AI-beteendet mer användbart direkt i UI utan att kräva manuell prompt-engineering.
 - **Read-only tool-use** minskar risken för oavsiktliga ändringar när användaren vill ha AI-stöd för analys men inte för mutationer.
 - **Sessionsinsikter** gör det tydligt vilken AI-konfiguration som faktiskt används i stunden, vilket minskar felsökningstid.
+- **Härdad GGUF-pipeline** minskar Windows-specifika fel som `spawn mlc_llm ENOENT` och gör det tydligare varför konvertering lyckas eller blockeras.

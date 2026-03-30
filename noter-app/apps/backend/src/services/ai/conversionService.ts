@@ -4,6 +4,7 @@ import os from 'os';
 import { spawn } from 'child_process';
 import { pipeline } from 'stream/promises';
 import { ensureDir, getCompiledUrl, getModelDir, getModelsBaseDir, getZipPath } from './mlcStorage';
+import { getMlcInstallHint, resolveMlcCommand } from './mlcBinary';
 
 export type ConversionStatus = 'queued' | 'downloading' | 'converting' | 'zipping' | 'completed' | 'failed';
 
@@ -27,7 +28,10 @@ let healthCache: {
     mode: 'external' | 'local';
     externalEndpoint?: string;
     localBinary?: string;
+      resolvedCommand?: string;
+      localBinarySource?: string;
     localBinaryAvailable: boolean;
+      installHint?: string;
     storageDir: string;
     storageWritable: boolean;
   };
@@ -90,35 +94,42 @@ const runLocalConversion = async (job: ConversionJob) => {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'noter-mlc-'));
   const ggufPath = path.join(tmpDir, 'model.gguf');
 
-  updateJob(job.id, { status: 'downloading', progress: 0.1 });
-  await downloadFile(job.ggufUrl, ggufPath);
+  try {
+    updateJob(job.id, { status: 'downloading', progress: 0.1 });
+    await downloadFile(job.ggufUrl, ggufPath);
 
-  updateJob(job.id, { status: 'converting', progress: 0.4 });
-  const bin = process.env.MLC_LLM_BIN || 'mlc_llm';
-  const args = [
-    'convert',
-    ggufPath,
-    '--quantization',
-    toMlcQuant(quant),
-    '--target',
-    job.platform,
-    '-o',
-    outDir,
-  ];
-  await new Promise<void>((resolve, reject) => {
-    const proc = spawn(bin, args, { stdio: 'inherit' });
-    proc.on('exit', (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`mlc_llm exited with ${code}`));
+    updateJob(job.id, { status: 'converting', progress: 0.4 });
+    const resolved = await resolveMlcCommand();
+    const args = [
+      ...resolved.prefixArgs,
+      'convert',
+      ggufPath,
+      '--quantization',
+      toMlcQuant(quant),
+      '--target',
+      job.platform,
+      '-o',
+      outDir,
+    ];
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn(resolved.command, args, { stdio: 'inherit' });
+      proc.on('exit', (code) => {
+        if (code === 0) resolve();
+        else reject(new Error(`MLC-konvertering misslyckades via ${resolved.display} (${code})`));
+      });
+      proc.on('error', (error) => {
+        reject(new Error(`MLC-binären kunde inte startas via ${resolved.display}: ${error.message}`));
+      });
     });
-    proc.on('error', reject);
-  });
 
-  updateJob(job.id, { status: 'zipping', progress: 0.8 });
-  const zipPath = getZipPath(job.modelId, job.platform, quant);
-  await zipDirectory(outDir, zipPath);
+    updateJob(job.id, { status: 'zipping', progress: 0.8 });
+    const zipPath = getZipPath(job.modelId, job.platform, quant);
+    await zipDirectory(outDir, zipPath);
 
-  updateJob(job.id, { status: 'completed', progress: 1, outputUrl: getCompiledUrl(job.modelId, job.platform, quant) });
+    updateJob(job.id, { status: 'completed', progress: 1, outputUrl: getCompiledUrl(job.modelId, job.platform, quant) });
+  } finally {
+    await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  }
 };
 
 const runExternalConversion = async (job: ConversionJob) => {
@@ -211,6 +222,7 @@ export const getConversionHealth = async () => {
       mode: 'external' as const,
       externalEndpoint,
       localBinaryAvailable: false,
+      installHint: '',
       storageDir,
       storageWritable,
     };
@@ -218,27 +230,20 @@ export const getConversionHealth = async () => {
     return value;
   }
 
-  const localBinary = process.env.MLC_LLM_BIN || 'mlc_llm';
-  const localBinaryAvailable = await new Promise<boolean>((resolve) => {
-    const proc = spawn(localBinary, ['--help'], { stdio: 'ignore' });
-    const timeout = setTimeout(() => {
-      proc.kill();
-      resolve(false);
-    }, 3000);
-    proc.on('error', () => {
-      clearTimeout(timeout);
-      resolve(false);
-    });
-    proc.on('exit', (code) => {
-      clearTimeout(timeout);
-      resolve(code === 0);
-    });
-  });
+  let resolvedCommand: Awaited<ReturnType<typeof resolveMlcCommand>> | null = null;
+  try {
+    resolvedCommand = await resolveMlcCommand();
+  } catch {
+    resolvedCommand = null;
+  }
 
   const value = {
     mode: 'local' as const,
-    localBinary,
-    localBinaryAvailable,
+    localBinary: process.env.MLC_LLM_BIN || 'mlc_llm',
+    resolvedCommand: resolvedCommand?.display,
+    localBinarySource: resolvedCommand?.source,
+    localBinaryAvailable: Boolean(resolvedCommand),
+    installHint: resolvedCommand ? '' : getMlcInstallHint(),
     storageDir,
     storageWritable,
   };

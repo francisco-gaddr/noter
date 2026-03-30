@@ -259,6 +259,7 @@ export default function AIScreen() {
   const [mcpDashboardError, setMcpDashboardError] = useState<string | null>(null);
   const [mcpDashboardRows, setMcpDashboardRows] = useState<any[]>([]);
   const [conversionHealthText, setConversionHealthText] = useState<string>('');
+  const [conversionHealthDetailText, setConversionHealthDetailText] = useState<string>('');
   const [deviceConversionHealthText, setDeviceConversionHealthText] = useState<string>('');
   const [searchSizes, setSearchSizes] = useState<Record<string, number | null>>({});
 
@@ -538,6 +539,8 @@ export default function AIScreen() {
   const refreshConversionHealth = async () => {
       try {
           const health = await getConversionHealth();
+          const details = [health.resolvedCommand ? `MLC: ${health.resolvedCommand}` : '', health.installHint || ''].filter(Boolean).join(' · ');
+          setConversionHealthDetailText(details);
           if (health.mode === 'external') {
               setConversionHealthText(t('ai.conversionHealthExternal'));
               return;
@@ -557,6 +560,7 @@ export default function AIScreen() {
           setConversionHealthText('');
       } catch {
           setConversionHealthText(t('ai.conversionHealthUnknown'));
+          setConversionHealthDetailText('');
       }
       try {
           const deviceCaps = await getLocalConversionCapabilities();
@@ -680,6 +684,7 @@ export default function AIScreen() {
       if (message.includes('Invalid model package')) return 'Modellpaketet är ogiltigt eller saknar filer.';
       if (message.includes('Model path not found')) return 'Den nedladdade modellen kunde inte hittas längre. Ladda ner eller välj modellen igen.';
       if (message.includes('Conversion failed')) return 'Konvertering misslyckades på servern.';
+      if (message.includes('MLC-binären hittades inte')) return message;
       if (message.includes('job not found')) return 'Konverteringsjobb saknas eller har löpt ut.';
       return message;
   };
@@ -1784,7 +1789,7 @@ export default function AIScreen() {
             return;
         }
 
-        await serviceDownloadModel(model, file, (percent) => {
+        const installedPath = await serviceDownloadModel(model, file, (percent) => {
             setDownloadProgress(prev => ({ ...prev, [model.id]: percent }));
         }, {
             preferLocalConversion,
@@ -1792,6 +1797,9 @@ export default function AIScreen() {
         });
 
         await loadModels();
+        const preparedPath = await prepareModelForChat(installedPath);
+        setActiveModel(preparedPath);
+        alert(`Modellen ${model.name} installerades, aktiverades och är redo för chatt.`);
         
         setProcessingModels(prev => {
             const newP = { ...prev };
@@ -2386,6 +2394,11 @@ export default function AIScreen() {
               {conversionHealthText ? (
                 <Text style={{ marginTop: 6, color: theme.colors.onSurfaceVariant }}>
                   {conversionHealthText}
+                </Text>
+              ) : null}
+              {conversionHealthDetailText ? (
+                <Text style={{ marginTop: 4, color: theme.colors.onSurfaceVariant }}>
+                  {conversionHealthDetailText}
                 </Text>
               ) : null}
               {deviceConversionHealthText ? (
