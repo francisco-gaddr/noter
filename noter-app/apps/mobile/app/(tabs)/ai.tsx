@@ -28,12 +28,13 @@ import * as Clipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
-import { AI_PROMPT_PRESETS, AiPromptPreset, AiToolAccessMode, MCP_INTEGRATIONS, McpUiSettings, buildAiSessionInsights, buildAiSyncNotice, createEmptyMcpUiSettings, decrypt, encrypt, isMutatingAiTool, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings } from '@repo/shared';
+import { AI_PROMPT_PRESETS, AIModel, AiPromptPreset, AiToolAccessMode, MCP_INTEGRATIONS, McpUiSettings, buildAiSessionInsights, buildAiSyncNotice, createEmptyMcpUiSettings, decrypt, encrypt, isMutatingAiTool, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings } from '@repo/shared';
 
 const provider = new MobileLlamaProvider();
 type LocalConversation = Conversation & { localOnly?: boolean };
 type LocalAIProject = AIProject & { localOnly?: boolean; userId?: string };
 type PullAiSyncResult = Awaited<ReturnType<typeof pullAiSync>>;
+type LocalModelEntry = AIModel & { invalidReason?: string; sourcePath: string };
 
 const ProjectDialog = React.memo(({
   visible,
@@ -236,7 +237,7 @@ export default function AIScreen() {
   const [confirmChatDeleteId, setConfirmChatDeleteId] = useState<string | null>(null);
 
   // Models
-  const [localModels, setLocalModels] = useState<any[]>([]);
+  const [localModels, setLocalModels] = useState<LocalModelEntry[]>([]);
   const [activeModel, setActiveModel] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<HFModel[]>([]);
@@ -595,9 +596,36 @@ export default function AIScreen() {
       return () => sub.remove();
   }, []);
 
+  const isModelSelected = (model: LocalModelEntry) => activeModel === model.path || activeModel === model.sourcePath;
+
+  const persistPreparedModel = async (model: LocalModelEntry, preparedPath: string) => {
+      if (preparedPath === model.path) {
+          return { ...model, sourcePath: model.sourcePath || model.path, invalidReason: undefined };
+      }
+      const nextModel: AIModel = {
+          id: model.id,
+          name: model.name,
+          filename: model.filename,
+          path: preparedPath,
+          size: model.size,
+          quantization: model.quantization,
+          downloaded: model.downloaded,
+      };
+      await saveModelLocal(nextModel);
+      return {
+          ...model,
+          path: preparedPath,
+          invalidReason: undefined,
+      };
+  };
+
+  const markModelInvalid = (modelId: string, reason: string) => {
+      setLocalModels(prev => prev.map((item) => item.id === modelId ? { ...item, invalidReason: reason } : item));
+  };
+
   const loadModels = async () => {
       const models = await getModelsLocal();
-      const normalizedModels = await Promise.all(models.map(async (model) => {
+      const normalizedModels = await Promise.all(models.map(async (model): Promise<LocalModelEntry> => {
           try {
               const normalized = await normalizeStoredModelRecord(model as any);
               return { ...normalized, invalidReason: undefined, sourcePath: model.path };
@@ -1993,20 +2021,20 @@ export default function AIScreen() {
       }
   };
 
-  const handleDeleteModel = async (id: string, path: string) => {
-      if (activeModel === path) {
+  const handleDeleteModel = async (model: LocalModelEntry) => {
+      if (isModelSelected(model)) {
           alert('Cannot delete active model');
           return;
       }
       try {
-          await serviceDeleteModel(id, path);
+          await serviceDeleteModel(model.id, model.path);
           await loadModels();
       } catch (e) {
           alert('Delete failed: ' + String(e));
       }
   };
 
-  const handleActivateModel = async (model: any) => {
+  const handleActivateModel = async (model: LocalModelEntry) => {
       if (model.invalidReason) {
           alert(formatError(new Error(model.invalidReason)));
           return;
@@ -2016,18 +2044,25 @@ export default function AIScreen() {
       }
       try {
           setActivatingModelId(model.id);
-          if (activeModel === model.path) {
+          if (isModelSelected(model)) {
               await provider.unloadModel();
               setActiveModel(null);
               return;
           }
           const preparedPath = await prepareModelForChat(model.path);
-          if (preparedPath !== model.path) {
-              await saveModelLocal({ ...model, path: preparedPath });
-          }
+          const preparedModel = await persistPreparedModel(model, preparedPath);
           await provider.loadModel(preparedPath);
           setActiveModel(preparedPath);
+          setLocalModels(prev => prev.map((item) => item.id === preparedModel.id ? preparedModel : item));
       } catch (error) {
+          const message = (error as any)?.message ? String((error as any).message) : 'Invalid model package';
+          if (message.includes('Invalid model package')) {
+              markModelInvalid(model.id, message);
+              if (isModelSelected(model)) {
+                  setActiveModel(null);
+                  await provider.unloadModel().catch(() => {});
+              }
+          }
           alert(formatError(error));
       } finally {
           setActivatingModelId(null);
@@ -2387,14 +2422,14 @@ export default function AIScreen() {
                           </View>
                           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                             <Button
-                              mode={activeModel === m.path ? 'contained' : 'outlined'}
+                              mode={isModelSelected(m) ? 'contained' : 'outlined'}
                               onPress={() => handleActivateModel(m)}
                               disabled={Boolean(m.invalidReason) || activatingModelId === m.id}
                               style={{ marginRight: 8 }}
                             >
-                              {activatingModelId === m.id ? 'Laddar…' : activeModel === m.path ? 'Avaktivera' : t('ai.select')}
+                              {activatingModelId === m.id ? 'Laddar…' : isModelSelected(m) ? 'Avaktivera' : t('ai.select')}
                             </Button>
-                            <IconButton icon="delete" onPress={() => handleDeleteModel(m.id, m.path)} />
+                            <IconButton icon="delete" onPress={() => handleDeleteModel(m)} />
                           </View>
                         </View>
                       )}

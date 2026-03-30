@@ -187,4 +187,31 @@ describe('AI Models', () => {
       path: '/docs/mlc_models/user_model/Q4_K_M/model',
     }));
   });
+
+  it('does not rewrite model metadata when stored package path is already normalized', async () => {
+    const { normalizeStoredModelRecord } = require('../services/ai/modelService');
+    const { saveModelLocal } = require('../services/database');
+    const { validateModelPackage } = require('../services/ai/ModelDownloader');
+    validateModelPackage.mockResolvedValue('/docs/mlc_models/user_model/Q4_K_M');
+
+    const normalized = await normalizeStoredModelRecord({
+      id: 'model_user_model_Q4_K_M',
+      name: 'model',
+      filename: 'Q4_K_M.zip',
+      path: '/docs/mlc_models/user_model/Q4_K_M',
+      size: 123,
+      quantization: 'Q4_K_M',
+      downloaded: true,
+    });
+
+    expect(normalized.path).toBe('/docs/mlc_models/user_model/Q4_K_M');
+    expect(saveModelLocal).not.toHaveBeenCalled();
+  });
+
+  it('creates stable installed model ids per model and quantization', async () => {
+    const { getInstalledModelRecordId } = require('../services/ai/modelService');
+
+    expect(getInstalledModelRecordId('user/model', 'Q4_K_M')).toBe('model_user_model_Q4_K_M');
+    expect(getInstalledModelRecordId('user/model', 'q5_k_m')).toBe('model_user_model_Q5_K_M');
+  });
 });

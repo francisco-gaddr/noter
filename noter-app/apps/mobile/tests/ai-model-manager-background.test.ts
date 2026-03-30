@@ -41,7 +41,9 @@ describe('ModelManager background behavior', () => {
 
   it('unloads model when app backgrounds and background AI is disabled', async () => {
     mockIsBackgroundEnabled.mockResolvedValue(false);
-    require('../services/ai/ModelManager');
+    const { modelManager } = require('../services/ai/ModelManager');
+    modelManager.currentModelPath = '/docs/model-a';
+    modelManager.isModelLoaded = true;
     const callback = mockAddEventListener.mock.calls[0][1];
     callback('background');
     await flush();
@@ -50,7 +52,9 @@ describe('ModelManager background behavior', () => {
 
   it('keeps model loaded when app backgrounds and background AI is enabled', async () => {
     mockIsBackgroundEnabled.mockResolvedValue(true);
-    require('../services/ai/ModelManager');
+    const { modelManager } = require('../services/ai/ModelManager');
+    modelManager.currentModelPath = '/docs/model-a';
+    modelManager.isModelLoaded = true;
     const callback = mockAddEventListener.mock.calls[0][1];
     callback('background');
     await flush();
