@@ -1,6 +1,5 @@
 import { HFFile, HFModel } from '@repo/ai';
 import { saveModelLocal, deleteModelLocal } from '@/services/database';
-import { v4 as uuidv4 } from 'uuid';
 import { downloadCompiledModel, getModelDir, getPlatformTarget, validateModelPackage } from './ModelDownloader';
 import { requestModelConversion, getConversionStatus, getCompiledModelUrl } from './huggingface';
 import { getReactNativeFs } from './nativeRuntime';
@@ -19,6 +18,21 @@ const getModelsDir = () => {
 };
 
 export const MODELS_DIR = getModelsDir();
+
+export type StoredModelRecord = {
+    id: string;
+    name: string;
+    filename: string;
+    path: string;
+    size: number;
+    quantization?: string;
+    downloaded: boolean;
+};
+
+const sanitizeRecordId = (value: string) => value.replace(/[^a-zA-Z0-9._-]+/g, '_');
+
+export const getInstalledModelRecordId = (modelId: string, quantization?: string) =>
+    `model_${sanitizeRecordId(modelId)}_${sanitizeRecordId((quantization || 'Q4_K_M').toUpperCase())}`;
 
 export const getBestQuantization = (files: HFFile[]): HFFile | undefined => {
     // Priority list for mobile (balance size/performance)
@@ -297,7 +311,7 @@ export const downloadModel = async (
 
         const filename = (file.quantization ? `${file.quantization}.zip` : 'model.zip');
         await saveModelLocal({
-            id: uuidv4(),
+            id: getInstalledModelRecordId(model.id, file.quantization),
             name: model.name,
             filename: filename,
             path: resolvedModelDir,
@@ -320,6 +334,19 @@ export const downloadModel = async (
 
 export const prepareModelForChat = async (path: string) => {
     return validateModelPackage(path);
+};
+
+export const normalizeStoredModelRecord = async (model: StoredModelRecord) => {
+    const preparedPath = await validateModelPackage(model.path);
+    if (preparedPath === model.path) {
+        return model;
+    }
+    const normalized = {
+        ...model,
+        path: preparedPath,
+    };
+    await saveModelLocal(normalized);
+    return normalized;
 };
 
 export const resumePendingModelDownloads = async (handlers?: {

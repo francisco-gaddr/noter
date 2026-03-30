@@ -40,6 +40,10 @@ electron-noter/renderer/favicon.ico
 electron-noter/renderer/manifest.json
 electron-noter/renderer/sw.js
 electron-noter/renderer/*.svg
+noter-app/apps/backend/*.log
+noter-app/*.bak
+noter-app/apps/mobile/help.txt
+noter-app/apps/mobile/test.txt
 
 # Debug
 npm-debug.log*

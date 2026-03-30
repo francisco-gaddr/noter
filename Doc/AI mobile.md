@@ -117,6 +117,9 @@ Denna arkitektur möjliggör lokal AI på mobilen genom att använda **GGUF-mode
   - Om ett kompilerat paket redan finns publicerat laddar mobilappen nu ned det direkt i stället för att starta ett onödigt konverteringsjobb.
   - Om appen går till bakgrunden under serverkonvertering eller modellhämtning sparas installationssessionen lokalt och återupptas när appen blir aktiv igen.
   - Paketvalideringen verifierar nu inte bara `mlc-chat-config.json` utan även att faktiska modellartefakter finns innan modellen får aktiveras.
+  - Aktivering av en modell gör nu en verklig preload av modellen i runtime i stället för att bara toggla state, och samma knapp fungerar även för avaktivering.
+  - Installerade modellposter normaliserar och sparar tillbaka den verkliga paketroten så att framtida aktiveringar och chattar använder rätt sökväg.
+  - Ogiltiga eller korrupta modellposter markeras tydligt i UI i stället för att visas som fullt valbara modeller.
 
 ## Motivering
 
@@ -128,3 +131,5 @@ Denna arkitektur möjliggör lokal AI på mobilen genom att använda **GGUF-mode
 - **Direktval av färdigkompilerat paket** minskar väntetid, serverbelastning och felrisk när modellen redan finns i cache eller publicerad lagring.
 - **Återupptagning av installationssessioner** gör bakgrundsflödet användbart i verkligheten; användaren tappar inte installationen bara för att appen lämnas eller pausas.
 - **Striktare paketvalidering** stoppar trasiga MLC-paket före aktivering och förhindrar att chattflödet kraschar senare med filsaknadsfel.
+- **Verklig modellaktivering i UI** minskar glappet mellan “vald” och “faktiskt laddad”, vilket gör att aktivering, avaktivering och första chattkörningen beter sig konsekvent.
+- **Normalisering av sparad paketrot** eliminerar återkommande fel där en äldre eller kapslad katalogväg lagrats trots att den verkliga MLC-paketroten låg längre ned i strukturen.

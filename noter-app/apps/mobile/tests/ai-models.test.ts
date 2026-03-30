@@ -99,10 +99,15 @@ describe('AI Models', () => {
   it('stores compiled model metadata on download', async () => {
     const { getModelDir } = require('../services/ai/ModelDownloader');
     const { downloadModel } = require('../services/ai/modelService');
+    const { saveModelLocal } = require('../services/database');
     const model = { id: 'user/model', name: 'model', author: 'user', downloads: 0, likes: 0, tags: [] };
     const file = { filename: 'model.Q4_K_M.gguf', size: 123, url: 'https://hf.test', quantization: 'Q4_K_M' };
     const result = await downloadModel(model as any, file as any);
     expect(result).toBe(getModelDir('user/model', 'Q4_K_M'));
+    expect(saveModelLocal).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'model_user_model_Q4_K_M',
+      path: '/docs/mlc_models/user_model/Q4_K_M',
+    }));
   });
 
   it('uses local conversion when device capabilities are available', async () => {
@@ -159,5 +164,27 @@ describe('AI Models', () => {
     await resumePendingModelDownloads({ onCompleted: completed });
 
     expect(completed).toHaveBeenCalledWith('user/model', '/docs/mlc_models/user_model/Q4_K_M');
+  });
+
+  it('persists normalized model path when package root changes', async () => {
+    const { normalizeStoredModelRecord } = require('../services/ai/modelService');
+    const { saveModelLocal } = require('../services/database');
+    const { validateModelPackage } = require('../services/ai/ModelDownloader');
+    validateModelPackage.mockResolvedValue('/docs/mlc_models/user_model/Q4_K_M/model');
+
+    const normalized = await normalizeStoredModelRecord({
+      id: 'model_user_model_Q4_K_M',
+      name: 'model',
+      filename: 'Q4_K_M.zip',
+      path: '/docs/mlc_models/user_model/Q4_K_M',
+      size: 123,
+      quantization: 'Q4_K_M',
+      downloaded: true,
+    });
+
+    expect(normalized.path).toBe('/docs/mlc_models/user_model/Q4_K_M/model');
+    expect(saveModelLocal).toHaveBeenCalledWith(expect.objectContaining({
+      path: '/docs/mlc_models/user_model/Q4_K_M/model',
+    }));
   });
 });

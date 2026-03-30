@@ -7,8 +7,8 @@ import { MobileLlamaProvider } from '@/services/ai/provider';
 import { useStore } from '@/stores/useStore';
 import { ChatMessage, Conversation, HFModel, AIProject } from '@repo/ai';
 import { searchHuggingFaceModels, getModelFiles, getConversionHealth } from '@/services/ai/huggingface';
-import { downloadModel as serviceDownloadModel, getBestQuantization, deleteModel as serviceDeleteModel, cancelDownload as cancelModelDownload, prepareModelForChat, resumePendingModelDownloads } from '@/services/ai/modelService';
-import { saveConversationLocal, getConversationsLocal, deleteConversationLocal, saveMessageLocal, getMessagesLocal, getModelsLocal, saveProjectLocal, getProjectsLocal, deleteProjectLocal } from '@/services/database';
+import { downloadModel as serviceDownloadModel, getBestQuantization, deleteModel as serviceDeleteModel, cancelDownload as cancelModelDownload, normalizeStoredModelRecord, prepareModelForChat, resumePendingModelDownloads } from '@/services/ai/modelService';
+import { saveConversationLocal, getConversationsLocal, deleteConversationLocal, saveMessageLocal, getMessagesLocal, getModelsLocal, saveModelLocal, saveProjectLocal, getProjectsLocal, deleteProjectLocal } from '@/services/database';
 import { combineSystemPrompts, buildPromptPresetNotice, buildToolUseNotice } from '@/services/ai/prompt';
 import { API_URL, fetchWithAuth } from '@/services/api';
 import { buildToolSystemPrompt, extractToolCalls } from '@/services/ai/tooling';
@@ -245,6 +245,7 @@ export default function AIScreen() {
   const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({});
   const [processingModels, setProcessingModels] = useState<Record<string, boolean>>({});
   const [downloadStage, setDownloadStage] = useState<Record<string, string>>({});
+  const [activatingModelId, setActivatingModelId] = useState<string | null>(null);
   const [preferLocalConversion, setPreferLocalConversion] = useState(false);
   const [allowBackgroundAIWork, setAllowBackgroundAIWork] = useState(false);
   const [aiUseApiProviders, setAiUseApiProviders] = useState(false);
@@ -447,6 +448,11 @@ export default function AIScreen() {
   }, [aiUseApiProviders, userScopeKey]);
 
   useEffect(() => {
+    if (!aiUseApiProviders) return;
+    provider.unloadModel().catch(() => {});
+  }, [aiUseApiProviders]);
+
+  useEffect(() => {
     if (!userScopeKey) return;
     AsyncStorage.setItem(`ai_api_provider_${userScopeKey}`, apiProvider);
   }, [apiProvider, userScopeKey]);
@@ -593,15 +599,26 @@ export default function AIScreen() {
       const models = await getModelsLocal();
       const normalizedModels = await Promise.all(models.map(async (model) => {
           try {
-              const resolvedPath = await prepareModelForChat(model.path);
-              return resolvedPath === model.path ? model : { ...model, path: resolvedPath };
-          } catch {
-              return model;
+              const normalized = await normalizeStoredModelRecord(model as any);
+              return { ...normalized, invalidReason: undefined, sourcePath: model.path };
+          } catch (error) {
+              const message = (error as any)?.message ? String((error as any).message) : 'Invalid model package';
+              return { ...model, invalidReason: message, sourcePath: model.path };
           }
       }));
       setLocalModels(normalizedModels);
-      if (normalizedModels.length > 0 && !activeModel) {
-          setActiveModel(normalizedModels[0].path);
+      const validModels = normalizedModels.filter((model) => !model.invalidReason);
+      if (validModels.length > 0 && !activeModel) {
+          setActiveModel(validModels[0].path);
+      }
+      if (activeModel) {
+          const resolvedActive = normalizedModels.find((model) => !model.invalidReason && (model.path === activeModel || model.sourcePath === activeModel));
+          if (resolvedActive && resolvedActive.path !== activeModel) {
+              setActiveModel(resolvedActive.path);
+          } else if (!resolvedActive) {
+              setActiveModel(null);
+              provider.unloadModel().catch(() => {});
+          }
       }
   };
 
@@ -748,6 +765,8 @@ export default function AIScreen() {
       if (message.includes('MLCModule')) return 'MLC‑modulen saknas i denna build. Installera om den senaste EAS APK:n.';
       if (message.includes('Local conversion unsupported')) return 'Lokal konvertering stöds inte i denna build. Server-fallback används.';
       if (message.includes('Failed to download GGUF')) return 'Kunde inte ladda ner GGUF-filen för lokal konvertering.';
+      if (message.includes('package root not found')) return 'Modellpaketet kunde inte öppnas korrekt. Paketroten eller mlc-chat-config.json saknas.';
+      if (message.includes('missing model artifacts')) return 'Modellpaketet saknar nödvändiga modellfiler, tokenizerfiler eller parametrar.';
       if (message.includes('Invalid model package')) return 'Modellpaketet är ogiltigt eller saknar filer.';
       if (message.includes('Model path not found')) return 'Den nedladdade modellen kunde inte hittas längre. Ladda ner eller välj modellen igen.';
       if (message.includes('Conversion failed')) return 'Konvertering misslyckades på servern.';
@@ -1987,12 +2006,32 @@ export default function AIScreen() {
       }
   };
 
-  const handleActivateModel = async (path: string) => {
+  const handleActivateModel = async (model: any) => {
+      if (model.invalidReason) {
+          alert(formatError(new Error(model.invalidReason)));
+          return;
+      }
+      if (activatingModelId === model.id) {
+          return;
+      }
       try {
-          const preparedPath = await prepareModelForChat(path);
+          setActivatingModelId(model.id);
+          if (activeModel === model.path) {
+              await provider.unloadModel();
+              setActiveModel(null);
+              return;
+          }
+          const preparedPath = await prepareModelForChat(model.path);
+          if (preparedPath !== model.path) {
+              await saveModelLocal({ ...model, path: preparedPath });
+          }
+          await provider.loadModel(preparedPath);
           setActiveModel(preparedPath);
       } catch (error) {
           alert(formatError(error));
+      } finally {
+          setActivatingModelId(null);
+          await loadModels().catch(() => {});
       }
   };
 
@@ -2340,14 +2379,20 @@ export default function AIScreen() {
                           <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
                             <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.colors.onSurface, fontWeight: 'bold' }}>{m.name}</Text>
                             <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.colors.onSurfaceVariant }}>{(m.size / 1024 / 1024).toFixed(1)} MB</Text>
+                            {m.invalidReason ? (
+                              <Text numberOfLines={2} ellipsizeMode="tail" style={{ color: theme.colors.error, marginTop: 4 }}>
+                                {formatError(new Error(m.invalidReason))}
+                              </Text>
+                            ) : null}
                           </View>
                           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                             <Button
                               mode={activeModel === m.path ? 'contained' : 'outlined'}
-                              onPress={() => handleActivateModel(m.path)}
+                              onPress={() => handleActivateModel(m)}
+                              disabled={Boolean(m.invalidReason) || activatingModelId === m.id}
                               style={{ marginRight: 8 }}
                             >
-                              {activeModel === m.path ? t('ai.active') : t('ai.select')}
+                              {activatingModelId === m.id ? 'Laddar…' : activeModel === m.path ? 'Avaktivera' : t('ai.select')}
                             </Button>
                             <IconButton icon="delete" onPress={() => handleDeleteModel(m.id, m.path)} />
                           </View>

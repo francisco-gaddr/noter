@@ -26,6 +26,11 @@ class ModelManager {
     if (!exists) throw new Error("Model path not found");
     const configExists = await RNFS.exists(`${resolvedPath}/mlc-chat-config.json`);
     if (!configExists) throw new Error("Invalid model package");
+    if (this.isModelLoaded && this.currentModelPath && this.currentModelPath !== resolvedPath) {
+      await unloadModel();
+      this.isModelLoaded = false;
+      this.currentModelPath = null;
+    }
     await loadModel(resolvedPath);
     this.currentModelPath = resolvedPath;
     this.isModelLoaded = true;

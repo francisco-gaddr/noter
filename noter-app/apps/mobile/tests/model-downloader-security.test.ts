@@ -79,4 +79,66 @@ describe('ModelDownloader security', () => {
 
     await expect(validateModelPackage('/docs/mlc_models/user_model/Q4_K_M')).rejects.toThrow('Invalid model package');
   });
+
+  it('hittar paketrot även när zipen är djupare kapslad', async () => {
+    const { validateModelPackage } = require('../services/ai/ModelDownloader');
+    mockExists.mockImplementation((path: string) =>
+      Promise.resolve(
+        path === '/docs/mlc_models/user_model/Q4_K_M' ||
+        path === '/docs/mlc_models/user_model/Q4_K_M/outer/inner/model/mlc-chat-config.json'
+      )
+    );
+    mockReadDir.mockImplementation((path: string) => {
+      if (path === '/docs/mlc_models/user_model/Q4_K_M') {
+        return Promise.resolve([{ path: '/docs/mlc_models/user_model/Q4_K_M/outer', name: 'outer', isDirectory: () => true }]);
+      }
+      if (path === '/docs/mlc_models/user_model/Q4_K_M/outer') {
+        return Promise.resolve([{ path: '/docs/mlc_models/user_model/Q4_K_M/outer/inner', name: 'inner', isDirectory: () => true }]);
+      }
+      if (path === '/docs/mlc_models/user_model/Q4_K_M/outer/inner') {
+        return Promise.resolve([{ path: '/docs/mlc_models/user_model/Q4_K_M/outer/inner/model', name: 'model', isDirectory: () => true }]);
+      }
+      if (path === '/docs/mlc_models/user_model/Q4_K_M/outer/inner/model') {
+        return Promise.resolve([{ path: '/docs/mlc_models/user_model/Q4_K_M/outer/inner/model/params_shard_0.bin', name: 'params_shard_0.bin', isDirectory: () => false }]);
+      }
+      return Promise.resolve([]);
+    });
+
+    const result = await validateModelPackage('/docs/mlc_models/user_model/Q4_K_M');
+    expect(result).toBe('/docs/mlc_models/user_model/Q4_K_M/outer/inner/model');
+  });
+
+  it('godkänner refererade artefakter även med relativa path-segment', async () => {
+    const { validateModelPackage } = require('../services/ai/ModelDownloader');
+    mockExists.mockImplementation((path: string) =>
+      Promise.resolve(
+        path === '/docs/mlc_models/user_model/Q4_K_M/mlc-chat-config.json'
+      )
+    );
+    mockReadDir.mockResolvedValue([
+      { path: '/docs/mlc_models/user_model/Q4_K_M/params', name: 'params', isDirectory: () => true },
+      { path: '/docs/mlc_models/user_model/Q4_K_M/tokenizer', name: 'tokenizer', isDirectory: () => true },
+    ]);
+    mockReadDir.mockImplementation((path: string) => {
+      if (path === '/docs/mlc_models/user_model/Q4_K_M') {
+        return Promise.resolve([
+          { path: '/docs/mlc_models/user_model/Q4_K_M/params', name: 'params', isDirectory: () => true },
+          { path: '/docs/mlc_models/user_model/Q4_K_M/tokenizer', name: 'tokenizer', isDirectory: () => true },
+        ]);
+      }
+      if (path === '/docs/mlc_models/user_model/Q4_K_M/params') {
+        return Promise.resolve([{ path: '/docs/mlc_models/user_model/Q4_K_M/params/params_shard_0.bin', name: 'params_shard_0.bin', isDirectory: () => false }]);
+      }
+      if (path === '/docs/mlc_models/user_model/Q4_K_M/tokenizer') {
+        return Promise.resolve([{ path: '/docs/mlc_models/user_model/Q4_K_M/tokenizer/tokenizer.json', name: 'tokenizer.json', isDirectory: () => false }]);
+      }
+      return Promise.resolve([]);
+    });
+    mockReadFile.mockResolvedValue(JSON.stringify({
+      params_shards: ['./params/params_shard_0.bin'],
+      tokenizer_files: ['./tokenizer/./tokenizer.json'],
+    }));
+
+    await expect(validateModelPackage('/docs/mlc_models/user_model/Q4_K_M')).resolves.toBe('/docs/mlc_models/user_model/Q4_K_M');
+  });
 });

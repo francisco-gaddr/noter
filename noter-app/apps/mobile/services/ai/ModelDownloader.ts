@@ -51,6 +51,48 @@ const getEntryName = (entry: any) => {
   return entryPath.split('/').pop() || '';
 };
 
+const normalizeRelativePath = (value: string) => {
+  const parts = String(value || '')
+    .replace(/\\/g, '/')
+    .split('/')
+    .filter((part) => part.length > 0 && part !== '.');
+  const normalized: string[] = [];
+  for (const part of parts) {
+    if (part === '..') {
+      if (normalized.length > 0) normalized.pop();
+      continue;
+    }
+    normalized.push(part);
+  }
+  return normalized.join('/');
+};
+
+const listRelativeFiles = async (rootPath: string, maxDepth = 4, prefix = ''): Promise<string[]> => {
+  const RNFS = getReactNativeFs();
+  if (!RNFS?.readDir || maxDepth < 0) return [];
+  let entries: any[] = [];
+  try {
+    entries = await RNFS.readDir(rootPath);
+  } catch {
+    return [];
+  }
+  const results: string[] = [];
+  for (const entry of entries) {
+    const entryName = getEntryName(entry);
+    if (!entryName) continue;
+    const relativePath = normalizeRelativePath(prefix ? `${prefix}/${entryName}` : entryName);
+    const entryPath = normalizeEntryPath(entry) || `${rootPath}/${entryName}`;
+    if (isDirectoryEntry(entry)) {
+      if (maxDepth > 0) {
+        results.push(...(await listRelativeFiles(entryPath, maxDepth - 1, relativePath)));
+      }
+      continue;
+    }
+    results.push(relativePath);
+  }
+  return results;
+};
+
 const hasRequiredArtifacts = async (path: string) => {
   const RNFS = getReactNativeFs();
   if (!RNFS?.exists) return false;
@@ -59,16 +101,9 @@ const hasRequiredArtifacts = async (path: string) => {
     return false;
   }
 
-  if (typeof RNFS.readDir === 'function') {
-    try {
-      const entries = await RNFS.readDir(path);
-      const fileNames = entries.filter((entry: any) => !isDirectoryEntry(entry)).map((entry: any) => getEntryName(entry));
-      const hasParamShard = fileNames.some((name: string) => /^params(?:_shard)?[_0-9a-z.-]*\.(?:bin|params)$/i.test(name));
-      if (hasParamShard) {
-        return true;
-      }
-    } catch {}
-  }
+  const relativeFiles = typeof RNFS.readDir === 'function' ? await listRelativeFiles(path, 5) : [];
+  const relativeFileSet = new Set(relativeFiles.map((file) => normalizeRelativePath(file)));
+  const hasParamShard = relativeFiles.some((file) => /^params(?:_shard)?[_0-9a-z.-]*\.(?:bin|params)$/i.test(file.split('/').pop() || ''));
 
   if (typeof RNFS.readFile === 'function') {
     try {
@@ -83,25 +118,26 @@ const hasRequiredArtifacts = async (path: string) => {
       ].filter((value) => typeof value === 'string' && value);
 
       if (referencedFiles.length === 0) {
-        return true;
+        return hasParamShard;
       }
 
       for (const file of referencedFiles) {
-        const normalized = String(file).replace(/^\.\/+/, '');
-        if (!(await RNFS.exists(`${path}/${normalized}`))) {
+        const normalized = normalizeRelativePath(String(file));
+        const fileName = normalized.split('/').pop() || normalized;
+        if (!relativeFileSet.has(normalized) && !relativeFiles.some((relativePath) => relativePath.split('/').pop() === fileName)) {
           return false;
         }
       }
       return true;
     } catch {
-      return false;
+      return hasParamShard;
     }
   }
 
-  return true;
+  return hasParamShard;
 };
 
-export const findModelPackageRoot = async (path: string, maxDepth = 3): Promise<string | null> => {
+export const findModelPackageRoot = async (path: string, maxDepth = 6): Promise<string | null> => {
   const RNFS = getReactNativeFs();
   if (!RNFS?.exists || !path) return null;
 
@@ -140,12 +176,12 @@ export const validateModelPackage = async (path: string) => {
 
   const resolvedPath = await findModelPackageRoot(path);
   if (!resolvedPath) {
-    throw new Error('Invalid model package');
+    throw new Error('Invalid model package: package root not found');
   }
 
   const validArtifacts = await hasRequiredArtifacts(resolvedPath);
   if (!validArtifacts) {
-    throw new Error('Invalid model package');
+    throw new Error('Invalid model package: missing model artifacts');
   }
 
   return resolvedPath;
