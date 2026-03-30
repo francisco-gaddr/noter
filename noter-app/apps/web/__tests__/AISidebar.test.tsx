@@ -6,6 +6,7 @@ import { useStore } from '../stores/useStore';
 // Mocks
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
+  initReactI18next: { type: '3rdParty', init: () => {} },
 }));
 
 jest.mock('../services/db', () => ({
@@ -101,6 +102,43 @@ describe('AISidebar', () => {
         await waitFor(() => {
             const providerSelect = screen.getByTestId('ai-provider-select') as HTMLSelectElement;
             expect(providerSelect.value).toBe('lmstudio');
+        });
+    });
+
+    it('supports local-only ai sync mode in settings', async () => {
+        localStorage.setItem('aiSyncWithBackend', 'false');
+
+        await act(async () => {
+            render(<AISidebar />);
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: /AI/i }));
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByLabelText('Öppna AI-inställningar'));
+        });
+
+        const syncToggle = screen.getByLabelText('Synka AI-chattar med backend') as HTMLInputElement;
+        expect(syncToggle.checked).toBe(false);
+    });
+
+    it('persists prompt preset and tool access settings', async () => {
+        await act(async () => {
+            render(<AISidebar />);
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: /AI/i }));
+        });
+        await act(async () => {
+            fireEvent.click(screen.getByLabelText('Öppna AI-inställningar'));
+        });
+
+        fireEvent.change(screen.getByTestId('ai-prompt-preset-select'), { target: { value: 'execution' } });
+        fireEvent.change(screen.getByTestId('ai-tool-access-mode-select'), { target: { value: 'read-only' } });
+
+        await waitFor(() => {
+            expect(localStorage.getItem('aiPromptPreset')).toBe('execution');
+            expect(localStorage.getItem('aiToolAccessMode')).toBe('read-only');
         });
     });
 });

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { ChatMessage, HFModel, HFFile, Conversation, AIProject } from '@repo/ai';
-import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings } from '@repo/shared';
+import { AI_PROMPT_PRESETS, AiPromptPreset, AiToolAccessMode, MCP_INTEGRATIONS, McpUiSettings, buildAiSessionInsights, buildAiSyncNotice, buildToolUseNotice, createEmptyMcpUiSettings, decrypt, encrypt, getAiPromptPresetPrompt, isMutatingAiTool, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings } from '@repo/shared';
 import { db } from '../services/db';
 import { v4 as uuidv4 } from 'uuid';
 import { useStore } from '../stores/useStore';
@@ -54,6 +54,9 @@ export const AISidebar = () => {
   const [enableEmojiPicker, setEnableEmojiPicker] = useState(true);
   const [enableAttachments, setEnableAttachments] = useState(true);
   const [enableToolUse, setEnableToolUse] = useState(true);
+  const [toolAccessMode, setToolAccessMode] = useState<AiToolAccessMode>('full');
+  const [promptPreset, setPromptPreset] = useState<AiPromptPreset>('balanced');
+  const [syncWithBackend, setSyncWithBackend] = useState(true);
   const [collapsedThinking, setCollapsedThinking] = useState<Record<string, boolean>>({});
   const [collapsedTool, setCollapsedTool] = useState<Record<string, boolean>>({});
   const [emojiOpen, setEmojiOpen] = useState(false);
@@ -164,6 +167,23 @@ export const AISidebar = () => {
     if (activeProvider === 'openrouter') return openRouterModel;
     return geminiModel;
   };
+  const enabledMcpServices = React.useMemo(
+    () => (Object.keys(mcpSettings) as Array<keyof McpUiSettings>).filter((key) => Boolean(mcpSettings[key]?.enabled)) as string[],
+    [mcpSettings]
+  );
+  const sessionInsights = React.useMemo(
+    () =>
+      buildAiSessionInsights({
+        providerLabel: activeProvider === 'openrouter' ? 'OpenRouter' : activeProvider === 'gemini' ? 'Gemini' : activeProvider === 'lmstudio' ? 'LM Studio' : 'MLC',
+        modelLabel: getActiveModelLabel() || 'Ingen modell vald',
+        syncEnabled: syncWithBackend,
+        toolUseEnabled: enableToolUse,
+        toolAccessMode,
+        promptPreset,
+        enabledMcpServices,
+      }),
+    [activeProvider, enableToolUse, enabledMcpServices, geminiModel, lmSelectedModel, modelPath, openRouterModel, promptPreset, syncWithBackend, toolAccessMode]
+  );
 
   const getUserId = () => user?._id || (user as any)?.id || '';
   const getUserScopedKey = (key: string) => {
@@ -367,6 +387,14 @@ export const AISidebar = () => {
       
       const savedToolUse = await getStoredValue('aiToolUseEnabled');
       if (mounted && savedToolUse) setEnableToolUse(savedToolUse === 'true');
+      const savedToolAccessMode = await getStoredValue('aiToolAccessMode');
+      if (mounted && (savedToolAccessMode === 'read-only' || savedToolAccessMode === 'full')) setToolAccessMode(savedToolAccessMode);
+      const savedPromptPreset = await getStoredValue('aiPromptPreset');
+      if (mounted && (savedPromptPreset === 'balanced' || savedPromptPreset === 'research' || savedPromptPreset === 'execution' || savedPromptPreset === 'concise')) {
+        setPromptPreset(savedPromptPreset);
+      }
+      const savedSyncWithBackend = await getStoredValue('aiSyncWithBackend');
+      if (mounted && savedSyncWithBackend) setSyncWithBackend(savedSyncWithBackend === 'true');
       
       const savedWidth = await getStoredValue('aiSidebarWidth');
       if (mounted && savedWidth) {
@@ -389,6 +417,21 @@ export const AISidebar = () => {
     if (!settingsLoaded) return;
     persistStoredValue('aiUseApiProviders', String(aiUseApiProviders));
   }, [aiUseApiProviders, settingsLoaded]);
+
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    persistStoredValue('aiToolAccessMode', toolAccessMode);
+  }, [toolAccessMode, settingsLoaded]);
+
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    persistStoredValue('aiPromptPreset', promptPreset);
+  }, [promptPreset, settingsLoaded]);
+
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    persistStoredValue('aiSyncWithBackend', String(syncWithBackend));
+  }, [syncWithBackend, settingsLoaded]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
@@ -589,7 +632,7 @@ export const AISidebar = () => {
   }, [user]);
 
   useEffect(() => {
-    if (!user || !isOpen) return;
+    if (!user || !isOpen || !syncWithBackend) return;
     const handler = () => {
       if (document.visibilityState === 'hidden') return;
       loadConversations();
@@ -607,7 +650,7 @@ export const AISidebar = () => {
       window.removeEventListener('focus', focusHandler);
       document.removeEventListener('visibilitychange', focusHandler);
     };
-  }, [user, isOpen]);
+  }, [user, isOpen, syncWithBackend]);
 
   useEffect(() => {
     if (!user) return;
@@ -652,16 +695,18 @@ export const AISidebar = () => {
   const loadConversations = async () => {
       const userId = getUserId();
       let convs = await db.getConversations(userId || undefined);
-      try {
-        const remote = await pullAiSync();
-        for (const conversation of remote.conversations) {
-          await db.saveConversation({ ...conversation, userId: userId || undefined });
-        }
-        for (const row of remote.messages) {
-          await db.saveMessage(row.conversationId, row.message);
-        }
-        convs = await db.getConversations(userId || undefined);
-      } catch {}
+      if (syncWithBackend) {
+        try {
+          const remote = await pullAiSync();
+          for (const conversation of remote.conversations) {
+            await db.saveConversation({ ...conversation, userId: userId || undefined });
+          }
+          for (const row of remote.messages) {
+            await db.saveMessage(row.conversationId, row.message);
+          }
+          convs = await db.getConversations(userId || undefined);
+        } catch {}
+      }
       let normalized = convs;
       if (userId) {
         const missingUser = convs.filter(c => !c.userId);
@@ -700,12 +745,13 @@ export const AISidebar = () => {
           projectId: activeProjectId || undefined,
           icon: 'FaComments',
           iconColor: '#000000',
+          localOnly: !syncWithBackend,
           userId: userId || undefined
       };
       await db.saveConversation(newConv);
       if (!newConv.localOnly) {
         try {
-          await pushAiSync({ conversations: [newConv] });
+          await syncConversationPayload({ conversations: [newConv] });
         } catch {}
       }
       setConversations(prev => [newConv, ...prev]);
@@ -731,7 +777,7 @@ export const AISidebar = () => {
       e.stopPropagation();
       await db.deleteConversation(id);
       try {
-        await pushAiSync({ deletedConversationIds: [id] });
+        await syncConversationPayload({ deletedConversationIds: [id] });
       } catch {}
       setConversations(prev => prev.filter(c => c.id !== id));
       if (currentConversationId === id) {
@@ -904,6 +950,12 @@ export const AISidebar = () => {
   const getActiveProject = () => projects.find(p => p.id === activeProjectId) || null;
   const isConversationLocalOnly = (conversationId: string) =>
     Boolean(conversations.find((item) => item.id === conversationId)?.localOnly);
+  const syncConversationPayload = async (payload: Parameters<typeof pushAiSync>[0]) => {
+    if (!syncWithBackend) {
+      return;
+    }
+    await pushAiSync(payload);
+  };
 
   const saveProjects = (next: LocalAIProject[]) => {
     if (typeof window === 'undefined') return;
@@ -921,16 +973,18 @@ export const AISidebar = () => {
         if (Array.isArray(parsed)) localProjects = parsed;
       } catch {}
     }
-    try {
-      const remote = await pullAiSync();
-      const byId = new Map<string, AIProject>();
-      for (const item of localProjects) byId.set(item.id, item);
-      for (const item of remote.projects) byId.set(item.id, item);
-      const merged = Array.from(byId.values()).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-      setProjects(merged);
-      saveProjects(merged);
-      return;
-    } catch {}
+    if (syncWithBackend) {
+      try {
+        const remote = await pullAiSync();
+        const byId = new Map<string, AIProject>();
+        for (const item of localProjects) byId.set(item.id, item);
+        for (const item of remote.projects) byId.set(item.id, item);
+        const merged = Array.from(byId.values()).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+        setProjects(merged);
+        saveProjects(merged);
+        return;
+      } catch {}
+    }
     setProjects(localProjects);
   };
 
@@ -940,7 +994,7 @@ export const AISidebar = () => {
     setProjectDialogPrompt('');
     setProjectDialogIcon('FaFolder');
     setProjectDialogIconColor('#000000');
-    setProjectDialogLocalOnly(false);
+    setProjectDialogLocalOnly(!syncWithBackend);
     setProjectDialogOpen(true);
   };
 
@@ -963,8 +1017,8 @@ export const AISidebar = () => {
       saveProjects(next);
       const updated = next.find(p => p.id === projectDialogId);
       if (updated) {
-        if (updated.localOnly) pushAiSync({ deletedProjectIds: [updated.id] }).catch(() => {});
-        else pushAiSync({ projects: [updated] }).catch(() => {});
+        if (updated.localOnly) syncConversationPayload({ deletedProjectIds: [updated.id] }).catch(() => {});
+        else syncConversationPayload({ projects: [updated] }).catch(() => {});
       }
     } else {
       const project: LocalAIProject = {
@@ -982,7 +1036,7 @@ export const AISidebar = () => {
       setProjects(next);
       saveProjects(next);
       if (!project.localOnly) {
-        pushAiSync({ projects: [project] }).catch(() => {});
+        syncConversationPayload({ projects: [project] }).catch(() => {});
       }
     }
     setProjectDialogOpen(false);
@@ -997,7 +1051,7 @@ export const AISidebar = () => {
     const next = projects.filter(p => p.id !== projectConfirmDeleteId);
     setProjects(next);
     saveProjects(next);
-    pushAiSync({ deletedProjectIds: [projectConfirmDeleteId] }).catch(() => {});
+    syncConversationPayload({ deletedProjectIds: [projectConfirmDeleteId] }).catch(() => {});
     if (activeProjectId === projectConfirmDeleteId) {
       setActiveProjectId(null);
     }
@@ -1022,9 +1076,9 @@ export const AISidebar = () => {
     const updated = next.find(c => c.id === chatDialogId) as LocalConversation;
     await db.saveConversation(updated);
     if (updated.localOnly) {
-      await pushAiSync({ deletedConversationIds: [updated.id] }).catch(() => {});
+      await syncConversationPayload({ deletedConversationIds: [updated.id] }).catch(() => {});
     } else {
-      await pushAiSync({ conversations: [updated] }).catch(() => {});
+      await syncConversationPayload({ conversations: [updated] }).catch(() => {});
     }
     setChatDialogOpen(false);
   };
@@ -1036,6 +1090,7 @@ export const AISidebar = () => {
   const confirmDeleteChat = async () => {
     if (!chatConfirmDeleteId) return;
     await db.deleteConversation(chatConfirmDeleteId);
+    await syncConversationPayload({ deletedConversationIds: [chatConfirmDeleteId] }).catch(() => {});
     setConversations(prev => prev.filter(c => c.id !== chatConfirmDeleteId));
     if (currentConversationId === chatConfirmDeleteId) {
       setCurrentConversationId(null);
@@ -1048,15 +1103,15 @@ export const AISidebar = () => {
 
 
   const getEnabledMcpServices = () =>
-    (Object.keys(mcpSettings) as Array<keyof McpUiSettings>).filter((key) => Boolean(mcpSettings[key]?.enabled)) as string[];
+    enabledMcpServices;
 
   const buildHistory = (userMsg: ChatMessage) => {
     const maxChars = 12000;
     const projectPrompt = getActiveProject()?.systemPrompt || '';
-    const toolUseNotice = enableToolUse
-      ? 'Tool use: AKTIVERAT. Använd tool calls proaktivt när användaren vill skapa/uppdatera/lista/hämta/sammanfatta anteckningar eller uppgifter, samt för planering och påminnelser kopplade till dessa.'
-      : 'Tool use: AVSTÄNGT. Svara som vanlig chatt utan tool calls eller JSON‑format.';
-    const combinedPrompt = combineSystemPrompts([systemPrompt, toolUseNotice].filter(Boolean).join('\n\n'), projectPrompt);
+    const toolUseNotice = buildToolUseNotice(enableToolUse, toolAccessMode);
+    const syncNotice = buildAiSyncNotice(syncWithBackend);
+    const presetNotice = getAiPromptPresetPrompt(promptPreset);
+    const combinedPrompt = combineSystemPrompts([presetNotice, systemPrompt, syncNotice, toolUseNotice].filter(Boolean).join('\n\n'), projectPrompt);
     const toolPrompt = enableToolUse ? toolSystemPrompt(getEnabledMcpServices()) : '';
     const fullPrompt = [combinedPrompt, toolPrompt].filter(Boolean).join('\n\n');
     const systemMsg = fullPrompt
@@ -1157,7 +1212,7 @@ export const AISidebar = () => {
       const cleanedMsg = { id: assistantId, role: 'assistant', content: cleaned, createdAt: assistantCreatedRef.current[assistantId] || new Date().toISOString() } as ChatMessage;
       await db.saveMessage(conversationId, cleanedMsg);
       if (!isConversationLocalOnly(conversationId)) {
-        pushAiSync({ messages: [{ conversationId, message: cleanedMsg }] }).catch(() => {});
+        syncConversationPayload({ messages: [{ conversationId, message: cleanedMsg }] }).catch(() => {});
       }
     }
     if (calls.length === 0) return [];
@@ -1178,7 +1233,7 @@ export const AISidebar = () => {
       setMessages(prev => [...prev, toolMsg]);
       await db.saveMessage(conversationId, toolMsg);
       if (!isConversationLocalOnly(conversationId)) {
-        pushAiSync({ messages: [{ conversationId, message: toolMsg }] }).catch(() => {});
+        syncConversationPayload({ messages: [{ conversationId, message: toolMsg }] }).catch(() => {});
       }
       newMessages.push(toolMsg);
 
@@ -1207,7 +1262,7 @@ export const AISidebar = () => {
         setMessages(prev => [...prev, resultMsg]);
         await db.saveMessage(conversationId, resultMsg);
         if (!isConversationLocalOnly(conversationId)) {
-          pushAiSync({ messages: [{ conversationId, message: resultMsg }] }).catch(() => {});
+          syncConversationPayload({ messages: [{ conversationId, message: resultMsg }] }).catch(() => {});
         }
         newMessages.push(resultMsg);
       } catch (error: any) {
@@ -1221,7 +1276,7 @@ export const AISidebar = () => {
         setMessages(prev => [...prev, errMsg]);
         await db.saveMessage(conversationId, errMsg);
         if (!isConversationLocalOnly(conversationId)) {
-          pushAiSync({ messages: [{ conversationId, message: errMsg }] }).catch(() => {});
+          syncConversationPayload({ messages: [{ conversationId, message: errMsg }] }).catch(() => {});
         }
         newMessages.push(errMsg);
       }
@@ -1236,7 +1291,7 @@ export const AISidebar = () => {
       setMessages(prev => [...prev, summaryMsg]);
       await db.saveMessage(conversationId, summaryMsg);
       if (!isConversationLocalOnly(conversationId)) {
-        pushAiSync({ messages: [{ conversationId, message: summaryMsg }] }).catch(() => {});
+        syncConversationPayload({ messages: [{ conversationId, message: summaryMsg }] }).catch(() => {});
       }
     }
     return newMessages;
@@ -1430,7 +1485,7 @@ export const AISidebar = () => {
               const generatedMsg = { ...assistantMsg, content: fullText } as ChatMessage;
               await db.saveMessage(convId, generatedMsg);
               if (!isConversationLocalOnly(convId)) {
-                pushAiSync({ messages: [{ conversationId: convId, message: generatedMsg }] }).catch(() => {});
+                syncConversationPayload({ messages: [{ conversationId: convId, message: generatedMsg }] }).catch(() => {});
               }
 
               const extractedBeforeTools = extractToolCalls(fullText);
@@ -1440,7 +1495,7 @@ export const AISidebar = () => {
                   const cleanedMsg = { ...assistantMsg, content: fullText } as ChatMessage;
                   await db.saveMessage(convId, cleanedMsg);
                   if (!isConversationLocalOnly(convId)) {
-                    pushAiSync({ messages: [{ conversationId: convId, message: cleanedMsg }] }).catch(() => {});
+                    syncConversationPayload({ messages: [{ conversationId: convId, message: cleanedMsg }] }).catch(() => {});
                   }
               }
               
@@ -2538,6 +2593,9 @@ export const AISidebar = () => {
   };
 
   const executeToolCall = async (tool: string, args: Record<string, any>, intentText: string) => {
+    if (enableToolUse && toolAccessMode === 'read-only' && isMutatingAiTool(tool)) {
+      throw new Error('Skrivande verktygsanrop blockeras i läsläge.');
+    }
     const requireId = (value: any) => {
       if (!value) throw new Error(`Tool ${tool} kräver id`);
       return value;
@@ -2973,6 +3031,7 @@ export const AISidebar = () => {
             projectId: activeProjectId || undefined,
             icon: 'FaComments',
             iconColor: '#000000',
+            localOnly: !syncWithBackend,
             userId: userId || undefined
         };
         await db.saveConversation(newConv);
@@ -2987,7 +3046,7 @@ export const AISidebar = () => {
             await db.saveConversation(updated);
             setConversations(prev => prev.map(c => c.id === convId ? updated : c));
             if (!updated.localOnly) {
-              pushAiSync({ conversations: [updated] }).catch(() => {});
+              syncConversationPayload({ conversations: [updated] }).catch(() => {});
             }
         }
     }
@@ -3022,7 +3081,7 @@ export const AISidebar = () => {
     try {
       await db.saveMessage(convId, userMsg);
       if (!isConversationLocalOnly(convId)) {
-        pushAiSync({ messages: [{ conversationId: convId, message: userMsg }] }).catch(() => {});
+        syncConversationPayload({ messages: [{ conversationId: convId, message: userMsg }] }).catch(() => {});
       }
       const history = buildHistory(userMsg);
       await runAIGeneration(convId, history);
@@ -3464,6 +3523,49 @@ export const AISidebar = () => {
               placeholder="Skriv huvudprompten för AI här"
               data-testid="ai-system-prompt"
             />
+            <div className="mt-4 rounded border p-3 bg-gray-50 dark:bg-gray-800">
+              <h5 className="font-bold text-sm mb-2">AI-läge och lagring</h5>
+              <div className="text-xs text-gray-500 dark:text-gray-300 mb-3">
+                AI-historik lagras alltid krypterat lokalt. När backend-sync är avstängd stannar chattar och projekt endast på denna enhet.
+              </div>
+              <label className="text-sm flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={syncWithBackend}
+                  onChange={(e) => setSyncWithBackend(e.target.checked)}
+                />
+                Synka AI-chattar med backend
+              </label>
+              <div className="text-xs text-gray-500 dark:text-gray-300 mt-1">
+                {syncWithBackend ? 'Krypterad ciphertext kan synkas till backend.' : 'Endast lokal krypterad lagring används.'}
+              </div>
+              <div className="mt-3">
+                <label className="text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider mb-1 block">Promptprofil</label>
+                <select
+                  value={promptPreset}
+                  onChange={(e) => setPromptPreset(e.target.value as AiPromptPreset)}
+                  className="w-full p-2 text-sm border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 outline-none"
+                  data-testid="ai-prompt-preset-select"
+                >
+                  {AI_PROMPT_PRESETS.map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.id === 'balanced' ? 'Balanserad' : preset.id === 'research' ? 'Research' : preset.id === 'execution' ? 'Utförande' : 'Kortfattad'}
+                    </option>
+                  ))}
+                </select>
+                <div className="text-xs text-gray-500 dark:text-gray-300 mt-1">
+                  Profilen läggs ovanpå din systemprompt och projektprompt.
+                </div>
+              </div>
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-2">
+                {sessionInsights.map((item) => (
+                  <div key={item.id} className="rounded border bg-white dark:bg-slate-900 p-2">
+                    <div className="text-[11px] uppercase tracking-wider text-gray-500">{item.label}</div>
+                    <div className="text-sm font-medium break-words">{item.value}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
 
           <div>
@@ -3478,6 +3580,23 @@ export const AISidebar = () => {
             </label>
             <div className="text-xs text-gray-500 dark:text-gray-300 mt-1">
               När detta är avstängt chattar assistenten bara och gör inga tool calls.
+            </div>
+            <div className="mt-3">
+              <label className="text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider mb-1 block">Åtkomstläge för verktyg</label>
+              <select
+                value={toolAccessMode}
+                onChange={(e) => setToolAccessMode(e.target.value as AiToolAccessMode)}
+                className="w-full p-2 text-sm border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 outline-none"
+                data-testid="ai-tool-access-mode-select"
+              >
+                <option value="read-only">Endast läsning</option>
+                <option value="full">Full åtkomst</option>
+              </select>
+              <div className="text-xs text-gray-500 dark:text-gray-300 mt-1">
+                {toolAccessMode === 'read-only'
+                  ? 'AI får bara läsa, lista och sammanfatta data. Skrivande verktyg och skrivande MCP-anrop blockeras.'
+                  : 'AI får utföra skrivande verktygsanrop och godkända MCP-åtgärder när tool-use är aktiverat.'}
+              </div>
             </div>
             <label className="text-sm flex items-center gap-2">
               <input

@@ -94,3 +94,26 @@ Denna arkitektur möjliggör lokal AI på mobilen genom att använda **GGUF-mode
 2.  Slå på **Tillåt AI-arbete i bakgrunden**.
 3.  Starta en AI-generering och lås skärmen eller lägg appen i bakgrunden.
 4.  För att avbryta pågående generering, använd **Stoppa generering** i chatten.
+
+## Nya AI-funktioner
+
+- **Backend-sync för AI-chattar kan nu slås av helt i AI-inställningarna.**
+  - När sync är avstängd stannar chattar och AI-projekt på enheten.
+  - Lokal historik fortsätter lagras krypterat at rest i SQLite.
+  - Appen skippar pull/push av AI-sync och startar inte realtime-refresh för AI-sync.
+- **Promptprofil kan väljas i AI-inställningarna.**
+  - Profilerna `Balanserad`, `Research`, `Utförande` och `Kortfattad` kombineras med användarens systemprompt och projektprompt.
+  - Målet är att ge bättre styrning utan att användaren behöver skriva om hela systemprompten varje gång.
+- **Tool-use har nu två säkerhetslägen.**
+  - `Endast läsning` tillåter listning, hämtning och sammanfattning.
+  - `Full åtkomst` krävs för skapande, uppdatering, borttagning och skrivande MCP-anrop.
+- **Sessionsinsikter visas i AI-inställningarna.**
+  - Visar vald provider, modell, sync-läge, tool-use-läge, promptprofil och aktiva MCP-tjänster.
+  - Detta gör felsökning och verifiering snabbare för användaren.
+
+## Motivering
+
+- **Global sync-toggle** gör AI-chattar förenliga med strikt lokal sekretess när användaren inte vill dela AI-historik med backend.
+- **Promptprofiler** gör AI-beteendet mer användbart direkt i UI utan att kräva manuell prompt-engineering.
+- **Read-only tool-use** minskar risken för oavsiktliga ändringar när användaren vill ha AI-stöd för analys men inte för mutationer.
+- **Sessionsinsikter** gör det tydligt vilken AI-konfiguration som faktiskt används i stunden, vilket minskar felsökningstid.

@@ -1,5 +1,6 @@
 import { MobileLlamaProvider } from '../services/ai/provider';
 import { extractToolCalls } from '../services/ai/tooling';
+import { buildAiSyncNotice, buildToolUseNotice, isMutatingAiTool } from '@repo/shared';
 
 const mockChat = jest.fn();
 
@@ -38,5 +39,15 @@ describe('AI tool-use e2e flow', () => {
     const executed = false;
     expect(calls.length).toBe(1);
     expect(executed).toBe(false);
+  });
+
+  it('marks mutating tools as blocked in read-only mode', () => {
+    expect(buildToolUseNotice(true, 'read-only')).toContain('läsläge');
+    expect(isMutatingAiTool('create_note')).toBe(true);
+    expect(isMutatingAiTool('list_notes')).toBe(false);
+  });
+
+  it('injects local-only sync notice when backend sync is disabled', () => {
+    expect(buildAiSyncNotice(false)).toContain('denna enhet');
   });
 });

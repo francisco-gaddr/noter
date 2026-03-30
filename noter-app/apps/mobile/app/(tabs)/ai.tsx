@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { StyleSheet, View, FlatList, TextInput, KeyboardAvoidingView, Platform, ScrollView, Pressable, AppState } from 'react-native';
 import { Text, Button, useTheme, IconButton, List, ActivityIndicator, ProgressBar, Portal, Dialog, TextInput as PaperTextInput, Switch, Menu } from 'react-native-paper';
 import { useLocalSearchParams, useNavigation } from 'expo-router';
@@ -9,7 +9,7 @@ import { ChatMessage, Conversation, HFModel, AIProject } from '@repo/ai';
 import { searchHuggingFaceModels, getModelFiles, getConversionHealth } from '@/services/ai/huggingface';
 import { downloadModel as serviceDownloadModel, getBestQuantization, deleteModel as serviceDeleteModel, cancelDownload as cancelModelDownload, prepareModelForChat } from '@/services/ai/modelService';
 import { saveConversationLocal, getConversationsLocal, deleteConversationLocal, saveMessageLocal, getMessagesLocal, getModelsLocal, saveProjectLocal, getProjectsLocal, deleteProjectLocal } from '@/services/database';
-import { combineSystemPrompts, buildToolUseNotice } from '@/services/ai/prompt';
+import { combineSystemPrompts, buildPromptPresetNotice, buildToolUseNotice } from '@/services/ai/prompt';
 import { API_URL, fetchWithAuth } from '@/services/api';
 import { buildToolSystemPrompt, extractToolCalls } from '@/services/ai/tooling';
 import { shouldStopToolIteration, toToolCallKeys, toToolIterationSignature } from '@/services/ai/toolChain';
@@ -28,7 +28,7 @@ import * as Clipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
-import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings } from '@repo/shared';
+import { AI_PROMPT_PRESETS, AiPromptPreset, AiToolAccessMode, MCP_INTEGRATIONS, McpUiSettings, buildAiSessionInsights, buildAiSyncNotice, createEmptyMcpUiSettings, decrypt, encrypt, isMutatingAiTool, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings } from '@repo/shared';
 
 const provider = new MobileLlamaProvider();
 type LocalConversation = Conversation & { localOnly?: boolean };
@@ -203,8 +203,12 @@ export default function AIScreen() {
   const stopRequestedRef = useRef(false);
   const [tokensPerSecond, setTokensPerSecond] = useState<number | null>(null);
   const [enableToolUse, setEnableToolUse] = useState(true);
+  const [toolAccessMode, setToolAccessMode] = useState<AiToolAccessMode>('full');
+  const [promptPreset, setPromptPreset] = useState<AiPromptPreset>('balanced');
+  const [syncWithBackend, setSyncWithBackend] = useState(true);
   const [toolSettingsVisible, setToolSettingsVisible] = useState(false);
   const [userScopeKey, setUserScopeKey] = useState<string>('anon');
+  const [syncPreferenceLoaded, setSyncPreferenceLoaded] = useState(false);
   const [collapsedTool, setCollapsedTool] = useState<Record<string, boolean>>({});
 
   // Projects
@@ -260,6 +264,8 @@ export default function AIScreen() {
 
   // History
   const [conversations, setConversations] = useState<LocalConversation[]>([]);
+  const [promptPresetMenuVisible, setPromptPresetMenuVisible] = useState(false);
+  const [toolAccessMenuVisible, setToolAccessMenuVisible] = useState(false);
 
   const getMcpEnvValues = (): Record<string, string | undefined> => {
     const env = process.env as Record<string, string | undefined>;
@@ -352,6 +358,15 @@ export default function AIScreen() {
       if (saved) setSystemPrompt(decrypt(saved));
       const savedToolUse = await AsyncStorage.getItem(`ai_tool_use_enabled_${scopeKey}`);
       if (savedToolUse !== null) setEnableToolUse(savedToolUse === 'true');
+      const savedToolAccessMode = await AsyncStorage.getItem(`ai_tool_access_mode_${scopeKey}`);
+      if (savedToolAccessMode === 'read-only' || savedToolAccessMode === 'full') setToolAccessMode(savedToolAccessMode);
+      const savedPromptPreset = await AsyncStorage.getItem(`ai_prompt_preset_${scopeKey}`);
+      if (savedPromptPreset === 'balanced' || savedPromptPreset === 'research' || savedPromptPreset === 'execution' || savedPromptPreset === 'concise') {
+        setPromptPreset(savedPromptPreset);
+      }
+      const savedSyncEnabled = await AsyncStorage.getItem(`ai_sync_enabled_${scopeKey}`);
+      const resolvedSyncEnabled = savedSyncEnabled !== null ? savedSyncEnabled === 'true' : true;
+      setSyncWithBackend(resolvedSyncEnabled);
       const savedLocalConvert = await AsyncStorage.getItem(`ai_local_convert_${scopeKey}`);
       if (savedLocalConvert !== null) setPreferLocalConversion(savedLocalConvert === 'true');
       const savedBackgroundWork = await AsyncStorage.getItem(`ai_background_work_${scopeKey}`);
@@ -362,7 +377,7 @@ export default function AIScreen() {
         const globalSetting = await isAiBackgroundWorkEnabled();
         setAllowBackgroundAIWork(globalSetting);
       }
-      await refreshRemoteSync(scopeKey);
+      await refreshRemoteSync(scopeKey, resolvedSyncEnabled);
       const savedApiEnabled = await AsyncStorage.getItem(`ai_api_enabled_${scopeKey}`);
       if (savedApiEnabled !== null) setAiUseApiProviders(savedApiEnabled === 'true');
       const savedApiProvider = await AsyncStorage.getItem(`ai_api_provider_${scopeKey}`);
@@ -384,6 +399,7 @@ export default function AIScreen() {
       }
       const resolvedMcpSettings = resolveMcpSettings(parsedMcpSettings, getMcpEnvValues());
       setMcpSettings(toEffectiveMcpUiSettings(resolvedMcpSettings));
+      setSyncPreferenceLoaded(true);
     })();
   }, []);
 
@@ -391,6 +407,26 @@ export default function AIScreen() {
     if (!userScopeKey) return;
     AsyncStorage.setItem(`ai_tool_use_enabled_${userScopeKey}`, enableToolUse ? 'true' : 'false');
   }, [enableToolUse, userScopeKey]);
+
+  useEffect(() => {
+    if (!userScopeKey) return;
+    AsyncStorage.setItem(`ai_tool_access_mode_${userScopeKey}`, toolAccessMode);
+  }, [toolAccessMode, userScopeKey]);
+
+  useEffect(() => {
+    if (!userScopeKey) return;
+    AsyncStorage.setItem(`ai_prompt_preset_${userScopeKey}`, promptPreset);
+  }, [promptPreset, userScopeKey]);
+
+  useEffect(() => {
+    if (!userScopeKey) return;
+    AsyncStorage.setItem(`ai_sync_enabled_${userScopeKey}`, syncWithBackend ? 'true' : 'false');
+  }, [syncWithBackend, userScopeKey]);
+
+  useEffect(() => {
+    if (!syncPreferenceLoaded) return;
+    refreshRemoteSync(userScopeKey || undefined, syncWithBackend).catch(() => {});
+  }, [syncPreferenceLoaded, syncWithBackend, userScopeKey]);
 
   useEffect(() => {
     if (!userScopeKey) return;
@@ -448,6 +484,9 @@ export default function AIScreen() {
   }, [loading, allowBackgroundAIWork]);
 
   useEffect(() => {
+    if (!syncPreferenceLoaded || !syncWithBackend) {
+      return;
+    }
     let active = true;
     let currentSocket: ReturnType<typeof getSocket> | null = null;
     let refreshInterval: ReturnType<typeof setInterval> | null = null;
@@ -494,7 +533,7 @@ export default function AIScreen() {
       if (refreshInterval) clearInterval(refreshInterval);
       appStateSub?.remove();
     };
-  }, [userScopeKey]);
+  }, [syncPreferenceLoaded, syncWithBackend, userScopeKey]);
 
   const refreshConversionHealth = async () => {
       try {
@@ -579,15 +618,25 @@ export default function AIScreen() {
       } catch {}
   };
 
-  const refreshRemoteSync = async (scopeKey?: string) => {
+  const refreshRemoteSync = async (scopeKey?: string, allowRemote = syncWithBackend) => {
       const localConvs = await getConversationsLocal();
       setConversations(localConvs);
       const localProjects = await getProjectsLocal(scopeKey);
       setProjects(localProjects);
+      if (!allowRemote) {
+          return;
+      }
       try {
           const remote = await pullAiSync();
           await mergeRemoteSync(remote, scopeKey);
       } catch {}
+  };
+
+  const syncConversationPayload = async (payload: Parameters<typeof pushAiSync>[0]) => {
+      if (!syncWithBackend) {
+          return;
+      }
+      await pushAiSync(payload);
   };
 
   const loadProjects = async (scopeKey?: string) => {
@@ -603,6 +652,23 @@ export default function AIScreen() {
   const activeModelLabel = aiUseApiProviders
       ? (apiProvider === 'openrouter' ? openRouterModel : geminiModel)
       : (activeModel || '');
+  const enabledMcpServices = useMemo(
+      () => (Object.keys(mcpSettings) as Array<keyof McpUiSettings>).filter((key) => Boolean(mcpSettings[key]?.enabled)) as string[],
+      [mcpSettings]
+  );
+  const sessionInsights = useMemo(
+      () =>
+          buildAiSessionInsights({
+              providerLabel: aiUseApiProviders ? (apiProvider === 'gemini' ? 'Gemini' : 'OpenRouter') : 'Lokal modell',
+              modelLabel: activeModelLabel || t('ai.noModelSelected'),
+              syncEnabled: syncWithBackend,
+              toolUseEnabled: enableToolUse,
+              toolAccessMode,
+              promptPreset,
+              enabledMcpServices,
+          }),
+      [activeModelLabel, aiUseApiProviders, apiProvider, enableToolUse, enabledMcpServices, promptPreset, syncWithBackend, t, toolAccessMode]
+  );
 
   const formatError = (error: unknown) => {
       const message = (error as any)?.message ? String((error as any).message) : String(error);
@@ -1032,6 +1098,9 @@ export default function AIScreen() {
   };
 
   const executeToolCall = async (tool: string, args: Record<string, any>, intentText: string) => {
+      if (enableToolUse && toolAccessMode === 'read-only' && isMutatingAiTool(tool)) {
+          throw new Error(t('ai.toolWriteBlocked'));
+      }
       const requireId = (value: any) => {
           if (!value) throw new Error(`Tool ${tool} kräver id`);
           return value;
@@ -1219,7 +1288,7 @@ export default function AIScreen() {
           await saveMessageLocal(conversationId, cleanedMsg);
           refreshConversationActivity(conversationId, cleanedMsg.createdAt);
           if (!isConversationLocalOnly(conversationId)) {
-              pushAiSync({ messages: [{ conversationId, message: cleanedMsg }] }).catch(() => {});
+              syncConversationPayload({ messages: [{ conversationId, message: cleanedMsg }] }).catch(() => {});
           }
       }
       if (calls.length === 0) return [];
@@ -1233,7 +1302,7 @@ export default function AIScreen() {
           await saveMessageLocal(conversationId, toolMsg);
           refreshConversationActivity(conversationId, toolMsg.createdAt);
           if (!isConversationLocalOnly(conversationId)) {
-              pushAiSync({ messages: [{ conversationId, message: toolMsg }] }).catch(() => {});
+              syncConversationPayload({ messages: [{ conversationId, message: toolMsg }] }).catch(() => {});
           }
           newMessages.push(toolMsg);
           if (toolMsg.id) setCollapsedTool(prev => ({ ...prev, [toolMsg.id as string]: true }));
@@ -1255,7 +1324,7 @@ export default function AIScreen() {
               await saveMessageLocal(conversationId, resultMsg);
               refreshConversationActivity(conversationId, resultMsg.createdAt);
               if (!isConversationLocalOnly(conversationId)) {
-                  pushAiSync({ messages: [{ conversationId, message: resultMsg }] }).catch(() => {});
+                  syncConversationPayload({ messages: [{ conversationId, message: resultMsg }] }).catch(() => {});
               }
               newMessages.push(resultMsg);
               if (resultMsg.id) setCollapsedTool(prev => ({ ...prev, [resultMsg.id as string]: true }));
@@ -1266,7 +1335,7 @@ export default function AIScreen() {
               await saveMessageLocal(conversationId, errMsg);
               refreshConversationActivity(conversationId, errMsg.createdAt);
               if (!isConversationLocalOnly(conversationId)) {
-                  pushAiSync({ messages: [{ conversationId, message: errMsg }] }).catch(() => {});
+                  syncConversationPayload({ messages: [{ conversationId, message: errMsg }] }).catch(() => {});
               }
               newMessages.push(errMsg);
               if (errMsg.id) setCollapsedTool(prev => ({ ...prev, [errMsg.id as string]: true }));
@@ -1407,7 +1476,7 @@ export default function AIScreen() {
           await saveMessageLocal(conversationId, savedMsg);
           refreshConversationActivity(conversationId, savedMsg.createdAt);
           if (!isConversationLocalOnly(conversationId)) {
-              pushAiSync({ messages: [{ conversationId, message: savedMsg }] }).catch(() => {});
+              syncConversationPayload({ messages: [{ conversationId, message: savedMsg }] }).catch(() => {});
           }
 
           const newToolMessages = await processToolCalls(conversationId, assistantId, fullContent, intentText);
@@ -1428,8 +1497,10 @@ export default function AIScreen() {
       const maxChars = 12000;
       const projectPrompt = getActiveProject()?.systemPrompt || '';
       const toolPrompt = enableToolUse ? buildToolSystemPrompt(API_URL.replace(/\/+$/, ''), getEnabledMcpServices()) : '';
-      const toolUseNotice = buildToolUseNotice(enableToolUse);
-      const combinedPrompt = combineSystemPrompts([systemPrompt, toolUseNotice, toolPrompt].filter(Boolean).join('\n\n'), projectPrompt);
+      const toolUseNotice = buildToolUseNotice(enableToolUse, toolAccessMode);
+      const syncNotice = buildAiSyncNotice(syncWithBackend);
+      const presetNotice = buildPromptPresetNotice(promptPreset);
+      const combinedPrompt = combineSystemPrompts([presetNotice, systemPrompt, syncNotice, toolUseNotice, toolPrompt].filter(Boolean).join('\n\n'), projectPrompt);
       const systemMsg = combinedPrompt
         ? ({ id: 'system', role: 'system', content: combinedPrompt, createdAt: new Date().toISOString() } as ChatMessage)
         : null;
@@ -1483,11 +1554,12 @@ export default function AIScreen() {
           updatedAt: new Date().toISOString(),
           messages: [],
           model: activeModelLabel || undefined,
-          projectId: activeProjectId || undefined
+          projectId: activeProjectId || undefined,
+          localOnly: !syncWithBackend,
       };
       await saveConversationLocal(newConv);
       if (!newConv.localOnly) {
-          pushAiSync({ conversations: [newConv] }).catch(() => {});
+          syncConversationPayload({ conversations: [newConv] }).catch(() => {});
       }
       setConversations(prev => [newConv, ...prev]);
       setCurrentConversationId(newId);
@@ -1508,7 +1580,7 @@ export default function AIScreen() {
 
   const deleteChat = async (id: string) => {
       await deleteConversationLocal(id);
-      pushAiSync({ deletedConversationIds: [id] }).catch(() => {});
+      syncConversationPayload({ deletedConversationIds: [id] }).catch(() => {});
       setConversations(prev => prev.filter(c => c.id !== id));
       if (currentConversationId === id) {
           setCurrentConversationId(null);
@@ -1543,7 +1615,7 @@ export default function AIScreen() {
       setProjectDialogPrompt('');
       setProjectDialogIcon(undefined);
       setProjectDialogIconColor(undefined);
-      setProjectDialogLocalOnly(false);
+      setProjectDialogLocalOnly(!syncWithBackend);
       setProjectDialogVisible(true);
   };
 
@@ -1573,7 +1645,7 @@ export default function AIScreen() {
           };
       await saveProjectLocal(project, userScopeKey);
       if (!project.localOnly) {
-          pushAiSync({ projects: [project] }).catch(() => {});
+          syncConversationPayload({ projects: [project] }).catch(() => {});
       }
           setProjects(prev => [project, ...prev]);
           setActiveProjectId(project.id);
@@ -1594,8 +1666,8 @@ export default function AIScreen() {
           userId: userScopeKey
       };
       await saveProjectLocal(updated, userScopeKey);
-      if (updated.localOnly) pushAiSync({ deletedProjectIds: [updated.id] }).catch(() => {});
-      else pushAiSync({ projects: [updated] }).catch(() => {});
+      if (updated.localOnly) syncConversationPayload({ deletedProjectIds: [updated.id] }).catch(() => {});
+      else syncConversationPayload({ projects: [updated] }).catch(() => {});
       setProjects(prev => prev.map(p => p.id === updated.id ? updated : p));
       setProjectDialogVisible(false);
   };
@@ -1615,9 +1687,9 @@ export default function AIScreen() {
       };
       await saveConversationLocal(updated);
       if (updated.localOnly) {
-          pushAiSync({ deletedConversationIds: [updated.id] }).catch(() => {});
+          syncConversationPayload({ deletedConversationIds: [updated.id] }).catch(() => {});
       } else {
-          pushAiSync({ conversations: [updated] }).catch(() => {});
+          syncConversationPayload({ conversations: [updated] }).catch(() => {});
       }
       setConversations(prev => prev.map(c => c.id === updated.id ? updated : c));
       setChatDialogVisible(false);
@@ -1642,7 +1714,7 @@ export default function AIScreen() {
 
   const handleDeleteProject = async (projectId: string) => {
       await deleteProjectLocal(projectId);
-      pushAiSync({ deletedProjectIds: [projectId] }).catch(() => {});
+      syncConversationPayload({ deletedProjectIds: [projectId] }).catch(() => {});
       setProjects(prev => prev.filter(p => p.id !== projectId));
       if (activeProjectId === projectId) {
           setActiveProjectId(null);
@@ -1879,11 +1951,12 @@ export default function AIScreen() {
             updatedAt: new Date().toISOString(),
             messages: [],
             model: activeModelLabel,
-            projectId: activeProjectId || undefined
+            projectId: activeProjectId || undefined,
+            localOnly: !syncWithBackend,
         };
         await saveConversationLocal(newConv);
         if (!newConv.localOnly) {
-            pushAiSync({ conversations: [newConv] }).catch(() => {});
+            syncConversationPayload({ conversations: [newConv] }).catch(() => {});
         }
         setConversations(prev => [newConv, ...prev]);
         setCurrentConversationId(newId);
@@ -1908,7 +1981,7 @@ export default function AIScreen() {
       await saveMessageLocal(conversationId, userMsg);
       refreshConversationActivity(conversationId, userMsg.createdAt);
       if (!isConversationLocalOnly(conversationId)) {
-          pushAiSync({ messages: [{ conversationId, message: userMsg }] }).catch(() => {});
+          syncConversationPayload({ messages: [{ conversationId, message: userMsg }] }).catch(() => {});
       }
       if (!aiUseApiProviders) {
           const blocker = getModelInstallBlocker();
@@ -2230,12 +2303,71 @@ export default function AIScreen() {
                 onChangeText={setSystemPrompt}
                 multiline
               />
+              <View style={{ marginTop: 14, padding: 12, borderWidth: 1, borderColor: theme.colors.outline, borderRadius: 10 }}>
+                <Text variant="titleSmall" style={{ color: theme.colors.onSurface, marginBottom: 6 }}>{t('ai.sessionInsights')}</Text>
+                <Text style={{ color: theme.colors.onSurfaceVariant, marginBottom: 10 }}>
+                  {t('ai.localEncryptionHint')}
+                </Text>
+                {sessionInsights.map((item) => (
+                  <View key={item.id} style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6, gap: 12 }}>
+                    <Text style={{ color: theme.colors.onSurfaceVariant, flex: 1 }}>{item.label}</Text>
+                    <Text style={{ color: theme.colors.onSurface, flex: 1, textAlign: 'right' }}>{item.value}</Text>
+                  </View>
+                ))}
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
+                <Text style={{ color: theme.colors.onSurface }}>{t('ai.syncWithBackendLabel')}</Text>
+                <Switch value={syncWithBackend} onValueChange={setSyncWithBackend} />
+              </View>
+              <Text style={{ marginTop: 6, color: theme.colors.onSurfaceVariant }}>
+                {syncWithBackend ? t('ai.syncWithBackendEnabledHint') : t('ai.syncWithBackendDisabledHint')}
+              </Text>
+              <Text style={{ color: theme.colors.onSurface, marginTop: 12, marginBottom: 6 }}>{t('ai.promptPresetLabel')}</Text>
+              <Menu
+                visible={promptPresetMenuVisible}
+                onDismiss={() => setPromptPresetMenuVisible(false)}
+                anchor={
+                  <Button mode="outlined" onPress={() => setPromptPresetMenuVisible(true)} testID="ai-prompt-preset-button">
+                    {t(`ai.promptPreset.${promptPreset}`)}
+                  </Button>
+                }
+              >
+                {AI_PROMPT_PRESETS.map((preset) => (
+                  <Menu.Item
+                    key={preset.id}
+                    onPress={() => {
+                      setPromptPreset(preset.id);
+                      setPromptPresetMenuVisible(false);
+                    }}
+                    title={t(`ai.promptPreset.${preset.id}`)}
+                  />
+                ))}
+              </Menu>
+              <Text style={{ marginTop: 6, color: theme.colors.onSurfaceVariant }}>
+                {t('ai.promptPresetHint')}
+              </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
                 <Text style={{ color: theme.colors.onSurface }}>{t('ai.toolUseLabel')}</Text>
                 <Switch value={enableToolUse} onValueChange={setEnableToolUse} />
               </View>
               <Text style={{ marginTop: 6, color: theme.colors.onSurfaceVariant }}>
                 {t('ai.toolUseHint')}
+              </Text>
+              <Text style={{ color: theme.colors.onSurface, marginTop: 12, marginBottom: 6 }}>{t('ai.toolAccessModeLabel')}</Text>
+              <Menu
+                visible={toolAccessMenuVisible}
+                onDismiss={() => setToolAccessMenuVisible(false)}
+                anchor={
+                  <Button mode="outlined" onPress={() => setToolAccessMenuVisible(true)} testID="ai-tool-access-mode-button">
+                    {toolAccessMode === 'read-only' ? t('ai.toolAccessModeReadOnly') : t('ai.toolAccessModeFull')}
+                  </Button>
+                }
+              >
+                <Menu.Item onPress={() => { setToolAccessMode('read-only'); setToolAccessMenuVisible(false); }} title={t('ai.toolAccessModeReadOnly')} />
+                <Menu.Item onPress={() => { setToolAccessMode('full'); setToolAccessMenuVisible(false); }} title={t('ai.toolAccessModeFull')} />
+              </Menu>
+              <Text style={{ marginTop: 6, color: theme.colors.onSurfaceVariant }}>
+                {toolAccessMode === 'read-only' ? t('ai.toolAccessModeReadOnlyHint') : t('ai.toolAccessModeFullHint')}
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
                 <Text style={{ color: theme.colors.onSurface }}>{t('ai.localConversionLabel')}</Text>

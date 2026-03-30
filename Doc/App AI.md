@@ -16,8 +16,28 @@ här kommer en komplett, steg-för-steg guide för att ta din befintliga Next.js
 - [x] Dev‑rendering med retry/fallback för att undvika vit app
 - [x] Electron-chat returnerar faktisk assistenttext tillbaka till chattkedjan utan DB-workaround
 - [x] Endast stdout streamas som chat-token; stderr används för felhantering
+- [x] AI-inställningar har global backend-sync-toggle för krypterad lokal-only historik
+- [x] Tool-use har read-only/full access-lägen i UI och runtime
+- [x] Promptprofiler och sessionsinsikter visas i AI-inställningarna
 - [ ] Verifiera MLC‑binär i PATH på Windows‑maskinen
 - [ ] End‑to‑end‑test med riktig modellnedladdning och chat
+
+## Nya AI-utökningar
+
+- **Global AI-sync-toggle**
+  - När användaren stänger av sync skickar Electron-renderern inte AI-chattar eller AI-projekt till backend.
+  - Historik fortsätter lagras krypterat lokalt i klientens lokala datalager.
+  - Detta är särskilt viktigt för användare som vill ha ren device-local AI-historik.
+- **Promptprofiler**
+  - AI-inställningarna låter nu användaren välja promptprofil ovanpå vanlig systemprompt.
+  - Profilerna är avsedda för balans, research, utförande och kortfattade svar.
+- **Tool-use access mode**
+  - `Endast läsning` blockerar skrivande tool-calls och skrivande MCP-anrop.
+  - `Full åtkomst` tillåter hela verktygsflödet.
+  - Blockeringen sker i runtime, inte bara i UI, så modellen kan inte kringgå policyn.
+- **Sessionsinsikter**
+  - Electron-webbklienten visar aktiv provider, modell, sync-läge, promptprofil, tool-läge och aktiva MCP-tjänster.
+  - Detta förbättrar debugging, support och verifiering vid release.
 
 ---
 
