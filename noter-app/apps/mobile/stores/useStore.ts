@@ -13,6 +13,7 @@ import { buildSecurityNoteMap, findBlockingLockedAncestor } from '../services/ai
 import i18n from '../services/i18n';
 import { initLocalEncryptionKey } from '../services/encryptionKey';
 import { getReadableProtectedText } from '../utils/protectedNote';
+import { recordStartupStage, recordSyncQueueDrain } from '../services/perfMetrics';
 
 let wasOffline = false;
 let initPromise: Promise<void> | null = null;
@@ -20,11 +21,24 @@ let netInfoUnsubscribe: (() => void) | null = null;
 let notesFetchPromise: Promise<void> | null = null;
 const taskFetchPromises = new Map<string, Promise<void>>();
 let lastRemoteCollectionsSyncAt = 0;
+const yieldToEventLoop = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+const persistInBatches = async <T,>(items: T[], batchSize: number, persist: (item: T) => Promise<void>) => {
+  for (let index = 0; index < items.length; index += batchSize) {
+    const chunk = items.slice(index, index + batchSize);
+    await Promise.all(chunk.map((item) => persist(item)));
+    if (index + batchSize < items.length) {
+      await yieldToEventLoop();
+    }
+  }
+};
 
 interface AppState {
   notes: Note[];
   tasks: Task[];
   isLoading: boolean;
+  isAuthenticating: boolean;
+  isRefreshingNotes: boolean;
+  isRefreshingTasks: boolean;
   error: string | null;
   viewMode: 'list' | 'tree';
   isOffline: boolean;
@@ -358,6 +372,14 @@ const processLocalTask = (task: Task): Task => ({
   reminderOffsetMinutes: Array.isArray(task.reminderOffsetMinutes) ? task.reminderOffsetMinutes : [],
 });
 
+const mergeTasksForScope = (existingTasks: Task[], scopedTasks: Task[], parentNoteId?: string) => {
+  if (!parentNoteId) {
+    return scopedTasks;
+  }
+  const remaining = existingTasks.filter((task) => task.parentNoteId !== parentNoteId);
+  return [...remaining, ...scopedTasks];
+};
+
 const shouldFallbackToOffline = (error: unknown) => {
   const err = error as any;
   const status = typeof err?.status === 'number' ? err.status : undefined;
@@ -406,6 +428,9 @@ export const useStore = create<AppState>((set, get) => ({
   notes: [],
   tasks: [],
   isLoading: false,
+  isAuthenticating: false,
+  isRefreshingNotes: false,
+  isRefreshingTasks: false,
   error: null,
   viewMode: 'list',
   isOffline: false,
@@ -454,7 +479,18 @@ export const useStore = create<AppState>((set, get) => ({
     if (get().securityLocked === locked) return;
     if (locked) {
       disconnectSocket();
-      set({ securityLocked: true, notes: [], tasks: [], activeProjectId: null, isLoading: false, error: null, unlockedProtectedNoteIds: [] });
+      set({
+        securityLocked: true,
+        notes: [],
+        tasks: [],
+        activeProjectId: null,
+        isLoading: false,
+        isAuthenticating: false,
+        isRefreshingNotes: false,
+        isRefreshingTasks: false,
+        error: null,
+        unlockedProtectedNoteIds: [],
+      });
       return;
     }
     set({ securityLocked: false });
@@ -472,7 +508,7 @@ export const useStore = create<AppState>((set, get) => ({
       await cancelAllTaskReminders();
       return;
     }
-    await syncAllTaskReminders(get().tasks, true);
+    await syncAllTaskReminders(get().tasks, true, { cancelMissing: true });
   },
 
   init: async () => {
@@ -481,17 +517,33 @@ export const useStore = create<AppState>((set, get) => ({
     initPromise = (async () => {
       let storedToken: string | null = null;
       let databaseReady = false;
+        const measureStartupStage = async <T,>(name: string, action: () => Promise<T>) => {
+          const startedAt = Date.now();
+          try {
+            return await action();
+          } finally {
+            recordStartupStage(name, Date.now() - startedAt);
+          }
+        };
       try {
-        await initLocalEncryptionKey();
-        await initApiUrl();
-        await Database.initDatabase();
-        await Database.migrateLocalEncryptedData();
+          await measureStartupStage('localEncryptionKey', () => initLocalEncryptionKey());
+          await measureStartupStage('apiUrl', () => initApiUrl());
+          await measureStartupStage('databaseInit', () => Database.initDatabase());
+          await measureStartupStage('databaseMigration', () => Database.migrateLocalEncryptedData());
         databaseReady = true;
 
-        storedToken = await SecureStore.getItemAsync('token');
-        const storedNotifications = await AsyncStorage.getItem('notificationsEnabled');
-        const storedActiveProjectId = await AsyncStorage.getItem('activeProjectId');
-        const storedViewMode = await AsyncStorage.getItem('viewMode');
+          const [
+            nextStoredToken,
+            storedNotifications,
+            storedActiveProjectId,
+            storedViewMode,
+          ] = await Promise.all([
+            measureStartupStage('secureTokenRead', () => SecureStore.getItemAsync('token')),
+            measureStartupStage('notificationsPreferenceRead', () => AsyncStorage.getItem('notificationsEnabled')),
+            measureStartupStage('activeProjectRead', () => AsyncStorage.getItem('activeProjectId')),
+            measureStartupStage('viewModeRead', () => AsyncStorage.getItem('viewMode')),
+          ]);
+          storedToken = nextStoredToken;
         if (storedNotifications !== null) {
           set({ notificationsEnabled: storedNotifications === 'true' });
         }
@@ -511,8 +563,10 @@ export const useStore = create<AppState>((set, get) => ({
         });
 
         if (!get().securityLocked) {
-          const localNotes = await Database.getNotesLocal();
-          const localTasks = await Database.getTasksLocal();
+          const [localNotes, localTasks] = await Promise.all([
+            measureStartupStage('loadLocalNotes', () => Database.getNotesLocal()),
+            measureStartupStage('loadLocalTasks', () => Database.getTasksLocal()),
+          ]);
           const unlocked = new Set(get().unlockedProtectedNoteIds || []);
           set({
             notes: materializeNotesFromEncrypted(localNotes.map(processLocalNote), unlocked),
@@ -526,6 +580,9 @@ export const useStore = create<AppState>((set, get) => ({
           notes: [],
           tasks: [],
           isLoading: false,
+          isAuthenticating: false,
+          isRefreshingNotes: false,
+          isRefreshingTasks: false,
         });
       }
 
@@ -545,11 +602,13 @@ export const useStore = create<AppState>((set, get) => ({
       }
 
       if (databaseReady && storedToken && !get().securityLocked) {
-        await get().fetchNotes();
-        await get().fetchTasks();
+        const socketStartedAt = Date.now();
         get().connectSocket();
-      } else if (databaseReady && !get().securityLocked) {
-        get().connectSocket();
+        recordStartupStage('socketConnect', Date.now() - socketStartedAt);
+        await Promise.all([
+          measureStartupStage('remoteNotesFetch', () => get().fetchNotes()),
+          measureStartupStage('remoteTasksFetch', () => get().fetchTasks()),
+        ]);
       }
 
       set({ isInitialized: true });
@@ -581,6 +640,10 @@ export const useStore = create<AppState>((set, get) => ({
       return;
     }
     const token = get().token;
+    if (!token) {
+      disconnectSocket();
+      return;
+    }
     const socket = initSocket(token);
 
     if (!socket) {
@@ -753,7 +816,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   login: async (username, password) => {
     try {
-      set({ isLoading: true, error: null });
+      set({ isLoading: true, isAuthenticating: true, error: null });
       const response = await apiLogin(username, password);
       setAuthToken(response.token);
       await SecureStore.setItemAsync('token', response.token);
@@ -761,18 +824,24 @@ export const useStore = create<AppState>((set, get) => ({
       if (get().securityLocked) {
         await get().setSecurityLocked(false);
       }
-      await get().init();
+      if (get().isInitialized) {
+        await get().fetchNotes();
+        await get().fetchTasks();
+        get().connectSocket();
+      } else {
+        await get().init();
+      }
     } catch (error: any) {
       set({ error: error.message || 'Login failed' });
       throw error;
     } finally {
-      set({ isLoading: false });
+      set({ isLoading: false, isAuthenticating: false });
     }
   },
 
   register: async (username: string, password: string) => {
     try {
-      set({ isLoading: true, error: null });
+      set({ isLoading: true, isAuthenticating: true, error: null });
       await apiRegister(username, password);
       // Automatically login after register
       await get().login(username, password);
@@ -780,7 +849,7 @@ export const useStore = create<AppState>((set, get) => ({
       set({ error: error.message || 'Registration failed' });
       throw error;
     } finally {
-      set({ isLoading: false });
+      set({ isLoading: false, isAuthenticating: false });
     }
   },
 
@@ -795,12 +864,12 @@ export const useStore = create<AppState>((set, get) => ({
 
   fetchNotes: async () => {
     if (get().securityLocked) {
-      set({ isLoading: false });
+      set({ isRefreshingNotes: false });
       return;
     }
     if (notesFetchPromise) return notesFetchPromise;
     notesFetchPromise = (async () => {
-      set({ isLoading: true, error: null });
+      set({ isRefreshingNotes: true, error: null });
       try {
         const netState = await NetInfo.fetch();
         
@@ -809,21 +878,27 @@ export const useStore = create<AppState>((set, get) => ({
           const safeNotes = Array.isArray(notes) ? notes : [];
           const securedNotes = materializeNotesFromEncrypted(safeNotes as any, new Set(get().unlockedProtectedNoteIds));
           const persistableNotes = (safeNotes as any[]).map((note) => normalizeEncryptedNote(note as Note));
-          
-          for (const note of persistableNotes) {
-            await Database.saveNoteLocal(note, true);
-          }
-          set({ notes: securedNotes, isLoading: false });
+          const localNoteIndex = typeof Database.getLocalNoteSyncIndex === 'function'
+            ? await Database.getLocalNoteSyncIndex()
+            : new Map<string, string>();
+          const remoteNoteUpdatedAtById = new Map(securedNotes.map((note) => [note._id, String(note.updatedAt || '')]));
+
+          const notesToPersist = persistableNotes.filter((note) => {
+            const remoteUpdatedAt = remoteNoteUpdatedAtById.get(note._id) || '';
+            return localNoteIndex.get(note._id) !== remoteUpdatedAt;
+          });
+          await persistInBatches(notesToPersist, 25, (note) => Database.saveNoteLocal(note, true));
+          set({ notes: securedNotes, isRefreshingNotes: false });
         } else {
           const localNotes = await Database.getNotesLocal();
           const securedNotes = materializeNotesFromEncrypted(localNotes.map(processLocalNote) as any, new Set(get().unlockedProtectedNoteIds));
-          set({ notes: securedNotes, isLoading: false });
+          set({ notes: securedNotes, isRefreshingNotes: false });
         }
       } catch (error: any) {
         console.error('[Store] Fetch notes error:', error);
         const localNotes = await Database.getNotesLocal();
         const securedNotes = materializeNotesFromEncrypted(localNotes.map(processLocalNote) as any, new Set(get().unlockedProtectedNoteIds));
-        set({ notes: securedNotes, isLoading: false, error: error.message });
+        set({ notes: securedNotes, isRefreshingNotes: false, error: error.message });
       }
     })();
     try {
@@ -999,11 +1074,17 @@ export const useStore = create<AppState>((set, get) => ({
           return realNote;
         } catch (error) {
           if (!shouldFallbackToOffline(error)) throw error;
-          await Database.addToSyncQueue('UPDATE', 'NOTE', { id, ...encryptedData });
+          const mergedIntoCreate = await Database.mergeIntoQueuedCreate('NOTE', id, encryptedData);
+          if (!mergedIntoCreate) {
+            await Database.addToSyncQueue('UPDATE', 'NOTE', { id, ...encryptedData });
+          }
           return optimisticNote;
         }
       } else {
-         await Database.addToSyncQueue('UPDATE', 'NOTE', { id, ...encryptedData });
+         const mergedIntoCreate = await Database.mergeIntoQueuedCreate('NOTE', id, encryptedData);
+         if (!mergedIntoCreate) {
+           await Database.addToSyncQueue('UPDATE', 'NOTE', { id, ...encryptedData });
+         }
          return optimisticNote;
       }
     } catch (error: any) {
@@ -1024,10 +1105,16 @@ export const useStore = create<AppState>((set, get) => ({
           });
         } catch (error) {
           if (!shouldFallbackToOffline(error)) throw error;
-          await Database.addToSyncQueue('DELETE', 'NOTE', { id });
+          const removedQueuedCreate = await Database.removeQueuedCreate('NOTE', id);
+          if (!removedQueuedCreate) {
+            await Database.addToSyncQueue('DELETE', 'NOTE', { id });
+          }
         }
       } else {
-        await Database.addToSyncQueue('DELETE', 'NOTE', { id });
+        const removedQueuedCreate = await Database.removeQueuedCreate('NOTE', id);
+        if (!removedQueuedCreate) {
+          await Database.addToSyncQueue('DELETE', 'NOTE', { id });
+        }
       }
       
       await Database.deleteNoteLocal(id);
@@ -1086,52 +1173,60 @@ export const useStore = create<AppState>((set, get) => ({
 
   fetchTasks: async (parentNoteId) => {
     if (get().securityLocked) {
-      set({ isLoading: false });
+      set({ isRefreshingTasks: false });
       return;
     }
     const fetchKey = taskFetchKey(parentNoteId);
     const inFlight = taskFetchPromises.get(fetchKey);
     if (inFlight) return inFlight;
     const fetchPromise = (async () => {
-      set({ isLoading: true, error: null });
+      set({ isRefreshingTasks: true, error: null });
       try {
         const netState = await NetInfo.fetch();
         if (netState.isConnected) {
           const url = parentNoteId ? `/tasks?parentNoteId=${encodeURIComponent(parentNoteId)}` : '/tasks';
           const tasks = await fetchWithAuth(url);
           const decryptedTasks = tasks.map(processApiTask);
-          for (const task of decryptedTasks) {
-            await Database.saveTaskLocal(task, true);
-          }
+          const localTaskIndex = typeof Database.getLocalTaskSyncIndex === 'function'
+            ? await Database.getLocalTaskSyncIndex()
+            : new Map<string, string>();
+          const tasksToPersist = (decryptedTasks as Task[]).filter((task: Task) => localTaskIndex.get(task._id) !== String(task.updatedAt || ''));
+          await persistInBatches(tasksToPersist, 25, (task: Task) => Database.saveTaskLocal(task, true));
           
           const state = get();
           const serverClientIds = new Set(decryptedTasks.map((t: any) => t.clientId).filter(Boolean));
           const localOnlyTasks = state.tasks.filter(t => t._id.startsWith('local_task_') && !serverClientIds.has(t.clientId));
-          
-          const mergedTasks = [...decryptedTasks, ...localOnlyTasks];
-          set({ tasks: mergedTasks, isLoading: false });
+
+          const mergedTasks = mergeTasksForScope(
+            state.tasks,
+            [...decryptedTasks, ...localOnlyTasks],
+            parentNoteId
+          );
+          set({ tasks: mergedTasks, isRefreshingTasks: false });
           if (!parentNoteId) {
             markRemoteCollectionsSynced();
           }
           if (get().notificationsEnabled) {
-            await syncAllTaskReminders(mergedTasks, true);
+            await syncAllTaskReminders(mergedTasks, true, { cancelMissing: !parentNoteId });
           }
         } else {
           const localTasks = await Database.getTasksLocal();
           const filtered = parentNoteId ? localTasks.filter(t => t.parentNoteId === parentNoteId) : localTasks;
           const mapped = filtered.map(processLocalTask);
-          set({ tasks: mapped, isLoading: false });
+          const mergedTasks = mergeTasksForScope(get().tasks, mapped, parentNoteId);
+          set({ tasks: mergedTasks, isRefreshingTasks: false });
           if (get().notificationsEnabled) {
-            await syncAllTaskReminders(mapped, true);
+            await syncAllTaskReminders(mergedTasks, true, { cancelMissing: !parentNoteId });
           }
         }
       } catch (error: any) {
         const localTasks = await Database.getTasksLocal();
         const filtered = parentNoteId ? localTasks.filter(t => t.parentNoteId === parentNoteId) : localTasks;
         const mapped = filtered.map(processLocalTask);
-        set({ tasks: mapped, isLoading: false, error: error.message });
+        const mergedTasks = mergeTasksForScope(get().tasks, mapped, parentNoteId);
+        set({ tasks: mergedTasks, isRefreshingTasks: false, error: error.message });
         if (get().notificationsEnabled) {
-          await syncAllTaskReminders(mapped, true);
+          await syncAllTaskReminders(mergedTasks, true, { cancelMissing: !parentNoteId });
         }
       }
     })();
@@ -1151,26 +1246,26 @@ export const useStore = create<AppState>((set, get) => ({
       const netState = await NetInfo.fetch();
       if (!netState.isConnected) return;
 
-      const notes = await fetchWithAuth('/notes');
+      const [notes, tasks] = await Promise.all([
+        fetchWithAuth('/notes'),
+        fetchWithAuth('/tasks'),
+      ]);
       const safeNotes = Array.isArray(notes) ? notes : [];
       const decryptedNotes = materializeNotesFromEncrypted(safeNotes as any, new Set(get().unlockedProtectedNoteIds));
-      for (const note of decryptedNotes) {
-        await Database.saveNoteLocal(note, true);
-      }
+      const persistableNotes = (safeNotes as any[]).map((note) => normalizeEncryptedNote(note as Note));
+      await persistInBatches(persistableNotes, 25, (note) => Database.saveNoteLocal(note, true));
       set({ notes: decryptedNotes });
 
-      const tasks = await fetchWithAuth('/tasks');
-      const decryptedTasks = tasks.map(processApiTask);
-      for (const task of decryptedTasks) {
-        await Database.saveTaskLocal(task, true);
-      }
+      const safeTasks = Array.isArray(tasks) ? tasks : [];
+      const decryptedTasks = safeTasks.map(processApiTask);
+      await persistInBatches(decryptedTasks, 25, (task) => Database.saveTaskLocal(task, true));
       const state = get();
       const serverClientIds = new Set(decryptedTasks.map((t: any) => t.clientId).filter(Boolean));
       const localOnlyTasks = state.tasks.filter(t => t._id.startsWith('local_task_') && !serverClientIds.has((t as any).clientId));
       const mergedTasks = [...decryptedTasks, ...localOnlyTasks];
       set({ tasks: mergedTasks });
       if (get().notificationsEnabled) {
-        await syncAllTaskReminders(mergedTasks, true);
+        await syncAllTaskReminders(mergedTasks, true, { cancelMissing: true });
       }
     } catch (error) {
       console.error('Background refresh failed', error);
@@ -1381,11 +1476,17 @@ export const useStore = create<AppState>((set, get) => ({
           return realTask;
         } catch (error) {
           if (!shouldFallbackToOffline(error)) throw error;
-          await Database.addToSyncQueue('UPDATE', 'TASK', { id, ...encryptedData });
+          const mergedIntoCreate = await Database.mergeIntoQueuedCreate('TASK', id, encryptedData);
+          if (!mergedIntoCreate) {
+            await Database.addToSyncQueue('UPDATE', 'TASK', { id, ...encryptedData });
+          }
           return optimisticTask;
         }
       } else {
-        await Database.addToSyncQueue('UPDATE', 'TASK', { id, ...encryptedData });
+        const mergedIntoCreate = await Database.mergeIntoQueuedCreate('TASK', id, encryptedData);
+        if (!mergedIntoCreate) {
+          await Database.addToSyncQueue('UPDATE', 'TASK', { id, ...encryptedData });
+        }
         return optimisticTask;
       }
     } catch (error: any) {
@@ -1405,10 +1506,16 @@ export const useStore = create<AppState>((set, get) => ({
           });
         } catch (error) {
           if (!shouldFallbackToOffline(error)) throw error;
-          await Database.addToSyncQueue('DELETE', 'TASK', { id });
+          const removedQueuedCreate = await Database.removeQueuedCreate('TASK', id);
+          if (!removedQueuedCreate) {
+            await Database.addToSyncQueue('DELETE', 'TASK', { id });
+          }
         }
       } else {
-        await Database.addToSyncQueue('DELETE', 'TASK', { id });
+        const removedQueuedCreate = await Database.removeQueuedCreate('TASK', id);
+        if (!removedQueuedCreate) {
+          await Database.addToSyncQueue('DELETE', 'TASK', { id });
+        }
       }
       
       await Database.deleteTaskLocal(id);
@@ -1543,8 +1650,16 @@ export const useStore = create<AppState>((set, get) => ({
     if (get().securityLocked) return;
     if (get().isSyncingOffline) return;
     set({ isSyncingOffline: true });
+    const syncStartedAt = Date.now();
+    let initialQueueSize = 0;
+    let failedItems = 0;
+    let oldestItemAgeMs: number | null = null;
     try {
       const queue = await Database.getSyncQueue();
+      initialQueueSize = queue.length;
+      oldestItemAgeMs = queue.length
+        ? Math.max(0, ...queue.map((item) => Date.now() - new Date(item.timestamp).getTime()))
+        : null;
       if (queue.length === 0) {
         if (options?.refreshAfterSync) {
           await get().fetchNotes();
@@ -1688,6 +1803,7 @@ export const useStore = create<AppState>((set, get) => ({
           }
           await Database.removeFromSyncQueue(item.id);
         } catch (error) {
+          failedItems += 1;
           const err: any = error;
           const status = typeof err?.status === 'number' ? err.status : undefined;
           if (status === 401) return;
@@ -1703,6 +1819,14 @@ export const useStore = create<AppState>((set, get) => ({
     } catch (error) {
       console.error('Sync offline changes failed', error);
     } finally {
+      if (initialQueueSize > 0) {
+        recordSyncQueueDrain({
+          batchSize: initialQueueSize,
+          failedItems,
+          durationMs: Date.now() - syncStartedAt,
+          oldestItemAgeMs,
+        });
+      }
       set({ isSyncingOffline: false });
     }
   },

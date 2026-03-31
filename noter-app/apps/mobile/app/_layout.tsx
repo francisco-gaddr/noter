@@ -50,6 +50,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (!appReady) return;
+    recordMobileAppReady();
     void SplashScreen.hideAsync().catch(() => {});
   }, [appReady]);
 
@@ -76,6 +77,7 @@ import { extractTaskIdFromNotificationResponse, NotificationTaskIntentQueue } fr
 import { useTranslation } from 'react-i18next';
 import { isExpoGo } from '@/utils/runtime';
 import { runStartupBootstrap } from '@/services/startup';
+import { recordMobileAppReady } from '@/services/perfMetrics';
 
 export function RootLayoutNav() {
   const { actualTheme } = useThemeContext();

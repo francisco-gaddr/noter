@@ -367,6 +367,16 @@ export default function SettingsScreen() {
           onPressOut={() => setPressedItem(null)}
           rippleColor={touchRippleColor}
         />
+        <List.Item
+          style={pressedStyle('developer-performance')}
+          title={t('settings.performanceSnapshotsTitle')}
+          description={t('settings.performanceSnapshotsHint')}
+          left={props => <List.Icon {...props} icon="chart-box-outline" />}
+          onPress={() => router.push('/performance-snapshots' as any)}
+          onPressIn={() => setPressedItem('developer-performance')}
+          onPressOut={() => setPressedItem(null)}
+          rippleColor={touchRippleColor}
+        />
         <View style={styles.hint}>
           <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
             {t('settings.backendHint', 'Ställ in adress till backend API')}

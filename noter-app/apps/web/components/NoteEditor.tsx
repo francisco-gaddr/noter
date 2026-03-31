@@ -5,7 +5,6 @@ import { createEditor, Descendant, Editor, Transforms, Text, Element as SlateEle
 import { Slate, Editable, withReact, useSlate, ReactEditor, useSlateStatic, useReadOnly } from 'slate-react';
 import { withHistory, HistoryEditor } from 'slate-history';
 import { useStore } from '../stores/useStore';
-import { debounce } from 'lodash';
 import { FaBold, FaItalic, FaUnderline, FaCode, FaListUl, FaListOl, FaQuoteRight, FaLock, FaUnlock, FaLink, FaImage, FaVideo, FaFilePdf, FaFileDownload, FaFileAlt, FaCheckSquare, FaTable, FaTags } from 'react-icons/fa';
 import * as FaIcons from 'react-icons/fa';
 import { PasswordModal } from './PasswordModal';
@@ -20,6 +19,7 @@ import DOMPurify from 'dompurify';
 import { getTikTokEmbedUrl, resolveVideoEmbedUrl } from '../lib/videoEmbed';
 import { buildSecurityNoteMap, findBlockingLockedAncestor } from '../services/ai/security';
 import i18n from '../app/i18n';
+import { useNoteEditorPersistence } from './note-editor/useNoteEditorPersistence';
 
 type CustomElement = { type: string; children: CustomText[]; url?: string; align?: string; checked?: boolean };
 type CustomText = { text: string; bold?: boolean; italic?: boolean; underline?: boolean; code?: boolean };
@@ -1203,8 +1203,10 @@ function NoteEditorContent() {
   const unlockedProtectedNoteIds = useStore((state) => state.unlockedProtectedNoteIds);
   const editor = useMemo(() => withTrailingParagraph(withHtml(withEmbeds(withHistory(withReact(createEditor()))))), []);
   const { t } = useTranslation();
-
-  const selectedNote = notes.find((n) => n._id === selectedNoteId);
+  const notesById = useMemo(() => new Map(notes.map((note) => [note._id, note])), [notes]);
+  const unlockedProtectedNoteIdSet = useMemo(() => new Set(unlockedProtectedNoteIds), [unlockedProtectedNoteIds]);
+  const securityMap = useMemo(() => buildSecurityNoteMap(notes as any), [notes]);
+  const selectedNote = selectedNoteId ? notesById.get(selectedNoteId) : undefined;
   const [title, setTitle] = useState('');
   const [value, setValue] = useState<Descendant[]>(initialValue);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
@@ -1276,14 +1278,12 @@ function NoteEditorContent() {
   }, [showTagsModal]);
 
   const loadedValue = useMemo((): Descendant[] => {
-    if (!selectedNoteId) return initialValue;
-    const note = notes.find(n => n._id === selectedNoteId);
-    if (!note) return initialValue;
-    const blocking = findBlockingLockedAncestor(note as any, buildSecurityNoteMap(notes as any), new Set(unlockedProtectedNoteIds));
+    if (!selectedNote) return initialValue;
+    const blocking = findBlockingLockedAncestor(selectedNote as any, securityMap as any, unlockedProtectedNoteIdSet as any);
     if (blocking && !isUnlockedLocally) return initialValue;
 
-    return contentToSlateValue(note.content || '');
-  }, [isUnlockedLocally, notes, selectedNoteId, unlockedProtectedNoteIds]);
+    return contentToSlateValue(selectedNote.content || '');
+  }, [isUnlockedLocally, securityMap, selectedNote, unlockedProtectedNoteIdSet]);
 
   useEffect(() => {
     if (selectedNoteId) {
@@ -1303,47 +1303,12 @@ function NoteEditorContent() {
 
   const blockingLockedAncestor = useMemo(() => {
     if (!selectedNote) return null;
-    return findBlockingLockedAncestor(selectedNote as any, buildSecurityNoteMap(notes as any), new Set(unlockedProtectedNoteIds)) as any;
-  }, [selectedNote, notes, unlockedProtectedNoteIds]);
+    return findBlockingLockedAncestor(selectedNote as any, securityMap as any, unlockedProtectedNoteIdSet as any) as any;
+  }, [securityMap, selectedNote, unlockedProtectedNoteIdSet]);
 
   const isEffectiveLocked = Boolean(blockingLockedAncestor);
 
-  const saveNote = useMemo(
-    () => debounce((id: string, title: string, content: string, icon?: string, iconColor?: string) => {
-      if (id) {
-          // Fix TypeScript error: ensure we call updateNote correctly
-          // We can't use the overload with object directly if TS complains, 
-          // but we updated useStore to accept it. 
-          // The issue might be that TS in NoteEditor doesn't see the updated type definition yet?
-          // Or the debounce signature is inferring types strictly.
-          
-          // Let's use `any` cast to bypass the TS error if the store is updated but TS is lagging,
-          // or explicitly call it with positional args if preferred, but object is better.
-          // Since we updated useStore to handle object as 2nd arg, this should be valid if types match.
-          
-          // However, the error message says: Argument of type '{ ... }' is not assignable to parameter of type 'string'.
-          // This means NoteEditor still thinks updateNote takes (id, title, content...).
-          
-          // We will cast to any to fix the build error since we know the implementation handles it.
-          (updateNote as any)(id, { title, content, icon, iconColor });
-      }
-    }, 2000), 
-    [updateNote]
-  );
-  
-  // Clean up debounce on unmount
-  useEffect(() => {
-      return () => {
-          saveNote.cancel();
-      };
-  }, [saveNote]);
-  const saveTitle = useMemo(
-    () =>
-      debounce((id: string, title: string, content: string) => {
-        updateNote(id, title, content);
-      }, 500),
-    [updateNote]
-  );
+  const { saveNote, saveTitle } = useNoteEditorPersistence(updateNote);
   const lastSavedContentRef = useRef<string>(slateValueToHtml(initialValue));
   const lastSavedTitleRef = useRef<string>(selectedNote?.title || '');
   const currentTitleRef = useRef<string>('');
@@ -1360,8 +1325,7 @@ function NoteEditorContent() {
 
   useEffect(() => {
     if (!selectedNoteId) return;
-    const note = notes.find(n => n._id === selectedNoteId);
-    if (!note) return;
+    if (!selectedNote) return;
 
     const shouldLoad =
       previousNoteIdRef.current !== selectedNoteId ||
@@ -1371,12 +1335,12 @@ function NoteEditorContent() {
 
     setValue(loadedValue);
     lastSavedContentRef.current = slateValueToHtml(loadedValue);
-    lastSavedTitleRef.current = note.title || '';
-    currentTitleRef.current = note.title || '';
-    setTitle(note.title || '');
+    lastSavedTitleRef.current = selectedNote.title || '';
+    currentTitleRef.current = selectedNote.title || '';
+    setTitle(selectedNote.title || '');
     previousNoteIdRef.current = selectedNoteId;
     loadedAfterUnlockRef.current = isUnlockedLocally;
-  }, [loadedValue, notes, selectedNoteId, isUnlockedLocally]);
+  }, [loadedValue, selectedNote, selectedNoteId, isUnlockedLocally]);
 
   useEffect(() => {
     if (!selectedNoteId) return;

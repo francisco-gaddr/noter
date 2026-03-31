@@ -19,6 +19,8 @@ contextBridge.exposeInMainWorld('mlc', {
     ipcRenderer.on('mlc:chat-token', listener);
     return () => ipcRenderer.removeListener('mlc:chat-token', listener);
   },
+  getPerformanceSnapshot: () => ipcRenderer.invoke('perf:get-snapshot'),
+  resetPerformanceSnapshot: () => ipcRenderer.invoke('perf:reset-snapshot'),
   getSetting: (key) => ipcRenderer.invoke('settings:get', key),
   setSetting: (key, value) => ipcRenderer.invoke('settings:set', { key, value })
 });

@@ -1,7 +1,15 @@
 const { app, BrowserWindow, ipcMain, safeStorage, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { getModels, downloadAndConvert, deleteModel, runChat, cancelChat, searchModels, getModelFiles } = require('./src/mlc');
+const {
+  getElectronPerformanceSnapshot,
+  recordAiChatSample,
+  recordAiDownloadSample,
+  recordSettingsQueueEnqueue,
+  recordSettingsQueueFlush,
+  recordStartupEvent,
+  resetElectronPerformanceSnapshot,
+} = require('./src/perfMetrics');
 
 const isDev = process.env.NODE_ENV === 'development';
 const isTest = process.env.ELECTRON_TEST === '1';
@@ -21,6 +29,14 @@ const rendererFallbackUrls = Array.from(new Set([
   'https://daylited.com/app/',
   remoteUrl,
 ].filter(Boolean)));
+let mlcModule = null;
+
+const getMlcModule = () => {
+  if (!mlcModule) {
+    mlcModule = require('./src/mlc');
+  }
+  return mlcModule;
+};
 
 if (userDataDir) {
   app.setPath('userData', userDataDir);
@@ -49,7 +65,7 @@ const readSettings = () => {
 
 const writeSettings = (next) => {
   if (!safeStorage?.isEncryptionAvailable?.()) {
-    return false;
+    return true;
   }
   const filePath = path.join(app.getPath('userData'), settingsFileName);
   const encrypted = safeStorage.encryptString(JSON.stringify(next));
@@ -61,6 +77,23 @@ const writeSettings = (next) => {
   return true;
 };
 
+const shouldRewriteSettingsOnStartup = () => {
+  if (!safeStorage?.isEncryptionAvailable?.()) {
+    return false;
+  }
+  try {
+    const filePath = path.join(app.getPath('userData'), settingsFileName);
+    if (!fs.existsSync(filePath)) {
+      return true;
+    }
+    const raw = fs.readFileSync(filePath, 'utf8');
+    const parsed = JSON.parse(raw);
+    return !(parsed?.__encrypted === true && typeof parsed.payload === 'string');
+  } catch {
+    return true;
+  }
+};
+
 let settingsCache = {};
 let settingsWriteQueue = Promise.resolve();
 let pendingSettingsSnapshot = null;
@@ -69,11 +102,16 @@ let settingsFlushTimer = null;
 
 const flushPendingSettingsWrite = () => {
   if (!pendingSettingsSnapshot) return;
+  const flushStartedAt = Date.now();
   const snapshot = pendingSettingsSnapshot;
   const resolvers = pendingSettingsResolvers.splice(0);
   pendingSettingsSnapshot = null;
   writeSettings(snapshot);
   settingsCache = snapshot;
+  recordSettingsQueueFlush({
+    durationMs: Date.now() - flushStartedAt,
+    snapshotKeys: Object.keys(snapshot || {}).length,
+  });
   resolvers.forEach((resolve) => resolve());
 };
 
@@ -83,6 +121,10 @@ const enqueueSettingsWrite = (mutate) => {
     mutate(next);
     pendingSettingsSnapshot = next;
     pendingSettingsResolvers.push(resolve);
+    recordSettingsQueueEnqueue({
+      pendingResolvers: pendingSettingsResolvers.length,
+      coalesced: Boolean(settingsFlushTimer),
+    });
     if (settingsFlushTimer) {
       clearTimeout(settingsFlushTimer);
     }
@@ -170,9 +212,12 @@ const openExternalSafely = (url) => {
 };
 
 const createWindow = () => {
+  recordStartupEvent('window-created');
   const win = new BrowserWindow({
+    show: isTest,
     width: 1280,
     height: 800,
+    backgroundColor: '#0f172a',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -195,6 +240,7 @@ const createWindow = () => {
   });
 
   if (isTest) {
+    recordStartupEvent('load-started', { source: 'test' });
     win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent('<!doctype html><html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Electron Noter Test</title></head><body data-mlc="ready"><main id="app">Electron Noter Test</main></body></html>')}`);
     return win;
   }
@@ -213,6 +259,7 @@ const createWindow = () => {
   const recoverRenderer = async () => {
     if (recovering || win.isDestroyed()) return;
     recovering = true;
+    recordStartupEvent('renderer-recovery');
     try {
       await loadErrorFallback(win);
       const loaded = await loadFirstReachableUrl(win);
@@ -226,20 +273,29 @@ const createWindow = () => {
   };
 
   if (isDev) {
+    recordStartupEvent('load-started', { source: 'dev-url' });
     win.loadURL(devUrl);
   } else if (fs.existsSync(rendererIndex)) {
+    recordStartupEvent('load-started', { source: 'renderer-index' });
     win.loadFile(rendererIndex);
   } else if (fs.existsSync(legacyRendererIndex)) {
+    recordStartupEvent('load-started', { source: 'legacy-renderer-index' });
     win.loadFile(legacyRendererIndex);
   } else {
     recoverRenderer();
   }
 
   win.webContents.on('did-fail-load', () => {
+    recordStartupEvent('did-fail-load');
     recoverRenderer().catch(() => {});
   });
 
   win.webContents.on('did-finish-load', () => {
+    recordStartupEvent('did-finish-load');
+    if (!win.isVisible()) {
+      win.show();
+      recordStartupEvent('window-shown');
+    }
     if (recoveryTimer) {
       clearTimeout(recoveryTimer);
       recoveryTimer = null;
@@ -257,9 +313,14 @@ const createWindow = () => {
 };
 
 app.whenReady().then(() => {
+  recordStartupEvent('app-ready');
   settingsCache = readSettings();
-  writeSettings(settingsCache);
   createWindow();
+  if (shouldRewriteSettingsOnStartup()) {
+    enqueueSettingsWrite((settings) => {
+      Object.assign(settings, settingsCache);
+    }).catch(() => {});
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -282,37 +343,84 @@ const broadcast = (channel, payload) => {
 
 ipcMain.handle('mlc:get-models', async () => {
   const baseDir = app.getPath('userData');
+  const { getModels } = getMlcModule();
   return getModels(baseDir);
 });
 
 ipcMain.handle('mlc:search-models', async (_event, payload) => {
+  const { searchModels } = getMlcModule();
   return searchModels(payload?.query || '');
 });
 
 ipcMain.handle('mlc:get-model-files', async (_event, payload) => {
+  const { getModelFiles } = getMlcModule();
   return getModelFiles(payload?.modelId || '');
 });
 
 ipcMain.handle('mlc:download', async (_event, payload) => {
   const baseDir = app.getPath('userData');
-  return downloadAndConvert(baseDir, payload, (progress) => {
-    broadcast('mlc:download-progress', { id: payload?.id, progress });
-  });
+  const { downloadAndConvert } = getMlcModule();
+  const startedAt = Date.now();
+  let progressEventCount = 0;
+  try {
+    const result = await downloadAndConvert(baseDir, payload, (progress) => {
+      progressEventCount += 1;
+      broadcast('mlc:download-progress', { id: payload?.id, progress });
+    });
+    recordAiDownloadSample({
+      durationMs: Date.now() - startedAt,
+      progressEventCount,
+      modelId: payload?.id || payload?.modelId,
+      ok: true,
+    });
+    return result;
+  } catch (error) {
+    recordAiDownloadSample({
+      durationMs: Date.now() - startedAt,
+      progressEventCount,
+      modelId: payload?.id || payload?.modelId,
+      ok: false,
+    });
+    throw error;
+  }
 });
 
 ipcMain.handle('mlc:delete', async (_event, payload) => {
   const baseDir = app.getPath('userData');
+  const { deleteModel } = getMlcModule();
   return deleteModel(baseDir, payload?.id);
 });
 
 ipcMain.handle('mlc:chat', async (_event, payload) => {
   const baseDir = app.getPath('userData');
-  return runChat(baseDir, payload, (token) => {
-    broadcast('mlc:chat-token', { chatId: payload?.chatId, token });
-  });
+  const { runChat } = getMlcModule();
+  const startedAt = Date.now();
+  let tokenCount = 0;
+  try {
+    const result = await runChat(baseDir, payload, (token) => {
+      tokenCount += 1;
+      broadcast('mlc:chat-token', { chatId: payload?.chatId, token });
+    });
+    recordAiChatSample({
+      durationMs: Date.now() - startedAt,
+      tokenCount,
+      chatId: payload?.chatId,
+      ok: true,
+    });
+    return result;
+  } catch (error) {
+    recordAiChatSample({
+      durationMs: Date.now() - startedAt,
+      tokenCount,
+      chatId: payload?.chatId,
+      ok: false,
+    });
+    throw error;
+  }
 });
 
 ipcMain.handle('mlc:cancel-chat', async (_event, payload) => {
+  const { cancelChat } = getMlcModule();
   return cancelChat(payload?.chatId);
 });
 
@@ -332,5 +440,11 @@ ipcMain.handle('settings:set', async (_event, payload) => {
       settings[key] = value;
     }
   });
+  return true;
+});
+
+ipcMain.handle('perf:get-snapshot', async () => getElectronPerformanceSnapshot());
+ipcMain.handle('perf:reset-snapshot', async () => {
+  resetElectronPerformanceSnapshot();
   return true;
 });

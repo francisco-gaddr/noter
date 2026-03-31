@@ -1,6 +1,7 @@
 import * as SQLite from 'expo-sqlite';
 import CryptoJS from 'crypto-js';
 import { Note, Task, Conversation, Message, AIModel, AIProject, encrypt, decrypt, decryptWithSource } from '@repo/shared';
+import { recordSyncQueueEnqueue, recordSyncQueueMergeIntoCreate, recordSyncQueueRemoveQueuedCreate } from './perfMetrics';
 
 type LocalConversation = Conversation & { localOnly?: boolean };
 type LocalAIProject = AIProject & { localOnly?: boolean };
@@ -342,6 +343,15 @@ export const initDatabase = async () => {
 
   await db.execAsync('DROP INDEX IF EXISTS idx_sync_queue_dedupeKey');
   await db.execAsync('CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_queue_dedupeKeyHash ON sync_queue(dedupeKeyHash)');
+  await db.execAsync('CREATE INDEX IF NOT EXISTS idx_notes_updatedAt ON notes(updatedAt)');
+  await db.execAsync('CREATE INDEX IF NOT EXISTS idx_notes_parentId ON notes(parentId)');
+  await db.execAsync('CREATE INDEX IF NOT EXISTS idx_notes_clientId ON notes(clientId)');
+  await db.execAsync('CREATE INDEX IF NOT EXISTS idx_notes_isSynced ON notes(isSynced)');
+  await db.execAsync('CREATE INDEX IF NOT EXISTS idx_tasks_updatedAt ON tasks(updatedAt)');
+  await db.execAsync('CREATE INDEX IF NOT EXISTS idx_tasks_parentNoteId ON tasks(parentNoteId)');
+  await db.execAsync('CREATE INDEX IF NOT EXISTS idx_tasks_parentId ON tasks(parentId)');
+  await db.execAsync('CREATE INDEX IF NOT EXISTS idx_tasks_clientId ON tasks(clientId)');
+  await db.execAsync('CREATE INDEX IF NOT EXISTS idx_tasks_isSynced ON tasks(isSynced)');
 
   const existing = await db.getAllAsync<any>(
     'SELECT id, action, entity, data, timestamp, dedupeKey, dedupeKeyHash FROM sync_queue'
@@ -498,6 +508,16 @@ export const getNotesLocal = async (): Promise<Note[]> => {
   return notes.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 };
 
+export const getLocalNoteSyncIndex = async (): Promise<Map<string, string>> => {
+  const rows = await db.getAllAsync<any>('SELECT _id, updatedAt FROM notes');
+  return new Map(
+    rows.map((row) => [
+      String(row._id),
+      String(decryptText(row.updatedAt, row.updatedAt) || row.updatedAt || '')
+    ])
+  );
+};
+
 export const deleteNoteLocal = async (id: string) => {
   await db.runAsync('DELETE FROM notes WHERE _id = ?', [id]);
 };
@@ -641,6 +661,16 @@ export const getTasksLocal = async (): Promise<Task[]> => {
   return tasks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 };
 
+export const getLocalTaskSyncIndex = async (): Promise<Map<string, string>> => {
+  const rows = await db.getAllAsync<any>('SELECT _id, updatedAt FROM tasks');
+  return new Map(
+    rows.map((row) => [
+      String(row._id),
+      String(decryptText(row.updatedAt, row.updatedAt) || row.updatedAt || '')
+    ])
+  );
+};
+
 export const migrateLocalEncryptedData = async () => {
   const noteColumns = ['title', 'content', 'tags', 'createdAt', 'updatedAt', 'userId', 'clientId', 'type', 'parentId', 'noteOrder', 'icon', 'iconColor', 'locked', 'password', 'isSynced'];
   const taskColumns = ['title', 'description', 'priority', 'completed', 'dueDate', 'createdAt', 'updatedAt', 'userId', 'parentNoteId', 'parentId', 'position', 'recurrenceType', 'recurrenceDays', 'reminderEnabled', 'reminderOffsetMinutes', 'clientId', 'isSynced'];
@@ -708,12 +738,46 @@ export const addToSyncQueue = async (action: string, entity: string, data: any) 
          dedupeKey = excluded.dedupeKey`,
       [encryptedAction, encryptedEntity, encryptedData, encryptedTimestamp, encryptedDedupeKey, dedupeKeyHash]
     );
+    recordSyncQueueEnqueue();
     return;
   }
   await db.runAsync(
     `INSERT INTO sync_queue (action, entity, data, timestamp, dedupeKey, dedupeKeyHash) VALUES (?, ?, ?, ?, ?, ?)`,
     [encryptedAction, encryptedEntity, encryptedData, encryptedTimestamp, encryptedDedupeKey, dedupeKeyHash]
   );
+  recordSyncQueueEnqueue();
+};
+
+export const mergeIntoQueuedCreate = async (entity: string, tempId: string, patch: Record<string, unknown>) => {
+  const dedupeKey = `CREATE:${entity}:tempId:${tempId}`;
+  const dedupeKeyHash = hashText(dedupeKey);
+  const row = await db.getFirstAsync<any>('SELECT id, data FROM sync_queue WHERE dedupeKeyHash = ?', [dedupeKeyHash]);
+  if (!row) return false;
+
+  let existing: Record<string, unknown> = {};
+  try {
+    existing = JSON.parse(decryptText(row.data, row.data) || row.data);
+  } catch {
+    existing = {};
+  }
+
+  const merged = { ...existing, ...patch, tempId };
+  await db.runAsync(
+    'UPDATE sync_queue SET data = ?, timestamp = ? WHERE id = ?',
+    [encrypt(JSON.stringify(merged)), encryptText(new Date().toISOString()), row.id]
+  );
+  recordSyncQueueMergeIntoCreate();
+  return true;
+};
+
+export const removeQueuedCreate = async (entity: string, tempId: string) => {
+  const dedupeKey = `CREATE:${entity}:tempId:${tempId}`;
+  const dedupeKeyHash = hashText(dedupeKey);
+  const row = await db.getFirstAsync<any>('SELECT id FROM sync_queue WHERE dedupeKeyHash = ?', [dedupeKeyHash]);
+  if (!row?.id) return false;
+  await db.runAsync('DELETE FROM sync_queue WHERE id = ?', [row.id]);
+  recordSyncQueueRemoveQueuedCreate();
+  return true;
 };
 
 export const getSyncQueue = async () => {

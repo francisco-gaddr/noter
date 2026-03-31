@@ -13,6 +13,8 @@ declare global {
       cancelChat: (payload: any) => Promise<any>;
       onDownloadProgress: (handler: (data: any) => void) => (() => void) | void;
       onChatToken: (handler: (data: any) => void) => (() => void) | void;
+      getPerformanceSnapshot: () => Promise<any>;
+      resetPerformanceSnapshot: () => Promise<any>;
       getSetting: (key: string) => Promise<any>;
       setSetting: (key: string, value: any) => Promise<any>;
     };

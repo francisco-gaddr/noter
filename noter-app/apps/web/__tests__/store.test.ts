@@ -203,6 +203,28 @@ describe('Web Store', () => {
     expect(state.notes[0]?.type).toBe('project');
   });
 
+  it('should dedupe concurrent fetchNotes calls', async () => {
+    const { api } = require('../services/api');
+    let resolveFetch: ((value: any[]) => void) | null = null;
+    api.fetchNotes.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveFetch = resolve;
+        })
+    );
+
+    const first = useStore.getState().fetchNotes();
+    const second = useStore.getState().fetchNotes();
+
+    await Promise.resolve();
+    expect(api.fetchNotes).toHaveBeenCalledTimes(1);
+
+    resolveFetch?.([]);
+    await act(async () => {
+      await Promise.all([first, second]);
+    });
+  });
+
   it('should relock project session when leaving active project', async () => {
     useStore.setState({
       activeProjectId: 'p1',

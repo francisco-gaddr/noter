@@ -44,6 +44,30 @@ describe('AISidebar', () => {
         localStorage.clear();
         useStore.setState({ user: { _id: '1', username: 'test' }, token: 'test-jwt-token' } as any);
         (global.fetch as jest.Mock).mockClear();
+        (window as any).mlc = {
+            isElectron: false,
+            getModels: jest.fn().mockResolvedValue([]),
+            searchModels: jest.fn().mockResolvedValue([]),
+            getModelFiles: jest.fn().mockResolvedValue([]),
+            downloadAndConvert: jest.fn().mockResolvedValue(true),
+            deleteModel: jest.fn().mockResolvedValue(true),
+            chat: jest.fn().mockResolvedValue(true),
+            cancelChat: jest.fn().mockResolvedValue(true),
+            onDownloadProgress: jest.fn(() => () => {}),
+            onChatToken: jest.fn(() => () => {}),
+            getPerformanceSnapshot: jest.fn().mockResolvedValue({
+                appStartedAt: 100,
+                startup: { windowShownAt: 350, lastLoadSource: 'dev-url', recoveryCount: 1, didFailLoadCount: 0 },
+                settingsQueue: { enqueued: 2, flushes: 1, lastFlushDurationMs: 18 },
+                ai: {
+                    downloads: { lastModelId: 'mock-model', lastProgressEventCount: 4, failureCount: 0 },
+                    chats: { lastChatId: 'chat-1', lastTokenCount: 12, failureCount: 0 },
+                },
+            }),
+            resetPerformanceSnapshot: jest.fn().mockResolvedValue(true),
+            getSetting: jest.fn().mockResolvedValue(null),
+            setSetting: jest.fn().mockResolvedValue(true),
+        };
     });
 
     it('renders closed by default', async () => {
@@ -182,6 +206,32 @@ describe('AISidebar', () => {
             expect(screen.getByTestId('ai-conversion-health-panel')).toBeInTheDocument();
             expect(screen.getByText('Lokal MLC-konvertering är redo.')).toBeInTheDocument();
             expect(screen.getByText(/py -m mlc_llm/)).toBeInTheDocument();
+        });
+    });
+
+    it('shows electron performance snapshots in the system dashboard', async () => {
+        (window as any).mlc.isElectron = true;
+
+        await act(async () => {
+            render(<AISidebar />);
+        });
+
+        await act(async () => {
+            window.dispatchEvent(new Event('open-system-dashboard'));
+        });
+
+        await waitFor(() => {
+            expect(screen.getByTestId('system-dashboard-section')).toBeInTheDocument();
+        });
+
+        await act(async () => {
+            fireEvent.click(screen.getByRole('button', { name: 'Prestanda' }));
+        });
+
+        await waitFor(() => {
+            expect(screen.getByTestId('electron-performance-tab')).toBeInTheDocument();
+            expect(screen.getByText('Electron-prestandasnapshots')).toBeInTheDocument();
+            expect(screen.getByTestId('electron-performance-raw')).toHaveTextContent('mock-model');
         });
     });
 });

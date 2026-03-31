@@ -1,5 +1,14 @@
 # Project Rules
 
+## Scope och prioritet
+
+- Detta dokument innehåller projektspecifika tekniska regler för aktiv utveckling i `noter-app/`, `electron-noter/` och tillhörande dokumentation.
+- Rotens `AGENTS.md` är överordnad vid konflikt.
+- `project_prompt.md` styr hur agenten ska resonera; detta dokument styr vad som faktiskt är tillåtet, obligatoriskt och verifierbart.
+- `engineering_playbook.md` operationaliserar reglerna till kommandon, gates och leveransbevis.
+- `INSTRUCTIONS.md` används endast för drift och deploy, inte som regelkälla för utvecklingspolicy.
+- Parallella eller äldre katalogträd får inte användas som normativ källa om inte uppgiften uttryckligen gäller dem.
+
 ## Whats New / Changelog
 
 - Varje gång mobilappen eller Electron-appen ändras i en leveransbar build ska `packages/shared/src/whatsNew.ts` uppdateras.
@@ -33,6 +42,7 @@
 - Före leverans ska relevanta suites i web, mobile och backend köras för berörda förändringar.
 - Före varje push till `dev`/`main` ska `npm run validate:prepush` köras från repo-roten och passera.
 - `validate:prepush` är obligatorisk gate för notes, tasks, AI-chatt, säkerhet och fallback/felhantering i backend/web/mobile/electron.
+- När auth, lock, kryptering, settings, IPC, AI-sync eller request-härdning ändras ska `npm run test:security:deep` betraktas som standardvalidering om inte en snävare verifiering kan motiveras.
 - `npm run check-types` och `npm run lint` måste vara gröna innan ändringar betraktas som färdiga.
 - Testnamn ska beskriva beteende och förväntat utfall, inte implementation.
 - Säkerhetsändringar i backend kräver minst ett test som verifierar access-scope per användare.
@@ -43,9 +53,11 @@
 - Nätverksanrop ska ha tydlig felhantering, timeoutstrategi och fallback för offline-läge där det är relevant.
 - State-uppdateringar ska vara idempotenta och tåla dubbla events från sync/socket utan datakorruption.
 - Funktioner som hämtar stora listor ska undvika onödiga full-reloads och använda chunking/batching där det finns stöd.
+- Startup- och hydrationsflöden får inte trigga dubbla note/task-fetches eller parallella refreshar mot samma scope utan explicit deduplicering.
 - Ändringar i synkflöden ska verifieras för race conditions mellan lokal cache, socket-events och HTTP-respons.
 - Optimistiska mutationer för tasks/notes får inte slå på global loading-state om UI redan kan uppdateras lokalt säkert.
 - Reminder-planering, lokal DB-persistens och sync ska flyttas bort från kritiska UI-paths när samma slutresultat kan säkras i bakgrunden.
+- Långa persistensloopar för notes/tasks ska delas upp i chunkar eller yielding batcher när datasetet kan bli större än ett fåtal poster.
 - UI-komponenter i inställningar och säkerhetsflöden ska ha stabila testID/data-testid för E2E-automation.
 - Backendflöden med externa integrationer ska ha rate-limit, input-sanitization, retries med kontrollerad budget och tydlig circuit-breaker-strategi.
 - Nya observability-flöden ska inkludera health-endpoint eller dashboard-support med åtkomstkontroll och minimal dataexponering.
@@ -68,6 +80,7 @@
 - Task-editor i mobilappen ska ha single-tap-beteende även med öppet tangentbord; `keyboardShouldPersistTaps` får inte regressa.
 - När förfallodatum/förfallotid väljs i mobilappen ska påminnelse aktiveras automatiskt med default-offset `vid förfallotid` om användaren inte valt annat.
 - Mobilens AI-inställningar ska alltid innehålla separata vyer för `Modeller` och `AI Instruktioner` med samma kärnkapabilitet som web/electron.
+- Mobilens startup, bakgrundsrefresh och listvyer ska föredra parallella reads, indexerade parent-barn-strukturer och minimerade AsyncStorage-rundor framför upprepade fullskanningar.
 
 ## Electronapp — Kvalitetsregler
 
@@ -77,6 +90,7 @@
 - Dashboard- och AI-inställningsvyer i Electron ska vara fullt nåbara i UI men med server-side scope-kontroll för dataåtkomst.
 - Känsliga settings får inte speglas till localStorage när säker bridge-lagring finns tillgänglig.
 - Electronflöden ska verifieras för återhämtning efter renderer-reload, app-restart och tillfälliga backendavbrott.
+- Electron/web-renderern ska undvika överlappande startup-fetches, onödiga mount-triggerade laddningar och upprepade fulla lookup-pass i editor- och sidebarflöden.
 
 ## AI och Inställningskvalitet
 
@@ -95,6 +109,7 @@
 ## Leveranschecklista
 
 - Uppdatera relevanta md-dokument när nya säkerhetsflöden, endpoints eller dashboard-sektioner införs.
+- Uppdatera regel-, prompt- eller runbook-dokument i samma leverans när utvecklingsflöde, agentpolicy eller verifieringskrav ändras.
 - Kör backend-, web- och mobile-tester för berörda förändringar, inklusive E2E där UI påverkats.
 - Bekräfta att befintlig funktionalitet i AI-inställningar och MCP-flöden är bakåtkompatibel.
 - Följ verifieringsmatrisen i `.trae/rules/engineering_playbook.md` och inkludera leveransbevis enligt playbooken.

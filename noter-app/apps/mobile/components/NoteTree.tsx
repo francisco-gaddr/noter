@@ -57,6 +57,44 @@ export default function NoteTree({
     const type = normalizeNoteType((n as any).type);
     return type !== 'task_list' && type !== 'project';
   }), [notes]);
+  const visibleNoteById = useMemo(() => new Map(visibleNotes.map((note) => [note._id, note])), [visibleNotes]);
+  const sortedChildrenByParentId = useMemo(() => {
+    const map = new Map<string, Note[]>();
+    visibleNotes.forEach((note) => {
+      const parentKey = note.parentId && visibleNoteById.has(note.parentId) ? note.parentId : '__root__';
+      const current = map.get(parentKey) || [];
+      current.push(note);
+      map.set(parentKey, current);
+    });
+    const compareNotes = (a: Note, b: Note) => {
+      const dir = sortOrder === 'desc' ? -1 : 1;
+
+      if (sortBy === 'custom') {
+        const orderA = typeof (a as any).order === 'number' ? (a as any).order : 0;
+        const orderB = typeof (b as any).order === 'number' ? (b as any).order : 0;
+        if (orderA !== orderB) return orderA - orderB;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      }
+
+      if (sortBy === 'title') {
+        const ta = String(a.title ?? '');
+        const tb = String(b.title ?? '');
+        const cmp = ta.localeCompare(tb, undefined, { sensitivity: 'base' });
+        if (cmp !== 0) return cmp * dir;
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      }
+
+      const field = sortBy === 'updatedAt' ? 'updatedAt' : 'createdAt';
+      const da = new Date((a as any)[field]).getTime();
+      const db = new Date((b as any)[field]).getTime();
+      if (da !== db) return (da - db) * dir;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    };
+    map.forEach((items, key) => {
+      map.set(key, items.slice().sort(compareNotes));
+    });
+    return map;
+  }, [sortBy, sortOrder, visibleNoteById, visibleNotes]);
 
   const toggleExpand = (id: string) => {
     const newExpanded = new Set(expandedIds);
@@ -69,67 +107,29 @@ export default function NoteTree({
   };
 
   const treeData = useMemo(() => {
-    const buildTree = (parentId: string | null = null, level = 0): TreeItem[] => {
-      // Find items that match the parentId
-      // For root (parentId === null), also include items whose parents are missing from the visible set (orphans)
-      const isRoot = parentId === null;
-      
-      return visibleNotes
-        .filter(n => {
-            if (isRoot) {
-                // If it's a root item
-                if (!n.parentId) return true;
-                // Or if its parent is NOT in the visible notes (orphan)
-                const parentExists = visibleNotes.some(p => p._id === n.parentId);
-                return !parentExists;
-            }
-            return n.parentId === parentId;
-        })
-        .sort((a, b) => {
-          const dir = sortOrder === 'desc' ? -1 : 1;
+    const buildTree = (parentKey = '__root__', level = 0): TreeItem[] => {
+      const items = sortedChildrenByParentId.get(parentKey) || [];
+      return items.flatMap((note) => {
+        const children = sortedChildrenByParentId.get(note._id) || [];
+        const hasChildren = children.length > 0;
+        const isExpanded = expandedIds.has(note._id);
 
-          if (sortBy === 'custom') {
-            const orderA = typeof (a as any).order === 'number' ? (a as any).order : 0;
-            const orderB = typeof (b as any).order === 'number' ? (b as any).order : 0;
-            if (orderA !== orderB) return orderA - orderB;
-            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-          }
+        const item: TreeItem = {
+          ...note,
+          level,
+          hasChildren,
+          isExpanded
+        };
 
-          if (sortBy === 'title') {
-            const ta = String(a.title ?? '');
-            const tb = String(b.title ?? '');
-            const cmp = ta.localeCompare(tb, undefined, { sensitivity: 'base' });
-            if (cmp !== 0) return cmp * dir;
-            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-          }
-
-          const field = sortBy === 'updatedAt' ? 'updatedAt' : 'createdAt';
-          const da = new Date((a as any)[field]).getTime();
-          const db = new Date((b as any)[field]).getTime();
-          if (da !== db) return (da - db) * dir;
-          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-        })
-        .flatMap(note => {
-          const children = visibleNotes.filter(n => n.parentId === note._id);
-          const hasChildren = children.length > 0;
-          const isExpanded = expandedIds.has(note._id);
-          
-          const item: TreeItem = {
-            ...note,
-            level,
-            hasChildren,
-            isExpanded
-          };
-
-          if (hasChildren && isExpanded) {
-            return [item, ...buildTree(note._id, level + 1)];
-          }
-          return [item];
-        });
+        if (hasChildren && isExpanded) {
+          return [item, ...buildTree(note._id, level + 1)];
+        }
+        return [item];
+      });
     };
 
-    return buildTree(null);
-  }, [expandedIds, sortBy, sortOrder, visibleNotes]);
+    return buildTree();
+  }, [expandedIds, sortedChildrenByParentId]);
 
   useEffect(() => {
     lastOrderKeyRef.current = treeData.map((n) => n._id).join('|');
@@ -143,10 +143,9 @@ export default function NoteTree({
   const getEffectiveParentId = useCallback(
     (note: Note) => {
       if (!note.parentId) return null;
-      const parentExists = visibleNotes.some((p) => p._id === note.parentId);
-      return parentExists ? note.parentId : null;
+      return visibleNoteById.has(note.parentId) ? note.parentId : null;
     },
-    [visibleNotes]
+    [visibleNoteById]
   );
 
   const getPreviewContent = useCallback((content: any) => noteContentToPlainText(content), []);

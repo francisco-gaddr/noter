@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ChatMessage, HFModel, HFFile, Conversation, AIProject } from '@repo/ai';
 import { AI_PROMPT_PRESETS, AiPromptPreset, AiToolAccessMode, MCP_INTEGRATIONS, McpUiSettings, buildAiSessionInsights, buildAiSyncNotice, buildToolUseNotice, createEmptyMcpUiSettings, decrypt, encrypt, getAiPromptPresetPrompt, isMutatingAiTool, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings } from '@repo/shared';
 import { db } from '../services/db';
@@ -11,13 +11,16 @@ import { FaBars, FaCog, FaPlus, FaRegSmile, FaComments, FaCopy } from 'react-ico
 import * as FaIcons from 'react-icons/fa';
 import { IconPicker } from './IconPicker';
 import { getApiBaseUrl } from '../services/api';
-import { shouldStopToolIteration, toToolCallKeys, toToolIterationSignature } from '../services/ai/toolChain';
 import { ApiProviderType, generateApiProviderResponse } from '../services/ai/apiProviders';
 import { pullAiSync, pushAiSync } from '../services/ai/sync';
 import { connectSocket, socket } from '../services/socket';
 import { buildSecurityNoteMap, isReadableWithLocks } from '../services/ai/security';
 import i18n from '../app/i18n';
 import { getWebAuthTokenSync } from '../services/authStorage';
+import { AISidebarPromptPanel } from './ai-sidebar/AISidebarPromptPanel';
+import { getAISidebarMcpEnvValues } from './ai-sidebar/runtimeEnv';
+import { useAIGenerationLoop } from './ai-sidebar/useAIGenerationLoop';
+import { useAISidebarStore } from './ai-sidebar/useAISidebarStore';
 
 type LocalConversation = Conversation & { localOnly?: boolean; userId?: string };
 type LocalAIProject = AIProject & { localOnly?: boolean; userId?: string };
@@ -30,11 +33,110 @@ type McpFetchDiagnostics = {
   lastSuccessAt: number | null;
 };
 
+const AISidebarToolRow = React.memo(({
+  label,
+  statusLabel,
+  statusTone,
+  details,
+  iconSvg,
+  statusIcon,
+  collapsed,
+  onToggle,
+}: {
+  label: string;
+  statusLabel: string;
+  statusTone: 'success' | 'error' | 'info';
+  details: string;
+  iconSvg: string;
+  statusIcon: string;
+  collapsed: boolean;
+  onToggle: () => void;
+}) => (
+  <div
+    className="p-3 rounded-lg max-w-[90%] bg-gray-50 dark:bg-gray-800/70 mr-auto border border-gray-200 dark:border-gray-700"
+    style={{ contentVisibility: 'auto', containIntrinsicSize: '108px' }}
+  >
+    <button
+      className="w-full text-left text-xs font-semibold text-gray-700 dark:text-gray-200 flex items-center gap-2"
+      onClick={onToggle}
+    >
+      <span className="w-4 h-4 text-gray-700 dark:text-gray-200" dangerouslySetInnerHTML={{ __html: iconSvg }} />
+      {label}
+    </button>
+    <div className={`mt-1 text-xs flex items-center gap-2 ${statusTone === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-400'}`}>
+      <span className="w-3.5 h-3.5" dangerouslySetInnerHTML={{ __html: statusIcon }} />
+      {statusLabel}
+    </div>
+    {!collapsed && (
+      <div className="mt-2 text-xs text-gray-600 dark:text-gray-300 whitespace-pre-wrap">
+        {details || '(inga detaljer)'}
+      </div>
+    )}
+  </div>
+));
+
+const AISidebarChatRow = React.memo(({
+  role,
+  createdAt,
+  thinking,
+  rest,
+  showThinking,
+  collapsedThinking,
+  onToggleThinking,
+  onCopy,
+}: {
+  role: ChatMessage['role'];
+  createdAt?: string;
+  thinking: string;
+  rest: string;
+  showThinking: boolean;
+  collapsedThinking: boolean;
+  onToggleThinking: () => void;
+  onCopy: () => void;
+}) => {
+  const isAssistant = role === 'assistant';
+  return (
+    <div
+      className={`p-3 rounded-lg max-w-[90%] ${role === 'user' ? 'bg-blue-100 dark:bg-blue-900 ml-auto' : 'bg-gray-100 dark:bg-gray-800 mr-auto'}`}
+      style={{ contentVisibility: 'auto', containIntrinsicSize: '120px' }}
+    >
+      <div className="text-xs text-gray-500 dark:text-gray-300 mb-1 flex items-center justify-between">
+        <span className="capitalize">{role}</span>
+        <span>{createdAt}</span>
+      </div>
+      {isAssistant && showThinking && thinking && (
+        <div className="mb-2 border border-purple-200 dark:border-purple-700 rounded">
+          <button
+            className="w-full text-left px-2 py-1 text-xs font-semibold text-purple-700 dark:text-purple-200 bg-purple-50 dark:bg-purple-900/40"
+            onClick={onToggleThinking}
+          >
+            {collapsedThinking ? 'Visa tänkande' : 'Dölj tänkande'}
+          </button>
+          {!collapsedThinking && (
+            <div className="px-2 py-2 text-xs text-gray-700 dark:text-gray-200 whitespace-pre-wrap">
+              {thinking}
+            </div>
+          )}
+        </div>
+      )}
+      <div className="flex items-start justify-between gap-2">
+        <div className="whitespace-pre-wrap flex-1">{rest}</div>
+        {(role === 'assistant' || role === 'user') && (
+          <button
+            className="text-xs text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-100"
+            onClick={onCopy}
+            aria-label="Kopiera meddelande"
+          >
+            <FaCopy />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+});
+
 export const AISidebar = () => {
-  const user = useStore((state) => state.user);
-  const token = useStore((state) => state.token);
-  const notes = useStore((state) => state.notes);
-  const tasks = useStore((state) => state.tasks);
+  const { user, token, notes, tasks } = useAISidebarStore();
   const [isOpen, setIsOpen] = useState(false);
   const [width, setWidth] = useState(300);
   const [isResizing, setIsResizing] = useState(false);
@@ -137,7 +239,7 @@ export const AISidebar = () => {
   const [systemDashboardRange, setSystemDashboardRange] = useState<'1d' | '7d' | '30d' | '90d' | '365d'>('30d');
   const [systemDashboardGroup, setSystemDashboardGroup] = useState<'hour' | 'day' | 'week'>('day');
   const [systemDashboardSort, setSystemDashboardSort] = useState<'asc' | 'desc'>('desc');
-  const [systemDashboardTab, setSystemDashboardTab] = useState<'overview' | 'usage' | 'logs' | 'storage' | 'settings'>('overview');
+  const [systemDashboardTab, setSystemDashboardTab] = useState<'overview' | 'usage' | 'logs' | 'storage' | 'settings' | 'performance'>('overview');
   const [systemDashboardServiceFilter, setSystemDashboardServiceFilter] = useState('all');
   const [systemDashboardActionFilter, setSystemDashboardActionFilter] = useState('all');
   const [systemDashboardRoleFilter, setSystemDashboardRoleFilter] = useState('all');
@@ -165,6 +267,9 @@ export const AISidebar = () => {
     lastSuccessAt: null,
   });
   const [localDbSnapshot, setLocalDbSnapshot] = useState<any | null>(null);
+  const [electronPerformanceSnapshot, setElectronPerformanceSnapshot] = useState<any | null>(null);
+  const [electronPerformanceLoading, setElectronPerformanceLoading] = useState(false);
+  const [electronPerformanceError, setElectronPerformanceError] = useState<string | null>(null);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const activeProvider = aiUseApiProviders ? apiProvider : (aiProvider === 'lmstudio' ? 'lmstudio' : 'mlc');
   const getActiveModelLabel = () => {
@@ -282,48 +387,6 @@ export const AISidebar = () => {
     };
   }, []);
 
-  const getMcpEnvValues = (): Record<string, string | undefined> => {
-    const env = (typeof process !== 'undefined' ? process.env : {}) as Record<string, string | undefined>;
-    return {
-      MCP_SLACK_ENABLED: env.NEXT_PUBLIC_MCP_SLACK_ENABLED ?? env.MCP_SLACK_ENABLED,
-      SLACK_MCP_ENABLED: env.NEXT_PUBLIC_SLACK_MCP_ENABLED ?? env.SLACK_MCP_ENABLED,
-      MCP_SLACK_BOT_TOKEN: env.NEXT_PUBLIC_MCP_SLACK_BOT_TOKEN ?? env.MCP_SLACK_BOT_TOKEN,
-      SLACK_BOT_TOKEN: env.NEXT_PUBLIC_SLACK_BOT_TOKEN ?? env.SLACK_BOT_TOKEN,
-      MCP_SLACK_TEAM_ID: env.NEXT_PUBLIC_MCP_SLACK_TEAM_ID ?? env.MCP_SLACK_TEAM_ID,
-      SLACK_TEAM_ID: env.NEXT_PUBLIC_SLACK_TEAM_ID ?? env.SLACK_TEAM_ID,
-      MCP_SLACK_CHANNEL_IDS: env.NEXT_PUBLIC_MCP_SLACK_CHANNEL_IDS ?? env.MCP_SLACK_CHANNEL_IDS,
-      SLACK_CHANNEL_IDS: env.NEXT_PUBLIC_SLACK_CHANNEL_IDS ?? env.SLACK_CHANNEL_IDS,
-      MCP_GOOGLE_WORKSPACE_ENABLED: env.NEXT_PUBLIC_MCP_GOOGLE_WORKSPACE_ENABLED ?? env.MCP_GOOGLE_WORKSPACE_ENABLED,
-      GOOGLE_WORKSPACE_MCP_ENABLED: env.NEXT_PUBLIC_GOOGLE_WORKSPACE_MCP_ENABLED ?? env.GOOGLE_WORKSPACE_MCP_ENABLED,
-      MCP_GOOGLE_OAUTH_CLIENT_ID: env.NEXT_PUBLIC_MCP_GOOGLE_OAUTH_CLIENT_ID ?? env.MCP_GOOGLE_OAUTH_CLIENT_ID,
-      GOOGLE_OAUTH_CLIENT_ID: env.NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID ?? env.GOOGLE_OAUTH_CLIENT_ID,
-      MCP_GOOGLE_OAUTH_CLIENT_SECRET: env.NEXT_PUBLIC_MCP_GOOGLE_OAUTH_CLIENT_SECRET ?? env.MCP_GOOGLE_OAUTH_CLIENT_SECRET,
-      GOOGLE_OAUTH_CLIENT_SECRET: env.NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_SECRET ?? env.GOOGLE_OAUTH_CLIENT_SECRET,
-      MCP_GOOGLE_OAUTH_REDIRECT_URI: env.NEXT_PUBLIC_MCP_GOOGLE_OAUTH_REDIRECT_URI ?? env.MCP_GOOGLE_OAUTH_REDIRECT_URI,
-      GOOGLE_OAUTH_REDIRECT_URI: env.NEXT_PUBLIC_GOOGLE_OAUTH_REDIRECT_URI ?? env.GOOGLE_OAUTH_REDIRECT_URI,
-      MCP_GOOGLE_OAUTH_PATH: env.NEXT_PUBLIC_MCP_GOOGLE_OAUTH_PATH ?? env.MCP_GOOGLE_OAUTH_PATH,
-      GOOGLE_OAUTH_PATH: env.NEXT_PUBLIC_GOOGLE_OAUTH_PATH ?? env.GOOGLE_OAUTH_PATH,
-      MCP_NOTION_ENABLED: env.NEXT_PUBLIC_MCP_NOTION_ENABLED ?? env.MCP_NOTION_ENABLED,
-      NOTION_MCP_ENABLED: env.NEXT_PUBLIC_NOTION_MCP_ENABLED ?? env.NOTION_MCP_ENABLED,
-      MCP_NOTION_API_TOKEN: env.NEXT_PUBLIC_MCP_NOTION_API_TOKEN ?? env.MCP_NOTION_API_TOKEN,
-      NOTION_API_TOKEN: env.NEXT_PUBLIC_NOTION_API_TOKEN ?? env.NOTION_API_TOKEN,
-      MCP_NOTION_WORKSPACE_ID: env.NEXT_PUBLIC_MCP_NOTION_WORKSPACE_ID ?? env.MCP_NOTION_WORKSPACE_ID,
-      NOTION_WORKSPACE_ID: env.NEXT_PUBLIC_NOTION_WORKSPACE_ID ?? env.NOTION_WORKSPACE_ID,
-      MCP_FILESYSTEM_ENABLED: env.NEXT_PUBLIC_MCP_FILESYSTEM_ENABLED ?? env.MCP_FILESYSTEM_ENABLED,
-      FILESYSTEM_MCP_ENABLED: env.NEXT_PUBLIC_FILESYSTEM_MCP_ENABLED ?? env.FILESYSTEM_MCP_ENABLED,
-      MCP_FILESYSTEM_ALLOWED_PATHS: env.NEXT_PUBLIC_MCP_FILESYSTEM_ALLOWED_PATHS ?? env.MCP_FILESYSTEM_ALLOWED_PATHS,
-      FILESYSTEM_ALLOWED_PATHS: env.NEXT_PUBLIC_FILESYSTEM_ALLOWED_PATHS ?? env.FILESYSTEM_ALLOWED_PATHS,
-      MCP_PLAYWRIGHT_ENABLED: env.NEXT_PUBLIC_MCP_PLAYWRIGHT_ENABLED ?? env.MCP_PLAYWRIGHT_ENABLED,
-      PLAYWRIGHT_MCP_ENABLED: env.NEXT_PUBLIC_PLAYWRIGHT_MCP_ENABLED ?? env.PLAYWRIGHT_MCP_ENABLED,
-      MCP_PLAYWRIGHT_BROWSER: env.NEXT_PUBLIC_MCP_PLAYWRIGHT_BROWSER ?? env.MCP_PLAYWRIGHT_BROWSER,
-      PLAYWRIGHT_BROWSER: env.NEXT_PUBLIC_PLAYWRIGHT_BROWSER ?? env.PLAYWRIGHT_BROWSER,
-      MCP_PLAYWRIGHT_HEADLESS: env.NEXT_PUBLIC_MCP_PLAYWRIGHT_HEADLESS ?? env.MCP_PLAYWRIGHT_HEADLESS,
-      PLAYWRIGHT_HEADLESS: env.NEXT_PUBLIC_PLAYWRIGHT_HEADLESS ?? env.PLAYWRIGHT_HEADLESS,
-      MCP_PLAYWRIGHT_CHANNEL: env.NEXT_PUBLIC_MCP_PLAYWRIGHT_CHANNEL ?? env.MCP_PLAYWRIGHT_CHANNEL,
-      PLAYWRIGHT_CHANNEL: env.NEXT_PUBLIC_PLAYWRIGHT_CHANNEL ?? env.PLAYWRIGHT_CHANNEL,
-    };
-  };
-
   useEffect(() => {
     if (typeof window === 'undefined') return;
     
@@ -364,7 +427,7 @@ export const AISidebar = () => {
           parsedMcpSettings = normalizeMcpUiSettings(JSON.parse(decrypt(savedMcpSettings) || savedMcpSettings || '{}'));
         } catch {}
       }
-      const resolvedMcpSettings = resolveMcpSettings(parsedMcpSettings, getMcpEnvValues());
+      const resolvedMcpSettings = resolveMcpSettings(parsedMcpSettings, getAISidebarMcpEnvValues());
       if (mounted) setMcpSettings(toEffectiveMcpUiSettings(resolvedMcpSettings));
       
       const savedSystemPrompt = await getStoredValue(getSystemPromptKey());
@@ -939,7 +1002,7 @@ export const AISidebar = () => {
     return { kind: 'tool', tool: 'tool', details: content, payload: null };
   };
 
-  const getToolStatus = (info: { kind: string; tool: string; payload: any }) => {
+  const getToolStatus = (info: { kind: string; tool: string; payload: any }): { label: string; tone: 'success' | 'error' | 'info' } => {
     if (info.kind === 'error') return { label: 'Misslyckades', tone: 'error' };
     if (info.kind !== 'result') return { label: 'Körs', tone: 'info' };
     const data = info.payload || {};
@@ -1338,6 +1401,43 @@ export const AISidebar = () => {
 
   const fetchAIStream = async (history: ChatMessage[], assistantMsg: ChatMessage, convId: string): Promise<string> => {
     const promptText = buildPromptText(history);
+    let pendingContent = '';
+    let renderedContent = '';
+    let scheduledFlush: ReturnType<typeof setTimeout> | null = null;
+    let lastFlushAt = 0;
+
+    const updateAssistantContent = (content: string) => {
+      if (content === renderedContent) return;
+      renderedContent = content;
+      setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content } : m));
+      saveAssistantProgress(convId, assistantMsg.id as string, content).catch(() => {});
+    };
+
+    const flush = (force = false) => {
+      if (!force) {
+        const now = Date.now();
+        if (now - lastFlushAt < 80) return;
+      }
+      lastFlushAt = Date.now();
+      if (scheduledFlush) {
+        clearTimeout(scheduledFlush);
+        scheduledFlush = null;
+      }
+      updateAssistantContent(pendingContent);
+    };
+
+    const setBuffered = (content: string) => {
+      pendingContent = content;
+      const now = Date.now();
+      if (now - lastFlushAt >= 80) {
+        flush(true);
+        return;
+      }
+      if (!scheduledFlush) {
+        scheduledFlush = setTimeout(() => flush(true), 80);
+      }
+    };
+
     if (aiUseApiProviders) {
       const selectedProvider: ApiProviderType = apiProvider;
       const selectedApiKey = selectedProvider === 'openrouter' ? openRouterApiKey : geminiApiKey;
@@ -1353,13 +1453,12 @@ export const AISidebar = () => {
       for (const chunk of chunks) {
         if (stopRequestedRef.current) break;
         built += chunk;
-        setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: built } : m));
-        await saveAssistantProgress(convId, assistantMsg.id as string, built);
+        setBuffered(built);
       }
       if (!chunks.length) {
-        setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: fullText } : m));
-        await saveAssistantProgress(convId, assistantMsg.id as string, fullText);
+        setBuffered(fullText);
       }
+      flush(true);
       return stopRequestedRef.current ? built : fullText;
     }
     
@@ -1392,8 +1491,8 @@ export const AISidebar = () => {
             const { delta, nextText } = extractLmStudioText(data, '');
             const finalText = nextText || delta;
             if (finalText) {
-              setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: finalText } : m));
-                await saveAssistantProgress(convId, assistantMsg.id as string, finalText);
+              setBuffered(finalText);
+              flush(true);
             }
             return finalText || '';
           }
@@ -1425,12 +1524,12 @@ export const AISidebar = () => {
                 tokenCount += tokens;
                 const seconds = Math.max((Date.now() - startTime) / 1000, 0.1);
                 setLmTokensPerSecond(Number((tokenCount / seconds).toFixed(2)));
-                setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: fullText } : m));
-                await saveAssistantProgress(convId, assistantMsg.id as string, fullText);
+                setBuffered(fullText);
               }
             } catch {}
           }
         }
+        flush(true);
         return fullText;
     }
 
@@ -1442,9 +1541,9 @@ export const AISidebar = () => {
         });
         const fullText = typeof result?.content === 'string' ? result.content : '';
         if (fullText) {
-          setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: fullText } : m));
-          await saveAssistantProgress(convId, assistantMsg.id as string, fullText);
+          setBuffered(fullText);
         }
+        flush(true);
         return fullText;
     }
 
@@ -1476,103 +1575,29 @@ export const AISidebar = () => {
       if (stopRequestedRef.current) break;
       const text = new TextDecoder().decode(value);
       fullContent += text;
-
-      setMessages(prev => {
-          const last = prev[prev.length - 1];
-          return [...prev.slice(0, -1), { ...last, content: fullContent }];
-      });
-      await saveAssistantProgress(convId, assistantMsg.id as string, fullContent);
+      setBuffered(fullContent);
     }
+    flush(true);
     return fullContent;
   };
 
-  const runAIGeneration = async (convId: string, initialHistory: ChatMessage[]) => {
-      let currentHistory = [...initialHistory];
-      const intentText = [...initialHistory].reverse().find((msg) => msg.role === 'user')?.content || '';
-      let iterations = 0;
-      const maxIterations = 5;
-      const executedCallKeys = new Set<string>();
-      const iterationSignatures = new Set<string>();
-
-      while (iterations < maxIterations && !stopRequestedRef.current) {
-          iterations++;
-          
-          const assistantMsg: ChatMessage = {
-              id: uuidv4(),
-              role: 'assistant',
-              content: '',
-              createdAt: new Date().toISOString()
-          };
-          
-          activeChatIdRef.current = assistantMsg.id as string;
-          assistantConvRef.current[assistantMsg.id as string] = convId;
-          assistantCreatedRef.current[assistantMsg.id as string] = assistantMsg.createdAt as string;
-          setCollapsedThinking(prev => ({ ...prev, [assistantMsg.id as string]: true }));
-          setMessages(prev => [...prev, assistantMsg]);
-          
-          try {
-              let fullText = '';
-              const tryFetch = async () => {
-                  fullText = await fetchAIStream(currentHistory, assistantMsg, convId);
-              };
-              try {
-                  await tryFetch();
-              } catch (firstError) {
-                  await new Promise(resolve => setTimeout(resolve, 300));
-                  await tryFetch();
-              }
-              const generatedMsg = { ...assistantMsg, content: fullText } as ChatMessage;
-              await db.saveMessage(convId, generatedMsg);
-              if (!isConversationLocalOnly(convId)) {
-                syncConversationPayload({ messages: [{ conversationId: convId, message: generatedMsg }] }).catch(() => {});
-              }
-
-              const extractedBeforeTools = extractToolCalls(fullText);
-              if (!enableToolUse && extractedBeforeTools.cleaned !== fullText) {
-                  fullText = extractedBeforeTools.cleaned;
-                  setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: fullText } : m));
-                  const cleanedMsg = { ...assistantMsg, content: fullText } as ChatMessage;
-                  await db.saveMessage(convId, cleanedMsg);
-                  if (!isConversationLocalOnly(convId)) {
-                    syncConversationPayload({ messages: [{ conversationId: convId, message: cleanedMsg }] }).catch(() => {});
-                  }
-              }
-              
-              const newToolMessages = await processToolCalls(convId, assistantMsg.id as string, fullText, intentText);
-              
-              if (newToolMessages.length === 0) {
-                  break;
-              }
-              const extracted = extractToolCalls(fullText);
-              const { calls } = extracted;
-              const callKeys = toToolCallKeys(calls);
-              const signature = toToolIterationSignature(extracted.cleaned || '', fullText, callKeys);
-              if (shouldStopToolIteration(signature, callKeys, iterationSignatures, executedCallKeys)) {
-                break;
-              }
-              if (calls.some(c => /^(create|update|delete)_/.test(c.tool))) {
-                  break;
-              }
-              
-              // Add to history for next iteration
-              // Use the cleaned text (without raw tool calls)
-              // and the tool results.
-              const cleaned = extracted.cleaned || fullText;
-              currentHistory = [...currentHistory, { ...assistantMsg, content: cleaned }, ...newToolMessages];
-              
-          } catch (error: any) {
-              if (!stopRequestedRef.current) {
-                console.error(error);
-                setMessages(prev => [...prev, { id: uuidv4(), role: 'system', content: 'Error: ' + error.message, createdAt: new Date().toISOString() }]);
-              }
-              break;
-          }
-      }
-      
-      abortControllerRef.current = null;
-      activeChatIdRef.current = null;
-      setLoading(false);
-  };
+  const { runAIGeneration } = useAIGenerationLoop({
+    stopRequestedRef,
+    activeChatIdRef,
+    abortControllerRef,
+    assistantConvRef,
+    assistantCreatedRef,
+    setCollapsedThinking,
+    setMessages,
+    setLoading,
+    fetchAIStream,
+    processToolCalls,
+    extractToolCalls,
+    enableToolUse,
+    db,
+    isConversationLocalOnly,
+    syncConversationPayload,
+  });
 
   const buildAttachmentText = () => {
     if (!enableAttachments) return '';
@@ -1709,7 +1734,7 @@ export const AISidebar = () => {
     ].join('\n');
   };
 
-  const extractToolCalls = (text: string) => {
+  function extractToolCalls(text: string) {
     const calls: Array<{ tool: string; arguments: Record<string, any> }> = [];
     const allowedTools = new Set([
       'list_notes', 'get_note', 'create_note', 'update_note', 'delete_note',
@@ -1761,7 +1786,7 @@ export const AISidebar = () => {
       .replace(/Tool error:[^\n]*\n?/gi, '')
       .trim();
     return { calls, cleaned };
-  };
+  }
 
   const resolveAuthToken = async () => {
     const stateToken = useStore.getState().token;
@@ -2388,6 +2413,42 @@ export const AISidebar = () => {
     }
   };
 
+  const loadElectronPerformanceSnapshot = async () => {
+    if (!window.mlc?.isElectron || typeof window.mlc.getPerformanceSnapshot !== 'function') {
+      setElectronPerformanceSnapshot(null);
+      setElectronPerformanceError(i18n.t('settings.performanceUnavailable'));
+      return;
+    }
+    setElectronPerformanceLoading(true);
+    setElectronPerformanceError(null);
+    try {
+      const snapshot = await window.mlc.getPerformanceSnapshot();
+      setElectronPerformanceSnapshot(snapshot);
+    } catch (error: any) {
+      setElectronPerformanceError(String(error?.message || i18n.t('common.tryAgain')));
+    } finally {
+      setElectronPerformanceLoading(false);
+    }
+  };
+
+  const resetElectronPerformanceSnapshot = async () => {
+    if (!window.mlc?.isElectron || typeof window.mlc.resetPerformanceSnapshot !== 'function') {
+      setElectronPerformanceError(i18n.t('settings.performanceUnavailable'));
+      return;
+    }
+    setElectronPerformanceLoading(true);
+    setElectronPerformanceError(null);
+    try {
+      await window.mlc.resetPerformanceSnapshot();
+      const snapshot = await window.mlc.getPerformanceSnapshot();
+      setElectronPerformanceSnapshot(snapshot);
+    } catch (error: any) {
+      setElectronPerformanceError(String(error?.message || i18n.t('common.tryAgain')));
+    } finally {
+      setElectronPerformanceLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (!systemDashboardOpen) return;
     const timer = window.setTimeout(() => {
@@ -2405,6 +2466,12 @@ export const AISidebar = () => {
     systemDashboardFrom,
     systemDashboardTo,
   ]);
+
+  useEffect(() => {
+    if (!systemDashboardOpen) return;
+    if (systemDashboardTab !== 'performance') return;
+    void loadElectronPerformanceSnapshot();
+  }, [systemDashboardOpen, systemDashboardTab]);
 
   const parseTimeFromString = (value: string) => {
     const lower = value.toLowerCase();
@@ -3346,60 +3413,31 @@ export const AISidebar = () => {
                       const status = getToolStatus(info);
                       const statusIcon = toolStatusIcons[status.tone] || toolStatusIcons.info;
                       return (
-                        <div key={key} className="p-3 rounded-lg max-w-[90%] bg-gray-50 dark:bg-gray-800/70 mr-auto border border-gray-200 dark:border-gray-700">
-                          <button
-                            className="w-full text-left text-xs font-semibold text-gray-700 dark:text-gray-200 flex items-center gap-2"
-                            onClick={() => setCollapsedTool(prev => ({ ...prev, [key]: !toolCollapsed }))}
-                          >
-                            <span className="w-4 h-4 text-gray-700 dark:text-gray-200" dangerouslySetInnerHTML={{ __html: iconSvg }} />
-                            {label}
-                          </button>
-                          <div className={`mt-1 text-xs flex items-center gap-2 ${status.tone === 'error' ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-400'}`}>
-                            <span className="w-3.5 h-3.5" dangerouslySetInnerHTML={{ __html: statusIcon }} />
-                            {status.label}
-                          </div>
-                          {!toolCollapsed && (
-                            <div className="mt-2 text-xs text-gray-600 dark:text-gray-300 whitespace-pre-wrap">
-                              {info.details || '(inga detaljer)'}
-                            </div>
-                          )}
-                        </div>
+                        <AISidebarToolRow
+                          key={key}
+                          label={label}
+                          statusLabel={status.label}
+                          statusTone={status.tone}
+                          details={info.details}
+                          iconSvg={iconSvg}
+                          statusIcon={statusIcon}
+                          collapsed={toolCollapsed}
+                          onToggle={() => setCollapsedTool(prev => ({ ...prev, [key]: !toolCollapsed }))}
+                        />
                       );
                     }
                     return (
-                      <div key={key} className={`p-3 rounded-lg max-w-[90%] ${msg.role === 'user' ? 'bg-blue-100 dark:bg-blue-900 ml-auto' : 'bg-gray-100 dark:bg-gray-800 mr-auto'}`}>
-                          <div className="text-xs text-gray-500 dark:text-gray-300 mb-1 flex items-center justify-between">
-                            <span className="capitalize">{msg.role}</span>
-                            <span>{formatTime(msg.createdAt)}</span>
-                          </div>
-                          {isAssistant && showThinking && thinking && (
-                            <div className="mb-2 border border-purple-200 dark:border-purple-700 rounded">
-                              <button
-                                className="w-full text-left px-2 py-1 text-xs font-semibold text-purple-700 dark:text-purple-200 bg-purple-50 dark:bg-purple-900/40"
-                                onClick={() => setCollapsedThinking(prev => ({ ...prev, [key]: !collapsed }))}
-                              >
-                                {collapsed ? 'Visa tänkande' : 'Dölj tänkande'}
-                              </button>
-                              {!collapsed && (
-                                <div className="px-2 py-2 text-xs text-gray-700 dark:text-gray-200 whitespace-pre-wrap">
-                                  {thinking}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="whitespace-pre-wrap flex-1">{rest}</div>
-                        {(msg.role === 'assistant' || msg.role === 'user') && (
-                          <button
-                            className="text-xs text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-100"
-                            onClick={() => handleCopyMessage(rest)}
-                            aria-label="Kopiera meddelande"
-                          >
-                            <FaCopy />
-                          </button>
-                        )}
-                      </div>
-                      </div>
+                      <AISidebarChatRow
+                        key={key}
+                        role={msg.role}
+                        createdAt={formatTime(msg.createdAt)}
+                        thinking={thinking}
+                        rest={rest}
+                        showThinking={showThinking}
+                        collapsedThinking={collapsed}
+                        onToggleThinking={() => setCollapsedThinking(prev => ({ ...prev, [key]: !collapsed }))}
+                        onCopy={() => handleCopyMessage(rest)}
+                      />
                     );
                 })}
                 {loading && <div className="text-gray-500 dark:text-gray-300 text-sm animate-pulse">Thinking...</div>}
@@ -3555,81 +3593,20 @@ export const AISidebar = () => {
 
       {isSettingsOpen && (
         <div className="flex-1 overflow-auto p-4 space-y-6">
-          <div>
-            <h4 className="font-bold mb-2">Systemprompt</h4>
-            <textarea
-              className="w-full border rounded p-2 text-sm dark:bg-gray-900"
-              rows={4}
-              value={systemPrompt}
-              onChange={(e) => setSystemPrompt(e.target.value)}
-              placeholder="Skriv huvudprompten för AI här"
-              data-testid="ai-system-prompt"
-            />
-            <div className="mt-4 rounded border p-3 bg-gray-50 dark:bg-gray-800">
-              <h5 className="font-bold text-sm mb-2">AI-läge och lagring</h5>
-              <div className="text-xs text-gray-500 dark:text-gray-300 mb-3">
-                AI-historik lagras alltid krypterat lokalt. När backend-sync är avstängd stannar chattar och projekt endast på denna enhet.
-              </div>
-              <label className="text-sm flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={syncWithBackend}
-                  onChange={(e) => setSyncWithBackend(e.target.checked)}
-                />
-                Synka AI-chattar med backend
-              </label>
-              <div className="text-xs text-gray-500 dark:text-gray-300 mt-1">
-                {syncWithBackend ? 'Krypterad ciphertext kan synkas till backend.' : 'Endast lokal krypterad lagring används.'}
-              </div>
-              <div className="mt-3">
-                <label className="text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider mb-1 block">Promptprofil</label>
-                <select
-                  value={promptPreset}
-                  onChange={(e) => setPromptPreset(e.target.value as AiPromptPreset)}
-                  className="w-full p-2 text-sm border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 outline-none"
-                  data-testid="ai-prompt-preset-select"
-                >
-                  {AI_PROMPT_PRESETS.map((preset) => (
-                    <option key={preset.id} value={preset.id}>
-                      {preset.id === 'balanced' ? 'Balanserad' : preset.id === 'research' ? 'Research' : preset.id === 'execution' ? 'Utförande' : 'Kortfattad'}
-                    </option>
-                  ))}
-                </select>
-                <div className="text-xs text-gray-500 dark:text-gray-300 mt-1">
-                  Profilen läggs ovanpå din systemprompt och projektprompt.
-                </div>
-              </div>
-              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-2">
-                {sessionInsights.map((item) => (
-                  <div key={item.id} className="rounded border bg-white dark:bg-slate-900 p-2">
-                    <div className="text-[11px] uppercase tracking-wider text-gray-500">{item.label}</div>
-                    <div className="text-sm font-medium break-words">{item.value}</div>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-4 rounded border bg-white dark:bg-slate-900 p-3" data-testid="ai-conversion-health-panel">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-sm font-semibold">GGUF- och MLC-diagnostik</div>
-                  <button
-                    type="button"
-                    onClick={() => refreshConversionHealth()}
-                    className="text-xs px-2 py-1 rounded border border-gray-200 dark:border-gray-700"
-                  >
-                    {conversionHealthLoading ? 'Kontrollerar…' : 'Uppdatera'}
-                  </button>
-                </div>
-                <div className="text-xs text-gray-500 dark:text-gray-300 mt-2">
-                  Visar om MLC-binären kan hittas, vilken kommando-upplösning som används och om GGUF → MLC-konvertering är redo.
-                </div>
-                {conversionHealthText ? (
-                  <div className="text-sm mt-2">{conversionHealthText}</div>
-                ) : null}
-                {conversionHealthDetailText ? (
-                  <div className="text-xs text-gray-500 dark:text-gray-300 mt-1 break-words">{conversionHealthDetailText}</div>
-                ) : null}
-              </div>
-            </div>
-          </div>
+          <AISidebarPromptPanel
+            systemPrompt={systemPrompt}
+            setSystemPrompt={setSystemPrompt}
+            syncWithBackend={syncWithBackend}
+            setSyncWithBackend={setSyncWithBackend}
+            promptPreset={promptPreset}
+            setPromptPreset={setPromptPreset}
+            promptPresets={AI_PROMPT_PRESETS}
+            sessionInsights={sessionInsights}
+            refreshConversionHealth={refreshConversionHealth}
+            conversionHealthLoading={conversionHealthLoading}
+            conversionHealthText={conversionHealthText}
+            conversionHealthDetailText={conversionHealthDetailText}
+          />
 
           <div>
             <h4 className="font-bold mb-2">Svar</h4>
@@ -4479,9 +4456,9 @@ export const AISidebar = () => {
               </div>
               {systemDashboardError ? <div className="text-xs text-red-500 p-2 rounded border border-red-300 bg-red-50 dark:bg-red-950/30">{systemDashboardError}</div> : null}
               <div className="flex flex-wrap gap-2">
-                {['overview', 'usage', 'logs', 'storage', 'settings'].map((tab) => (
+                {['overview', 'usage', 'logs', 'storage', 'settings', 'performance'].map((tab) => (
                   <button key={tab} className={`text-xs px-3 py-1.5 rounded-full border ${systemDashboardTab === tab ? 'bg-blue-600 text-white border-blue-600' : 'bg-white dark:bg-slate-900'}`} onClick={() => setSystemDashboardTab(tab as any)}>
-                    {tab === 'overview' ? 'Översikt' : tab === 'usage' ? 'Användning' : tab === 'logs' ? 'Loggar' : tab === 'storage' ? 'Lagring' : 'Inställningar'}
+                    {tab === 'overview' ? 'Översikt' : tab === 'usage' ? 'Användning' : tab === 'logs' ? 'Loggar' : tab === 'storage' ? 'Lagring' : tab === 'settings' ? 'Inställningar' : i18n.t('settings.performanceTab')}
                   </button>
                 ))}
               </div>
@@ -4622,6 +4599,68 @@ export const AISidebar = () => {
                         </div>
                       )}
                     </div>
+                  </div>
+                );
+                if (systemDashboardTab === 'performance') return (
+                  <div className="space-y-3" data-testid="electron-performance-tab">
+                    <div className="rounded border bg-white dark:bg-slate-900 p-3 text-xs space-y-2">
+                      <div className="font-semibold">{i18n.t('settings.performanceTitle')}</div>
+                      <div className="text-gray-500 dark:text-gray-300">{i18n.t('settings.performanceHint')}</div>
+                      <div className="flex flex-wrap gap-2">
+                        <button className="text-xs px-2 py-1 rounded border" onClick={() => void loadElectronPerformanceSnapshot()} disabled={electronPerformanceLoading} data-testid="electron-performance-refresh">
+                          {electronPerformanceLoading ? i18n.t('common.loading') : i18n.t('settings.performanceRefresh')}
+                        </button>
+                        <button className="text-xs px-2 py-1 rounded border" onClick={() => void resetElectronPerformanceSnapshot()} disabled={electronPerformanceLoading} data-testid="electron-performance-reset">
+                          {i18n.t('settings.performanceReset')}
+                        </button>
+                      </div>
+                    </div>
+                    {electronPerformanceError ? (
+                      <div className="text-xs text-red-500 p-2 rounded border border-red-300 bg-red-50 dark:bg-red-950/30">
+                        {electronPerformanceError}
+                      </div>
+                    ) : null}
+                    {!electronPerformanceSnapshot && !electronPerformanceLoading && !electronPerformanceError ? (
+                      <div className="rounded border bg-white dark:bg-slate-900 p-6 text-xs text-gray-500 text-center">
+                        {i18n.t('settings.performanceNotAvailableYet')}
+                      </div>
+                    ) : null}
+                    {electronPerformanceSnapshot ? (
+                      <>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
+                          <div className="p-3 rounded border bg-white dark:bg-slate-900"><div className="text-gray-500">{i18n.t('settings.performanceOverview')}</div><div className="font-semibold">{electronPerformanceSnapshot?.startup?.windowShownAt && electronPerformanceSnapshot?.appStartedAt ? `${Math.max(0, electronPerformanceSnapshot.startup.windowShownAt - electronPerformanceSnapshot.appStartedAt)} ms` : i18n.t('settings.performanceNotAvailableYet')}</div></div>
+                          <div className="p-3 rounded border bg-white dark:bg-slate-900"><div className="text-gray-500">{i18n.t('settings.performanceEvents')}</div><div className="font-semibold">{Number(electronPerformanceSnapshot?.settingsQueue?.enqueued || 0)}</div></div>
+                          <div className="p-3 rounded border bg-white dark:bg-slate-900"><div className="text-gray-500">{i18n.t('settings.performanceFailures')}</div><div className="font-semibold">{Number(electronPerformanceSnapshot?.ai?.chats?.failureCount || 0) + Number(electronPerformanceSnapshot?.ai?.downloads?.failureCount || 0)}</div></div>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                          <div className="rounded border bg-white dark:bg-slate-900 p-3 space-y-1">
+                            <div className="font-semibold">{i18n.t('settings.performanceStartup')}</div>
+                            <div>{i18n.t('settings.performanceLastSource')}: {electronPerformanceSnapshot?.startup?.lastLoadSource || '-'}</div>
+                            <div>Recovery: {Number(electronPerformanceSnapshot?.startup?.recoveryCount || 0)}</div>
+                            <div>did-fail-load: {Number(electronPerformanceSnapshot?.startup?.didFailLoadCount || 0)}</div>
+                          </div>
+                          <div className="rounded border bg-white dark:bg-slate-900 p-3 space-y-1">
+                            <div className="font-semibold">{i18n.t('settings.performanceSettingsQueue')}</div>
+                            <div>{i18n.t('settings.performanceEvents')}: {Number(electronPerformanceSnapshot?.settingsQueue?.enqueued || 0)}</div>
+                            <div>Flushes: {Number(electronPerformanceSnapshot?.settingsQueue?.flushes || 0)}</div>
+                            <div>{i18n.t('settings.performanceLastDuration')}: {electronPerformanceSnapshot?.settingsQueue?.lastFlushDurationMs ?? '-'} ms</div>
+                          </div>
+                          <div className="rounded border bg-white dark:bg-slate-900 p-3 space-y-1">
+                            <div className="font-semibold">{i18n.t('settings.performanceAi')}</div>
+                            <div>{i18n.t('settings.performanceLastModel')}: {electronPerformanceSnapshot?.ai?.downloads?.lastModelId || '-'}</div>
+                            <div>{i18n.t('settings.performanceLastProgressEvents')}: {Number(electronPerformanceSnapshot?.ai?.downloads?.lastProgressEventCount || 0)}</div>
+                            <div>{i18n.t('settings.performanceLastChat')}: {electronPerformanceSnapshot?.ai?.chats?.lastChatId || '-'}</div>
+                            <div>{i18n.t('settings.performanceLastTokenCount')}: {Number(electronPerformanceSnapshot?.ai?.chats?.lastTokenCount || 0)}</div>
+                          </div>
+                        </div>
+                        <div className="rounded border bg-white dark:bg-slate-900 p-3">
+                          <div className="text-xs font-semibold mb-2">{i18n.t('settings.performanceRawSnapshot')}</div>
+                          <pre className="text-[11px] overflow-auto max-h-[42vh]" data-testid="electron-performance-raw">
+                            {JSON.stringify(electronPerformanceSnapshot, null, 2)}
+                          </pre>
+                        </div>
+                      </>
+                    ) : null}
                   </div>
                 );
                 return (

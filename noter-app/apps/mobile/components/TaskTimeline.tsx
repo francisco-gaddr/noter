@@ -2,17 +2,18 @@ import React, { useMemo, useState, useRef, useCallback, useEffect } from 'react'
 import { View, Text, StyleSheet, Dimensions, Alert, TouchableOpacity, SectionList } from 'react-native';
 import { IconButton, useTheme, Chip, Button } from 'react-native-paper';
 import { Task } from '@repo/shared';
+import { formatTaskDateLabel } from '@/utils/date';
 import { PanGestureHandler, PanGestureHandlerGestureEvent, ScrollView } from 'react-native-gesture-handler';
 import { useStore } from '@/stores/useStore';
 import { Calendar } from 'react-native-calendars';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useTranslation } from 'react-i18next';
 
 // --- Utils ---
 
 const SLOT_HEIGHT = 48; // px per hour
 const STORAGE_KEY_CALENDAR_MODE = 'task_calendar_mode';
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
-const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 function getWeekStart(d: Date) {
   const date = new Date(d);
@@ -94,22 +95,13 @@ function formatWeekRange(start: Date) {
 
 function formatAgendaHeader(key: string) {
   const d = new Date(key);
-  const today = new Date();
-  const isToday = d.getDate() === today.getDate() &&
-    d.getMonth() === today.getMonth() &&
-    d.getFullYear() === today.getFullYear();
-    
-  if (isToday) return 'Idag';
-  
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const isTomorrow = d.getDate() === tomorrow.getDate() &&
-    d.getMonth() === tomorrow.getMonth() &&
-    d.getFullYear() === tomorrow.getFullYear();
-    
-  if (isTomorrow) return 'Imorgon';
-  
-  return d.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' });
+  return formatTaskDateLabel(d, {
+    locale: 'sv-SE',
+    todayLabel: 'Idag',
+    tomorrowLabel: 'Imorgon',
+    yesterdayLabel: 'Igår',
+    dayBeforeYesterdayLabel: 'I förrgår',
+  });
 }
 
 function clamp(val: number, min: number, max: number) {
@@ -125,7 +117,9 @@ interface TaskTimelineProps {
 type ViewMode = 'day' | 'week' | 'month' | 'agenda';
 
 export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, onCreateTask }) => {
+  const { t, i18n } = useTranslation();
   const theme = useTheme();
+  const dayLabels = [t('days.monShort'), t('days.tueShort'), t('days.wedShort'), t('days.thuShort'), t('days.friShort'), t('days.satShort'), t('days.sunShort')];
   const { updateTask } = useStore();
   const [mode, setMode] = useState<ViewMode>('week');
   const [selectedDate, setSelectedDate] = useState(new Date()); // For Day/Week anchor
@@ -161,20 +155,6 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
     const interval = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(interval);
   }, []);
-
-  useEffect(() => {
-    AsyncStorage.getItem('task_timeline_mode')
-      .then((stored) => {
-        if (stored === 'day' || stored === 'week' || stored === 'month' || stored === 'agenda') {
-          setMode(stored);
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    AsyncStorage.setItem('task_timeline_mode', mode).catch(() => {});
-  }, [mode]);
 
   useEffect(() => {
     if (mode !== 'day' && mode !== 'week') return;
@@ -291,7 +271,7 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
       
       await updateTask(task._id, { dueDate: updated.toISOString() });
     } catch (err: any) {
-      Alert.alert('Fel', err?.message || 'Kunde inte uppdatera tid');
+      Alert.alert(t('common.error'), err?.message || t('tasks.listUpdateError'));
     }
   };
 
@@ -416,7 +396,7 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
             </Text>
             <IconButton
               icon="calendar-today"
-              accessibilityLabel="Gå till idag"
+              accessibilityLabel={t('tasks.filter.today')}
               onPress={() => setSelectedDate(new Date())}
             />
             <IconButton icon="chevron-right" onPress={() => {
@@ -431,10 +411,10 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={{ flexDirection: 'row', gap: 8, paddingRight: 8 }}>
-                <Chip selected={mode === 'day'} onPress={() => setMode('day')} style={styles.chip}>Dag</Chip>
-                <Chip selected={mode === 'week'} onPress={() => setMode('week')} style={styles.chip}>Vecka</Chip>
-                <Chip selected={mode === 'month'} onPress={() => setMode('month')} style={styles.chip}>Månad</Chip>
-                <Chip selected={mode === 'agenda'} onPress={() => setMode('agenda')} style={styles.chip}>Agenda</Chip>
+                <Chip selected={mode === 'day'} onPress={() => setMode('day')} style={styles.chip}>{t('calendar.day')}</Chip>
+                <Chip selected={mode === 'week'} onPress={() => setMode('week')} style={styles.chip}>{t('calendar.week')}</Chip>
+                <Chip selected={mode === 'month'} onPress={() => setMode('month')} style={styles.chip}>{t('calendar.month')}</Chip>
+                <Chip selected={mode === 'agenda'} onPress={() => setMode('agenda')} style={styles.chip}>{t('calendar.agenda')}</Chip>
             </View>
         </ScrollView>
     </View>
@@ -516,7 +496,7 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
                   {/* Day Header (only for Day view inside column, or Week view) */}
                   {mode === 'week' && (
                        <View style={{ position: 'absolute', top: -30, left: 0, right: 0, alignItems: 'center' }}>
-                            <Text style={{ fontSize: 10, color: theme.colors.onSurface }}>{DAY_LABELS[idx]}</Text>
+                            <Text style={{ fontSize: 10, color: theme.colors.onSurface }}>{dayLabels[idx]}</Text>
                        </View>
                   )}
 
@@ -579,7 +559,13 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
                   ]}
                 >
                     <Text style={{ color: dateKey(selectedDate) === todayKey ? theme.colors.onPrimary : theme.colors.onBackground, fontSize: 16, fontWeight: dateKey(selectedDate) === todayKey ? '700' : '400' }}>
-                        {selectedDate.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}
+                        {formatTaskDateLabel(selectedDate, {
+                          locale: i18n.language?.toLowerCase().startsWith('sv') ? 'sv-SE' : 'en-US',
+                          todayLabel: t('common.today'),
+                          tomorrowLabel: t('common.tomorrow'),
+                          yesterdayLabel: t('common.yesterday'),
+                          dayBeforeYesterdayLabel: t('common.dayBeforeYesterday'),
+                        })}
                     </Text>
                 </View>
             </View>
@@ -601,7 +587,7 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
                         isToday ? { backgroundColor: theme.colors.primary, borderRadius: 8 } : null,
                       ]}
                     >
-                      <Text style={{ color: isToday ? theme.colors.onPrimary : theme.colors.onBackground, fontWeight: isToday ? '700' : '400' }}>{DAY_LABELS[idx]}</Text>
+                      <Text style={{ color: isToday ? theme.colors.onPrimary : theme.colors.onBackground, fontWeight: isToday ? '700' : '400' }}>{dayLabels[idx]}</Text>
                       <Text style={{ color: isToday ? theme.colors.onPrimary : theme.colors.onBackground, opacity: isToday ? 1 : 0.7, fontWeight: isToday ? '700' : '400' }}>{d.getDate()}</Text>
                     </View>
                   );
@@ -669,14 +655,14 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
                         {parsed ? parsed.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : ''}
                       </Text>
                       <Text style={{ color: theme.colors.onSurfaceVariant }}>
-                        {item.completed ? 'Klar' : 'Pågående'}
+                        {item.completed ? t('tasks.status.completed') : t('tasks.status.active')}
                       </Text>
                     </TouchableOpacity>
                   );
                 }}
                 ListEmptyComponent={
                   <View style={styles.emptyDate}>
-                    <Text style={{ color: theme.colors.onSurfaceDisabled }}>Inga uppgifter</Text>
+                    <Text style={{ color: theme.colors.onSurfaceDisabled }}>{t('tasks.noTasks')}</Text>
                   </View>
                 }
               />

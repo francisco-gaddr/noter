@@ -1,14 +1,13 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View, FlatList, TextInput, KeyboardAvoidingView, Platform, ScrollView, Pressable, AppState } from 'react-native';
-import { Text, Button, useTheme, IconButton, List, ActivityIndicator, ProgressBar, Portal, Dialog, TextInput as PaperTextInput, Switch, Menu } from 'react-native-paper';
+import { Text, Button, useTheme, IconButton, List, ActivityIndicator, ProgressBar, Portal, Dialog, TextInput as PaperTextInput, Switch, Menu, MD3Theme } from 'react-native-paper';
 import { useLocalSearchParams, useNavigation } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { MobileLlamaProvider } from '@/services/ai/provider';
 import { useStore } from '@/stores/useStore';
 import { ChatMessage, Conversation, HFModel, AIProject } from '@repo/ai';
-import { searchHuggingFaceModels, getModelFiles, getConversionHealth } from '@/services/ai/huggingface';
-import { downloadModel as serviceDownloadModel, getBestQuantization, deleteModel as serviceDeleteModel, cancelDownload as cancelModelDownload, normalizeStoredModelRecord, prepareModelForChat, resumePendingModelDownloads } from '@/services/ai/modelService';
-import { saveConversationLocal, getConversationsLocal, deleteConversationLocal, saveMessageLocal, getMessagesLocal, getModelsLocal, saveModelLocal, saveProjectLocal, getProjectsLocal, deleteProjectLocal } from '@/services/database';
+import { prepareModelForChat } from '@/services/ai/modelService';
+import { saveConversationLocal, getConversationsLocal, deleteConversationLocal, saveMessageLocal, getMessagesLocal, saveProjectLocal, getProjectsLocal, deleteProjectLocal } from '@/services/database';
 import { combineSystemPrompts, buildPromptPresetNotice, buildToolUseNotice } from '@/services/ai/prompt';
 import { API_URL, fetchWithAuth } from '@/services/api';
 import { buildToolSystemPrompt, extractToolCalls } from '@/services/ai/tooling';
@@ -17,9 +16,9 @@ import { generateApiProviderResponse } from '@/services/ai/apiProviders';
 import { pullAiSync, pushAiSync } from '@/services/ai/sync';
 import { initSocket, getSocket } from '@/services/socket';
 import { buildSecurityNoteMap, isReadableWithLocks } from '@/services/ai/security';
-import { getLocalConversionCapabilities } from '@/services/ai/native/MLCModule';
-import { isAiBackgroundWorkEnabled, setAiBackgroundWorkEnabled } from '@/services/ai/runtimeSettings';
-import { getModelInstallBlocker, getLocalAiRuntimeStatus } from '@/services/ai/nativeRuntime';
+import { getModelInstallBlocker } from '@/services/ai/nativeRuntime';
+import { useAiBootstrapPersistence } from '@/hooks/useAiBootstrapPersistence';
+import { useAiModelController } from '@/hooks/useAiModelController';
 import IconPickerModal from '@/components/IconPickerModal';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import 'react-native-get-random-values';
@@ -28,13 +27,112 @@ import * as Clipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
-import { AI_PROMPT_PRESETS, AIModel, AiPromptPreset, AiToolAccessMode, MCP_INTEGRATIONS, McpUiSettings, buildAiSessionInsights, buildAiSyncNotice, createEmptyMcpUiSettings, decrypt, encrypt, isMutatingAiTool, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings } from '@repo/shared';
+import { AI_PROMPT_PRESETS, AIModel, AiPromptPreset, AiToolAccessMode, MCP_INTEGRATIONS, McpUiSettings, buildAiSessionInsights, buildAiSyncNotice, createEmptyMcpUiSettings, decrypt, encrypt, isMutatingAiTool } from '@repo/shared';
+import { recordAiGenerationSample, recordAiRowRender } from '@/services/perfMetrics';
 
 const provider = new MobileLlamaProvider();
 type LocalConversation = Conversation & { localOnly?: boolean };
 type LocalAIProject = AIProject & { localOnly?: boolean; userId?: string };
 type PullAiSyncResult = Awaited<ReturnType<typeof pullAiSync>>;
 type LocalModelEntry = AIModel & { invalidReason?: string; sourcePath: string };
+type SidebarListItem =
+  | { key: string; kind: 'all' }
+  | { key: string; kind: 'section'; title: string }
+  | { key: string; kind: 'project'; project: LocalAIProject; active: boolean }
+  | { key: string; kind: 'conversation'; conversation: LocalConversation }
+  | { key: string; kind: 'empty'; text: string };
+
+const ToolMessageRow = React.memo(({
+  item,
+  collapsed,
+  onToggle,
+  theme,
+  t,
+}: {
+  item: ChatMessage;
+  collapsed: boolean;
+  onToggle: (id: string) => void;
+  theme: MD3Theme;
+  t: (key: string) => string;
+}) => {
+  const key = item.id ?? item.createdAt ?? item.content;
+  const label = item.content.startsWith('Tool call:')
+    ? t('ai.toolCall')
+    : item.content.startsWith('Tool result:')
+    ? t('ai.toolResult')
+    : item.content.startsWith('Tool error:')
+    ? t('ai.toolError')
+    : 'Tool';
+  useEffect(() => {
+    recordAiRowRender('toolRow');
+  });
+  return (
+    <View style={[styles.messageRow, styles.rowLeft]}>
+      <View style={[styles.toolCard, { borderColor: theme.colors.outline }]}>
+        <Pressable
+          style={styles.toolHeader}
+          onPress={() => onToggle(key)}
+        >
+          <View style={styles.toolHeaderLeft}>
+            <FontAwesome5 name="tools" size={14} color={theme.colors.primary} />
+            <Text style={[styles.toolTitle, { color: theme.colors.onSurface }]}>
+              {`${t('ai.toolUseTitle')} · ${label}`}
+            </Text>
+          </View>
+          <FontAwesome5 name={collapsed ? 'chevron-down' : 'chevron-up'} size={12} color={theme.colors.onSurfaceVariant} />
+        </Pressable>
+        {!collapsed && (
+          <Text style={[styles.toolBody, { color: theme.colors.onSurfaceVariant }]}>
+            {item.content}
+          </Text>
+        )}
+      </View>
+    </View>
+  );
+});
+
+const ChatBubbleRow = React.memo(({
+  item,
+  theme,
+  onCopyMessage,
+  formatTimestamp,
+}: {
+  item: ChatMessage;
+  theme: MD3Theme;
+  onCopyMessage: (content: string) => void;
+  formatTimestamp: (value?: string) => string;
+}) => {
+  useEffect(() => {
+    recordAiRowRender('chatBubble');
+  });
+  return (
+  <View style={[styles.messageRow, item.role === 'user' ? styles.rowRight : styles.rowLeft]}>
+    <View style={[
+      styles.bubble,
+      item.role === 'user' ? styles.userBubble : styles.assistantBubble,
+      { backgroundColor: item.role === 'user' ? theme.colors.primaryContainer : theme.colors.surfaceVariant }
+    ]}>
+      <Text style={{ color: item.role === 'user' ? theme.colors.onPrimaryContainer : theme.colors.onSurfaceVariant }}>
+        {item.content}
+      </Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+        {item.createdAt ? (
+          <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>
+            {formatTimestamp(item.createdAt)}
+          </Text>
+        ) : <View />}
+        {(item.role === 'user' || item.role === 'assistant') ? (
+          <IconButton
+            icon="content-copy"
+            size={16}
+            onPress={() => onCopyMessage(item.content)}
+          />
+        ) : null}
+      </View>
+    </View>
+  </View>
+  );
+});
 
 const ProjectDialog = React.memo(({
   visible,
@@ -273,48 +371,6 @@ export default function AIScreen() {
   const [promptPresetMenuVisible, setPromptPresetMenuVisible] = useState(false);
   const [toolAccessMenuVisible, setToolAccessMenuVisible] = useState(false);
 
-  const getMcpEnvValues = (): Record<string, string | undefined> => {
-    const env = process.env as Record<string, string | undefined>;
-    return {
-      MCP_SLACK_ENABLED: env.EXPO_PUBLIC_MCP_SLACK_ENABLED,
-      SLACK_MCP_ENABLED: env.EXPO_PUBLIC_SLACK_MCP_ENABLED,
-      MCP_SLACK_BOT_TOKEN: env.EXPO_PUBLIC_MCP_SLACK_BOT_TOKEN,
-      SLACK_BOT_TOKEN: env.EXPO_PUBLIC_SLACK_BOT_TOKEN,
-      MCP_SLACK_TEAM_ID: env.EXPO_PUBLIC_MCP_SLACK_TEAM_ID,
-      SLACK_TEAM_ID: env.EXPO_PUBLIC_SLACK_TEAM_ID,
-      MCP_SLACK_CHANNEL_IDS: env.EXPO_PUBLIC_MCP_SLACK_CHANNEL_IDS,
-      SLACK_CHANNEL_IDS: env.EXPO_PUBLIC_SLACK_CHANNEL_IDS,
-      MCP_GOOGLE_WORKSPACE_ENABLED: env.EXPO_PUBLIC_MCP_GOOGLE_WORKSPACE_ENABLED,
-      GOOGLE_WORKSPACE_MCP_ENABLED: env.EXPO_PUBLIC_GOOGLE_WORKSPACE_MCP_ENABLED,
-      MCP_GOOGLE_OAUTH_CLIENT_ID: env.EXPO_PUBLIC_MCP_GOOGLE_OAUTH_CLIENT_ID,
-      GOOGLE_OAUTH_CLIENT_ID: env.EXPO_PUBLIC_GOOGLE_OAUTH_CLIENT_ID,
-      MCP_GOOGLE_OAUTH_CLIENT_SECRET: env.EXPO_PUBLIC_MCP_GOOGLE_OAUTH_CLIENT_SECRET,
-      GOOGLE_OAUTH_CLIENT_SECRET: env.EXPO_PUBLIC_GOOGLE_OAUTH_CLIENT_SECRET,
-      MCP_GOOGLE_OAUTH_REDIRECT_URI: env.EXPO_PUBLIC_MCP_GOOGLE_OAUTH_REDIRECT_URI,
-      GOOGLE_OAUTH_REDIRECT_URI: env.EXPO_PUBLIC_GOOGLE_OAUTH_REDIRECT_URI,
-      MCP_GOOGLE_OAUTH_PATH: env.EXPO_PUBLIC_MCP_GOOGLE_OAUTH_PATH,
-      GOOGLE_OAUTH_PATH: env.EXPO_PUBLIC_GOOGLE_OAUTH_PATH,
-      MCP_NOTION_ENABLED: env.EXPO_PUBLIC_MCP_NOTION_ENABLED,
-      NOTION_MCP_ENABLED: env.EXPO_PUBLIC_NOTION_MCP_ENABLED,
-      MCP_NOTION_API_TOKEN: env.EXPO_PUBLIC_MCP_NOTION_API_TOKEN,
-      NOTION_API_TOKEN: env.EXPO_PUBLIC_NOTION_API_TOKEN,
-      MCP_NOTION_WORKSPACE_ID: env.EXPO_PUBLIC_MCP_NOTION_WORKSPACE_ID,
-      NOTION_WORKSPACE_ID: env.EXPO_PUBLIC_NOTION_WORKSPACE_ID,
-      MCP_FILESYSTEM_ENABLED: env.EXPO_PUBLIC_MCP_FILESYSTEM_ENABLED,
-      FILESYSTEM_MCP_ENABLED: env.EXPO_PUBLIC_FILESYSTEM_MCP_ENABLED,
-      MCP_FILESYSTEM_ALLOWED_PATHS: env.EXPO_PUBLIC_MCP_FILESYSTEM_ALLOWED_PATHS,
-      FILESYSTEM_ALLOWED_PATHS: env.EXPO_PUBLIC_FILESYSTEM_ALLOWED_PATHS,
-      MCP_PLAYWRIGHT_ENABLED: env.EXPO_PUBLIC_MCP_PLAYWRIGHT_ENABLED,
-      PLAYWRIGHT_MCP_ENABLED: env.EXPO_PUBLIC_PLAYWRIGHT_MCP_ENABLED,
-      MCP_PLAYWRIGHT_BROWSER: env.EXPO_PUBLIC_MCP_PLAYWRIGHT_BROWSER,
-      PLAYWRIGHT_BROWSER: env.EXPO_PUBLIC_PLAYWRIGHT_BROWSER,
-      MCP_PLAYWRIGHT_HEADLESS: env.EXPO_PUBLIC_MCP_PLAYWRIGHT_HEADLESS,
-      PLAYWRIGHT_HEADLESS: env.EXPO_PUBLIC_PLAYWRIGHT_HEADLESS,
-      MCP_PLAYWRIGHT_CHANNEL: env.EXPO_PUBLIC_MCP_PLAYWRIGHT_CHANNEL,
-      PLAYWRIGHT_CHANNEL: env.EXPO_PUBLIC_PLAYWRIGHT_CHANNEL,
-    };
-  };
-
   useEffect(() => {
     navigation.setOptions({
       headerTitle: () => (
@@ -353,158 +409,49 @@ export default function AIScreen() {
   }, [params.openSettings, params.settingsTab]);
 
   useEffect(() => {
-    isMountedRef.current = true;
     void loadModels();
-    void (async () => {
-      const token = await SecureStore.getItemAsync('token');
-      const scopeKey = token
-        ? await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, token)
-        : 'anon';
-      const [
-        saved,
-        savedToolUse,
-        savedToolAccessMode,
-        savedPromptPreset,
-        savedSyncEnabled,
-        savedLocalConvert,
-        savedBackgroundWork,
-        savedApiEnabled,
-        savedApiProvider,
-        savedOpenRouterModel,
-        savedGeminiModel,
-        openRouterKeyEnc,
-        geminiKeyEnc,
-        mcpSettingsRaw,
-        globalBackgroundWork,
-      ] = await Promise.all([
-        AsyncStorage.getItem(`ai_system_prompt_${scopeKey}`),
-        AsyncStorage.getItem(`ai_tool_use_enabled_${scopeKey}`),
-        AsyncStorage.getItem(`ai_tool_access_mode_${scopeKey}`),
-        AsyncStorage.getItem(`ai_prompt_preset_${scopeKey}`),
-        AsyncStorage.getItem(`ai_sync_enabled_${scopeKey}`),
-        AsyncStorage.getItem(`ai_local_convert_${scopeKey}`),
-        AsyncStorage.getItem(`ai_background_work_${scopeKey}`),
-        AsyncStorage.getItem(`ai_api_enabled_${scopeKey}`),
-        AsyncStorage.getItem(`ai_api_provider_${scopeKey}`),
-        AsyncStorage.getItem(`ai_openrouter_model_${scopeKey}`),
-        AsyncStorage.getItem(`ai_gemini_model_${scopeKey}`),
-        SecureStore.getItemAsync(`ai_openrouter_key_${scopeKey}`),
-        SecureStore.getItemAsync(`ai_gemini_key_${scopeKey}`),
-        SecureStore.getItemAsync(`ai_mcp_settings_${scopeKey}`),
-        isAiBackgroundWorkEnabled(),
-      ]);
-      if (!isMountedRef.current) return;
-      setUserScopeKey(scopeKey);
-      if (saved) setSystemPrompt(decrypt(saved));
-      if (savedToolUse !== null) setEnableToolUse(savedToolUse === 'true');
-      if (savedToolAccessMode === 'read-only' || savedToolAccessMode === 'full') setToolAccessMode(savedToolAccessMode);
-      if (savedPromptPreset === 'balanced' || savedPromptPreset === 'research' || savedPromptPreset === 'execution' || savedPromptPreset === 'concise') {
-        setPromptPreset(savedPromptPreset);
-      }
-      const resolvedSyncEnabled = savedSyncEnabled !== null ? savedSyncEnabled === 'true' : true;
-      setSyncWithBackend(resolvedSyncEnabled);
-      if (savedLocalConvert !== null) setPreferLocalConversion(savedLocalConvert === 'true');
-      const resolvedBackgroundWork = savedBackgroundWork !== null ? savedBackgroundWork === 'true' : globalBackgroundWork;
-      setAllowBackgroundAIWork(resolvedBackgroundWork);
-      await setAiBackgroundWorkEnabled(resolvedBackgroundWork);
-      await refreshRemoteSync(scopeKey, resolvedSyncEnabled);
-      if (!isMountedRef.current) return;
-      if (savedApiEnabled !== null) setAiUseApiProviders(savedApiEnabled === 'true');
-      if (savedApiProvider === 'openrouter' || savedApiProvider === 'gemini') setApiProvider(savedApiProvider);
-      if (savedOpenRouterModel) setOpenRouterModel(savedOpenRouterModel);
-      if (savedGeminiModel) setGeminiModel(savedGeminiModel);
-      if (openRouterKeyEnc) setOpenRouterApiKey(decrypt(openRouterKeyEnc) || '');
-      if (geminiKeyEnc) setGeminiApiKey(decrypt(geminiKeyEnc) || '');
-      let parsedMcpSettings = createEmptyMcpUiSettings();
-      if (mcpSettingsRaw) {
-        try {
-          parsedMcpSettings = normalizeMcpUiSettings(JSON.parse(decrypt(mcpSettingsRaw) || mcpSettingsRaw || '{}'));
-        } catch {}
-      }
-      const resolvedMcpSettings = resolveMcpSettings(parsedMcpSettings, getMcpEnvValues());
-      setMcpSettings(toEffectiveMcpUiSettings(resolvedMcpSettings));
-      setSyncPreferenceLoaded(true);
-    })();
-    return () => {
-      isMountedRef.current = false;
-    };
   }, []);
-
-  useEffect(() => {
-    if (!userScopeKey) return;
-    AsyncStorage.setItem(`ai_tool_use_enabled_${userScopeKey}`, enableToolUse ? 'true' : 'false');
-  }, [enableToolUse, userScopeKey]);
-
-  useEffect(() => {
-    if (!userScopeKey) return;
-    AsyncStorage.setItem(`ai_tool_access_mode_${userScopeKey}`, toolAccessMode);
-  }, [toolAccessMode, userScopeKey]);
-
-  useEffect(() => {
-    if (!userScopeKey) return;
-    AsyncStorage.setItem(`ai_prompt_preset_${userScopeKey}`, promptPreset);
-  }, [promptPreset, userScopeKey]);
-
-  useEffect(() => {
-    if (!userScopeKey) return;
-    AsyncStorage.setItem(`ai_sync_enabled_${userScopeKey}`, syncWithBackend ? 'true' : 'false');
-  }, [syncWithBackend, userScopeKey]);
-
-  useEffect(() => {
-    if (!syncPreferenceLoaded) return;
-    refreshRemoteSync(userScopeKey || undefined, syncWithBackend).catch(() => {});
-  }, [syncPreferenceLoaded, syncWithBackend, userScopeKey]);
-
-  useEffect(() => {
-    if (!userScopeKey) return;
-    AsyncStorage.setItem(`ai_local_convert_${userScopeKey}`, preferLocalConversion ? 'true' : 'false');
-  }, [preferLocalConversion, userScopeKey]);
-
-  useEffect(() => {
-    if (!userScopeKey) return;
-    AsyncStorage.setItem(`ai_background_work_${userScopeKey}`, allowBackgroundAIWork ? 'true' : 'false');
-    setAiBackgroundWorkEnabled(allowBackgroundAIWork).catch(() => {});
-  }, [allowBackgroundAIWork, userScopeKey]);
-
-  useEffect(() => {
-    if (!userScopeKey) return;
-    AsyncStorage.setItem(`ai_api_enabled_${userScopeKey}`, aiUseApiProviders ? 'true' : 'false');
-  }, [aiUseApiProviders, userScopeKey]);
 
   useEffect(() => {
     if (!aiUseApiProviders) return;
     provider.unloadModel().catch(() => {});
   }, [aiUseApiProviders]);
 
-  useEffect(() => {
-    if (!userScopeKey) return;
-    AsyncStorage.setItem(`ai_api_provider_${userScopeKey}`, apiProvider);
-  }, [apiProvider, userScopeKey]);
-
-  useEffect(() => {
-    if (!userScopeKey) return;
-    AsyncStorage.setItem(`ai_openrouter_model_${userScopeKey}`, openRouterModel);
-  }, [openRouterModel, userScopeKey]);
-
-  useEffect(() => {
-    if (!userScopeKey) return;
-    AsyncStorage.setItem(`ai_gemini_model_${userScopeKey}`, geminiModel);
-  }, [geminiModel, userScopeKey]);
-
-  useEffect(() => {
-    if (!userScopeKey) return;
-    SecureStore.setItemAsync(`ai_openrouter_key_${userScopeKey}`, openRouterApiKey ? encrypt(openRouterApiKey) : '');
-  }, [openRouterApiKey, userScopeKey]);
-
-  useEffect(() => {
-    if (!userScopeKey) return;
-    SecureStore.setItemAsync(`ai_gemini_key_${userScopeKey}`, geminiApiKey ? encrypt(geminiApiKey) : '');
-  }, [geminiApiKey, userScopeKey]);
-
-  useEffect(() => {
-    if (!userScopeKey) return;
-    SecureStore.setItemAsync(`ai_mcp_settings_${userScopeKey}`, encrypt(JSON.stringify(mcpSettings)));
-  }, [mcpSettings, userScopeKey]);
+  useAiBootstrapPersistence({
+    isMountedRef,
+    refreshRemoteSync,
+    setUserScopeKey,
+    setSystemPrompt,
+    setEnableToolUse,
+    setToolAccessMode,
+    setPromptPreset,
+    setSyncWithBackend,
+    setPreferLocalConversion,
+    setAllowBackgroundAIWork,
+    setAiUseApiProviders,
+    setApiProvider,
+    setOpenRouterModel,
+    setGeminiModel,
+    setOpenRouterApiKey,
+    setGeminiApiKey,
+    setMcpSettings,
+    setSyncPreferenceLoaded,
+    enableToolUse,
+    toolAccessMode,
+    promptPreset,
+    syncWithBackend,
+    preferLocalConversion,
+    allowBackgroundAIWork,
+    aiUseApiProviders,
+    apiProvider,
+    openRouterModel,
+    geminiModel,
+    openRouterApiKey,
+    geminiApiKey,
+    mcpSettings,
+    userScopeKey,
+    syncPreferenceLoaded,
+  });
 
   useEffect(() => {
     const sub = AppState.addEventListener('change', (nextState) => {
@@ -567,175 +514,50 @@ export default function AIScreen() {
     };
   }, [syncPreferenceLoaded, syncWithBackend, userScopeKey]);
 
-  const refreshConversionHealth = async () => {
-      try {
-          const health = await getConversionHealth();
-          const details = [health.resolvedCommand ? `MLC: ${health.resolvedCommand}` : '', health.installHint || ''].filter(Boolean).join(' · ');
-          setConversionHealthDetailText(details);
-          if (health.mode === 'external') {
-              setConversionHealthText(t('ai.conversionHealthExternal'));
-              return;
-          }
-          if (health.localBinaryAvailable && health.storageWritable) {
-              setConversionHealthText(t('ai.conversionHealthLocalOk'));
-              return;
-          }
-          if (!health.localBinaryAvailable) {
-              setConversionHealthText(t('ai.conversionHealthLocalMissing'));
-              return;
-          }
-          if (!health.storageWritable) {
-              setConversionHealthText(t('ai.conversionHealthStorageMissing'));
-              return;
-          }
-          setConversionHealthText('');
-      } catch {
-          setConversionHealthText(t('ai.conversionHealthUnknown'));
-          setConversionHealthDetailText('');
-      }
-      try {
-          const deviceCaps = await getLocalConversionCapabilities();
-          if (deviceCaps.engineAvailable && deviceCaps.converterAvailable) {
-              setDeviceConversionHealthText(t('ai.conversionHealthDeviceReady'));
-          } else {
-              setDeviceConversionHealthText(t('ai.conversionHealthDeviceMissing'));
-          }
-      } catch {
-          setDeviceConversionHealthText(t('ai.conversionHealthDeviceUnknown'));
-      }
-  };
+  const {
+      isModelSelected,
+      refreshConversionHealth,
+      loadModels,
+      resumeBackgroundModelInstalls,
+      handleSearch: runModelSearch,
+      downloadModel,
+      runDeviceLocalConversionCheck,
+      handleCancelDownload,
+      handleDeleteModel,
+      handleActivateModel,
+  } = useAiModelController({
+      provider,
+      t,
+      formatError,
+      isMountedRef,
+      modelLoadRequestRef,
+      resumingDownloadsRef,
+      activeModel,
+      activatingModelId,
+      preferLocalConversion,
+      setLoading,
+      setLocalModels,
+      setActiveModel,
+      setSearchResults,
+      setSearchSizes,
+      setIsSearching,
+      setProcessingModels,
+      setDownloadProgress,
+      setDownloadStage,
+      setActivatingModelId,
+      setConversionHealthText,
+      setConversionHealthDetailText,
+      setDeviceConversionHealthText,
+  });
 
   useEffect(() => {
-      refreshConversionHealth().catch(() => {});
-  }, []);
-
-  useEffect(() => {
-      resumeBackgroundModelInstalls().catch(() => {});
       const sub = AppState.addEventListener('change', (nextState) => {
           if (nextState === 'active') {
               resumeBackgroundModelInstalls().catch(() => {});
           }
       });
       return () => sub.remove();
-  }, []);
-
-  const isModelSelected = (model: LocalModelEntry) => activeModel === model.path || activeModel === model.sourcePath;
-
-  const persistPreparedModel = async (model: LocalModelEntry, preparedPath: string) => {
-      if (preparedPath === model.path) {
-          return { ...model, sourcePath: model.sourcePath || model.path, invalidReason: undefined };
-      }
-      const nextModel: AIModel = {
-          id: model.id,
-          name: model.name,
-          filename: model.filename,
-          path: preparedPath,
-          size: model.size,
-          quantization: model.quantization,
-          downloaded: model.downloaded,
-      };
-      await saveModelLocal(nextModel);
-      return {
-          ...model,
-          path: preparedPath,
-          invalidReason: undefined,
-      };
-  };
-
-  const markModelInvalid = (modelId: string, reason: string) => {
-      setLocalModels(prev => prev.map((item) => item.id === modelId ? { ...item, invalidReason: reason } : item));
-  };
-
-  const loadModels = async () => {
-      const requestId = ++modelLoadRequestRef.current;
-      const models = await getModelsLocal();
-      const normalizedModels = await Promise.all(models.map(async (model): Promise<LocalModelEntry> => {
-          try {
-              const normalized = await normalizeStoredModelRecord(model as any);
-              return { ...normalized, invalidReason: undefined, sourcePath: model.path };
-          } catch (error) {
-              const message = (error as any)?.message ? String((error as any).message) : 'Invalid model package';
-              return { ...model, invalidReason: message, sourcePath: model.path };
-          }
-      }));
-      if (!isMountedRef.current || requestId !== modelLoadRequestRef.current) {
-          return normalizedModels;
-      }
-      setLocalModels(normalizedModels);
-      const validModels = normalizedModels.filter((model) => !model.invalidReason);
-      if (validModels.length > 0 && !activeModel) {
-          setActiveModel(validModels[0].path);
-      }
-      if (activeModel) {
-          const resolvedActive = normalizedModels.find((model) => !model.invalidReason && (model.path === activeModel || model.sourcePath === activeModel));
-          if (resolvedActive && resolvedActive.path !== activeModel) {
-              setActiveModel(resolvedActive.path);
-          } else if (!resolvedActive) {
-              setActiveModel(null);
-              provider.unloadModel().catch(() => {});
-          }
-      }
-      return normalizedModels;
-  };
-
-  const resumeBackgroundModelInstalls = async () => {
-      if (resumingDownloadsRef.current) return;
-      resumingDownloadsRef.current = true;
-      try {
-          await resumePendingModelDownloads({
-              onProgress: (modelId, percent) => {
-                  if (!isMountedRef.current) return;
-                  setProcessingModels(prev => ({ ...prev, [modelId]: true }));
-                  setDownloadProgress(prev => ({ ...prev, [modelId]: percent }));
-              },
-              onStageChange: (modelId, stage) => {
-                  if (!isMountedRef.current) return;
-                  setProcessingModels(prev => ({ ...prev, [modelId]: true }));
-                  setDownloadStage(prev => ({ ...prev, [modelId]: stage }));
-              },
-              onCompleted: async (modelId, path) => {
-                  const preparedPath = await prepareModelForChat(path);
-                  await loadModels();
-                  if (!isMountedRef.current) return;
-                  setActiveModel(preparedPath);
-                  setProcessingModels(prev => {
-                      const next = { ...prev };
-                      delete next[modelId];
-                      return next;
-                  });
-                  setDownloadProgress(prev => {
-                      const next = { ...prev };
-                      delete next[modelId];
-                      return next;
-                  });
-                  setDownloadStage(prev => {
-                      const next = { ...prev };
-                      delete next[modelId];
-                      return next;
-                  });
-              },
-              onFailed: (modelId) => {
-                  if (!isMountedRef.current) return;
-                  setProcessingModels(prev => {
-                      const next = { ...prev };
-                      delete next[modelId];
-                      return next;
-                  });
-                  setDownloadProgress(prev => {
-                      const next = { ...prev };
-                      delete next[modelId];
-                      return next;
-                  });
-                  setDownloadStage(prev => ({
-                      ...prev,
-                      [modelId]: 'failed',
-                  }));
-              }
-          });
-      } finally {
-          resumingDownloadsRef.current = false;
-      }
-  };
+  }, [resumeBackgroundModelInstalls]);
 
   const loadConversations = async () => {
       let convs = await getConversationsLocal();
@@ -765,7 +587,7 @@ export default function AIScreen() {
       } catch {}
   };
 
-  const refreshRemoteSync = async (scopeKey?: string, allowRemote = syncWithBackend) => {
+  async function refreshRemoteSync(scopeKey?: string, allowRemote = syncWithBackend) {
       const localConvs = await getConversationsLocal();
       setConversations(localConvs);
       const localProjects = await getProjectsLocal(scopeKey);
@@ -777,7 +599,7 @@ export default function AIScreen() {
           const remote = await pullAiSync();
           await mergeRemoteSync(remote, scopeKey);
       } catch {}
-  };
+  }
 
   const syncConversationPayload = async (payload: Parameters<typeof pushAiSync>[0]) => {
       if (!syncWithBackend) {
@@ -817,7 +639,7 @@ export default function AIScreen() {
       [activeModelLabel, aiUseApiProviders, apiProvider, enableToolUse, enabledMcpServices, promptPreset, syncWithBackend, t, toolAccessMode]
   );
 
-  const formatError = (error: unknown) => {
+  function formatError(error: unknown) {
       const message = (error as any)?.message ? String((error as any).message) : String(error);
       if (message.includes('spawn mlc_llm ENOENT') || message.includes('sparn mlc_llm ENOENT')) return 'MLC-binären saknas på konverteringsservern. Installera eller konfigurera MLC_LLM_BIN, eller använd py/python-fallback.';
       if (message.includes('Zip module not available')) return 'Zip-stöd saknas i denna build. Installera om den senaste EAS APK:n.';
@@ -833,7 +655,7 @@ export default function AIScreen() {
       if (message.includes('MLC-binären hittades inte')) return message;
       if (message.includes('job not found')) return 'Konverteringsjobb saknas eller har löpt ut.';
       return message;
-  };
+  }
 
   const formatTimestamp = (value?: string) => {
       if (!value) return '';
@@ -1522,11 +1344,48 @@ export default function AIScreen() {
           let tokenCount = 0;
           const startTime = Date.now();
           let lastUpdate = startTime;
+          let pendingContent = '';
+          let renderedContent = '';
+          let scheduledFlush: ReturnType<typeof setTimeout> | null = null;
+          let lastFlushAt = 0;
+          let flushCount = 0;
 
           const updateTps = () => {
               const elapsed = (Date.now() - startTime) / 1000;
               if (elapsed <= 0) return;
               setTokensPerSecond(tokenCount / elapsed);
+          };
+
+          const updateAssistantContent = (content: string) => {
+              if (content === renderedContent) return;
+              renderedContent = content;
+              setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content } : m));
+          };
+
+          const flushAssistantContent = (force = false) => {
+              if (!force) {
+                  const now = Date.now();
+                  if (now - lastFlushAt < 80) return;
+              }
+              lastFlushAt = Date.now();
+              flushCount += 1;
+              if (scheduledFlush) {
+                  clearTimeout(scheduledFlush);
+                  scheduledFlush = null;
+              }
+              updateAssistantContent(pendingContent);
+          };
+
+          const setBufferedAssistantContent = (content: string) => {
+              pendingContent = content;
+              const now = Date.now();
+              if (now - lastFlushAt >= 80) {
+                  flushAssistantContent(true);
+                  return;
+              }
+              if (!scheduledFlush) {
+                  scheduledFlush = setTimeout(() => flushAssistantContent(true), 80);
+              }
           };
 
           let generationError: any = null;
@@ -1556,14 +1415,15 @@ export default function AIScreen() {
                           updateTps();
                           lastUpdate = Date.now();
                       }
-                      setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
+                      setBufferedAssistantContent(fullContent);
                   }
                   if (!chunks.length) {
                       fullContent = response;
                       tokenCount = Math.max(tokenCount, 1);
                       updateTps();
-                      setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
+                      setBufferedAssistantContent(fullContent);
                   }
+                  flushAssistantContent(true);
               } catch (apiError: any) {
                   generationError = apiError;
               }
@@ -1581,7 +1441,7 @@ export default function AIScreen() {
                               updateTps();
                               lastUpdate = Date.now();
                           }
-                          setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
+                          setBufferedAssistantContent(fullContent);
                       }
                   );
               } catch (streamError: any) {
@@ -1594,7 +1454,7 @@ export default function AIScreen() {
                       fullContent = response;
                       tokenCount = Math.max(tokenCount, 1);
                       updateTps();
-                      setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
+                      setBufferedAssistantContent(fullContent);
                   };
                   try {
                       await tryGenerate();
@@ -1613,15 +1473,16 @@ export default function AIScreen() {
 
           if (!fullContent && generationError && !stopRequestedRef.current) {
               fullContent = `${t('ai.errorPrefix')}${generationError?.message || 'Unknown error'}`;
-              setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
+              setBufferedAssistantContent(fullContent);
           }
 
           const extractedBeforeTools = extractToolCalls(fullContent);
           if (!enableToolUse && extractedBeforeTools.cleaned !== fullContent) {
               fullContent = extractedBeforeTools.cleaned;
-              setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
+              setBufferedAssistantContent(fullContent);
           }
 
+          flushAssistantContent(true);
           updateTps();
           const savedMsg: ChatMessage = { ...assistantMsg, content: (fullContent || '').toString() };
           await saveMessageLocal(conversationId, savedMsg);
@@ -1631,6 +1492,15 @@ export default function AIScreen() {
           }
 
           const newToolMessages = await processToolCalls(conversationId, assistantId, fullContent, intentText);
+          const generationDurationMs = Date.now() - startTime;
+          recordAiGenerationSample({
+              durationMs: generationDurationMs,
+              tokenCount,
+              flushCount,
+              tokensPerSecond: generationDurationMs > 0 ? tokenCount / (generationDurationMs / 1000) : 0,
+              toolMessageCount: newToolMessages.length,
+              ok: !generationError,
+          });
           if (newToolMessages.length === 0) break;
           const extracted = extractToolCalls(fullContent);
           const { calls } = extracted;
@@ -1872,234 +1742,8 @@ export default function AIScreen() {
       }
   };
 
-  const handleSearch = async () => {
-      if (!searchQuery) return;
-      setIsSearching(true);
-      setLoading(true);
-      setSearchResults([]); // Clear previous results
-      setSearchSizes({});
-      try {
-          console.log('Searching for:', searchQuery);
-          // Use the mobile-specific HF service to search
-          const results = await searchHuggingFaceModels(searchQuery);
-          console.log('Search results:', results.length);
-          if (results.length === 0) {
-              alert('No models found matching your query.');
-          }
-          setSearchResults(results);
-          results.forEach(async (model) => {
-              try {
-                  const files = await getModelFiles(model.id);
-                  const best = getBestQuantization(files);
-                  setSearchSizes(prev => ({ ...prev, [model.id]: best?.size ?? null }));
-              } catch {
-                  setSearchSizes(prev => ({ ...prev, [model.id]: null }));
-              }
-          });
-      } catch (e) {
-          console.error('Search failed:', e);
-          alert('Search failed: ' + String(e));
-      } finally {
-          setIsSearching(false);
-          setLoading(false);
-      }
-  };
-
-  const downloadModel = async (model: HFModel) => {
-      try {
-        const blocker = getModelInstallBlocker();
-        if (blocker) {
-            alert(blocker);
-            return;
-        }
-        setProcessingModels(prev => ({ ...prev, [model.id]: true }));
-        setDownloadProgress(prev => ({ ...prev, [model.id]: 0 }));
-        setDownloadStage(prev => ({ ...prev, [model.id]: 'queued' }));
-        
-        // Use mobile-specific getModelFiles
-        const files = await getModelFiles(model.id);
-        const file = getBestQuantization(files);
-        
-        if (!file) {
-            alert('No suitable GGUF file found for this model');
-            setProcessingModels(prev => {
-                const newP = { ...prev };
-                delete newP[model.id];
-                return newP;
-            });
-            setDownloadProgress(prev => {
-                const newP = { ...prev };
-                delete newP[model.id];
-                return newP;
-            });
-            return;
-        }
-
-        const installedPath = await serviceDownloadModel(model, file, (percent) => {
-            setDownloadProgress(prev => ({ ...prev, [model.id]: percent }));
-        }, {
-            preferLocalConversion,
-            onStageChange: (stage) => setDownloadStage(prev => ({ ...prev, [model.id]: stage }))
-        });
-
-        await loadModels();
-        const preparedPath = await prepareModelForChat(installedPath);
-        setActiveModel(preparedPath);
-        alert(`Modellen ${model.name} installerades, aktiverades och är redo för chatt.`);
-        
-        setProcessingModels(prev => {
-            const newP = { ...prev };
-            delete newP[model.id];
-            return newP;
-        });
-        setDownloadProgress(prev => {
-            const newP = { ...prev };
-            delete newP[model.id];
-            return newP;
-        });
-        setDownloadStage(prev => {
-            const newS = { ...prev };
-            delete newS[model.id];
-            return newS;
-        });
-      } catch (e) {
-          console.error(e);
-          alert('Download failed: ' + formatError(e));
-          setDownloadProgress(prev => {
-              const newP = { ...prev };
-              delete newP[model.id];
-              return newP;
-          });
-          setProcessingModels(prev => {
-              const newP = { ...prev };
-              delete newP[model.id];
-              return newP;
-          });
-          setDownloadStage(prev => {
-              const newS = { ...prev };
-              delete newS[model.id];
-              return newS;
-          });
-      }
-  };
-
-  const runDeviceLocalConversionCheck = async (model: HFModel) => {
-      let localStageObserved = false;
-      try {
-        const runtime = getLocalAiRuntimeStatus();
-        if (!runtime.mlcModuleAvailable) {
-          throw new Error('MLCModule not linked');
-        }
-        setProcessingModels(prev => ({ ...prev, [model.id]: true }));
-        setDownloadProgress(prev => ({ ...prev, [model.id]: 0 }));
-        setDownloadStage(prev => ({ ...prev, [model.id]: 'queued' }));
-        const files = await getModelFiles(model.id);
-        const file = getBestQuantization(files);
-        if (!file) {
-            throw new Error('No suitable GGUF file found for this model');
-        }
-        await serviceDownloadModel(model, file, (percent) => {
-            setDownloadProgress(prev => ({ ...prev, [model.id]: percent }));
-        }, {
-            preferLocalConversion: true,
-            strictLocalConversion: true,
-            onStageChange: (stage) => {
-              if (stage === 'converting_locally') localStageObserved = true;
-              setDownloadStage(prev => ({ ...prev, [model.id]: stage }));
-            }
-        });
-        await loadModels();
-        if (!localStageObserved) {
-            throw new Error('Local conversion unsupported');
-        }
-        alert(t('ai.deviceE2ESuccess'));
-      } catch (e) {
-        alert(`${t('ai.deviceE2EFailed')}: ${formatError(e)}`);
-      } finally {
-        setProcessingModels(prev => {
-            const newP = { ...prev };
-            delete newP[model.id];
-            return newP;
-        });
-        setDownloadProgress(prev => {
-            const newP = { ...prev };
-            delete newP[model.id];
-            return newP;
-        });
-        setDownloadStage(prev => {
-            const newS = { ...prev };
-            delete newS[model.id];
-            return newS;
-        });
-      }
-  };
-
-  const handleCancelDownload = async (modelId: string) => {
-      try {
-          await cancelModelDownload(modelId);
-      } catch (e) {
-          console.error(e);
-      } finally {
-          setProcessingModels(prev => {
-              const newP = { ...prev };
-              delete newP[modelId];
-              return newP;
-          });
-          setDownloadProgress(prev => {
-              const newP = { ...prev };
-              delete newP[modelId];
-              return newP;
-          });
-      }
-  };
-
-  const handleDeleteModel = async (model: LocalModelEntry) => {
-      if (isModelSelected(model)) {
-          alert('Cannot delete active model');
-          return;
-      }
-      try {
-          await serviceDeleteModel(model.id, model.path);
-          await loadModels();
-      } catch (e) {
-          alert('Delete failed: ' + String(e));
-      }
-  };
-
-  const handleActivateModel = async (model: LocalModelEntry) => {
-      if (model.invalidReason) {
-          alert(formatError(new Error(model.invalidReason)));
-          return;
-      }
-      if (activatingModelId === model.id) {
-          return;
-      }
-      try {
-          setActivatingModelId(model.id);
-          if (isModelSelected(model)) {
-              await provider.unloadModel();
-              setActiveModel(null);
-              return;
-          }
-          const preparedPath = await prepareModelForChat(model.path);
-          const preparedModel = await persistPreparedModel(model, preparedPath);
-          await provider.loadModel(preparedPath);
-          setActiveModel(preparedPath);
-          setLocalModels(prev => prev.map((item) => item.id === preparedModel.id ? preparedModel : item));
-      } catch (error) {
-          const message = (error as any)?.message ? String((error as any).message) : 'Invalid model package';
-          if (message.includes('Invalid model package')) {
-              markModelInvalid(model.id, message);
-              if (isModelSelected(model)) {
-                  setActiveModel(null);
-                  await provider.unloadModel().catch(() => {});
-              }
-          }
-          alert(formatError(error));
-      } finally {
-          setActivatingModelId(null);
-          await loadModels().catch(() => {});
-      }
+  const handleSearchModels = async () => {
+      await runModelSearch(searchQuery);
   };
 
   const handleSend = async () => {
@@ -2185,10 +1829,10 @@ export default function AIScreen() {
     }
   };
 
-  const handleCopyMessage = async (content: string) => {
+  const handleCopyMessage = useCallback(async (content: string) => {
     if (!content) return;
     await Clipboard.setStringAsync(content);
-  };
+  }, []);
 
   const handleStop = () => {
     stopRequestedRef.current = true;
@@ -2200,6 +1844,127 @@ export default function AIScreen() {
   const visibleConversations = activeProjectId
     ? conversations.filter(c => c.projectId === activeProjectId)
     : conversations;
+  const sidebarItems = useMemo<SidebarListItem[]>(() => {
+    const items: SidebarListItem[] = [
+      { key: 'all-projects', kind: 'all' },
+      ...projects.map((project) => ({
+        key: `project-${project.id}`,
+        kind: 'project' as const,
+        project,
+        active: activeProjectId === project.id,
+      })),
+      { key: 'section-chats', kind: 'section', title: t('ai.chatsTitle') },
+    ];
+    if (visibleConversations.length === 0) {
+      items.push({ key: 'empty-chats', kind: 'empty', text: t('ai.noChats') });
+    } else {
+      items.push(...visibleConversations.map((conversation) => ({
+        key: `conversation-${conversation.id}`,
+        kind: 'conversation' as const,
+        conversation,
+      })));
+    }
+    return items;
+  }, [activeProjectId, projects, t, visibleConversations]);
+  const toggleCollapsedTool = useCallback((key: string) => {
+    setCollapsedTool(prev => {
+      const current = prev[key] ?? true;
+      return { ...prev, [key]: !current };
+    });
+  }, []);
+  const renderMessageItem = useCallback(({ item, index }: { item: ChatMessage; index: number }) => {
+    if (item.role === 'tool') {
+      const key = item.id ?? String(index);
+      return (
+        <ToolMessageRow
+          item={item}
+          collapsed={collapsedTool[key] ?? true}
+          onToggle={toggleCollapsedTool}
+          theme={theme}
+          t={t}
+        />
+      );
+    }
+    return (
+      <ChatBubbleRow
+        item={item}
+        theme={theme}
+        onCopyMessage={handleCopyMessage}
+        formatTimestamp={formatTimestamp}
+      />
+    );
+  }, [collapsedTool, formatTimestamp, handleCopyMessage, t, theme, toggleCollapsedTool]);
+  const renderSidebarItem = useCallback(({ item }: { item: SidebarListItem }) => {
+    if (item.kind === 'section') {
+      return (
+        <Text variant="titleMedium" style={{ marginTop: 16, marginBottom: 8, color: theme.colors.onSurface }}>
+          {item.title}
+        </Text>
+      );
+    }
+    if (item.kind === 'empty') {
+      return (
+        <Text style={{ color: theme.colors.onSurfaceVariant, marginBottom: 8 }}>
+          {item.text}
+        </Text>
+      );
+    }
+    if (item.kind === 'all') {
+      return (
+        <List.Item
+          title={t('common.all')}
+          onPress={() => handleSelectProject(null)}
+          left={() => <List.Icon icon="folder" />}
+          right={() => activeProjectId ? null : <List.Icon icon="check" />}
+        />
+      );
+    }
+    if (item.kind === 'project') {
+      const project = item.project;
+      return (
+        <List.Item
+          title={project.name}
+          onPress={() => handleSelectProject(project.id)}
+          onLongPress={() => openProjectDialog(project)}
+          left={() => (
+            project.icon ? (
+              <View style={{ justifyContent: 'center', marginLeft: 6 }}>
+                <FontAwesome5 name={project.icon.replace(/^Fa/, '').replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()} size={18} color={project.iconColor || theme.colors.onSurface} />
+              </View>
+            ) : (
+              <List.Icon icon="folder-outline" />
+            )
+          )}
+          right={() => (
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              {item.active ? <List.Icon icon="check" /> : null}
+            </View>
+          )}
+        />
+      );
+    }
+    const conversation = item.conversation;
+    return (
+      <List.Item
+        title={conversation.title || t('ai.newChatFallback')}
+        onPress={() => {
+          loadChat(conversation.id);
+          setSidebarVisible(false);
+        }}
+        onLongPress={() => openChatDialog(conversation)}
+        left={() => (
+          conversation.icon ? (
+            <View style={{ justifyContent: 'center', marginLeft: 6 }}>
+              <FontAwesome5 name={conversation.icon.replace(/^Fa/, '').replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()} size={18} color={conversation.iconColor || theme.colors.onSurface} />
+            </View>
+          ) : (
+            <List.Icon icon="message-text-outline" />
+          )
+        )}
+        right={() => null}
+      />
+    );
+  }, [activeProjectId, handleSelectProject, loadChat, openChatDialog, openProjectDialog, setSidebarVisible, t, theme]);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -2214,64 +1979,11 @@ export default function AIScreen() {
                 {t('ai.project.createTitle')}
               </Button>
             </View>
-            <ScrollView style={{ flex: 1 }}>
-              <List.Item
-                title={t('common.all')}
-                onPress={() => handleSelectProject(null)}
-                left={() => <List.Icon icon="folder" />}
-                right={() => activeProjectId ? null : <List.Icon icon="check" />}
-              />
-              {projects.map((project) => (
-                <List.Item
-                  key={project.id}
-                  title={project.name}
-                  onPress={() => handleSelectProject(project.id)}
-                  onLongPress={() => openProjectDialog(project)}
-                  left={() => (
-                    project.icon ? (
-                      <View style={{ justifyContent: 'center', marginLeft: 6 }}>
-                        <FontAwesome5 name={project.icon.replace(/^Fa/, '').replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()} size={18} color={project.iconColor || theme.colors.onSurface} />
-                      </View>
-                    ) : (
-                      <List.Icon icon="folder-outline" />
-                    )
-                  )}
-                  right={() => (
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                      {activeProjectId === project.id && <List.Icon icon="check" />}
-                    </View>
-                  )}
-                />
-              ))}
-              <Text variant="titleMedium" style={{ marginTop: 16, marginBottom: 8, color: theme.colors.onSurface }}>
-                {t('ai.chatsTitle')}
-              </Text>
-              {visibleConversations.length === 0 ? (
-                <Text style={{ color: theme.colors.onSurfaceVariant, marginBottom: 8 }}>{t('ai.noChats')}</Text>
-              ) : (
-                visibleConversations.map((conv) => (
-                  <List.Item
-                    key={conv.id}
-                    title={conv.title || t('ai.newChatFallback')}
-                    onPress={() => {
-                      loadChat(conv.id);
-                      setSidebarVisible(false);
-                    }}
-                    onLongPress={() => openChatDialog(conv)}
-                    left={() => (
-                      conv.icon ? (
-                        <View style={{ justifyContent: 'center', marginLeft: 6 }}>
-                          <FontAwesome5 name={conv.icon.replace(/^Fa/, '').replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()} size={18} color={conv.iconColor || theme.colors.onSurface} />
-                        </View>
-                      ) : (
-                        <List.Icon icon="message-text-outline" />
-                      )
-                    )}
-                    right={() => null}
-                  />
-                ))
-              )}
-            </ScrollView>
+            <FlatList
+              data={sidebarItems}
+              keyExtractor={(item) => item.key}
+              renderItem={renderSidebarItem}
+            />
           </View>
           <Pressable style={styles.sidebarBackdrop} onPress={() => setSidebarVisible(false)} />
         </View>
@@ -2727,9 +2439,9 @@ export default function AIScreen() {
                   value={searchQuery}
                   onChangeText={setSearchQuery}
                   returnKeyType="search"
-                  onSubmitEditing={handleSearch}
+                  onSubmitEditing={handleSearchModels}
                 />
-                <Button mode="contained" onPress={handleSearch} loading={isSearching}>{t('common.search', 'Search')}</Button>
+                <Button mode="contained" onPress={handleSearchModels} loading={isSearching}>{t('common.search', 'Search')}</Button>
               </View>
               <ScrollView style={{ maxHeight: 340 }}>
                 <View style={{ gap: 10 }}>
@@ -2797,69 +2509,8 @@ export default function AIScreen() {
                 data={messages}
                 keyExtractor={(item, index) => item.id ?? String(index)}
                 contentContainerStyle={styles.listContent}
-                renderItem={({ item, index }) => {
-                  if (item.role === 'tool') {
-                    const key = item.id ?? String(index);
-                    const collapsed = collapsedTool[key] ?? true;
-                    const label = item.content.startsWith('Tool call:')
-                      ? t('ai.toolCall')
-                      : item.content.startsWith('Tool result:')
-                      ? t('ai.toolResult')
-                      : item.content.startsWith('Tool error:')
-                      ? t('ai.toolError')
-                      : 'Tool';
-                    return (
-                      <View style={[styles.messageRow, styles.rowLeft]}>
-                        <View style={[styles.toolCard, { borderColor: theme.colors.outline }]}>
-                          <Pressable
-                            style={styles.toolHeader}
-                            onPress={() => setCollapsedTool(prev => ({ ...prev, [key]: !collapsed }))}
-                          >
-                            <View style={styles.toolHeaderLeft}>
-                              <FontAwesome5 name="tools" size={14} color={theme.colors.primary} />
-                              <Text style={[styles.toolTitle, { color: theme.colors.onSurface }]}>
-                                {`${t('ai.toolUseTitle')} · ${label}`}
-                              </Text>
-                            </View>
-                            <FontAwesome5 name={collapsed ? 'chevron-down' : 'chevron-up'} size={12} color={theme.colors.onSurfaceVariant} />
-                          </Pressable>
-                          {!collapsed && (
-                            <Text style={[styles.toolBody, { color: theme.colors.onSurfaceVariant }]}>
-                              {item.content}
-                            </Text>
-                          )}
-                        </View>
-                      </View>
-                    );
-                  }
-                  return (
-                    <View style={[styles.messageRow, item.role === 'user' ? styles.rowRight : styles.rowLeft]}>
-                      <View style={[
-                        styles.bubble,
-                        item.role === 'user' ? styles.userBubble : styles.assistantBubble,
-                        { backgroundColor: item.role === 'user' ? theme.colors.primaryContainer : theme.colors.surfaceVariant }
-                      ]}>
-                        <Text style={{ color: item.role === 'user' ? theme.colors.onPrimaryContainer : theme.colors.onSurfaceVariant }}>
-                          {item.content}
-                        </Text>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
-                          {item.createdAt ? (
-                            <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>
-                              {formatTimestamp(item.createdAt)}
-                            </Text>
-                          ) : <View />}
-                          {(item.role === 'user' || item.role === 'assistant') ? (
-                            <IconButton
-                              icon="content-copy"
-                              size={16}
-                              onPress={() => handleCopyMessage(item.content)}
-                            />
-                          ) : null}
-                        </View>
-                      </View>
-                    </View>
-                  );
-                }}
+                extraData={collapsedTool}
+                renderItem={renderMessageItem}
               />
               {loading && (
                 <View style={[styles.messageRow, styles.rowLeft]}>

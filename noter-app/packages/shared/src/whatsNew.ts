@@ -7,6 +7,17 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    version: '1.0.12',
+    build: '2026.03.31.1',
+    date: '2026-03-31',
+    highlights: [
+      'Mobil: Uppstart läser nu preferences och lokala data parallellt för snabbare första användbara vy',
+      'Mobil: Bakgrundsrefresh och lokal persistens arbetar i yielding batcher så appen håller sig responsiv vid större dataset',
+      'Electron: Startup undviker nu dubbla note/task-fetches och renderer-sidomenyn triggar inte extra notladdning vid mount',
+      'Prestanda: Träd-, editor- och debugflöden använder lättare uppslag och uppdaterade agentregler för framtida release- och hastighetsarbete',
+    ],
+  },
+  {
     version: '1.0.11',
     build: '2026.03.29.3',
     date: '2026-03-29',

@@ -11,6 +11,9 @@ import i18n from '../app/i18n';
 import { getWebAuthTokenSync, setWebAuthToken } from '../services/authStorage';
 
 let networkListenersReady = false;
+let notesFetchPromise: Promise<void> | null = null;
+const taskFetchPromises = new Map<string, Promise<void>>();
+const taskFetchKey = (parentNoteId?: string | null) => parentNoteId || '__all__';
 
 const shouldLogElectronDataDebug = (): boolean => {
   if (typeof window === 'undefined') return false;
@@ -1008,6 +1011,7 @@ export const useStore = create<StoreState>((set, get) => ({
       set({ isLoading: false });
       return;
     }
+    if (notesFetchPromise) return notesFetchPromise;
     logElectronDataDebug('fetchNotes-start', {
       hasToken: Boolean(get().token),
       hasUser: Boolean(get().user),
@@ -1015,8 +1019,9 @@ export const useStore = create<StoreState>((set, get) => ({
         try { return new URL(getApiBaseUrl()).host; } catch { return 'invalid-url'; }
       })(),
     });
-    set({ isLoading: true, error: null });
-    try {
+    notesFetchPromise = (async () => {
+      set({ isLoading: true, error: null });
+      try {
         const cachedNotes = await db.getAllNotes();
         const validNotesRaw = cachedNotes.filter(n => !(n as any).deleted);
         const validNotes = materializeNotesFromEncrypted(validNotesRaw as any, new Set(get().unlockedProtectedNoteIds));
@@ -1029,95 +1034,99 @@ export const useStore = create<StoreState>((set, get) => ({
         } else {
             set({ notes: [], isLoading: false });
         }
-    } catch (e) {
+      } catch (e) {
         console.error('Failed to load notes from DB', e);
-    }
-
-    try {
-      // Always try to fetch, regardless of navigator.onLine status
-      // This fixes issues in Electron where onLine might be false reported
-      const withTimeout = <T,>(promise: Promise<T>, ms: number) => {
-        let timeoutId: ReturnType<typeof setTimeout>;
-        const timeout = new Promise<never>((_, reject) => {
-          timeoutId = setTimeout(() => reject(new Error('Request timed out')), ms);
-        });
-        return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
-      };
-
-      const encryptedNotes = await withTimeout(api.fetchNotes(), 8000);
-      const safeEncryptedNotes = Array.isArray(encryptedNotes) ? encryptedNotes : [];
-      const notes = materializeNotesFromEncrypted(safeEncryptedNotes as any, new Set(get().unlockedProtectedNoteIds));
-      logElectronDataDebug('fetchNotes-server-loaded', {
-        encryptedCount: safeEncryptedNotes.length,
-        materializedCount: notes.length,
-      });
-      
-      const pendingNotes = await db.getPendingSyncNotes();
-      
-      const mergedNotes = [...notes];
-      const serverNoteMap = new Map(notes.map(n => [n._id, n]));
-      
-      for (const pNote of pendingNotes) {
-          if (pNote.deleted) {
-              const idx = mergedNotes.findIndex(n => n._id === pNote._id);
-              if (idx !== -1) mergedNotes.splice(idx, 1);
-          } else {
-              if (serverNoteMap.has(pNote._id)) {
-                  const idx = mergedNotes.findIndex(n => n._id === pNote._id);
-                  if (idx !== -1) mergedNotes[idx] = pNote;
-              } else {
-                  mergedNotes.push(pNote);
-              }
-          }
       }
 
-      const nextNotesRaw = uniqBy(mergedNotes, '_id');
-      const nextNotes = materializeNotesFromEncrypted(nextNotesRaw as any, new Set(get().unlockedProtectedNoteIds));
-      const typeCounts = nextNotes.reduce((acc: Record<string, number>, note: any) => {
-        const t = normalizeNoteType(note?.type);
-        acc[t] = (acc[t] ?? 0) + 1;
-        return acc;
-      }, {});
-      logElectronDataDebug('fetchNotes-merged', {
-        mergedCount: nextNotes.length,
-        typeCounts,
-        activeProjectId: get().activeProjectId || null,
-      });
-      set({ notes: nextNotes, isLoading: false });
-      if (typeof window !== 'undefined') {
-        if (nextNotes.length === 0) {
-          localStorage.removeItem('lastSelectedNoteId');
-          localStorage.removeItem('selectedNoteId');
-        } else {
-          const selectedId = get().selectedNoteId;
-          if (selectedId && !nextNotes.some(n => n._id === selectedId)) {
+      try {
+        // Always try to fetch, regardless of navigator.onLine status
+        // This fixes issues in Electron where onLine might be false reported
+        const withTimeout = <T,>(promise: Promise<T>, ms: number) => {
+          let timeoutId: ReturnType<typeof setTimeout>;
+          const timeout = new Promise<never>((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error('Request timed out')), ms);
+          });
+          return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
+        };
+
+        const encryptedNotes = await withTimeout(api.fetchNotes(), 8000);
+        const safeEncryptedNotes = Array.isArray(encryptedNotes) ? encryptedNotes : [];
+        const notes = materializeNotesFromEncrypted(safeEncryptedNotes as any, new Set(get().unlockedProtectedNoteIds));
+        logElectronDataDebug('fetchNotes-server-loaded', {
+          encryptedCount: safeEncryptedNotes.length,
+          materializedCount: notes.length,
+        });
+
+        const pendingNotes = await db.getPendingSyncNotes();
+
+        const mergedNotes = [...notes];
+        const serverNoteMap = new Map(notes.map(n => [n._id, n]));
+
+        for (const pNote of pendingNotes) {
+            if (pNote.deleted) {
+                const idx = mergedNotes.findIndex(n => n._id === pNote._id);
+                if (idx !== -1) mergedNotes.splice(idx, 1);
+            } else {
+                if (serverNoteMap.has(pNote._id)) {
+                    const idx = mergedNotes.findIndex(n => n._id === pNote._id);
+                    if (idx !== -1) mergedNotes[idx] = pNote;
+                } else {
+                    mergedNotes.push(pNote);
+                }
+              }
+        }
+
+        const nextNotesRaw = uniqBy(mergedNotes, '_id');
+        const nextNotes = materializeNotesFromEncrypted(nextNotesRaw as any, new Set(get().unlockedProtectedNoteIds));
+        const typeCounts = nextNotes.reduce((acc: Record<string, number>, note: any) => {
+          const t = normalizeNoteType(note?.type);
+          acc[t] = (acc[t] ?? 0) + 1;
+          return acc;
+        }, {});
+        logElectronDataDebug('fetchNotes-merged', {
+          mergedCount: nextNotes.length,
+          typeCounts,
+          activeProjectId: get().activeProjectId || null,
+        });
+        set({ notes: nextNotes, isLoading: false });
+        if (typeof window !== 'undefined') {
+          if (nextNotes.length === 0) {
             localStorage.removeItem('lastSelectedNoteId');
             localStorage.removeItem('selectedNoteId');
-            set({ selectedNoteId: null });
-          }
-          const activeProjectId = get().activeProjectId;
-          if (activeProjectId && !nextNotes.some(n => n._id === activeProjectId)) {
-            localStorage.removeItem('activeProjectId');
-            set({ activeProjectId: null });
+          } else {
+            const selectedId = get().selectedNoteId;
+            if (selectedId && !nextNotes.some(n => n._id === selectedId)) {
+              localStorage.removeItem('lastSelectedNoteId');
+              localStorage.removeItem('selectedNoteId');
+              set({ selectedNoteId: null });
+            }
+            const activeProjectId = get().activeProjectId;
+            if (activeProjectId && !nextNotes.some(n => n._id === activeProjectId)) {
+              localStorage.removeItem('activeProjectId');
+              set({ activeProjectId: null });
+            }
           }
         }
-      }
 
-      // Batch save to DB to prevent UI freezing
-      const chunkSize = 50;
-      for (let i = 0; i < nextNotes.length; i += chunkSize) {
-          const chunk = nextNotes.slice(i, i + chunkSize);
-          await Promise.all(chunk.map(n => db.saveNote(n)));
-          // Yield to event loop
-          await new Promise(resolve => setTimeout(resolve, 0));
+        // Batch save to DB to prevent UI freezing
+        const chunkSize = 50;
+        for (let i = 0; i < nextNotes.length; i += chunkSize) {
+            const chunk = nextNotes.slice(i, i + chunkSize);
+            await Promise.all(chunk.map(n => db.saveNote(n)));
+            // Yield to event loop
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+      } catch (error: any) {
+        logElectronDataDebug('fetchNotes-error', {
+          message: error?.message || 'unknown-error',
+          name: error?.name || 'Error',
+        });
+        set({ error: error.message, isLoading: false });
+      } finally {
+        notesFetchPromise = null;
       }
-    } catch (error: any) {
-      logElectronDataDebug('fetchNotes-error', {
-        message: error?.message || 'unknown-error',
-        name: error?.name || 'Error',
-      });
-      set({ error: error.message, isLoading: false });
-    }
+    })();
+    return notesFetchPromise;
   },
 
   fetchTasks: async (parentNoteId) => {
@@ -1125,8 +1134,12 @@ export const useStore = create<StoreState>((set, get) => ({
       set({ isLoading: false });
       return;
     }
-    set({ isLoading: true, error: null });
-    try {
+    const currentFetchKey = taskFetchKey(parentNoteId);
+    const inFlight = taskFetchPromises.get(currentFetchKey);
+    if (inFlight) return inFlight;
+    const fetchPromise = (async () => {
+      set({ isLoading: true, error: null });
+      try {
         const cachedTasks = await db.getAllTasks();
         const validTasks = cachedTasks.filter(t => !(t as any).deleted);
         if (validTasks.length > 0) {
@@ -1135,11 +1148,11 @@ export const useStore = create<StoreState>((set, get) => ({
         } else {
              set({ tasks: [], isLoading: false });
         }
-    } catch (e) {
+      } catch (e) {
         console.error('Failed to load tasks from DB', e);
-    }
+      }
 
-    try {
+      try {
         // Always try to fetch, regardless of navigator.onLine status
         const encryptedTasks = await api.fetchTasks(parentNoteId);
         const tasks = await api.decryptTasks(encryptedTasks);
@@ -1192,9 +1205,14 @@ export const useStore = create<StoreState>((set, get) => ({
         }
         
         tasks.forEach(scheduleWebReminder);
-    } catch (error: any) {
+      } catch (error: any) {
         set({ error: error.message, isLoading: false });
-    }
+      } finally {
+        taskFetchPromises.delete(currentFetchKey);
+      }
+    })();
+    taskFetchPromises.set(currentFetchKey, fetchPromise);
+    return fetchPromise;
   },
 
   selectNote: (id) => {

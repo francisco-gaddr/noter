@@ -2,6 +2,13 @@
 
 Detta dokument operationaliserar reglerna i `project_rules.md` till konkreta verifieringssteg, så att varje leverans kan kvalitetssäkras konsekvent.
 
+## 0. Hur playbooken används
+
+- Börja med minsta relevanta gate för ändringen.
+- Eskalera till bredare validering när ändringen påverkar säkerhet, delade flöden, release readiness eller flera appar.
+- Använd repo-rotens scripts när samma förändring berör flera appar samtidigt.
+- Om regler eller dokumentationsflöde ändras ska också motsvarande md-filer uppdateras i samma leverans.
+
 ## 1. Baslinje före merge
 
 - Kör alltid från repo-roten:
@@ -9,6 +16,14 @@ Detta dokument operationaliserar reglerna i `project_rules.md` till konkreta ver
 - `npm run lint`
 - `npm run validate:prepush`
 - Om någon gate fallerar får ändringen inte levereras.
+
+## 1.1 Snabbval av gate
+
+- Docs-only eller regeluppdatering: verifiera struktur, länkar och berörda scripts/dokument.
+- En enskild appyta: kör snäv relevant suite + typecheck + lint där det finns.
+- Säkerhet, kryptering, auth, lock, IPC eller request-härdning: kör `npm run test:security:deep`.
+- Release readiness: kör både relevanta appgates och den fulla readiness-matrisen för plattformen.
+- Prestandaarbete: verifiera att dubbel-fetches, seriella writes och blockerande renderkedjor faktiskt minskat genom riktade regressionstester eller snapshot-/build-bevis.
 
 ## 2. Gate-matris per ändringstyp
 
@@ -22,7 +37,9 @@ Detta dokument operationaliserar reglerna i `project_rules.md` till konkreta ver
 | Notes/Tasks E2E-kryptering | backend validering + web at-rest + mobile at-rest + sync transporttest | `cd apps/backend && npm test -- __tests__/encryption-validation.test.ts __tests__/ai-sync.test.ts` + `cd apps/web && npm test -- __tests__/e2e-encryption.test.ts __tests__/task-encryption.test.ts __tests__/ai-sync-service.test.ts` + `cd apps/mobile && npm test -- __tests__/e2e-encryption.test.ts __tests__/task-encryption.test.ts tests/database-at-rest.test.ts tests/ai-sync-service.test.ts` |
 | Mobil/Electron-paritet (Tasks/AI) | mobile kontraktstest + mobile UI-strukturtest + web paritytest | `cd apps/mobile && npm test -- tests/task-editor-contract.test.ts tests/ai-settings-structure.test.tsx` + `cd apps/web && npm test -- components/NoteEditor.test.tsx` |
 | Mobil task-prestanda | mobile store-regression + UI-listtest + typecheck | `cd apps/mobile && npm test -- __tests__/store.test.ts tests/task-settings-persistence.e2e.test.tsx` + `npm run check-types` |
+| Startup/navigation-prestanda | mobile/web store-regression + renderer/listtest + build | `cd apps/mobile && npm test -- tests/store-init-resilience.test.ts __tests__/store.test.ts` + `cd apps/web && npm test -- __tests__/store.test.ts __tests__/SidebarTree.test.tsx __tests__/performance-stability.test.tsx` |
 | API/DB attackhärdning | middleware-unit + api-integration för injektion/content-type + typecheck/lint | `cd apps/backend && npm test -- __tests__/request-security.test.ts __tests__/api-hardening.test.ts` |
+| Tvärgående säkerhetsändring | samlad backend + mobile + electron säkerhetssvit + mutationstest | `npm run test:security:deep` |
 
 ## 3. Verifiering per regelklass
 
@@ -44,6 +61,7 @@ Detta dokument operationaliserar reglerna i `project_rules.md` till konkreta ver
 - Bekräfta att dashboard-sektion är nåbar via AI-inställningar och visar robust felstatus.
 - Bekräfta att task-editor stödjer single-tap med öppet tangentbord och auto-default för påminnelse vid förfallodatum.
 - Bekräfta att AI-inställningar i mobil visar både `Modeller` och `AI Instruktioner`.
+- Bekräfta att startup och background refresh inte består av onödiga seriella reads/writes när parallell eller yielding väg finns.
 
 ### Electron/Web
 
@@ -51,6 +69,7 @@ Detta dokument operationaliserar reglerna i `project_rules.md` till konkreta ver
 - Bekräfta att dashboard-sektion är nåbar i AI-inställningar.
 - Bekräfta att e2e täcker dashboard-åtkomst och rendering av auditmetadata.
 - Bekräfta att osäker transport blockeras för MCP/dashboard-anrop.
+- Bekräfta att renderer-start inte dubblar note/task-fetches och att stora sidebar/editor-ytor håller build och regressionstester gröna.
 
 ## 4. Definition of Done för AI/MCP
 
@@ -73,6 +92,7 @@ Detta dokument operationaliserar reglerna i `project_rules.md` till konkreta ver
 
 - Lista över körda kommandon och resultat.
 - Bekräftelse att `npm run validate:prepush` körts och passerat före push.
+- Bekräftelse att `npm run test:security:deep` körts när säkerhetskritiska ytor berörts.
 - Vilka regler i `project_rules.md` som berördes.
 - Vilka filer som uppdaterades för dokumentation.
 - Eventuella kvarvarande risker och planerade nästa steg.
@@ -94,6 +114,7 @@ Detta dokument operationaliserar reglerna i `project_rules.md` till konkreta ver
 - `npm run build:apk:preflight`
 - `npm run build:apk`
 - Dokumentera EAS build-id och senaste status efter faktisk cloud-build
+- Dokumentera eventuell Expo/EAS-blockerare explicit om cloud-build inte kan startas från aktuell miljö
 
 - **Obligatorisk dokumentation**:
 - Uppdatera `Doc/Electron & Mobile Build Readiness Runbook.md` när buildprofiler, scripts eller releaseflöden ändras.

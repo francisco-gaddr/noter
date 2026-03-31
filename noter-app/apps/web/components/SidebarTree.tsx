@@ -167,7 +167,7 @@ const TreeNode = React.memo(({ note, allNotes, noteById, childrenMap, level, sel
                     ${isDragging ? 'opacity-50' : ''}
                     ${isOver && canDrop ? 'ring-2 ring-green-500' : ''}
                 `}
-                style={{ paddingLeft: `${level * 12 + 8}px` }}
+                style={{ paddingLeft: `${level * 12 + 8}px`, contentVisibility: 'auto', containIntrinsicSize: '40px' }}
                 onClick={() => onSelect(note._id)}
             >
                 <button 
@@ -273,7 +273,27 @@ const TreeNode = React.memo(({ note, allNotes, noteById, childrenMap, level, sel
 });
 
 export default function SidebarTree() {
-  const { notes, tasks, selectedNoteId, selectedTaskListId, selectNote, createNote, deleteNote, fetchNotes, searchQuery, sortOrder, setSortOrder, error, updateNote, moveNote, unlockNote, language, setLanguage, activeTab, setActiveTab, activeProjectId, setActiveProject, unlockedProtectedNoteIds } = useStore();
+  const notes = useStore((state) => state.notes);
+  const tasks = useStore((state) => state.tasks);
+  const selectedNoteId = useStore((state) => state.selectedNoteId);
+  const selectedTaskListId = useStore((state) => state.selectedTaskListId);
+  const selectNote = useStore((state) => state.selectNote);
+  const createNote = useStore((state) => state.createNote);
+  const deleteNote = useStore((state) => state.deleteNote);
+  const searchQuery = useStore((state) => state.searchQuery);
+  const sortOrder = useStore((state) => state.sortOrder);
+  const setSortOrder = useStore((state) => state.setSortOrder);
+  const error = useStore((state) => state.error);
+  const updateNote = useStore((state) => state.updateNote);
+  const moveNote = useStore((state) => state.moveNote);
+  const unlockNote = useStore((state) => state.unlockNote);
+  const language = useStore((state) => state.language);
+  const setLanguage = useStore((state) => state.setLanguage);
+  const activeTab = useStore((state) => state.activeTab);
+  const setActiveTab = useStore((state) => state.setActiveTab);
+  const activeProjectId = useStore((state) => state.activeProjectId);
+  const setActiveProject = useStore((state) => state.setActiveProject);
+  const unlockedProtectedNoteIds = useStore((state) => state.unlockedProtectedNoteIds);
   const [viewMode, setViewMode] = useState<'tree' | 'list'>('tree');
   const [iconPickerNote, setIconPickerNote] = useState<Note | null>(null);
   const [createModal, setCreateModal] = useState<{ isOpen: boolean; type: 'note' | 'task_list' | 'project'; parentId: string | null }>({ isOpen: false, type: 'note', parentId: null });
@@ -281,6 +301,9 @@ export default function SidebarTree() {
   const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; id: string | null; type: 'project' | 'note' | 'task_list' }>({ isOpen: false, id: null, type: 'note' });
   const [projectUnlockModal, setProjectUnlockModal] = useState<{ isOpen: boolean; projectId: string | null }>({ isOpen: false, projectId: null });
   const containerRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const [listScrollTop, setListScrollTop] = useState(0);
+  const [listViewportHeight, setListViewportHeight] = useState(640);
   const { t } = useTranslation();
 
   const [{ isOver }, drop] = useDrop<DragItem, void, { isOver: boolean }>({
@@ -301,7 +324,6 @@ export default function SidebarTree() {
   }, [activeProjectId]);
 
   useEffect(() => {
-    fetchNotes();
     // Load persisted state
     const savedTab = localStorage.getItem('activeTab');
     const savedNoteId = localStorage.getItem('lastSelectedNoteId') || localStorage.getItem('selectedNoteId');
@@ -324,6 +346,15 @@ export default function SidebarTree() {
   useEffect(() => {
     localStorage.setItem('viewMode', viewMode);
   }, [viewMode]);
+
+  useEffect(() => {
+    const element = scrollContainerRef.current;
+    if (!element) return;
+    const updateViewportHeight = () => setListViewportHeight(element.clientHeight || 640);
+    updateViewportHeight();
+    window.addEventListener('resize', updateViewportHeight);
+    return () => window.removeEventListener('resize', updateViewportHeight);
+  }, [viewMode, searchQuery]);
 
   const effectiveSelectedId = activeTab === 'tasks' ? selectedTaskListId : selectedNoteId;
 
@@ -377,13 +408,15 @@ export default function SidebarTree() {
         return;
       }
       if (type === 'task_list') return;
-      if (!parentIds.has(note._id)) return;
-      const content = typeof note.content === 'string' ? note.content.trim() : '';
-      if (type !== 'note' && content.length === 0) {
+      const hasChildren = parentIds.has(note._id);
+      if (!hasChildren) return;
+      const normalizedParent = normalizeId(note.parentId);
+      if (type === 'note' && note.locked && !normalizedParent) {
         ids.add(note._id);
         return;
       }
-      if (type === 'note' && note.locked && content.length === 0) {
+      const content = typeof note.content === 'string' ? note.content.trim() : '';
+      if (type !== 'note' && content.length === 0) {
         ids.add(note._id);
       }
     });
@@ -419,9 +452,15 @@ export default function SidebarTree() {
     });
     return map;
   }, [safeNotes, sortOrder]);
+  const searchIndex = useMemo(() => new Fuse(safeNotes, {
+    keys: ['title', 'content', 'tags'],
+    threshold: 0.4,
+    includeScore: false,
+  }), [safeNotes]);
 
   const { rootNotes, flatFilteredNotes, sortedFlatNotes } = useMemo(() => {
     const readableCache = new Map<string, boolean>();
+    const searchableCache = new Map<string, boolean>();
     const isReadable = (note: Note) => {
       const cached = readableCache.get(note._id);
       if (cached !== undefined) return cached;
@@ -430,19 +469,22 @@ export default function SidebarTree() {
       readableCache.set(note._id, readable);
       return readable;
     };
+    const isSearchable = (note: Note) => {
+      const cached = searchableCache.get(note._id);
+      if (cached !== undefined) return cached;
+      const blocking = findBlockingLockedAncestor(note as any, securityMap as any, unlockedSet as any);
+      const searchable = !blocking;
+      searchableCache.set(note._id, searchable);
+      return searchable;
+    };
     if (searchQuery) {
-      const fuse = new Fuse(safeNotes, {
-        keys: ['title', 'content', 'tags'],
-        threshold: 0.4,
-        includeScore: false
-      });
-      const matches = fuse.search(searchQuery).map(res => res.item);
+      const matches = searchIndex.search(searchQuery).map(res => res.item);
       const filtered = matches.filter(n => {
         const noteType = normalizeNoteType((n as any).type);
         const isTaskList = noteType === 'task_list' || inferredTaskListIds.has(n._id);
         const isProject = noteType === 'project' || inferredProjectIds.has(n._id);
         const base = activeTab === 'tasks' ? isTaskList : (!isTaskList && !isProject);
-        return base && isReadable(n);
+        return base && isSearchable(n);
       });
       return { rootNotes: [], flatFilteredNotes: filtered, sortedFlatNotes: [] };
     }
@@ -504,7 +546,30 @@ export default function SidebarTree() {
     });
     return { rootNotes: sortNotes(roots, sortOrder), flatFilteredNotes: [], sortedFlatNotes: [] };
 
-  }, [safeNotes, searchQuery, sortOrder, viewMode, activeTab, activeProjectId, projects, noteById, securityMap, unlockedSet, activeProjectBlocked, inferredTaskListIds, inferredProjectIds]);
+  }, [safeNotes, searchIndex, searchQuery, sortOrder, viewMode, activeTab, activeProjectId, projects, noteById, securityMap, unlockedSet, activeProjectBlocked, inferredTaskListIds, inferredProjectIds]);
+  const listModeTotal = searchQuery ? flatFilteredNotes.length : sortedFlatNotes.length;
+  const listModeNotes = useMemo(() => (searchQuery ? flatFilteredNotes : sortedFlatNotes).slice(0, 500), [flatFilteredNotes, searchQuery, sortedFlatNotes]);
+  const virtualListRange = useMemo(() => {
+    if (searchQuery) {
+      return {
+        visibleNotes: listModeNotes,
+        topSpacerHeight: 0,
+        bottomSpacerHeight: 0,
+      };
+    }
+    const estimatedRowHeight = 40;
+    const overscan = 12;
+    const startIndex = Math.max(0, Math.floor(listScrollTop / estimatedRowHeight) - overscan);
+    const endIndex = Math.min(
+      listModeNotes.length,
+      Math.ceil((listScrollTop + listViewportHeight) / estimatedRowHeight) + overscan
+    );
+    return {
+      visibleNotes: listModeNotes.slice(startIndex, endIndex),
+      topSpacerHeight: startIndex * estimatedRowHeight,
+      bottomSpacerHeight: Math.max(0, listModeNotes.length - endIndex) * estimatedRowHeight,
+    };
+  }, [listModeNotes, listScrollTop, listViewportHeight, searchQuery]);
 
   const handleProjectSelect = async (projectId: string | null) => {
     if (!projectId) {
@@ -861,10 +926,16 @@ export default function SidebarTree() {
                 </div>
             </div>
             
-            <div className="flex-1 overflow-auto p-2" style={{ contentVisibility: 'auto' }}>
+            <div
+                ref={scrollContainerRef}
+                onScroll={(e) => setListScrollTop(e.currentTarget.scrollTop)}
+                className="flex-1 overflow-auto p-2"
+                style={{ contentVisibility: 'auto' }}
+            >
                 {searchQuery || viewMode === 'list' ? (
                     <ul className="space-y-1" role="list" aria-label={t('aria.notesList')}>
-                        {(searchQuery ? flatFilteredNotes : sortedFlatNotes).slice(0, 500).map(note => (
+                        {virtualListRange.topSpacerHeight > 0 && <li aria-hidden="true" style={{ height: virtualListRange.topSpacerHeight }} />}
+                        {virtualListRange.visibleNotes.map(note => (
                             <li 
                                 key={note._id}
                                 role="listitem"
@@ -880,7 +951,8 @@ export default function SidebarTree() {
                                 </div>
                             </li>
                         ))}
-                        {(searchQuery ? flatFilteredNotes : sortedFlatNotes).length > 500 && (
+                        {virtualListRange.bottomSpacerHeight > 0 && <li aria-hidden="true" style={{ height: virtualListRange.bottomSpacerHeight }} />}
+                        {listModeTotal > 500 && (
                              <div className="text-center text-xs text-gray-500 p-2">
                                  {t('common.showingFirst500') || 'Showing first 500 items. Refine search to see more.'}
                              </div>

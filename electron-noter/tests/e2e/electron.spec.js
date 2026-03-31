@@ -81,6 +81,7 @@ test('runs mocked download and chat flow', async () => {
   });
   const page = await app.firstWindow({ timeout: 20000 });
   await page.evaluate(async () => {
+    await window.mlc.resetPerformanceSnapshot();
     const models = await window.mlc.getModels();
     if (models.length !== 0) throw new Error('Expected empty models');
     await window.mlc.downloadAndConvert({ id: 'mock:Q4_K_M', modelId: 'mock', ggufUrl: 'https://example.test/mock.gguf', quant: 'Q4_K_M', target: 'cuda' });
@@ -100,6 +101,11 @@ test('runs mocked download and chat flow', async () => {
     });
     await Promise.race([tokenPromise, chatPromise, timeoutPromise]);
   });
+  const snapshot = await page.evaluate(() => window.mlc.getPerformanceSnapshot());
+  expect(snapshot.ai.downloads.count).toBeGreaterThanOrEqual(1);
+  expect(snapshot.ai.downloads.lastProgressEventCount).toBeGreaterThanOrEqual(1);
+  expect(snapshot.ai.chats.count).toBeGreaterThanOrEqual(1);
+  expect(snapshot.ai.chats.lastTokenCount).toBeGreaterThanOrEqual(1);
   await app.close();
 });
 

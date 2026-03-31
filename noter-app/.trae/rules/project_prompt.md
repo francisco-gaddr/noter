@@ -2,6 +2,21 @@
 
 Bygg plattformen med säkerhet, stabilitet och produktkvalitet som primära mål.
 
+## Hur prompten ska användas
+
+- Detta dokument styr hur agenten ska resonera, prioritera, verifiera och rapportera.
+- För generella konfliktregler gäller alltid rotens `AGENTS.md` först.
+- För tekniska detaljregler gäller `project_rules.md`.
+- För praktiska kommandon, gates och leveransbevis gäller `engineering_playbook.md`.
+- För deploy och infra gäller rotens `INSTRUCTIONS.md`, men den är inte agentpolicy.
+
+## Källa och konfliktregel
+
+- Detta dokument ska inte duplicera fullständiga detaljregler från `project_rules.md`, utan beskriva beslutsmönster och arbetsstil.
+- Vid konflikt mellan snabb leverans och robust leverans ska robust leverans prioriteras.
+- Vid konflikt mellan dokument på samma nivå ska agenten välja den mest specifika regeln och sedan verifiera den praktiskt.
+- Parallella eller äldre katalogträd får inte användas som aktiv källa om inte uppgiften uttryckligen gäller dem.
+
 ## Grundprinciper
 
 - Prioritera dataskydd först: minimera dataexponering, kryptera känslig lagring och validera all indata.
@@ -27,6 +42,8 @@ Bygg plattformen med säkerhet, stabilitet och produktkvalitet som primära mål
 - Vid skillnad mellan plattformar ska mobilappens UX och säkerhetsnivå höjas till minst samma nivå som Electron, inte tvärtom.
 - Task- och checkboxflöden i mobilappen ska ge omedelbar respons i UI; lokal persistens, reminder-planering och sync får inte skapa tydligt hack eller global loading-flicker.
 - Expo Go, dev builds och EAS APK ska dela samma robusta bootstrapprinciper: fail-soft startup, tydliga fallback-fel och ingen blockerande init som fastnar på splash.
+- Startup i mobil och Electron/web ska minimera seriekopplad I/O; oberoende reads/fetches ska parallelliseras och bakgrundsarbete ska flyttas bort från första interaktiva render när det är säkert.
+- Stora listor, träd och editorflöden ska designas för låg rerender-kostnad: indexerade uppslag, deduplicerade fetches, yielding batcher och återanvändbara memoiserade beräkningar ska prioriteras före större UI-omskrivningar.
 - AI-modellflödet på mobil ska särskilja Expo Go från saknade native moduler i EAS-build; feltexter måste spegla faktisk runtime-orsak.
 - Upplåsta låsta anteckningar får dekrypteras i editor/runtime efter korrekt lösenord, men UI får aldrig falla tillbaka till att visa rå ciphertext.
 - AI-konversationslagring på mobil ska sortera och uppdatera aktivitet utifrån dekrypterade tidsvärden; krypterade SQL-fält får inte användas som enda ordningskälla.
@@ -45,12 +62,14 @@ Bygg plattformen med säkerhet, stabilitet och produktkvalitet som primära mål
 ## Arbetsmetod
 
 - Börja varje större förändring med hotbildsbedömning och felmodes: auth, data leakage, replay, race.
+- Kartlägg alltid vilka appar, packages, dokument och scripts som faktiskt påverkas innan ändringen påbörjas.
 - Implementera lösning i små steg med verifiering efter varje steg.
 - Avsluta varje leverans med tydlig dokumentation: arkitektur, dataflöde, retention, testresultat.
 - Om osäkerhet finns mellan snabb lösning och robust lösning ska robust lösning prioriteras.
 - Följ GitHub-flöde med `feature/*` -> `dev` -> `main`, där `main` endast tar verifierade merges från `dev`.
 - Säkerställ efter push att remote-brancher är synkade och att inga kritiska ändringar ligger kvar lokalt.
 - Prioritera små, tydliga commits med spårbar scope för enklare rollback och säkrare release-hantering.
+- Undvik att läsa fler styrdokument än nödvändigt; börja med övergripande policy och gå sedan ned till den mest relevanta regeln.
 
 ## Essentiella funktionsdelar
 
@@ -65,6 +84,8 @@ Bygg plattformen med säkerhet, stabilitet och produktkvalitet som primära mål
 - Alla säkerhetskritiska ändringar ska ha unit + integration och minst ett relevant E2E-test.
 - Typecheck och lint ska vara gröna innan leverans.
 - Före varje push till `dev` eller `main` ska `npm run validate:prepush` köras från repo-roten och passera helt.
+- Release- och prestandaleveranser ska dokumentera vad som togs bort från kritisk path: dubblett-fetches, full-rerenders, seriella writes eller blockerande startup-steg.
+- När auth, lock, kryptering, settings, IPC eller request-härdning ändras ska även `npm run test:security:deep` övervägas som standardgate.
 - Valideringskommandot ska täcka backend, web/electron, mobile och electron-noter med kritiska tester för notes, tasks, AI-chatt, kryptering, auth/lock och fallback/felhantering.
 - Push får inte göras om någon gate fallerar; först fix, därefter ny full validering.
 - Dokumentation ska uppdateras i samma leverans när nya säkerhetsflöden, endpoints eller dashboards införs.
@@ -96,6 +117,8 @@ Bygg plattformen med säkerhet, stabilitet och produktkvalitet som primära mål
 ## Dokumentationskarta
 
 - Primär översikt: [README.md](file:///f:/Tech/Projekt/Noter/noter-app/README.md)
+- Agentkarta: [agent.md](file:///f:/Tech/Projekt/Noter/agent.md)
+- Global policy: [AGENTS.md](file:///f:/Tech/Projekt/Noter/AGENTS.md)
 - Projektregler: [project_rules.md](file:///f:/Tech/Projekt/Noter/noter-app/.trae/rules/project_rules.md)
 - Leverans-/kvalitetsflöde: [engineering_playbook.md](file:///f:/Tech/Projekt/Noter/noter-app/.trae/rules/engineering_playbook.md)
 - Säkerhets- och driftdokument: [Doc](file:///f:/Tech/Projekt/Noter/Doc/)
