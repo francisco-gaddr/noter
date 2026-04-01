@@ -9,7 +9,9 @@ describe('electron preload security contract', () => {
     expect(preloadJs).toContain("ipcRenderer.invoke('mlc:get-models')");
     expect(preloadJs).toContain("ipcRenderer.invoke('perf:get-snapshot')");
     expect(preloadJs).toContain("ipcRenderer.invoke('perf:reset-snapshot')");
+    expect(preloadJs).toContain("ipcRenderer.invoke('settings:get-many', keys)");
     expect(preloadJs).toContain("ipcRenderer.invoke('settings:set', { key, value })");
+    expect(preloadJs).toContain("ipcRenderer.invoke('settings:set-many', values)");
     expect(preloadJs).not.toContain('ipcRenderer.sendSync');
     expect(preloadJs).not.toContain('ipcRenderer.send(');
     expect(preloadJs).not.toContain('exposeInMainWorld(\'electron\'');

@@ -16,7 +16,9 @@ declare global {
       getPerformanceSnapshot: () => Promise<any>;
       resetPerformanceSnapshot: () => Promise<any>;
       getSetting: (key: string) => Promise<any>;
+      getManySettings?: (keys: string[]) => Promise<Record<string, any>>;
       setSetting: (key: string, value: any) => Promise<any>;
+      setManySettings?: (values: Record<string, any>) => Promise<any>;
     };
   }
 }

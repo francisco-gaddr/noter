@@ -7,6 +7,17 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    version: '1.0.14',
+    build: '2026.04.01.2',
+    date: '2026-04-01',
+    highlights: [
+      'Webb: Tasklistan använder nu viewport-windowing i listläge så stora taskmängder renderar färre DOM-noder samtidigt',
+      'Webb: Offline-sync kör nu med begränsad parallellism för notes och tasks i stället för helt seriella flush-loopar',
+      'Electron: Settings kan nu hämtas och sparas i batch via säker bridge, vilket minskar IPC-rundresor vid uppstart och filterinställningar',
+      'Tester: Regressioner verifierar ny settings-batching, fortsatt preload-säkerhet och stabilitet i taskfilterpersistens',
+    ],
+  },
+  {
     version: '1.0.13',
     build: '2026.04.01.1',
     date: '2026-04-01',

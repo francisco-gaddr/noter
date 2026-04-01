@@ -99,6 +99,17 @@ let settingsWriteQueue = Promise.resolve();
 let pendingSettingsSnapshot = null;
 let pendingSettingsResolvers = [];
 let settingsFlushTimer = null;
+const isSafeSettingKey = (key) => (
+  typeof key === 'string'
+  && key.length > 0
+  && key.length <= 128
+  && /^[a-zA-Z0-9._:-]+$/.test(key)
+  && key !== '__proto__'
+  && key !== 'prototype'
+  && key !== 'constructor'
+);
+const sanitizeSettingKeys = (keys) => Array.isArray(keys) ? keys.filter(isSafeSettingKey).slice(0, 32) : [];
+const sanitizeSettingEntries = (entries) => Object.entries(entries || {}).filter(([key]) => isSafeSettingKey(key)).slice(0, 32);
 
 const flushPendingSettingsWrite = () => {
   if (!pendingSettingsSnapshot) return;
@@ -425,13 +436,14 @@ ipcMain.handle('mlc:cancel-chat', async (_event, payload) => {
 });
 
 ipcMain.handle('settings:get', async (_event, key) => {
+  if (!isSafeSettingKey(key)) return null;
   const settings = settingsCache || readSettings();
   return settings[key];
 });
 
 ipcMain.handle('settings:set', async (_event, payload) => {
   const key = payload?.key;
-  if (!key) return false;
+  if (!isSafeSettingKey(key)) return false;
   const value = payload?.value;
   await enqueueSettingsWrite((settings) => {
     if (value === null || value === undefined) {
@@ -439,6 +451,30 @@ ipcMain.handle('settings:set', async (_event, payload) => {
     } else {
       settings[key] = value;
     }
+  });
+  return true;
+});
+
+ipcMain.handle('settings:get-many', async (_event, keys) => {
+  const safeKeys = sanitizeSettingKeys(keys);
+  const settings = settingsCache || readSettings();
+  return safeKeys.reduce((acc, key) => {
+    acc[key] = settings[key];
+    return acc;
+  }, {});
+});
+
+ipcMain.handle('settings:set-many', async (_event, entries) => {
+  const safeEntries = sanitizeSettingEntries(entries);
+  if (safeEntries.length === 0) return false;
+  await enqueueSettingsWrite((settings) => {
+    safeEntries.forEach(([key, value]) => {
+      if (value === null || value === undefined) {
+        delete settings[key];
+      } else {
+        settings[key] = value;
+      }
+    });
   });
   return true;
 });

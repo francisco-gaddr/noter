@@ -9,11 +9,12 @@ import { TaskDetailModal } from './TaskDetailModal';
 import TaskBoard from './TaskBoard';
 import TaskCalendar from './TaskCalendar';
 import { useDrag, useDrop, type DragSourceMonitor, type DropTargetMonitor } from 'react-dnd';
-import { debounce, orderBy } from 'lodash';
-import { startOfDay, endOfDay, isWithinInterval, addDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth, parseISO, isValid } from 'date-fns';
+import { debounce } from 'lodash';
 import type { Identifier, XYCoord } from 'dnd-core';
-import Fuse from 'fuse.js';
 import { formatTaskDueLabel } from '../lib/formatTaskDue';
+import { useTaskListSettings } from './task-list/useTaskListSettings';
+import { useVisibleTasks } from './task-list/useVisibleTasks';
+import { useTaskListWindowing } from './task-list/useTaskListWindowing';
 
 const ItemType = 'TASK';
 
@@ -217,11 +218,18 @@ export default function TaskList() {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [newTaskDefaults, setNewTaskDefaults] = useState<{ dueDate: Date | null }>({ dueDate: null });
     const [initialDate, setInitialDate] = useState<Date | null>(null);
-    const [sortBy, setSortBy] = useState<'createdAt' | 'custom' | 'dueDate' | 'title' | 'priority'>('custom'); // Default to custom
-    const [viewMode, setViewMode] = useState<'list' | 'board' | 'calendar'>('list');
-    const [filterDateRange, setFilterDateRange] = useState<{ start: string | null; end: string | null }>({ start: null, end: null });
-    const [quickFilter, setQuickFilter] = useState<string | null>(null);
-    const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'completed'>('all');
+    const {
+        sortBy,
+        setSortBy,
+        viewMode,
+        setViewMode,
+        filterDateRange,
+        setFilterDateRange,
+        quickFilter,
+        setQuickFilter,
+        statusFilter,
+        setStatusFilter,
+    } = useTaskListSettings();
     const [showFilters, setShowFilters] = useState(false);
     const { t } = useTranslation();
 
@@ -230,74 +238,6 @@ export default function TaskList() {
     const lastSavedOrderKeyRef = useRef<string>('');
     const reorderPendingRef = useRef(false);
     const [listTitle, setListTitle] = useState('');
-    const [settingsLoaded, setSettingsLoaded] = useState(false);
-    const [visibleTaskCount, setVisibleTaskCount] = useState(200);
-
-    const getPersistedSetting = useCallback(async (key: string): Promise<string | null> => {
-        if (typeof window === 'undefined') return null;
-        const mlc = (window as any).mlc;
-        if (mlc?.isElectron && typeof mlc.getSetting === 'function') {
-            try {
-                const value = await mlc.getSetting(key);
-                if (typeof value === 'string') {
-                    localStorage.setItem(key, value);
-                    return value;
-                }
-            } catch {
-            }
-        }
-        const fromLocal = localStorage.getItem(key);
-        if (fromLocal !== null) return fromLocal;
-        return null;
-    }, []);
-
-    const setPersistedSetting = useCallback((key: string, value: string | null) => {
-        if (typeof window === 'undefined') return;
-        const mlc = (window as any).mlc;
-        if (value === null) localStorage.removeItem(key);
-        else localStorage.setItem(key, value);
-        if (mlc?.isElectron && typeof mlc.setSetting === 'function') {
-            mlc.setSetting(key, value);
-        }
-    }, []);
-
-    // Load persisted settings
-    useEffect(() => {
-        let alive = true;
-        (async () => {
-            const savedSort = await getPersistedSetting('taskSortBy');
-            const savedView = await getPersistedSetting('taskViewMode');
-            const savedFilterRange = await getPersistedSetting('taskFilterDateRange');
-            const savedQuickFilter = await getPersistedSetting('taskQuickFilter');
-            const savedStatusFilter = await getPersistedSetting('taskStatusFilter');
-
-            if (!alive) return;
-            if (savedSort) setSortBy(savedSort as any);
-            if (savedView) setViewMode(savedView as any);
-            if (savedFilterRange) {
-                try {
-                    setFilterDateRange(JSON.parse(savedFilterRange));
-                } catch {}
-            }
-            if (savedQuickFilter) setQuickFilter(savedQuickFilter);
-            if (savedStatusFilter) setStatusFilter(savedStatusFilter as any);
-            setSettingsLoaded(true);
-        })();
-        return () => {
-            alive = false;
-        };
-    }, [getPersistedSetting]);
-
-    // Save settings when changed
-    useEffect(() => {
-        if (!settingsLoaded) return;
-        setPersistedSetting('taskSortBy', sortBy);
-        setPersistedSetting('taskViewMode', viewMode);
-        setPersistedSetting('taskFilterDateRange', JSON.stringify(filterDateRange));
-        setPersistedSetting('taskStatusFilter', statusFilter);
-        if (quickFilter) setPersistedSetting('taskQuickFilter', quickFilter);
-        else setPersistedSetting('taskQuickFilter', null);
-    }, [sortBy, viewMode, filterDateRange, quickFilter, statusFilter, settingsLoaded, setPersistedSetting]);
 
     const selectedList = useMemo(() => {
         if (!selectedTaskListId) return null;
@@ -325,30 +265,10 @@ export default function TaskList() {
         fetchTasks(selectedTaskListId || undefined);
     }, [selectedTaskListId, fetchTasks]);
 
-    useEffect(() => {
-        setVisibleTaskCount(200);
-    }, [selectedTaskListId, searchQuery, quickFilter, statusFilter, sortBy, viewMode, tasks.length]);
-
     const openTaskDetail = useCallback((task: Task) => {
         setSelectedTask(task);
         setIsModalOpen(true);
     }, []);
-
-    const visibleListTasks = useMemo(() => {
-        if (viewMode !== 'list' || sortBy === 'custom' || localTasks.length <= visibleTaskCount) {
-            return localTasks;
-        }
-        return localTasks.slice(0, visibleTaskCount);
-    }, [localTasks, sortBy, viewMode, visibleTaskCount]);
-
-    const handleListScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
-        if (sortBy === 'custom' || viewMode !== 'list') return;
-        const target = event.currentTarget;
-        const remaining = target.scrollHeight - target.scrollTop - target.clientHeight;
-        if (remaining < 320) {
-            setVisibleTaskCount((current) => Math.min(current + 200, localTasks.length));
-        }
-    }, [localTasks.length, sortBy, viewMode]);
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -365,87 +285,33 @@ export default function TaskList() {
         }
     }, [tasks, openTaskDetail]);
 
+    const visibleTasks = useVisibleTasks({
+        tasks,
+        selectedTaskListId,
+        sortBy,
+        quickFilter,
+        filterDateRange,
+        statusFilter,
+        searchQuery,
+    });
+
     useEffect(() => {
-        let visible = tasks.filter(t => !selectedTaskListId ? true : t.parentNoteId === selectedTaskListId);
-
-        // Apply filters
-        if (statusFilter === 'active') {
-            visible = visible.filter(t => !t.completed);
-        } else if (statusFilter === 'completed') {
-            visible = visible.filter(t => t.completed);
-        }
-
-        if (quickFilter) {
-            const now = new Date();
-            const todayStart = startOfDay(now);
-            const todayEnd = endOfDay(now);
-
-            visible = visible.filter(t => {
-                if (!t.dueDate) return false;
-                const date = new Date(t.dueDate);
-                if (!isValid(date)) return false;
-
-                switch (quickFilter) {
-                    case 'today':
-                        return isWithinInterval(date, { start: todayStart, end: todayEnd });
-                    case 'tomorrow':
-                         const tomorrow = addDays(now, 1);
-                         return isWithinInterval(date, { start: startOfDay(tomorrow), end: endOfDay(tomorrow) });
-                    case 'thisWeek':
-                        return isWithinInterval(date, { start: startOfWeek(now, { weekStartsOn: 1 }), end: endOfWeek(now, { weekStartsOn: 1 }) });
-                    case 'thisMonth':
-                        return isWithinInterval(date, { start: startOfMonth(now), end: endOfMonth(now) });
-                    default:
-                        return true;
-                }
-            });
-        } else if (filterDateRange.start && filterDateRange.end) {
-             const start = startOfDay(parseISO(filterDateRange.start));
-             const end = endOfDay(parseISO(filterDateRange.end));
-             if (isValid(start) && isValid(end)) {
-                 visible = visible.filter(t => {
-                     if (!t.dueDate) return false;
-                     const date = new Date(t.dueDate);
-                     return isValid(date) && isWithinInterval(date, { start, end });
-                 });
-             }
-        }
-
-        const query = searchQuery.trim();
-        if (query) {
-          const fuse = new Fuse(visible, { keys: ['title', 'description'], threshold: 0.4 });
-          visible = fuse.search(query).map(r => r.item);
-        }
-
-        const priorityRank = (p: unknown) => {
-          if (p === 'high') return 0;
-          if (p === 'medium') return 1;
-          if (p === 'low') return 2;
-          return 1;
-        };
-
-        // Sync local tasks with store tasks when store updates or sort changes
-        let nextLocal: Task[];
-        if (sortBy === 'custom') {
-            nextLocal = orderBy(visible, ['completed', 'position'], ['asc', 'asc']);
-        } else if (sortBy === 'priority') {
-             const priorityRank = (t: Task) => {
-                 if (t.priority === 'high') return 0;
-                 if (t.priority === 'medium') return 1;
-                 if (t.priority === 'low') return 2;
-                 return 1;
-             };
-             nextLocal = orderBy(visible, ['completed', priorityRank, 'createdAt'], ['asc', 'asc', 'desc']);
-        } else if (sortBy === 'dueDate') {
-            nextLocal = orderBy(visible, ['completed', 'dueDate'], ['asc', 'asc']);
-        } else {
-            nextLocal = orderBy(visible, ['completed', 'createdAt'], ['asc', 'desc']);
-        }
+        const nextLocal = visibleTasks;
         setLocalTasks(nextLocal);
         if (sortBy === 'custom' && !reorderPendingRef.current) {
             lastSavedOrderKeyRef.current = nextLocal.map(t => t._id).join('|');
         }
-    }, [tasks, sortBy, selectedTaskListId, quickFilter, filterDateRange, statusFilter, searchQuery]);
+    }, [sortBy, visibleTasks]);
+
+    const { visibleListTasks, topSpacerHeight, bottomSpacerHeight, isVirtualized, handleListScroll } = useTaskListWindowing({
+        tasks: localTasks,
+        selectedTaskListId,
+        searchQuery,
+        quickFilter,
+        statusFilter,
+        sortBy,
+        viewMode,
+    });
 
     const commitReorder = useCallback(async () => {
         if (viewMode !== 'list') return;
@@ -708,6 +574,7 @@ export default function TaskList() {
                 )}
                 {viewMode === 'list' && (
                     <div className="h-full overflow-auto p-2 space-y-2" onScroll={handleListScroll}>
+                        {topSpacerHeight > 0 ? <div style={{ height: topSpacerHeight }} aria-hidden="true" /> : null}
                         {visibleListTasks.map((task, index) => (
                             <TaskItem 
                                 key={task._id} 
@@ -724,9 +591,10 @@ export default function TaskList() {
                                 isCustomSort={sortBy === 'custom'}
                             />
                         ))}
-                        {visibleListTasks.length < localTasks.length && (
+                        {bottomSpacerHeight > 0 ? <div style={{ height: bottomSpacerHeight }} aria-hidden="true" /> : null}
+                        {isVirtualized && visibleListTasks.length < localTasks.length && (
                             <div className="py-3 text-center text-xs text-gray-500 dark:text-gray-400">
-                                Visar {visibleListTasks.length} av {localTasks.length} uppgifter. Scrolla för att ladda fler.
+                                Renderar {visibleListTasks.length} av {localTasks.length} uppgifter i vyn.
                             </div>
                         )}
                         {localTasks.length === 0 && (

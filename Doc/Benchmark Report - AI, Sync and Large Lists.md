@@ -15,6 +15,8 @@ This report covers the latest performance-focused changes across:
 - mobile AI sidebar project/chat list rendering
 - mobile note tree traversal and task timeline storage work
 - web editor lookup efficiency and sidebar search reuse
+- web task-list viewport windowing and search index reuse
+- web offline-sync concurrency and Electron settings batch IPC
 
 ## Change Summary
 
@@ -50,6 +52,7 @@ This report covers the latest performance-focused changes across:
 - SidebarTree no longer triggers an extra `fetchNotes()` on mount when the store hydration path already owns startup loading.
 - This removes duplicate startup work in Electron-rendered sessions and reduces avoidable cache/server churn.
 - Web/Electron note/task fetches now skip unchanged local writes instead of rewriting every fetched entity.
+- Electron settings can now be read and written in batch over the preload bridge for startup and task-filter persistence flows.
 
 ## 3. Offline queue granularity
 
@@ -58,6 +61,11 @@ This report covers the latest performance-focused changes across:
 - Offline updates for temp-created notes/tasks now merge into the queued `CREATE` entry instead of adding extra `UPDATE` entries.
 - Offline deletes for temp-created notes/tasks now remove the queued `CREATE` entry instead of creating a separate `DELETE`.
 - This reduces queue length, redundant encryption work and replay work during reconnect.
+
+### Web
+
+- Offline note/task sync now flushes with limited concurrency instead of a fully serial request chain.
+- This shortens reconnect recovery while still keeping note/task sync separated and bounded.
 
 ## 4. Large-list rendering
 
@@ -72,6 +80,8 @@ This report covers the latest performance-focused changes across:
 - Current windowing parameters:
   - estimated row height: 40 px
   - overscan: 12 rows
+- Task list view now uses viewport windowing outside custom drag-sort mode.
+- Task search reuses a memoized Fuse index instead of rebuilding the index on each render.
 
 ## 5. Tree, editor and navigation-path efficiency
 
@@ -102,6 +112,9 @@ This report covers the latest performance-focused changes across:
 | Task timeline mode persistence | Duplicate AsyncStorage effects for the same mode | Single storage read/write path | Less storage churn on timeline navigation |
 | Web editor/security lookups | Repeated `find` and security-map rebuilds in editor state paths | Memoized note map and security map reuse | Lower editor overhead during note switches and locked-note checks |
 | Web local persistence after fetch | Full fetched note/task sets rewritten to local DB | Only changed notes/tasks are persisted | Lower IndexedDB churn and faster post-fetch stabilization |
+| Web task list rendering | Growing task lists stayed mounted as full DOM slices | Viewport-windowed rendering outside custom sort mode | Lower DOM size and smoother scrolling on large lists |
+| Web offline sync | Pending note/task flushes ran fully serially | Limited concurrency per flush | Faster reconnect recovery without request storms |
+| Electron settings IPC | Repeated single-key get/set calls during hydrate and task settings | Batched getMany/setMany bridge calls | Fewer IPC round-trips and lower startup/settings overhead |
 
 ## Concrete Mechanical Savings
 
@@ -114,6 +127,9 @@ This report covers the latest performance-focused changes across:
 - Web/Electron fetch persistence now skips unchanged notes/tasks instead of rewriting every fetched entity.
 - Mobile note tree flattening avoids repeated whole-array parent and child scans.
 - Web editor and sidebar reuse memoized indexes instead of rebuilding hot lookup structures on every relevant pass.
+- Web task list now renders only the viewport slice plus overscan in non-custom list mode.
+- Web offline sync now overlaps a bounded number of note/task requests instead of waiting for every item fully serially.
+- Electron settings bootstrap and task-filter persistence can now collapse several single-key IPC calls into one batch read/write.
 - Temp entity offline flows can collapse from:
   - `CREATE + UPDATE` to `CREATE`
   - `CREATE + DELETE` to no queued item
@@ -175,7 +191,7 @@ This report covers the latest performance-focused changes across:
 ### Electron / Renderer
 
 - `npm run check-types`
-- `npx jest __tests__/store.test.ts __tests__/SidebarTree.test.tsx __tests__/AISidebar.test.tsx __tests__/performance-stability.test.tsx --runInBand`
+- `npx jest __tests__/store.test.ts __tests__/task-filter-persistence.e2e.test.tsx __tests__/SidebarTree.test.tsx __tests__/AISidebar.test.tsx __tests__/performance-stability.test.tsx --runInBand`
 - `npm run build`
 - `npm test -- tests/perf-metrics.test.js tests/preload-security.test.js tests/release-readiness.test.js`
 - `npm run test:e2e`

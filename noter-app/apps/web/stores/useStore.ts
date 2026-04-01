@@ -24,6 +24,31 @@ const persistInBatches = async <T,>(items: T[], batchSize: number, persist: (ite
     }
   }
 };
+const runWithConcurrency = async <T,>(items: T[], concurrency: number, worker: (item: T) => Promise<void>) => {
+  let currentIndex = 0;
+  const size = Math.max(1, concurrency);
+  const runners = Array.from({ length: Math.min(size, items.length) }, async () => {
+    while (currentIndex < items.length) {
+      const item = items[currentIndex++];
+      await worker(item);
+      await yieldToEventLoop();
+    }
+  });
+  await Promise.all(runners);
+};
+const readElectronSettings = async (keys: string[]) => {
+  if (typeof window === 'undefined') return {};
+  const mlc = (window as any).mlc;
+  if (!mlc?.isElectron) return {};
+  if (typeof mlc.getManySettings === 'function') {
+    try {
+      return await mlc.getManySettings(keys);
+    } catch {}
+  }
+  if (typeof mlc.getSetting !== 'function') return {};
+  const entries = await Promise.all(keys.map(async (key) => [key, await mlc.getSetting(key).catch(() => null)] as const));
+  return Object.fromEntries(entries);
+};
 
 const shouldLogElectronDataDebug = (): boolean => {
   if (typeof window === 'undefined') return false;
@@ -476,13 +501,12 @@ export const useStore = create<StoreState>((set, get) => ({
         if (token) setElectronToken(token);
         if (user) setElectronUser(user);
         if ((!token || !user) && (window as any).mlc?.getSetting) {
-            Promise.all([
-                (window as any).mlc.getSetting('token'),
-                (window as any).mlc.getSetting('user'),
-                (window as any).mlc.getSetting('apiBaseUrl').catch(() => null),
-                (window as any).mlc.getSetting('apiUrl').catch(() => null),
-                (window as any).mlc.getSetting('backendUrl').catch(() => null),
-            ]).then(([storedToken, storedUser, storedApiBaseUrl, storedApiUrl, storedBackendUrl]) => {
+            readElectronSettings(['token', 'user', 'apiBaseUrl', 'apiUrl', 'backendUrl']).then((settings) => {
+                const storedToken = settings.token;
+                const storedUser = settings.user;
+                const storedApiBaseUrl = settings.apiBaseUrl;
+                const storedApiUrl = settings.apiUrl;
+                const storedBackendUrl = settings.backendUrl;
                 logElectronDataDebug('bootstrap-settings', {
                     hasStoredToken: Boolean(storedToken),
                     hasStoredUser: Boolean(storedUser),
@@ -912,7 +936,7 @@ export const useStore = create<StoreState>((set, get) => ({
       if (get().isAppLocked) return;
       // Sync Notes
       const pendingNotes = await db.getPendingSyncNotes();
-      for (const note of pendingNotes) {
+      await runWithConcurrency(pendingNotes, 3, async (note) => {
           try {
               if (note.deleted) {
                   await api.deleteNote(note._id);
@@ -956,15 +980,15 @@ export const useStore = create<StoreState>((set, get) => ({
                       selectedTaskListId: state.selectedTaskListId === note._id ? null : state.selectedTaskListId
                   }));
                   await db.deleteNote(note._id);
-                  continue;
+                  return;
               }
               console.error('Sync failed for note', note._id, e);
           }
-      }
+      });
 
       // Sync Tasks
       const pendingTasks = await db.getPendingSyncTasks();
-      for (const task of pendingTasks) {
+      await runWithConcurrency(pendingTasks, 3, async (task) => {
           try {
               if (task.deleted) {
                   await api.deleteTask(task._id);
@@ -1009,11 +1033,11 @@ export const useStore = create<StoreState>((set, get) => ({
                        tasks: state.tasks.filter(t => t._id !== task._id)
                    }));
                    await db.deleteTask(task._id);
-                   continue;
+                   return;
                }
                console.error('Sync failed for task', task._id, e);
           }
-      }
+      });
   },
 
   fetchNotes: async () => {

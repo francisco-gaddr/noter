@@ -22,5 +22,7 @@ contextBridge.exposeInMainWorld('mlc', {
   getPerformanceSnapshot: () => ipcRenderer.invoke('perf:get-snapshot'),
   resetPerformanceSnapshot: () => ipcRenderer.invoke('perf:reset-snapshot'),
   getSetting: (key) => ipcRenderer.invoke('settings:get', key),
-  setSetting: (key, value) => ipcRenderer.invoke('settings:set', { key, value })
+  getManySettings: (keys) => ipcRenderer.invoke('settings:get-many', keys),
+  setSetting: (key, value) => ipcRenderer.invoke('settings:set', { key, value }),
+  setManySettings: (values) => ipcRenderer.invoke('settings:set-many', values)
 });
