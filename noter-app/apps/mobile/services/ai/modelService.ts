@@ -65,6 +65,14 @@ const swallowAsync = async (operation: unknown) => {
         await Promise.resolve(operation);
     } catch {}
 };
+const isRecoverableCompiledPackageError = (error: unknown) => {
+    const message = String((error as any)?.message || '').toLowerCase();
+    return message.includes('invalid model package')
+        || message.includes('package root not found')
+        || message.includes('missing model artifacts')
+        || message.includes('zip')
+        || message.includes('download failed');
+};
 
 type DownloadStage =
     | 'queued'
@@ -184,10 +192,12 @@ export const downloadModel = async (
     });
     const exists = await RNFS.exists(modelDir);
     let resolvedModelDir = modelDir;
+    let localConversionAttempted = false;
     try {
         if (!exists) {
             await updateInstallProgress(sessionKey, 'queued', 0, onProgress, options?.onStageChange, options?.existingJobId ? { jobId: options.existingJobId } : undefined);
         if (options?.preferLocalConversion) {
+            localConversionAttempted = true;
             await updateInstallProgress(sessionKey, 'local_conversion_requested', 0.02, onProgress, options?.onStageChange);
             try {
                 resolvedModelDir = await tryLocalConversion(
@@ -288,13 +298,33 @@ export const downloadModel = async (
             }
 
             await updateInstallProgress(sessionKey, 'downloading_compiled', 0.92, onProgress, options?.onStageChange, { jobId: jobId || '', outputUrl });
-            resolvedModelDir = await downloadCompiledModel(outputUrl, model.id, file.quantization, (p) => {
-                const nextProgress = 0.92 + p * 0.06;
-                onProgress?.(nextProgress);
-                patchModelInstallSession(sessionKey, { stage: 'downloading_compiled', progress: nextProgress }).catch(() => {});
-            });
-            await updateInstallProgress(sessionKey, 'validating', 0.99, onProgress, options?.onStageChange, { jobId: jobId || '', outputUrl });
-            resolvedModelDir = await validateModelPackage(resolvedModelDir);
+            try {
+                resolvedModelDir = await downloadCompiledModel(outputUrl, model.id, file.quantization, (p) => {
+                    const nextProgress = 0.92 + p * 0.06;
+                    onProgress?.(nextProgress);
+                    patchModelInstallSession(sessionKey, { stage: 'downloading_compiled', progress: nextProgress }).catch(() => {});
+                });
+                await updateInstallProgress(sessionKey, 'validating', 0.99, onProgress, options?.onStageChange, { jobId: jobId || '', outputUrl });
+                resolvedModelDir = await validateModelPackage(resolvedModelDir);
+            } catch (compiledError) {
+                const capabilities = await getLocalConversionCapabilities().catch(() => ({ engineAvailable: false, converterAvailable: false }));
+                const canFallbackToLocal = !localConversionAttempted && capabilities.engineAvailable && capabilities.converterAvailable && isRecoverableCompiledPackageError(compiledError);
+                if (!canFallbackToLocal) {
+                    throw compiledError;
+                }
+                localConversionAttempted = true;
+                await swallowAsync(RNFS.unlink(modelDir));
+                await updateInstallProgress(sessionKey, 'local_conversion_requested', 0.55, onProgress, options?.onStageChange, { jobId: jobId || '', outputUrl });
+                resolvedModelDir = await tryLocalConversion(
+                    RNFS,
+                    model,
+                    file,
+                    modelDir,
+                    platform,
+                    onProgress,
+                    options?.onStageChange
+                );
+            }
         } else {
             resolvedModelDir = validExistingPath;
         }

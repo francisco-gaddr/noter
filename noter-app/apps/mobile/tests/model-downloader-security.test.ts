@@ -108,6 +108,49 @@ describe('ModelDownloader security', () => {
     expect(result).toBe('/docs/mlc_models/user_model/Q4_K_M/outer/inner/model');
   });
 
+  it('hittar paketrot även när modellen är djupare kapslad än tidigare sökdjup', async () => {
+    const { validateModelPackage } = require('../services/ai/ModelDownloader');
+    mockExists.mockImplementation((path: string) =>
+      Promise.resolve(
+        path === '/docs/mlc_models/user_model/Q4_K_M'
+        || path === '/docs/mlc_models/user_model/Q4_K_M/a/b/c/d/e/f/g/model/mlc-chat-config.json'
+      )
+    );
+    mockReadDir.mockImplementation((path: string) => {
+      if (path === '/docs/mlc_models/user_model/Q4_K_M') {
+        return Promise.resolve([{ path: '/docs/mlc_models/user_model/Q4_K_M/a', name: 'a', isDirectory: () => true }]);
+      }
+      if (path.endsWith('/a')) {
+        return Promise.resolve([{ path: `${path}/b`, name: 'b', isDirectory: () => true }]);
+      }
+      if (path.endsWith('/b')) {
+        return Promise.resolve([{ path: `${path}/c`, name: 'c', isDirectory: () => true }]);
+      }
+      if (path.endsWith('/c')) {
+        return Promise.resolve([{ path: `${path}/d`, name: 'd', isDirectory: () => true }]);
+      }
+      if (path.endsWith('/d')) {
+        return Promise.resolve([{ path: `${path}/e`, name: 'e', isDirectory: () => true }]);
+      }
+      if (path.endsWith('/e')) {
+        return Promise.resolve([{ path: `${path}/f`, name: 'f', isDirectory: () => true }]);
+      }
+      if (path.endsWith('/f')) {
+        return Promise.resolve([{ path: `${path}/g`, name: 'g', isDirectory: () => true }]);
+      }
+      if (path.endsWith('/g')) {
+        return Promise.resolve([{ path: `${path}/model`, name: 'model', isDirectory: () => true }]);
+      }
+      if (path.endsWith('/model')) {
+        return Promise.resolve([{ path: `${path}/params_shard_0.bin`, name: 'params_shard_0.bin', isDirectory: () => false }]);
+      }
+      return Promise.resolve([]);
+    });
+
+    const result = await validateModelPackage('/docs/mlc_models/user_model/Q4_K_M');
+    expect(result).toBe('/docs/mlc_models/user_model/Q4_K_M/a/b/c/d/e/f/g/model');
+  });
+
   it('godkänner refererade artefakter även med relativa path-segment', async () => {
     const { validateModelPackage } = require('../services/ai/ModelDownloader');
     mockExists.mockImplementation((path: string) =>

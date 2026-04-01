@@ -2,6 +2,8 @@ import { Platform } from 'react-native';
 import { getReactNativeFs, getZipArchive } from './nativeRuntime';
 
 const MODEL_CONFIG_FILE = 'mlc-chat-config.json';
+const PACKAGE_SCAN_MAX_DEPTH = 12;
+const PACKAGE_LIST_MAX_DEPTH = 10;
 
 const getBaseDir = () => {
   const RNFS = getReactNativeFs();
@@ -67,7 +69,7 @@ const normalizeRelativePath = (value: string) => {
   return normalized.join('/');
 };
 
-const listRelativeFiles = async (rootPath: string, maxDepth = 4, prefix = ''): Promise<string[]> => {
+const listRelativeFiles = async (rootPath: string, maxDepth = PACKAGE_LIST_MAX_DEPTH, prefix = ''): Promise<string[]> => {
   const RNFS = getReactNativeFs();
   if (!RNFS?.readDir || maxDepth < 0) return [];
   let entries: any[] = [];
@@ -101,7 +103,7 @@ const hasRequiredArtifacts = async (path: string) => {
     return false;
   }
 
-  const relativeFiles = typeof RNFS.readDir === 'function' ? await listRelativeFiles(path, 5) : [];
+  const relativeFiles = typeof RNFS.readDir === 'function' ? await listRelativeFiles(path, PACKAGE_LIST_MAX_DEPTH) : [];
   const relativeFileSet = new Set(relativeFiles.map((file) => normalizeRelativePath(file)));
   const hasParamShard = relativeFiles.some((file) => /^params(?:_shard)?[_0-9a-z.-]*\.(?:bin|params)$/i.test(file.split('/').pop() || ''));
 
@@ -137,9 +139,11 @@ const hasRequiredArtifacts = async (path: string) => {
   return hasParamShard;
 };
 
-export const findModelPackageRoot = async (path: string, maxDepth = 6): Promise<string | null> => {
+export const findModelPackageRoot = async (path: string, maxDepth = PACKAGE_SCAN_MAX_DEPTH, visited = new Set<string>()): Promise<string | null> => {
   const RNFS = getReactNativeFs();
   if (!RNFS?.exists || !path) return null;
+  if (visited.has(path)) return null;
+  visited.add(path);
 
   const configPath = `${path}/${MODEL_CONFIG_FILE}`;
   if (await RNFS.exists(configPath)) {
@@ -157,11 +161,15 @@ export const findModelPackageRoot = async (path: string, maxDepth = 6): Promise<
     return null;
   }
 
+  if (entries.some((entry) => !isDirectoryEntry(entry) && getEntryName(entry) === MODEL_CONFIG_FILE)) {
+    return path;
+  }
+
   for (const entry of entries) {
     if (!isDirectoryEntry(entry)) continue;
     const entryPath = normalizeEntryPath(entry);
     if (!entryPath) continue;
-    const nested = await findModelPackageRoot(entryPath, maxDepth - 1);
+    const nested = await findModelPackageRoot(entryPath, maxDepth - 1, visited);
     if (nested) return nested;
   }
 

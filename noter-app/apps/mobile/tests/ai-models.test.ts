@@ -141,6 +141,29 @@ describe('AI Models', () => {
     expect(requestModelConversion).not.toHaveBeenCalled();
   });
 
+  it('faller tillbaka till lokal konvertering när compiled-paketet inte kan valideras', async () => {
+    const downloader = require('../services/ai/ModelDownloader');
+    const { downloadModel } = require('../services/ai/modelService');
+    const { getCompiledModelUrl } = require('../services/ai/huggingface');
+    const model = { id: 'user/model', name: 'model', author: 'user', downloads: 0, likes: 0, tags: [] };
+    const file = { filename: 'model.Q4_K_M.gguf', size: 123, url: 'https://hf.test/model.gguf', quantization: 'Q4_K_M' };
+
+    mockExists.mockResolvedValue(false);
+    mockDownloadFile.mockReturnValue({ promise: Promise.resolve({ statusCode: 200 }) });
+    mockGetLocalConversionCapabilities.mockResolvedValue({ engineAvailable: true, converterAvailable: true });
+    mockConvertGGUFToMLC.mockResolvedValue('/docs/mlc_models/user_model/Q4_K_M/local');
+    getCompiledModelUrl.mockResolvedValue({ url: 'https://models.test/compiled.zip', filename: 'Q4_K_M.zip', available: true });
+    downloader.downloadCompiledModel.mockRejectedValueOnce(new Error('Invalid model package: package root not found'));
+    downloader.validateModelPackage
+      .mockRejectedValueOnce(new Error('Invalid model package: package root not found'))
+      .mockImplementation(async (path: string) => path);
+
+    const result = await downloadModel(model as any, file as any);
+
+    expect(mockConvertGGUFToMLC).toHaveBeenCalled();
+    expect(result).toBe('/docs/mlc_models/user_model/Q4_K_M/local');
+  });
+
   it('resumes pending install sessions after background interruption', async () => {
     const { resumePendingModelDownloads } = require('../services/ai/modelService');
     const installSession = require('../services/ai/installSession');
