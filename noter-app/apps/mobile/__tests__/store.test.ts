@@ -33,11 +33,15 @@ jest.mock('../services/database', () => ({
   initDatabase: jest.fn(),
   migrateLocalEncryptedData: jest.fn().mockResolvedValue({ migratedNotes: 0, migratedTasks: 0 }),
   getNotesLocal: jest.fn().mockResolvedValue([]),
+  getLocalNoteSyncIndex: jest.fn().mockResolvedValue(new Map()),
   saveNoteLocal: jest.fn(),
   deleteNoteLocal: jest.fn(),
   getTasksLocal: jest.fn().mockResolvedValue([]),
+  getLocalTaskSyncIndex: jest.fn().mockResolvedValue(new Map()),
   saveTaskLocal: jest.fn(),
   deleteTaskLocal: jest.fn(),
+  mergeIntoQueuedCreate: jest.fn().mockResolvedValue(false),
+  removeQueuedCreate: jest.fn().mockResolvedValue(false),
   syncPendingChanges: jest.fn(),
 }));
 
@@ -343,6 +347,78 @@ describe('Mobile Store', () => {
     const state = useStore.getState();
     expect(state.tasks[0]?.title).toBe('Plain task title');
     expect(state.tasks[0]?.description).toBe('Krypterad task-beskrivning');
+  });
+
+  it('should skip unchanged local writes during background refresh', async () => {
+    const { fetchWithAuth } = require('../services/api');
+    const Database = require('../services/database');
+    const now = new Date().toISOString();
+    const encryptedNow = encrypt(now);
+
+    fetchWithAuth.mockResolvedValueOnce([
+      {
+        _id: 'note-unchanged',
+        title: encrypt('Oförändrad not'),
+        content: encrypt('Innehåll'),
+        locked: encrypt('false'),
+        type: encrypt('note'),
+        createdAt: encryptedNow,
+        updatedAt: encryptedNow,
+      },
+      {
+        _id: 'note-changed',
+        title: encrypt('Ändrad not'),
+        content: encrypt('Innehåll 2'),
+        locked: encrypt('false'),
+        type: encrypt('note'),
+        createdAt: encryptedNow,
+        updatedAt: encrypt(new Date(Date.now() + 1000).toISOString()),
+      },
+    ]);
+    fetchWithAuth.mockResolvedValueOnce([
+      {
+        _id: 'task-unchanged',
+        title: encrypt('Oförändrad task'),
+        description: encrypt('Desc'),
+        completed: encrypt('false'),
+        priority: encrypt('medium'),
+        dueDate: null,
+        recurrenceType: encrypt('none'),
+        recurrenceDays: encrypt('[]'),
+        reminderEnabled: encrypt('false'),
+        reminderOffsetMinutes: encrypt('[]'),
+        createdAt: encryptedNow,
+        updatedAt: encryptedNow,
+      },
+      {
+        _id: 'task-changed',
+        title: encrypt('Ändrad task'),
+        description: encrypt('Desc 2'),
+        completed: encrypt('false'),
+        priority: encrypt('medium'),
+        dueDate: null,
+        recurrenceType: encrypt('none'),
+        recurrenceDays: encrypt('[]'),
+        reminderEnabled: encrypt('false'),
+        reminderOffsetMinutes: encrypt('[]'),
+        createdAt: encryptedNow,
+        updatedAt: encrypt(new Date(Date.now() + 2000).toISOString()),
+      },
+    ]);
+
+    Database.getLocalNoteSyncIndex.mockResolvedValueOnce(new Map([
+      ['note-unchanged', now],
+    ]));
+    Database.getLocalTaskSyncIndex.mockResolvedValueOnce(new Map([
+      ['task-unchanged', now],
+    ]));
+
+    await useStore.getState().backgroundRefresh();
+
+    expect(Database.saveNoteLocal).toHaveBeenCalledTimes(1);
+    expect(Database.saveNoteLocal).toHaveBeenCalledWith(expect.objectContaining({ _id: 'note-changed' }), true);
+    expect(Database.saveTaskLocal).toHaveBeenCalledTimes(1);
+    expect(Database.saveTaskLocal).toHaveBeenCalledWith(expect.objectContaining({ _id: 'task-changed' }), true);
   });
 
   it('should unlock note content without logging out', async () => {

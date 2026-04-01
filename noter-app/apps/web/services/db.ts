@@ -310,6 +310,16 @@ export const db = {
     await db.put('notes', encrypted);
   },
 
+  async getNoteSyncIndex(): Promise<Map<string, string>> {
+    const notes = await this.getAllNotes();
+    return new Map(
+      notes.map((note) => [
+        String(note._id),
+        String(note.updatedAt || ''),
+      ])
+    );
+  },
+
   async deleteNote(id: string): Promise<void> {
     const db = await initDB();
     await db.delete('notes', id);
@@ -437,6 +447,16 @@ export const db = {
         deleted: (task as any).deleted !== undefined ? encrypt(String(!!(task as any).deleted)) : (task as any).deleted
     };
     await db.put('tasks', encrypted as any);
+  },
+
+  async getTaskSyncIndex(): Promise<Map<string, string>> {
+    const tasks = await this.getAllTasks();
+    return new Map(
+      tasks.map((task) => [
+        String(task._id),
+        String(task.updatedAt || ''),
+      ])
+    );
   },
 
   async deleteTask(id: string): Promise<void> {

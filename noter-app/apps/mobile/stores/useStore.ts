@@ -1253,12 +1253,20 @@ export const useStore = create<AppState>((set, get) => ({
       const safeNotes = Array.isArray(notes) ? notes : [];
       const decryptedNotes = materializeNotesFromEncrypted(safeNotes as any, new Set(get().unlockedProtectedNoteIds));
       const persistableNotes = (safeNotes as any[]).map((note) => normalizeEncryptedNote(note as Note));
-      await persistInBatches(persistableNotes, 25, (note) => Database.saveNoteLocal(note, true));
+      const localNoteIndex = typeof Database.getLocalNoteSyncIndex === 'function'
+        ? await Database.getLocalNoteSyncIndex()
+        : new Map<string, string>();
+      const notesToPersist = persistableNotes.filter((note) => localNoteIndex.get(note._id) !== String(note.updatedAt || ''));
+      await persistInBatches(notesToPersist, 25, (note) => Database.saveNoteLocal(note, true));
       set({ notes: decryptedNotes });
 
       const safeTasks = Array.isArray(tasks) ? tasks : [];
       const decryptedTasks = safeTasks.map(processApiTask);
-      await persistInBatches(decryptedTasks, 25, (task) => Database.saveTaskLocal(task, true));
+      const localTaskIndex = typeof Database.getLocalTaskSyncIndex === 'function'
+        ? await Database.getLocalTaskSyncIndex()
+        : new Map<string, string>();
+      const tasksToPersist = (decryptedTasks as Task[]).filter((task: Task) => localTaskIndex.get(task._id) !== String(task.updatedAt || ''));
+      await persistInBatches(tasksToPersist, 25, (task: Task) => Database.saveTaskLocal(task, true));
       const state = get();
       const serverClientIds = new Set(decryptedTasks.map((t: any) => t.clientId).filter(Boolean));
       const localOnlyTasks = state.tasks.filter(t => t._id.startsWith('local_task_') && !serverClientIds.has((t as any).clientId));

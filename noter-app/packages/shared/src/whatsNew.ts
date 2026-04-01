@@ -7,6 +7,17 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    version: '1.0.13',
+    build: '2026.04.01.1',
+    date: '2026-04-01',
+    highlights: [
+      'Mobil: Bakgrundsrefresh hoppar nu över oförändrade lokala notes och tasks för snabbare synk och mindre UI-belastning',
+      'Web/Electron: Note- och task-fetch persisterar nu bara ändrade poster i lokal databas i stället för att skriva om hela dataset',
+      'Prestanda: Nästa optimeringsrunda minskar kvarvarande onödiga disk- och IndexedDB-skrivningar i stora datamängder',
+      'Tester: Nya regressionstester verifierar att oförändrade poster inte skrivs om under refresh i mobil och web',
+    ],
+  },
+  {
     version: '1.0.12',
     build: '2026.03.31.1',
     date: '2026-03-31',

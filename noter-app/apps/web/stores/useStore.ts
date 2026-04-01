@@ -14,6 +14,16 @@ let networkListenersReady = false;
 let notesFetchPromise: Promise<void> | null = null;
 const taskFetchPromises = new Map<string, Promise<void>>();
 const taskFetchKey = (parentNoteId?: string | null) => parentNoteId || '__all__';
+const yieldToEventLoop = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+const persistInBatches = async <T,>(items: T[], batchSize: number, persist: (item: T) => Promise<void>) => {
+  for (let index = 0; index < items.length; index += batchSize) {
+    const chunk = items.slice(index, index + batchSize);
+    await Promise.all(chunk.map((item) => persist(item)));
+    if (index + batchSize < items.length) {
+      await yieldToEventLoop();
+    }
+  }
+};
 
 const shouldLogElectronDataDebug = (): boolean => {
   if (typeof window === 'undefined') return false;
@@ -1089,6 +1099,9 @@ export const useStore = create<StoreState>((set, get) => ({
           activeProjectId: get().activeProjectId || null,
         });
         set({ notes: nextNotes, isLoading: false });
+        const noteSyncIndex = typeof db.getNoteSyncIndex === 'function'
+          ? await db.getNoteSyncIndex()
+          : new Map<string, string>();
         if (typeof window !== 'undefined') {
           if (nextNotes.length === 0) {
             localStorage.removeItem('lastSelectedNoteId');
@@ -1108,14 +1121,8 @@ export const useStore = create<StoreState>((set, get) => ({
           }
         }
 
-        // Batch save to DB to prevent UI freezing
-        const chunkSize = 50;
-        for (let i = 0; i < nextNotes.length; i += chunkSize) {
-            const chunk = nextNotes.slice(i, i + chunkSize);
-            await Promise.all(chunk.map(n => db.saveNote(n)));
-            // Yield to event loop
-            await new Promise(resolve => setTimeout(resolve, 0));
-        }
+        const notesToPersist = nextNotes.filter((note) => noteSyncIndex.get(note._id) !== String(note.updatedAt || ''));
+        await persistInBatches(notesToPersist, 50, (note) => db.saveNote(note));
       } catch (error: any) {
         logElectronDataDebug('fetchNotes-error', {
           message: error?.message || 'unknown-error',
@@ -1194,15 +1201,11 @@ export const useStore = create<StoreState>((set, get) => ({
         }
 
         set({ tasks: uniqBy(mergedTasks, '_id'), isLoading: false });
-        
-        // Batch save to DB to prevent UI freezing
-        const chunkSize = 50;
-        for (let i = 0; i < tasks.length; i += chunkSize) {
-            const chunk = tasks.slice(i, i + chunkSize);
-            await Promise.all(chunk.map(t => db.saveTask(t)));
-            // Yield to event loop
-            await new Promise(resolve => setTimeout(resolve, 0));
-        }
+        const taskSyncIndex = typeof db.getTaskSyncIndex === 'function'
+          ? await db.getTaskSyncIndex()
+          : new Map<string, string>();
+        const tasksToPersist = tasks.filter((task) => taskSyncIndex.get(task._id) !== String(task.updatedAt || ''));
+        await persistInBatches(tasksToPersist, 50, (task) => db.saveTask(task));
         
         tasks.forEach(scheduleWebReminder);
       } catch (error: any) {

@@ -41,6 +41,7 @@ This report covers the latest performance-focused changes across:
 - Local notes and local tasks now load in parallel during bootstrap.
 - Initial remote note/task refresh now runs in parallel after local state is ready.
 - Background refresh now fetches notes and tasks in parallel and persists them in yielding batches instead of long serial write chains.
+- Background refresh skips unchanged local note/task writes by comparing sync indexes before persistence.
 
 ### Electron / Renderer
 
@@ -48,6 +49,7 @@ This report covers the latest performance-focused changes across:
 - Web store task fetches are also deduplicated per scope.
 - SidebarTree no longer triggers an extra `fetchNotes()` on mount when the store hydration path already owns startup loading.
 - This removes duplicate startup work in Electron-rendered sessions and reduces avoidable cache/server churn.
+- Web/Electron note/task fetches now skip unchanged local writes instead of rewriting every fetched entity.
 
 ## 3. Offline queue granularity
 
@@ -99,6 +101,7 @@ This report covers the latest performance-focused changes across:
 | Mobile note tree traversal | Repeated parent/child scans over the whole visible note set | Indexed parent-child traversal and id lookups | Faster tree flattening and navigation in larger note sets |
 | Task timeline mode persistence | Duplicate AsyncStorage effects for the same mode | Single storage read/write path | Less storage churn on timeline navigation |
 | Web editor/security lookups | Repeated `find` and security-map rebuilds in editor state paths | Memoized note map and security map reuse | Lower editor overhead during note switches and locked-note checks |
+| Web local persistence after fetch | Full fetched note/task sets rewritten to local DB | Only changed notes/tasks are persisted | Lower IndexedDB churn and faster post-fetch stabilization |
 
 ## Concrete Mechanical Savings
 
@@ -107,6 +110,8 @@ This report covers the latest performance-focused changes across:
 - Mobile startup removes several avoidable serial waits by overlapping preference reads, local collection reads and initial remote refresh.
 - Mobile background refresh now yields between batched writes instead of monopolizing the JS thread for long save loops.
 - Electron/web now suppress duplicate in-flight note/task refreshes instead of starting overlapping network + decrypt + cache work.
+- Mobile background refresh now avoids rewriting unchanged entities altogether when sync timestamps match.
+- Web/Electron fetch persistence now skips unchanged notes/tasks instead of rewriting every fetched entity.
 - Mobile note tree flattening avoids repeated whole-array parent and child scans.
 - Web editor and sidebar reuse memoized indexes instead of rebuilding hot lookup structures on every relevant pass.
 - Temp entity offline flows can collapse from:

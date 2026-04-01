@@ -10,6 +10,7 @@ jest.mock('../services/api', () => ({
     login: jest.fn(),
     register: jest.fn(),
     fetchNotes: jest.fn(),
+    decryptTasks: jest.fn((tasks: any[]) => Promise.resolve(tasks)),
     getNote: jest.fn(),
     createNote: jest.fn(),
     updateNote: jest.fn(),
@@ -38,9 +39,12 @@ jest.mock('../services/db', () => ({
   db: {
     saveNote: jest.fn(),
     getAllNotes: jest.fn().mockResolvedValue([]),
+    getNoteSyncIndex: jest.fn().mockResolvedValue(new Map()),
     getPendingSyncNotes: jest.fn().mockResolvedValue([]),
     saveTask: jest.fn(),
     getAllTasks: jest.fn().mockResolvedValue([]),
+    getTaskSyncIndex: jest.fn().mockResolvedValue(new Map()),
+    getPendingSyncTasks: jest.fn().mockResolvedValue([]),
   },
 }));
 
@@ -223,6 +227,42 @@ describe('Web Store', () => {
     await act(async () => {
       await Promise.all([first, second]);
     });
+  });
+
+  it('should skip unchanged note writes during fetchNotes', async () => {
+    const { api } = require('../services/api');
+    const { db } = require('../services/db');
+    const now = new Date().toISOString();
+    api.fetchNotes.mockResolvedValueOnce([
+      { _id: 'note-unchanged', title: 'A', content: '', type: 'note', locked: false, createdAt: now, updatedAt: now },
+      { _id: 'note-changed', title: 'B', content: '', type: 'note', locked: false, createdAt: now, updatedAt: new Date(Date.now() + 1000).toISOString() },
+    ]);
+    db.getNoteSyncIndex.mockResolvedValueOnce(new Map([['note-unchanged', now]]));
+
+    await act(async () => {
+      await useStore.getState().fetchNotes();
+    });
+
+    expect(db.saveNote).toHaveBeenCalledTimes(1);
+    expect(db.saveNote).toHaveBeenCalledWith(expect.objectContaining({ _id: 'note-changed' }));
+  });
+
+  it('should skip unchanged task writes during fetchTasks', async () => {
+    const { api } = require('../services/api');
+    const { db } = require('../services/db');
+    const now = new Date().toISOString();
+    api.fetchTasks.mockResolvedValueOnce([
+      { _id: 'task-unchanged', title: 'A', description: '', completed: false, priority: 'medium', createdAt: now, updatedAt: now, parentNoteId: null },
+      { _id: 'task-changed', title: 'B', description: '', completed: false, priority: 'medium', createdAt: now, updatedAt: new Date(Date.now() + 1000).toISOString(), parentNoteId: null },
+    ]);
+    db.getTaskSyncIndex.mockResolvedValueOnce(new Map([['task-unchanged', now]]));
+
+    await act(async () => {
+      await useStore.getState().fetchTasks();
+    });
+
+    expect(db.saveTask).toHaveBeenCalledTimes(1);
+    expect(db.saveTask).toHaveBeenCalledWith(expect.objectContaining({ _id: 'task-changed' }));
   });
 
   it('should relock project session when leaving active project', async () => {
