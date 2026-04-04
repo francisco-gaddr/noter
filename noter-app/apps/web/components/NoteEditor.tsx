@@ -16,6 +16,7 @@ import jsPDF from 'jspdf';
 import TurndownService from 'turndown';
 import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
+import { Note } from '@repo/shared';
 import { getTikTokEmbedUrl, resolveVideoEmbedUrl } from '../lib/videoEmbed';
 import { buildSecurityNoteMap, findBlockingLockedAncestor } from '../services/ai/security';
 import i18n from '../app/i18n';
@@ -1194,6 +1195,7 @@ export default function NoteEditor() {
 function NoteEditorContent() {
   const selectedNoteId = useStore((state) => state.selectedNoteId);
   const notes = useStore((state) => state.notes);
+  const isLoading = useStore((state) => state.isLoading);
   const updateNote = useStore((state) => state.updateNote);
   const unlockNote = useStore((state) => state.unlockNote);
   const joinNote = useStore((state) => state.joinNote);
@@ -1206,7 +1208,7 @@ function NoteEditorContent() {
   const notesById = useMemo(() => new Map(notes.map((note) => [note._id, note])), [notes]);
   const unlockedProtectedNoteIdSet = useMemo(() => new Set(unlockedProtectedNoteIds), [unlockedProtectedNoteIds]);
   const securityMap = useMemo(() => buildSecurityNoteMap(notes as any), [notes]);
-  const selectedNote = selectedNoteId ? notesById.get(selectedNoteId) : undefined;
+  const selectedNoteFromStore = selectedNoteId ? notesById.get(selectedNoteId) : undefined;
   const [title, setTitle] = useState('');
   const [value, setValue] = useState<Descendant[]>(initialValue);
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
@@ -1219,6 +1221,22 @@ function NoteEditorContent() {
   const [tagsInput, setTagsInput] = useState('');
   const tagsInputRef = useRef<HTMLInputElement | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const lastResolvedSelectedNoteRef = useRef<Note | null>(null);
+
+  useEffect(() => {
+    if (selectedNoteFromStore && selectedNoteId === selectedNoteFromStore._id) {
+      lastResolvedSelectedNoteRef.current = selectedNoteFromStore as Note;
+      return;
+    }
+    if (!selectedNoteId) {
+      lastResolvedSelectedNoteRef.current = null;
+    }
+  }, [selectedNoteFromStore, selectedNoteId]);
+
+  const selectedNote = selectedNoteFromStore
+    ?? ((isLoading && selectedNoteId && lastResolvedSelectedNoteRef.current?._id === selectedNoteId)
+      ? lastResolvedSelectedNoteRef.current
+      : undefined);
 
   const openVideoModal = useCallback(() => {
     setVideoUrl('');

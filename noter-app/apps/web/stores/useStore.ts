@@ -568,6 +568,7 @@ export const useStore = create<StoreState>((set, get) => ({
         const isAppLocked = localStorage.getItem('isAppLocked') === 'true';
         const appLockPasswordHash = localStorage.getItem('appLockPasswordHash');
         const autoLockTimeout = parseInt(localStorage.getItem('autoLockTimeout') || '15', 10);
+        const hasElectronSettingsBridge = Boolean((window as any).mlc?.getSetting);
 
         const shouldLockOnLaunch = Boolean(token && appLockPasswordHash && isElectron);
         const nextLocked = appLockPasswordHash ? (shouldLockOnLaunch ? true : isAppLocked) : false;
@@ -578,7 +579,7 @@ export const useStore = create<StoreState>((set, get) => ({
         setSocketToken(token || null);
         if (token) setElectronToken(token);
         if (user) setElectronUser(user);
-        if ((!token || !user) && (window as any).mlc?.getSetting) {
+        if (hasElectronSettingsBridge) {
             readElectronSettings(['token', 'user', 'apiBaseUrl', 'apiUrl', 'backendUrl']).then((settings) => {
                 const storedToken = settings.token;
                 const storedUser = settings.user;
@@ -614,7 +615,8 @@ export const useStore = create<StoreState>((set, get) => ({
                 if (storedUser && !user) {
                     set({ user: typeof storedUser === 'string' ? JSON.parse(storedUser) : storedUser });
                 }
-                if (storedToken && !nextLocked) {
+                const effectiveToken = String(storedToken || token || '');
+                if (effectiveToken && !nextLocked) {
                     get().fetchNotes();
                     get().fetchTasks();
                     get().initSocket();
@@ -635,7 +637,7 @@ export const useStore = create<StoreState>((set, get) => ({
             });
             set({ isOffline: typeof navigator !== 'undefined' ? !navigator.onLine : false });
         }
-        if (token && !nextLocked) {
+        if (!hasElectronSettingsBridge && token && !nextLocked) {
             get().fetchNotes();
             get().fetchTasks();
             get().initSocket();
@@ -1220,12 +1222,13 @@ export const useStore = create<StoreState>((set, get) => ({
         });
         set((state) => {
           const noteExists = (id: string | null) => Boolean(id && nextNotes.some((note) => note._id === id));
+          const shouldPruneSelections = nextNotes.length > 0;
           return {
             ...deriveProtectedVisibilityState(state, {
               notes: nextNotes,
-              ...(state.selectedNoteId && !noteExists(state.selectedNoteId) ? { selectedNoteId: null } : {}),
-              ...(state.selectedTaskListId && !noteExists(state.selectedTaskListId) ? { selectedTaskListId: null } : {}),
-              ...(state.activeProjectId && !noteExists(state.activeProjectId) ? { activeProjectId: null } : {}),
+              ...(shouldPruneSelections && state.selectedNoteId && !noteExists(state.selectedNoteId) ? { selectedNoteId: null } : {}),
+              ...(shouldPruneSelections && state.selectedTaskListId && !noteExists(state.selectedTaskListId) ? { selectedTaskListId: null } : {}),
+              ...(shouldPruneSelections && state.activeProjectId && !noteExists(state.activeProjectId) ? { activeProjectId: null } : {}),
             }),
             isLoading: false,
           };
@@ -1237,8 +1240,7 @@ export const useStore = create<StoreState>((set, get) => ({
           : new Map<string, string>();
         if (typeof window !== 'undefined') {
           if (nextNotes.length === 0) {
-            localStorage.removeItem('lastSelectedNoteId');
-            localStorage.removeItem('selectedNoteId');
+            syncPersistedSelections(get().selectedNoteId, get().selectedTaskListId);
           } else {
             const selectedId = get().selectedNoteId;
             if (selectedId && !nextNotes.some(n => n._id === selectedId)) {

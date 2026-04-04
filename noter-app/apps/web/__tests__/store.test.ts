@@ -52,6 +52,7 @@ jest.mock('../services/db', () => ({
 describe('Web Store', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    delete (window as any).mlc;
     useStore.setState({
       notes: [],
       tasks: [],
@@ -126,6 +127,29 @@ describe('Web Store', () => {
     });
 
     expect(useStore.getState().activeProjectId).toBe('project-abc');
+  });
+
+  it('should bootstrap electron settings before first sync when electron bridge exists', async () => {
+    const { api } = require('../services/api');
+    (window as any).mlc = {
+      isElectron: true,
+      getManySettings: jest.fn().mockResolvedValue({
+        apiBaseUrl: 'http://127.0.0.1:3001/api',
+      }),
+      getSetting: jest.fn(),
+      setManySettings: jest.fn(),
+      setSetting: jest.fn(),
+    };
+    localStorage.setItem('user', JSON.stringify({ _id: '1', username: 'test' }));
+    sessionStorage.setItem('token', 'abc');
+    await act(async () => {
+      useStore.getState().hydrate();
+      await Promise.resolve();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect((window as any).mlc.getManySettings).toHaveBeenCalled();
   });
 
   it('should restore sort order from localStorage on hydrate', () => {
@@ -251,6 +275,24 @@ describe('Web Store', () => {
 
     expect(db.saveNote).toHaveBeenCalledTimes(1);
     expect(db.saveNote).toHaveBeenCalledWith(expect.objectContaining({ _id: 'note-changed' }));
+  });
+
+  it('should preserve selected note on transient empty fetch result', async () => {
+    const { api } = require('../services/api');
+    const now = new Date().toISOString();
+    useStore.setState({
+      selectedNoteId: 'n1',
+      notes: [
+        { _id: 'n1', title: 'Anteckning', content: 'Innehåll', type: 'note', locked: false, createdAt: now, updatedAt: now } as any,
+      ],
+    } as any);
+    api.fetchNotes.mockResolvedValueOnce([]);
+
+    await act(async () => {
+      await useStore.getState().fetchNotes();
+    });
+
+    expect(useStore.getState().selectedNoteId).toBe('n1');
   });
 
   it('should skip unchanged task writes during fetchTasks', async () => {
