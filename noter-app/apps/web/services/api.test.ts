@@ -30,8 +30,8 @@ describe('E2E Encryption Tests', () => {
   });
 
   it('normalizes stored api base url', () => {
-    setApiBaseUrl('https://daylited.com/app/api');
-    expect(localStorageMock.setItem).toHaveBeenCalledWith('apiBaseUrl', 'https://daylited.com/api');
+    setApiBaseUrl('https://example.com/app/api');
+    expect(localStorageMock.setItem).toHaveBeenCalledWith('apiBaseUrl', 'https://example.com/api');
   });
 
   describe('fetchNotes', () => {

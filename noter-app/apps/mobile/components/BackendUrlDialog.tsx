@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Dialog, Button, useTheme, Text, TextInput } from 'react-native-paper';
+import { useTranslation } from 'react-i18next';
 
 interface BackendUrlDialogProps {
   visible: boolean;
@@ -16,6 +17,7 @@ export const BackendUrlDialog: React.FC<BackendUrlDialogProps> = ({
   onSave,
 }) => {
   const theme = useTheme();
+  const { t } = useTranslation();
   const [tempUrl, setTempUrl] = useState(currentUrl);
 
   // Reset tempUrl when dialog opens
@@ -31,10 +33,10 @@ export const BackendUrlDialog: React.FC<BackendUrlDialogProps> = ({
 
   return (
     <Dialog visible={visible} onDismiss={onDismiss} style={{ backgroundColor: theme.colors.elevation.level3 }}>
-      <Dialog.Title>Backend URL</Dialog.Title>
+      <Dialog.Title>{t('settings.backendUrl')}</Dialog.Title>
       <Dialog.Content>
         <TextInput
-            label="API URL"
+            label={t('settings.apiUrl')}
             value={tempUrl}
             onChangeText={setTempUrl}
             autoCapitalize="none"
@@ -42,15 +44,15 @@ export const BackendUrlDialog: React.FC<BackendUrlDialogProps> = ({
             keyboardType="url"
             mode="outlined"
             style={styles.input}
-            placeholder="http://192.168.x.x:3001/api"
+            placeholder={t('settings.apiUrlPlaceholder')}
         />
         <Text variant="bodySmall" style={{ marginTop: 10, color: theme.colors.onSurfaceVariant }}>
-          Exempel: http://192.168.1.100:3001/api
+          {t('settings.apiUrlExample')}
         </Text>
       </Dialog.Content>
       <Dialog.Actions>
-        <Button onPress={onDismiss}>Avbryt</Button>
-        <Button onPress={handleSave}>Spara</Button>
+        <Button onPress={onDismiss}>{t('common.cancel')}</Button>
+        <Button onPress={handleSave}>{t('common.save')}</Button>
       </Dialog.Actions>
     </Dialog>
   );

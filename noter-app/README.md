@@ -1,69 +1,90 @@
 # Noter
 
-A comprehensive note-taking and task management application with cross-platform support (Web & Mobile).
+Det aktiva Noter-monorepot innehåller webbapp, mobilapp, backend, docs-app och delade paket. Open source-publiceringen är förberedd för lokal konfiguration: inga riktiga hemligheter, deployade backend-URL:er eller commitade `.env`-filer krävs för att läsa eller bygga koden.
 
-## Features
+## Appar och paket
 
-- **Cross-Platform:** Available on Web (Next.js) and Mobile (React Native/Expo).
-- **Real-time Sync:** Seamless synchronization between devices using WebSockets.
-- **Offline Support:** Full offline capability with local database storage.
-- **Rich Text Editor:** Advanced note editing with formatting support.
-- **Task Management:** Kanban board, list view, and calendar view for tasks.
-- **Project Organization:** Organize notes and tasks into projects and folders.
-- **Security:** Password protection for sensitive notes.
+- `apps/web` – Next.js-webbapp med offline-first lagring, kryptering och lokal API-URL via inställningar
+- `apps/mobile` – Expo-app med samma kärnflöden och lokal backend-konfiguration i inloggningsvyn och inställningar
+- `apps/backend` – Express/MongoDB-backend för auth, sync, notes, tasks och AI/MCP-relaterade endpoints
+- `apps/docs` – separat docs-app för dokumentation och demos
+- `packages/shared` – delade typer, krypteringshelpers, MCP-inställningar och changelog-data
+- `packages/ui` – delade UI-exporter
+- `packages/ai` – delad AI-logik och modellhelpers
 
-## Project Structure
+## Kom igång
 
-This is a monorepo managed with TurboRepo:
+### Förutsättningar
 
-- `apps/web`: Next.js web application
-- `apps/mobile`: Expo React Native mobile application
-- `apps/backend`: Node.js/Express backend server
-- `packages/shared`: Shared types and utilities
-- `packages/ui`: Shared UI components
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js (LTS)
-- npm or yarn
-- MongoDB (for backend)
+- Node.js 20+
+- npm 11+
+- MongoDB om du vill köra backenden med datalagring
+- Expo Go eller emulator om du vill köra mobilappen
 
 ### Installation
 
-1. Clone the repository
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-### Running the App
-
-**Backend:**
 ```bash
-cd apps/backend
-npm run dev
+npm install
 ```
 
-**Web:**
+### Lokal konfiguration
+
+- Kopiera `apps/backend/.env.example` till `apps/backend/.env`
+- Kopiera `apps/web/.env.example` till `apps/web/.env.local` om du vill förifylla lokal API-URL eller base path
+- Kopiera `apps/mobile/.env.example` till `apps/mobile/.env` om du vill förifylla mobilens lokala backend-URL
+- API-URL kan också anges lokalt via login/settings i web, mobil och Electron
+
+### Köra apparna
+
+**Backend**
 ```bash
-cd apps/web
-npm run dev
+npm run dev --workspace=apps/backend
 ```
 
-**Mobile:**
+**Web**
 ```bash
-cd apps/mobile
-npm run start
+npm run dev --workspace=apps/web
 ```
 
-## Git Workflow
+**Mobil**
+```bash
+npm run start --workspace=apps/mobile
+```
 
-- `main`: Stable production code
-- `dev`: Active development branch
-- Feature branches: Created from `dev` (e.g., `feature/new-feature`)
+**Docs**
+```bash
+npm run dev --workspace=apps/docs
+```
+
+## Säkerhet och open source
+
+- Backend använder inga commitade fallback-hemligheter i produktion
+- Web och mobil läser inte längre MCP-hemligheter från publika klient-env-variabler
+- Repot innehåller endast säkra `.env.example`-filer med lokala placeholders
+- Delade konfigurationsflöden för AI/MCP prioriterar lokal krypterad settings-lagring framför repo-konfiguration
+
+## Kvalitetsgates
+
+```bash
+npm run check-types
+npm run lint
+npm run validate:prepush
+```
+
+```bash
+npm run test:repo:open-source
+```
+
+- `validate:prepush` kör workspace-lint, kritiska verifieringar, säkerhetstester, web/mobile/backend-guardrails och mutationssvit
+- `test:repo:open-source` verifierar att spårade filer inte innehåller incheckade `.env`-filer, publika client-hemligheter, gamla produktionsdomäner eller lokala AI-/IDE-filer
+
+## Community
+
+- [CONTRIBUTING.md](../CONTRIBUTING.md)
+- [SECURITY.md](../SECURITY.md)
+- [CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md)
+- [SUPPORT.md](../SUPPORT.md)
 
 ## License
 
-[MIT](LICENSE)
+[MIT](../LICENSE)

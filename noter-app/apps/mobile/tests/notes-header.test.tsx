@@ -1,6 +1,7 @@
 import React from 'react';
 import renderer, { act } from 'react-test-renderer';
 import NotesScreen from '../app/(tabs)/index';
+import { createMockStoreState } from './helpers/mockUseStore';
 
 const mockSetOptions = jest.fn();
 
@@ -34,19 +35,22 @@ jest.mock('react-native', () => ({
   Alert: { alert: jest.fn() },
 }));
 
+const mockStoreState = createMockStoreState({
+  notes: [],
+  isLoading: false,
+  isRefreshingNotes: false,
+  error: null,
+  fetchNotes: jest.fn(),
+  viewMode: 'list',
+  setViewMode: jest.fn(),
+  activeProjectId: null,
+  updateNote: jest.fn(),
+  reorderNotes: jest.fn(),
+  deleteNote: jest.fn(),
+});
+
 jest.mock('@/stores/useStore', () => ({
-  useStore: () => ({
-    notes: [],
-    isLoading: false,
-    error: null,
-    fetchNotes: jest.fn(),
-    viewMode: 'list',
-    setViewMode: jest.fn(),
-    activeProjectId: null,
-    updateNote: jest.fn(),
-    reorderNotes: jest.fn(),
-    deleteNote: jest.fn(),
-  }),
+  ...require('./helpers/mockUseStore').createSelectorStoreMock(() => mockStoreState),
 }));
 
 jest.mock('@/components/NoteList', () => 'NoteList');
@@ -72,5 +76,14 @@ describe('NotesScreen header', () => {
     const source = String(options.headerRight);
     expect(source).toContain('magnify');
     expect(source).toContain('cog');
+  });
+
+  it('uses translated notes title when no project is selected', () => {
+    act(() => {
+      renderer.create(<NotesScreen />);
+    });
+    const options = mockSetOptions.mock.calls[0][0];
+    const source = String(options.headerTitle);
+    expect(source).toContain('tabs.notes');
   });
 });

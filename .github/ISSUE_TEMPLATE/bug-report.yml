@@ -1,0 +1,59 @@
+name: Bug report
+description: Rapportera ett fel eller en regression
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Sammanfattning
+      description: Beskriv felet kort
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Berörd del
+      options:
+        - backend
+        - web
+        - mobile
+        - electron
+        - packages
+        - docs
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduktionssteg
+      description: Exakta steg för att återskapa problemet
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Förväntat resultat
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Faktiskt resultat
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Miljö
+      description: OS, device, browser, Node-version eller annan relevant miljöinfo
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Kontroll
+      options:
+        - label: Jag har tagit bort hemligheter, tokens och privat data ur rapporten
+          required: true
+        - label: Problemet är inte en säkerhetssårbarhet som bör rapporteras privat enligt SECURITY.md
+          required: true

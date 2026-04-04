@@ -70,6 +70,7 @@ const CreateProjectInput = React.memo(({
   onCreate: (name: string) => void, 
   theme: any 
 }) => {
+  const { t } = useTranslation();
   const [name, setName] = useState('');
 
   const handleCreate = () => {
@@ -82,15 +83,15 @@ const CreateProjectInput = React.memo(({
   return (
     <View style={{ gap: 15 }}>
       <TextInput
-        label="Project Name"
+        label={t('common.name')}
         value={name}
         onChangeText={setName}
         mode="outlined"
         autoFocus
       />
       <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10 }}>
-        <Button onPress={onCancel}>Cancel</Button>
-        <Button mode="contained" onPress={handleCreate}>Create</Button>
+        <Button onPress={onCancel}>{t('common.cancel')}</Button>
+        <Button mode="contained" onPress={handleCreate}>{t('common.create')}</Button>
       </View>
     </View>
   );
@@ -107,6 +108,7 @@ const RenameProjectInput = React.memo(({
   onCancel: () => void;
   onSave: (name: string) => void;
 }) => {
+  const { t } = useTranslation();
   const [name, setName] = useState(initialName);
 
   React.useEffect(() => {
@@ -120,7 +122,7 @@ const RenameProjectInput = React.memo(({
   return (
     <View style={{ gap: 15 }}>
       <TextInput
-        label="Name"
+        label={t('common.name')}
         value={name}
         onChangeText={setName}
         mode="outlined"
@@ -128,8 +130,8 @@ const RenameProjectInput = React.memo(({
         autoFocus
       />
       <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10 }}>
-        <Button onPress={onCancel}>Cancel</Button>
-        <Button mode="contained" onPress={() => onSave(name)}>Save</Button>
+        <Button onPress={onCancel}>{t('common.cancel')}</Button>
+        <Button mode="contained" onPress={() => onSave(name)}>{t('common.save')}</Button>
       </View>
     </View>
   );
@@ -138,8 +140,7 @@ const RenameProjectInput = React.memo(({
 export default function ProjectSelector({ visible, onDismiss, onSelect, selectedProjectId }: ProjectSelectorProps) {
   const { notes, activeProjectId, setActiveProject, createNote, updateNote, deleteNote, verifyNoteLock, reorderNotes } = useStore();
   const theme = useTheme();
-  const { i18n } = useTranslation();
-  const isSwedish = i18n.language?.toLowerCase().startsWith('sv');
+  const { t } = useTranslation();
   
   const [isCreating, setIsCreating] = useState(false);
   const [editingProject, setEditingProject] = useState<Note | null>(null);
@@ -233,7 +234,7 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
       setIsCreating(false);
     } catch (e) {
       console.error(e);
-      alert('Failed to create project');
+      alert(t('common.error'));
     }
   };
 
@@ -244,7 +245,7 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
       setEditingProject(null);
     } catch (e) {
       console.error(e);
-      alert('Failed to update project');
+      alert(t('common.error'));
     }
   };
 
@@ -260,7 +261,7 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
       setSelectedProjectForMenu(null);
     } catch (e) {
       console.error(e);
-      alert('Failed to delete project');
+      alert(t('common.error'));
     }
   };
 
@@ -291,7 +292,7 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
       setMenuVisible(false);
       setSelectedProjectForMenu(null);
     } catch (e) {
-      setUnlockError(isSwedish ? 'Fel lösenord, försök igen.' : 'Incorrect password, try again.');
+      setUnlockError(t('projects.unlockWrongPassword'));
     }
   };
 
@@ -320,7 +321,7 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
       >
         {isCreating ? (
            <View>
-              <Text variant="headlineSmall" style={styles.title}>Create Project</Text>
+              <Text variant="headlineSmall" style={styles.title}>{t('ai.project.createTitle')}</Text>
               <CreateProjectInput 
                 visible={isCreating} 
                 onCancel={() => setIsCreating(false)} 
@@ -330,7 +331,7 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
            </View>
         ) : (
           <>
-            <Text variant="headlineSmall" style={styles.title}>Projects</Text>
+            <Text variant="headlineSmall" style={styles.title}>{t('ai.projectsTitle')}</Text>
             
             <View style={styles.list}>
               <TouchableOpacity
@@ -342,7 +343,7 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
                 testID="project-row-all-notes"
               >
                 <IconButton icon="folder-multiple-outline" size={24} />
-                <Text variant="bodyLarge">All Notes</Text>
+                <Text variant="bodyLarge">{t('notes.allNotes')}</Text>
                 {currentSelected === null && <IconButton icon="check" size={20} />}
               </TouchableOpacity>
               
@@ -385,9 +386,9 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
 
             <View style={[styles.footer, { borderTopColor: theme.colors.outlineVariant, backgroundColor: theme.colors.elevation.level2, marginHorizontal: -20, marginBottom: -20, paddingHorizontal: 20, paddingBottom: 20 }]}>
               <Button mode="outlined" onPress={() => setIsCreating(true)} icon="plus">
-                {isSwedish ? 'Nytt projekt' : 'New Project'}
+                {t('projects.new')}
               </Button>
-              <Button onPress={onDismiss}>{isSwedish ? 'Stäng' : 'Close'}</Button>
+              <Button onPress={onDismiss}>{t('common.close')}</Button>
             </View>
           </>
         )}
@@ -395,7 +396,7 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
         {/* Rename Dialog */}
         <Portal>
             <Dialog visible={!!editingProject} onDismiss={() => setEditingProject(null)}>
-                <Dialog.Title>Rename Project</Dialog.Title>
+                <Dialog.Title>{t('projects.rename')}</Dialog.Title>
                 <Dialog.Content>
                     <RenameProjectInput
                       visible={!!editingProject}
@@ -425,7 +426,7 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
                         setIconPickerOpen(true);
                     }
                 }} 
-                title="Change Icon" 
+                title={t('note.changeIcon')} 
                 leadingIcon="emoticon-outline"
             />
             <Menu.Item 
@@ -436,7 +437,7 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
                         setEditingProject(selectedProjectForMenu);
                     }
                 }} 
-                title="Rename" 
+                title={t('common.rename')} 
                 leadingIcon="pencil"
             />
             <Menu.Item 
@@ -449,41 +450,41 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
                         setLockDialogVisible(true);
                     }
                 }} 
-                title={selectedProjectForMenu?.locked ? 'Unlock' : 'Lock'}
+                title={selectedProjectForMenu?.locked ? t('note.unlock') : t('note.lock')}
                 leadingIcon={selectedProjectForMenu?.locked ? 'lock-open-outline' : 'lock-outline'}
             />
             <Menu.Item 
                 onPress={handleDelete} 
-                title="Delete" 
+                title={t('common.delete')} 
                 leadingIcon="delete"
                 titleStyle={{ color: theme.colors.error }}
             />
         </Menu>
 
         <Dialog visible={lockDialogVisible} onDismiss={() => setLockDialogVisible(false)}>
-          <Dialog.Title>Lock Project</Dialog.Title>
+          <Dialog.Title>{t('note.lock')}</Dialog.Title>
           <Dialog.Content>
             <TextInput
               mode="outlined"
-              label="Password"
+              label={t('auth.password')}
               secureTextEntry
               value={projectPassword}
               onChangeText={setProjectPassword}
             />
           </Dialog.Content>
           <Dialog.Actions>
-            <Button onPress={() => setLockDialogVisible(false)}>Cancel</Button>
-            <Button mode="contained" onPress={handleLockProject} disabled={!projectPassword}>Lock</Button>
+            <Button onPress={() => setLockDialogVisible(false)}>{t('common.cancel')}</Button>
+            <Button mode="contained" onPress={handleLockProject} disabled={!projectPassword}>{t('note.lock')}</Button>
           </Dialog.Actions>
         </Dialog>
 
         <Dialog visible={unlockDialogVisible} onDismiss={() => setUnlockDialogVisible(false)}>
-          <Dialog.Title>Unlock Project</Dialog.Title>
+          <Dialog.Title>{t('note.unlock')}</Dialog.Title>
           <Dialog.Content>
             <TextInput
               ref={unlockPasswordRef}
               mode="outlined"
-              label="Password"
+              label={t('auth.password')}
               secureTextEntry
               value={projectPassword}
               onChangeText={(text) => {
@@ -505,12 +506,12 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
               setPendingSelectProjectId(null);
               setUnlockError('');
               setProjectPassword('');
-            }}>Cancel</Button>
-            <Button mode="contained" onPress={handleUnlockProject} disabled={!projectPassword}>Unlock</Button>
+            }}>{t('common.cancel')}</Button>
+            <Button mode="contained" onPress={handleUnlockProject} disabled={!projectPassword}>{t('note.unlock')}</Button>
           </Dialog.Actions>
         </Dialog>
 
-        {isCreating ? <Button onPress={onDismiss} style={{ marginTop: 10 }}>Close</Button> : null}
+        {isCreating ? <Button onPress={onDismiss} style={{ marginTop: 10 }}>{t('common.close')}</Button> : null}
 
         {selectedProjectForMenu && (
             <IconPickerModal

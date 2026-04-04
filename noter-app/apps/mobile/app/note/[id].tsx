@@ -24,7 +24,14 @@ export default function NoteEditorScreen() {
   const parentId = Array.isArray(params.parentId) ? params.parentId[0] : params.parentId;
   const router = useRouter();
   const theme = useTheme();
-  const { notes, createNote, updateNote, deleteNote, fetchNotes, verifyNoteLock, maskLockedNote, unlockedProtectedNoteIds } = useStore();
+  const notes = useStore((state) => state.notes);
+  const createNote = useStore((state) => state.createNote);
+  const updateNote = useStore((state) => state.updateNote);
+  const deleteNote = useStore((state) => state.deleteNote);
+  const fetchNotes = useStore((state) => state.fetchNotes);
+  const verifyNoteLock = useStore((state) => state.verifyNoteLock);
+  const maskLockedNote = useStore((state) => state.maskLockedNote);
+  const unlockedProtectedNoteIds = useStore((state) => state.unlockedProtectedNoteIds);
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   

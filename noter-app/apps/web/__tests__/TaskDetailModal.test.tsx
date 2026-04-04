@@ -7,7 +7,10 @@ jest.mock('react-i18next', () => ({
 }));
 
 jest.mock('../stores/useStore', () => ({
-  useStore: () => ({ notes: [] }),
+  useStore: (selector?: any) => {
+    const state = { notes: [] };
+    return selector ? selector(state) : state;
+  },
 }));
 
 describe('TaskDetailModal', () => {

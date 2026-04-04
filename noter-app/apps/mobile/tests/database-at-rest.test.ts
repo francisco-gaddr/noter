@@ -230,4 +230,63 @@ describe('mobile database at-rest encryption', () => {
     expect(queueCalls).toHaveLength(2);
     expect(queueCalls[0]?.[1]?.[5]).toBe(queueCalls[1]?.[1]?.[5]);
   });
+
+  it('merges offline updates into queued creates for temp entities', async () => {
+    const runAsync = jest.fn(async () => {});
+    const execAsync = jest.fn(async () => {});
+    const getFirstAsync = jest.fn(async () => ({
+      id: 7,
+      data: encrypt(JSON.stringify({ tempId: 'temp-note-1', title: encrypt('Första titel') })),
+    }));
+    jest.doMock('expo-sqlite', () => ({
+      openDatabaseSync: () => ({
+        execAsync,
+        runAsync,
+        getAllAsync: jest.fn(async () => []),
+        getFirstAsync,
+      }),
+    }));
+
+    let database: any;
+    jest.isolateModules(() => {
+      database = require('../services/database');
+    });
+
+    const merged = await database.mergeIntoQueuedCreate('NOTE', 'temp-note-1', { content: encrypt('Ny text') });
+
+    expect(merged).toBe(true);
+    const updateCall = (runAsync.mock.calls as unknown as any[][]).find((call) =>
+      String(call?.[0] || '').includes('UPDATE sync_queue SET data = ?, timestamp = ? WHERE id = ?')
+    );
+    expect(updateCall).toBeTruthy();
+    const encryptedPayload = updateCall?.[1]?.[0];
+    const mergedPayload = JSON.parse(decrypt(encryptedPayload));
+    expect(mergedPayload.tempId).toBe('temp-note-1');
+    expect(decrypt(mergedPayload.title)).toBe('Första titel');
+    expect(decrypt(mergedPayload.content)).toBe('Ny text');
+  });
+
+  it('drops queued creates when temp entities are deleted before sync', async () => {
+    const runAsync = jest.fn(async () => {});
+    const execAsync = jest.fn(async () => {});
+    const getFirstAsync = jest.fn(async () => ({ id: 9 }));
+    jest.doMock('expo-sqlite', () => ({
+      openDatabaseSync: () => ({
+        execAsync,
+        runAsync,
+        getAllAsync: jest.fn(async () => []),
+        getFirstAsync,
+      }),
+    }));
+
+    let database: any;
+    jest.isolateModules(() => {
+      database = require('../services/database');
+    });
+
+    const removed = await database.removeQueuedCreate('TASK', 'temp-task-1');
+
+    expect(removed).toBe(true);
+    expect(runAsync).toHaveBeenCalledWith('DELETE FROM sync_queue WHERE id = ?', [9]);
+  });
 });

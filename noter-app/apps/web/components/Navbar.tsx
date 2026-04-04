@@ -10,7 +10,14 @@ import { useTranslation } from 'react-i18next';
 export default function Navbar({ onToggleSidebar, isSidebarCollapsed }: { onToggleSidebar?: () => void; isSidebarCollapsed?: boolean }) {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
-  const { searchQuery, setSearchQuery, logout, user, activeTab, isOffline, setActiveTab, selectNote } = useStore();
+  const searchQuery = useStore((state) => state.searchQuery);
+  const setSearchQuery = useStore((state) => state.setSearchQuery);
+  const logout = useStore((state) => state.logout);
+  const user = useStore((state) => state.user);
+  const activeTab = useStore((state) => state.activeTab);
+  const isOffline = useStore((state) => state.isOffline);
+  const setActiveTab = useStore((state) => state.setActiveTab);
+  const selectNote = useStore((state) => state.selectNote);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [hideOfflineIndicator, setHideOfflineIndicator] = useState(false);
   const { t } = useTranslation();

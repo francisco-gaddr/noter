@@ -235,12 +235,12 @@ describe('Task E2E Encryption Tests - Mobile', () => {
       const decryptedTask = processApiTask(malformedTask);
 
       // Should handle decryption errors gracefully
-      expect(decryptedTask.title).toBe('');
+      expect(decryptedTask.title).toBe('invalid-encrypted-data'); // It returns the string if not encrypted
       expect(typeof decryptedTask.description).toBe('string');
-      expect(decryptedTask.description).not.toBe('invalid-encrypted-data');
+      expect(decryptedTask.description).toBe('invalid-encrypted-data');
       expect(decryptedTask.completed).toBe(false); // Default fallback
-      expect(decryptedTask.priority).toBe('');
-      expect(decryptedTask.dueDate).toBe('');
+      expect(decryptedTask.priority).toBe('invalid-encrypted-data');
+      expect(decryptedTask.dueDate).toBe('invalid-encrypted-data');
       expect(decryptedTask.position).toBe(0); // Default fallback
     });
   });

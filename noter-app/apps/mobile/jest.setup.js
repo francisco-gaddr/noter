@@ -45,6 +45,11 @@ jest.mock('expo-secure-store', () => ({
   deleteItemAsync: jest.fn(async () => true),
 }));
 
+jest.mock('expo-crypto', () => ({
+  getRandomBytesAsync: jest.fn(async (size) => new Uint8Array(size).fill(1)),
+  randomUUID: jest.fn(() => 'test-uuid'),
+}));
+
 jest.mock('expo-localization', () => ({
   getLocales: jest.fn(() => [{ languageCode: 'sv', regionCode: 'SE', languageTag: 'sv-SE' }]),
 }));

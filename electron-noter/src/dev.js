@@ -4,7 +4,12 @@ const path = require('path');
 const webDir = path.join(__dirname, '..', '..', 'noter-app', 'apps', 'web');
 const electronBin = path.join(__dirname, '..', 'node_modules', '.bin', 'electron');
 
-const web = spawn('npm', ['run', 'dev'], { cwd: webDir, stdio: 'inherit', shell: true });
+const web = spawn('npm', ['run', 'dev'], { 
+  cwd: webDir, 
+  stdio: 'inherit', 
+  shell: true,
+  env: { ...process.env, NODE_OPTIONS: '--max-old-space-size=8192' }
+});
 
 const fetchWithTimeout = async (url, timeoutMs) => {
   const controller = new AbortController();

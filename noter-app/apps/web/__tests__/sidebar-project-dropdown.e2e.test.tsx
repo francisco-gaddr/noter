@@ -6,48 +6,58 @@ import { HTML5Backend } from 'react-dnd-html5-backend';
 import SidebarTree from '../components/SidebarTree';
 import i18n from '../app/i18n';
 
+let mockSearchQuery = '';
+
 jest.mock('../stores/useStore', () => {
+  const getState = () => ({
+    notes: [
+      { _id: 'p1', title: 'Projekt Alpha', content: '', type: '"project"', parentId: null, locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+      { _id: 'p2', title: 'Projekt Beta', content: '', type: 'project-folder', parentId: null, locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+      { _id: 'n1', title: 'Vanlig anteckning', content: '', type: 'note', parentId: null, locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+      { _id: 'p3', title: 'Projekt Gamma', content: '', type: 'Project Folder', parentId: 'n1', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+      { _id: 'p4', title: 'Projekt Delta', content: '', type: '"`project`"', parentId: null, locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+      { _id: 'p5', title: 'Projekt Låst', content: '', type: 'note', parentId: null, locked: true, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+      { _id: 'n4', title: 'Hemlig anteckning', content: '', type: 'note', parentId: 'p5', locked: true, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+      { _id: 'n2', title: 'Mötesanteckning', content: '', type: 'note', parentId: null, locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+      { _id: 'n3', title: 'Mötesanteckning barn', content: '', type: 'note', parentId: 'n2', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+    ],
+    tasks: [],
+    selectedNoteId: null,
+    selectedTaskListId: null,
+    isLoading: false,
+    error: null,
+    searchQuery: mockSearchQuery,
+    sortOrder: 'date-desc',
+    activeTab: 'notes',
+    activeProjectId: null,
+    unlockedProtectedNoteIds: [],
+    setActiveProject: jest.fn(),
+    setActiveTab: jest.fn(),
+    setSortOrder: jest.fn(),
+    setSearchQuery: jest.fn(),
+    selectNote: jest.fn(),
+    createNote: jest.fn(),
+    deleteNote: jest.fn(),
+    fetchNotes: jest.fn(),
+    updateNote: jest.fn(),
+    moveNote: jest.fn(),
+    unlockNote: jest.fn(),
+    language: 'sv',
+    setLanguage: jest.fn(),
+  });
   return {
-    useStore: () => ({
-      notes: [
-        { _id: 'p1', title: 'Projekt Alpha', content: '', type: '"project"', parentId: null, locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
-        { _id: 'p2', title: 'Projekt Beta', content: '', type: 'project-folder', parentId: null, locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
-        { _id: 'n1', title: 'Vanlig anteckning', content: '', type: 'note', parentId: null, locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
-        { _id: 'p3', title: 'Projekt Gamma', content: '', type: 'Project Folder', parentId: 'n1', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
-        { _id: 'p4', title: 'Projekt Delta', content: '', type: '"`project`"', parentId: null, locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
-        { _id: 'p5', title: 'Projekt Låst', content: '', type: 'note', parentId: null, locked: true, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
-        { _id: 'n4', title: 'Hemlig anteckning', content: '', type: 'note', parentId: 'p5', locked: true, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
-        { _id: 'n2', title: 'Mötesanteckning', content: '', type: 'note', parentId: null, locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
-        { _id: 'n3', title: 'Mötesanteckning barn', content: '', type: 'note', parentId: 'n2', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
-      ],
-      tasks: [],
-      selectedNoteId: null,
-      selectedTaskListId: null,
-      isLoading: false,
-      error: null,
-      searchQuery: '',
-      sortOrder: 'date-desc',
-      activeTab: 'notes',
-      activeProjectId: null,
-      unlockedProtectedNoteIds: [],
-      setActiveProject: jest.fn(),
-      setActiveTab: jest.fn(),
-      setSortOrder: jest.fn(),
-      setSearchQuery: jest.fn(),
-      selectNote: jest.fn(),
-      createNote: jest.fn(),
-      deleteNote: jest.fn(),
-      fetchNotes: jest.fn(),
-      updateNote: jest.fn(),
-      moveNote: jest.fn(),
-      unlockNote: jest.fn(),
-      language: 'sv',
-      setLanguage: jest.fn(),
-    }),
+    useStore: (selector?: any) => {
+      const state = getState();
+      return selector ? selector(state) : state;
+    },
   };
 });
 
 describe('SidebarTree e2e project dropdown behavior', () => {
+  beforeEach(() => {
+    mockSearchQuery = '';
+  });
+
   it('visar projekt i projekt-dropdown och inte i anteckningslistan', () => {
     render(
       <I18nextProvider i18n={i18n}>
@@ -79,5 +89,18 @@ describe('SidebarTree e2e project dropdown behavior', () => {
     expect(screen.getByText('Vanlig anteckning')).toBeTruthy();
     expect(screen.getByText('Mötesanteckning')).toBeTruthy();
     expect(screen.getByText('Mötesanteckning barn')).toBeTruthy();
+  });
+
+  it('gör låsta anteckningar och låsta projekt osökbara', () => {
+    mockSearchQuery = 'hemlig';
+    render(
+      <I18nextProvider i18n={i18n}>
+        <DndProvider backend={HTML5Backend}>
+          <SidebarTree />
+        </DndProvider>
+      </I18nextProvider>
+    );
+
+    expect(screen.queryByText('Hemlig anteckning')).toBeNull();
   });
 });

@@ -10,6 +10,7 @@ SERVER_NAME="${SERVER_NAME:-_}"
 NGINX_SITE_NAME="${NGINX_SITE_NAME:-pi-proxy}"
 ENABLE_SELF_SIGNED_HTTPS="${ENABLE_SELF_SIGNED_HTTPS:-1}"
 LE_CERT_DIR="${LE_CERT_DIR:-/etc/letsencrypt/live/${SERVER_NAME}}"
+PUBLIC_BASE_URL="${PUBLIC_BASE_URL:-http://REPLACE_WITH_PUBLIC_HOST}"
 
 if [[ -z "$PI_TAILSCALE_IP" ]]; then
   echo "Saknar PI_TAILSCALE_IP. Exempel:"
@@ -152,5 +153,5 @@ systemctl reload nginx
 
 echo ""
 echo "Proxy uppe. Testa från din dator:"
-echo "  curl -i http://217.154.2.108/app"
-echo "  curl -i http://217.154.2.108/api/health || true"
+echo "  curl -i ${PUBLIC_BASE_URL}/app"
+echo "  curl -i ${PUBLIC_BASE_URL}/api/health || true"

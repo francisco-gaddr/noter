@@ -15,6 +15,9 @@ describe('electron release readiness', () => {
   });
 
   it('keeps hardened BrowserWindow settings and strict renderer output checks', () => {
+    const writeSettingsStart = mainJs.indexOf('const writeSettings = (next) => {');
+    const rewriteSettingsStart = mainJs.indexOf('const shouldRewriteSettingsOnStartup = () => {');
+    const writeSettingsBlock = mainJs.slice(writeSettingsStart, rewriteSettingsStart);
     expect(mainJs).toContain('contextIsolation: true');
     expect(mainJs).toContain('nodeIntegration: false');
     expect(mainJs).toContain('sandbox: true');
@@ -24,9 +27,20 @@ describe('electron release readiness', () => {
     expect(mainJs).toContain('const rendererRecoveryDelayMs = 2500;');
     expect(mainJs).toContain('scheduleRendererRecovery();');
     expect(mainJs).toContain("win.webContents.on('did-finish-load'");
-    expect(mainJs).toMatch(/if \(!safeStorage\?\.isEncryptionAvailable\?\.\(\)\) \{\s+return false;\s+\}/);
+    expect(mainJs).toContain('if (!safeStorage?.isEncryptionAvailable?.()) return {};');
+    expect(mainJs).toContain('const writeSettings = (next) => {');
+    expect(writeSettingsBlock).toContain("if (!safeStorage?.isEncryptionAvailable?.()) {\n    return true;\n  }");
+    expect(mainJs).toContain("const filePath = path.join(app.getPath('userData'), settingsFileName);");
+    expect(mainJs).toContain('const shouldRewriteSettingsOnStartup = () => {');
+    expect(mainJs).toContain('if (!safeStorage?.isEncryptionAvailable?.()) {');
+    expect(mainJs).toContain('return false;');
+    expect(mainJs).toContain("if (shouldRewriteSettingsOnStartup()) {");
     expect(mainJs).toContain('__encrypted: true');
     expect(mainJs).toContain("payload: encrypted.toString('base64')");
+    expect(mainJs).toContain("const getMlcModule = () => {");
+    expect(mainJs).toContain("mlcModule = require('./src/mlc');");
+    expect(mainJs).toContain('show: isTest');
+    expect(mainJs).toContain("if (!win.isVisible()) {");
     expect(buildWebJs).toContain("web/out/index.html");
     expect(buildWebJs).toContain('process.exit(1)');
   });

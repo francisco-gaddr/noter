@@ -35,14 +35,13 @@ describe('initLocalEncryptionKey', () => {
     expect(mockSetEncryptionKey).toHaveBeenCalledWith(key);
   });
 
-  it('rotates invalid stored key', async () => {
+  it('reuses legacy stored key without rotating', async () => {
     mockGet.mockResolvedValue('stored-key');
     const { initLocalEncryptionKey } = require('../services/encryptionKey');
     const key = await initLocalEncryptionKey();
-    expect(key).not.toBe('stored-key');
-    expect(key.length).toBe(64);
-    expect(mockSet).toHaveBeenCalled();
-    expect(mockSetEncryptionKey).toHaveBeenCalledWith(key);
+    expect(key).toBe('stored-key');
+    expect(mockSet).not.toHaveBeenCalled();
+    expect(mockSetEncryptionKey).toHaveBeenCalledWith('stored-key');
   });
 
   it('reuses stored key when present', async () => {

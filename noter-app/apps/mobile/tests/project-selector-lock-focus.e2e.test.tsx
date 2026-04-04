@@ -1,8 +1,10 @@
 import React from 'react';
 import renderer, { act } from 'react-test-renderer';
 import ProjectSelector from '../components/ProjectSelector';
+import { createMockStoreState } from './helpers/mockUseStore';
 
 const mockFocusSpy = jest.fn();
+const mockVerifyNoteLock = jest.fn();
 
 jest.mock('react-native-paper', () => {
   const React = require('react');
@@ -46,35 +48,38 @@ jest.mock('@expo/vector-icons/FontAwesome5', () => 'FontAwesome5');
 jest.mock('expo-haptics', () => ({ impactAsync: jest.fn(), ImpactFeedbackStyle: { Medium: 'Medium' } }));
 jest.mock('react-native-draggable-flatlist', () => {
   const React = require('react');
-  return ({ data, renderItem }: any) => React.createElement(
-    React.Fragment,
-    null,
+  return ({ data, renderItem, ...props }: any) => React.createElement(
+    'DraggableFlatList',
+    props,
     data.map((item: any) => renderItem({ item, drag: jest.fn(), isActive: false }))
   );
 });
 jest.mock('@/components/IconPickerModal', () => 'IconPickerModal');
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ i18n: { language: 'sv' } }),
+  useTranslation: () => ({ t: (k: string) => k, i18n: { language: 'sv' } }),
 }));
+const mockStoreState = createMockStoreState({
+  notes: [
+    { _id: 'pLocked', title: 'Låst Projekt', type: 'project-folder', parentId: null, locked: true, icon: 'https://example.com/icon.svg', tags: [], content: '', createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+  ],
+  activeProjectId: null,
+  setActiveProject: jest.fn(),
+  createNote: jest.fn(),
+  updateNote: jest.fn(),
+  deleteNote: jest.fn(),
+  verifyNoteLock: (...args: any[]) => mockVerifyNoteLock(...args),
+  reorderNotes: jest.fn(),
+});
+
 jest.mock('@/stores/useStore', () => ({
-  useStore: () => ({
-    notes: [
-      { _id: 'pLocked', title: 'Låst Projekt', type: 'project-folder', parentId: null, locked: true, tags: [], content: '', createdAt: '2026-01-01', updatedAt: '2026-01-01' },
-    ],
-    activeProjectId: null,
-    setActiveProject: jest.fn(),
-    createNote: jest.fn(),
-    updateNote: jest.fn(),
-    deleteNote: jest.fn(),
-    verifyNoteLock: jest.fn(),
-    reorderNotes: jest.fn(),
-  }),
+  ...require('./helpers/mockUseStore').createSelectorStoreMock(() => mockStoreState),
 }));
 
 describe('ProjectSelector unlock focus e2e', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     mockFocusSpy.mockClear();
+    mockVerifyNoteLock.mockReset();
   });
 
   afterEach(() => {
@@ -97,5 +102,51 @@ describe('ProjectSelector unlock focus e2e', () => {
 
     const input = tree!.root.findByProps({ testID: 'unlock-project-password-input' });
     expect(input.props.autoFocus).toBe(true);
+  });
+
+  it('visar diskret inline-fel vid fel lösenord', async () => {
+    mockVerifyNoteLock.mockRejectedValue(new Error('Incorrect password'));
+    let tree: renderer.ReactTestRenderer;
+    await act(async () => {
+      tree = renderer.create(<ProjectSelector visible onDismiss={jest.fn()} />);
+    });
+
+    await act(async () => {
+      const row = tree!.root.findByProps({ testID: 'project-row-pLocked' });
+      row.props.onPress();
+      jest.advanceTimersByTime(200);
+    });
+
+    await act(async () => {
+      const input = tree!.root.findByProps({ testID: 'unlock-project-password-input' });
+      input.props.onChangeText('fel');
+    });
+
+    await act(async () => {
+      const unlockButton = (tree!.root as any).findAll((node: any) => node.type === 'Button').find((node: any) => node.props.children === 'note.unlock');
+      unlockButton?.props.onPress();
+    });
+
+    const texts = (tree!.root as any).findAll((node: any) => node.type === 'Text').map((node: any) => node.props.children);
+    expect(texts).toContain('projects.unlockWrongPassword');
+  });
+
+  it('använder rimlig bottenpadding i projektlistan', () => {
+    let tree: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<ProjectSelector visible onDismiss={jest.fn()} />);
+    });
+
+    const list = (tree!.root as any).findAll((node: any) => node.type === 'DraggableFlatList')[0];
+    expect(list.props.contentContainerStyle).toEqual({ paddingBottom: 48 });
+  });
+
+  it('behåller svg-ikon för låst projekt i projektlistan', () => {
+    let tree: renderer.ReactTestRenderer;
+    act(() => {
+      tree = renderer.create(<ProjectSelector visible onDismiss={jest.fn()} />);
+    });
+    const svgIcons = (tree!.root as any).findAll((node: any) => node.type === 'SvgUri');
+    expect(svgIcons.length).toBeGreaterThan(0);
   });
 });

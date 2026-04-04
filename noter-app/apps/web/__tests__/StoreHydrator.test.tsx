@@ -6,9 +6,10 @@ const mockHydrate = jest.fn();
 const mockInitWebEncryptionKey = jest.fn();
 
 jest.mock('../stores/useStore', () => ({
-  useStore: () => ({
-    hydrate: mockHydrate,
-  }),
+  useStore: (selector?: any) => {
+    const state = { hydrate: mockHydrate };
+    return selector ? selector(state) : state;
+  },
 }));
 
 jest.mock('../services/encryptionKey', () => ({

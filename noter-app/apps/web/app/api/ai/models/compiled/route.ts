@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 
 const resolveApiBaseUrl = (req: NextRequest) => {
-  const explicit = process.env.NEXT_PUBLIC_API_URL || process.env.API_URL;
+  const explicit = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL;
   if (explicit) {
     return explicit.replace(/\/$/, '');
   }

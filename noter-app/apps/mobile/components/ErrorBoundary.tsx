@@ -1,6 +1,7 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Text, Button, Surface } from 'react-native-paper';
+import i18n from '@/services/i18n';
 
 interface Props {
   children: ReactNode;
@@ -34,12 +35,12 @@ export class CustomErrorBoundary extends Component<Props, State> {
       return (
         <View style={styles.container}>
           <Surface style={styles.surface} elevation={2}>
-            <Text variant="headlineMedium" style={styles.title}>Oops, something went wrong</Text>
+            <Text variant="headlineMedium" style={styles.title}>{i18n.t('errorBoundary.title')}</Text>
             <Text variant="bodyMedium" style={styles.message}>
-              {this.state.error?.message || 'An unexpected error occurred.'}
+              {this.state.error?.message || i18n.t('errorBoundary.message')}
             </Text>
             <Button mode="contained" onPress={this.handleRetry} style={styles.button}>
-              Try Again
+              {i18n.t('common.tryAgain')}
             </Button>
           </Surface>
         </View>

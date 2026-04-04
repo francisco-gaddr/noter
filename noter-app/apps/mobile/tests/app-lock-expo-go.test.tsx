@@ -1,5 +1,6 @@
 import React from 'react';
 import renderer, { act } from 'react-test-renderer';
+import { createMockStoreState } from './helpers/mockUseStore';
 
 const mockSetSecurityLocked = jest.fn(async () => undefined);
 const mockAuthenticate = jest.fn(async () => ({ success: true }));
@@ -40,10 +41,12 @@ jest.mock('react-i18next', () => ({
   }),
 }));
 
+const mockStoreState = createMockStoreState({
+  setSecurityLocked: mockSetSecurityLocked,
+});
+
 jest.mock('@/stores/useStore', () => ({
-  useStore: (selector: any) => selector({
-    setSecurityLocked: mockSetSecurityLocked,
-  }),
+  ...require('./helpers/mockUseStore').createSelectorStoreMock(() => mockStoreState),
 }));
 
 jest.mock('react-native-paper', () => ({

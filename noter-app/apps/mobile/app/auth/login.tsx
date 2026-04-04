@@ -35,7 +35,7 @@ export default function LoginScreen() {
       router.replace('/(tabs)');
     } catch (error: any) {
       console.error(error);
-      setErrorMessage(error.message || 'Login failed');
+      setErrorMessage(error.message || t('auth.loginFailed'));
       setErrorVisible(true);
     } finally {
       setLoading(false);

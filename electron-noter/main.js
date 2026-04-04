@@ -13,8 +13,7 @@ const {
 
 const isDev = process.env.NODE_ENV === 'development';
 const isTest = process.env.ELECTRON_TEST === '1';
-const devUrl = 'http://localhost:3001/';
-const remoteUrl = 'https://daylited.com/';
+const devUrl = process.env.ELECTRON_RENDERER_URL || 'http://localhost:3001/';
 const userDataDir = process.env.ELECTRON_USER_DATA_DIR;
 const settingsFileName = 'settings.json';
 const encryptedSettingsVersion = 1;
@@ -22,12 +21,11 @@ const rendererRecoveryDelayMs = 2500;
 const allowedExternalProtocols = new Set(['https:', 'http:']);
 const rendererFallbackUrls = Array.from(new Set([
   process.env.ELECTRON_RENDERER_URL,
+  process.env.ELECTRON_RENDERER_FALLBACK_URL,
   'http://localhost:3001/app/',
   devUrl,
   'http://127.0.0.1:3001/',
   'http://127.0.0.1:3001/app/',
-  'https://daylited.com/app/',
-  remoteUrl,
 ].filter(Boolean)));
 let mlcModule = null;
 

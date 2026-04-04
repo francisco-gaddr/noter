@@ -15,7 +15,7 @@ jest.mock('@react-native-community/netinfo', () => ({
   fetch: jest.fn(() => Promise.resolve({ isConnected: true })),
 }));
 
-import { encrypt, decrypt } from '@repo/shared';
+import { encrypt, decrypt, setEncryptionKey } from '@repo/shared';
 import { fetchWithAuth } from '../services/api';
 
 // Mock fetch for API tests
@@ -34,6 +34,10 @@ describe('Mobile E2E Encryption Tests', () => {
   });
 
   describe('Field Encryption', () => {
+    afterEach(() => {
+      setEncryptionKey('noter-default-key');
+    });
+
     it('should encrypt and decrypt locked field correctly', () => {
       const originalValue = 'true';
       const encrypted = encrypt(originalValue);
@@ -59,6 +63,17 @@ describe('Mobile E2E Encryption Tests', () => {
       
       expect(encrypted).not.toBe(originalValue);
       expect(decrypted).toBe(originalValue);
+    });
+
+    it('should decrypt legacy default-key data even when runtime key changes', () => {
+      setEncryptionKey('noter-default-key');
+      const encrypted = encrypt('Legacy innehåll');
+      setEncryptionKey('f'.repeat(64));
+      expect(decrypt(encrypted)).toBe('Legacy innehåll');
+    });
+
+    it('should pass through plaintext values', () => {
+      expect(decrypt('Projekt A')).toBe('Projekt A');
     });
   });
 

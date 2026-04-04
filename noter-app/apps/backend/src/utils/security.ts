@@ -1,56 +1,91 @@
+import { randomBytes } from 'crypto';
 import jwt from 'jsonwebtoken';
 
-const appEnv = process.env.NODE_ENV || 'development';
+const DEFAULT_DEV_CORS_ORIGINS = Object.freeze([
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://localhost:8081',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:3001',
+]);
+
+const ephemeralSecrets = new Map<string, string>();
+
+const getAppEnv = () => String(process.env.NODE_ENV || 'development').trim().toLowerCase();
+
+const isProductionEnv = () => getAppEnv() === 'production';
+
+const readTrimmedEnv = (name: string): string | undefined => {
+  const raw = process.env[name];
+  if (typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
+
+const getEphemeralSecret = (cacheKey: string) => {
+  const cached = ephemeralSecrets.get(cacheKey);
+  if (cached) return cached;
+  const generated = randomBytes(32).toString('hex');
+  ephemeralSecrets.set(cacheKey, generated);
+  return generated;
+};
+
+const getOptionalOriginsFromEnv = () => {
+  const raw = readTrimmedEnv('CORS_ORIGINS');
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+};
 
 export const getJwtSecret = () => {
-  const secret = process.env.JWT_SECRET;
-  if (secret && secret.trim()) return secret.trim();
-  if (appEnv === 'production') {
+  const secret = readTrimmedEnv('JWT_SECRET');
+  if (secret) return secret;
+  if (isProductionEnv()) {
     throw new Error('JWT_SECRET must be set in production');
   }
-  return 'dev-insecure-secret-change-me';
+  return getEphemeralSecret('JWT_SECRET');
 };
 
 export const getJwtSignOptions = (): jwt.SignOptions => {
-  const expiresIn = (process.env.JWT_EXPIRES_IN || '7d') as jwt.SignOptions['expiresIn'];
+  const expiresIn = (readTrimmedEnv('JWT_EXPIRES_IN') || '7d') as jwt.SignOptions['expiresIn'];
   const options: jwt.SignOptions = {
     expiresIn,
   };
-  if (process.env.JWT_ISSUER) options.issuer = process.env.JWT_ISSUER;
-  if (process.env.JWT_AUDIENCE) options.audience = process.env.JWT_AUDIENCE;
+  const issuer = readTrimmedEnv('JWT_ISSUER');
+  const audience = readTrimmedEnv('JWT_AUDIENCE');
+  if (issuer) options.issuer = issuer;
+  if (audience) options.audience = audience;
   return options;
 };
 
 export const getJwtVerifyOptions = (): jwt.VerifyOptions => {
   const options: jwt.VerifyOptions = {};
-  if (process.env.JWT_ISSUER) options.issuer = process.env.JWT_ISSUER;
-  if (process.env.JWT_AUDIENCE) options.audience = process.env.JWT_AUDIENCE;
+  const issuer = readTrimmedEnv('JWT_ISSUER');
+  const audience = readTrimmedEnv('JWT_AUDIENCE');
+  if (issuer) options.issuer = issuer;
+  if (audience) options.audience = audience;
   return options;
 };
 
 export const isDemoTokenEnabled = () => {
-  const fromEnv = process.env.ALLOW_DEMO_TOKEN;
-  if (fromEnv === 'true') return true;
-  if (fromEnv === 'false') return false;
-  return appEnv !== 'production';
+  return readTrimmedEnv('ALLOW_DEMO_TOKEN') === 'true';
 };
 
 export const getAllowedOrigins = () => {
-  const raw = process.env.CORS_ORIGINS || '';
-  const list = raw
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean);
-  const defaults = [
-    'http://localhost:3000',
-    'http://localhost:3001',
-    'http://localhost:8081',
-    'http://127.0.0.1:3000',
-    'http://127.0.0.1:3001',
-    'https://daylited.com',
-    'https://www.daylited.com',
-  ];
-  if (list.length > 0) return Array.from(new Set([...list, ...defaults]));
-  if (appEnv === 'production') return defaults;
-  return defaults;
+  const configuredOrigins = getOptionalOriginsFromEnv();
+  if (isProductionEnv()) {
+    return Array.from(new Set(configuredOrigins));
+  }
+  return Array.from(new Set([...DEFAULT_DEV_CORS_ORIGINS, ...configuredOrigins]));
+};
+
+export const getMcpAuditMasterKey = () => {
+  const secret = readTrimmedEnv('MCP_AUDIT_MASTER_KEY');
+  if (secret) return secret;
+  if (isProductionEnv()) {
+    throw new Error('MCP_AUDIT_MASTER_KEY or MCP_AUDIT_MASTER_KEYS must be set in production');
+  }
+  return getEphemeralSecret('MCP_AUDIT_MASTER_KEY');
 };

@@ -7,28 +7,33 @@ import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 
 jest.mock('../stores/useStore', () => {
+  const state = {
+    notes: [],
+    tasks: [],
+    selectedNoteId: null,
+    selectedTaskListId: null,
+    isLoading: false,
+    error: null,
+    searchQuery: '',
+    sortOrder: 'date-desc',
+    activeTab: 'notes',
+    activeProjectId: null,
+    unlockedProtectedNoteIds: [],
+    setActiveProject: () => {},
+    setActiveTab: () => {},
+    selectNote: () => {},
+    createNote: async () => {},
+    deleteNote: async () => {},
+    fetchNotes: async () => {},
+    updateNote: async () => {},
+    moveNote: async () => {},
+    unlockNote: async () => {},
+    setSortOrder: () => {},
+    language: 'sv',
+    setLanguage: () => {},
+  };
   return {
-    useStore: () => ({
-      notes: [],
-      tasks: [],
-      selectedNoteId: null,
-      selectedTaskListId: null,
-      isLoading: false,
-      error: null,
-      searchQuery: '',
-      sortOrder: 'date-desc',
-      activeTab: 'notes',
-      setActiveTab: () => {},
-      selectNote: () => {},
-      createNote: async () => {},
-      deleteNote: async () => {},
-      fetchNotes: async () => {},
-      updateNote: async () => {},
-      moveNote: async () => {},
-      setSortOrder: () => {},
-      language: 'sv',
-      setLanguage: () => {},
-    }),
+    useStore: (selector?: any) => (selector ? selector(state) : state),
   };
 });
 

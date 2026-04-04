@@ -153,8 +153,8 @@ describe('Mobile Store', () => {
     const state = useStore.getState();
     expect(state.securityLocked).toBe(false);
     expect(state.token).toBe('abc');
-    expect(fetchWithAuth).toHaveBeenCalledWith('/notes');
-    expect(fetchWithAuth).toHaveBeenCalledWith('/tasks');
+    expect(fetchWithAuth).toHaveBeenCalledWith('/notes', { timeoutMs: 45000 });
+    expect(fetchWithAuth).toHaveBeenCalledWith('/tasks', { timeoutMs: 30000 });
   });
 
   it('should fetch notes from API when online', async () => {
@@ -172,7 +172,7 @@ describe('Mobile Store', () => {
 
     await useStore.getState().fetchNotes();
 
-    expect(fetchWithAuth).toHaveBeenCalledWith('/notes');
+    expect(fetchWithAuth).toHaveBeenCalledWith('/notes', { timeoutMs: 45000 });
     const state = useStore.getState();
     expect(state.notes.length).toBe(1);
     expect(state.notes[0]._id).toBe('1');
@@ -297,6 +297,30 @@ describe('Mobile Store', () => {
      expect(state.notes[0]._id).toBe('local_1');
   });
 
+  it('should suppress aborted note errors when cached notes are available', async () => {
+    const { fetchWithAuth } = require('../services/api');
+    const Database = require('../services/database');
+    fetchWithAuth.mockRejectedValueOnce(Object.assign(new Error('Aborted'), { code: 'REQUEST_TIMEOUT', status: 408 }));
+    Database.getNotesLocal.mockResolvedValueOnce([{
+      _id: 'local_abort_1',
+      title: encrypt('Cache note'),
+      content: encrypt('Cached content'),
+      locked: encrypt('false'),
+      type: encrypt('note'),
+      createdAt: encrypt(new Date().toISOString()),
+      updatedAt: encrypt(new Date().toISOString()),
+      __rawEncryptedTitle: encrypt('Cache note'),
+      __rawEncryptedContent: encrypt('Cached content'),
+      __rawEncryptedTags: encrypt('[]'),
+    }]);
+
+    await useStore.getState().fetchNotes();
+
+    const state = useStore.getState();
+    expect(state.notes[0]?._id).toBe('local_abort_1');
+    expect(state.error).toBeNull();
+  });
+
   it('should materialize mixed plaintext and encrypted local notes', async () => {
     const NetInfo = require('@react-native-community/netinfo');
     NetInfo.fetch.mockResolvedValueOnce({ isConnected: false });
@@ -347,6 +371,29 @@ describe('Mobile Store', () => {
     const state = useStore.getState();
     expect(state.tasks[0]?.title).toBe('Plain task title');
     expect(state.tasks[0]?.description).toBe('Krypterad task-beskrivning');
+  });
+
+  it('should suppress aborted task errors when cached tasks are available', async () => {
+    const { fetchWithAuth } = require('../services/api');
+    const Database = require('../services/database');
+    fetchWithAuth.mockRejectedValueOnce(Object.assign(new Error('Aborted'), { code: 'REQUEST_TIMEOUT', status: 408 }));
+    Database.getTasksLocal.mockResolvedValueOnce([{
+      _id: 'task-local-1',
+      title: 'Lokal task',
+      description: 'Lokal beskrivning',
+      completed: false,
+      priority: 'medium',
+      dueDate: null,
+      reminderOffsetMinutes: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }]);
+
+    await useStore.getState().fetchTasks();
+
+    const state = useStore.getState();
+    expect(state.tasks[0]?._id).toBe('task-local-1');
+    expect(state.error).toBeNull();
   });
 
   it('should skip unchanged local writes during background refresh', async () => {

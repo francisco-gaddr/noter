@@ -4,6 +4,7 @@ import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import bcrypt from 'bcryptjs';
 import noteRoutes from '../src/routes/notes';
+import { authMiddleware } from '../src/middleware/authMiddleware';
 import { encrypt } from '@repo/shared';
 import Note from '../src/models/Note';
 
@@ -19,7 +20,7 @@ beforeAll(async () => {
   app.use('/api/notes', (req, _res, next) => {
     req.headers.authorization = 'Bearer demo-token';
     next();
-  }, noteRoutes);
+  }, authMiddleware, noteRoutes);
 });
 
 afterAll(async () => {

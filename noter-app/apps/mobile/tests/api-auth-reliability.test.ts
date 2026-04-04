@@ -44,6 +44,26 @@ describe('API auth reliability', () => {
     expect(secureStore.deleteItemAsync).toHaveBeenCalledWith('token');
   });
 
+  it('skips session teardown when unauthorized handling is explicitly bypassed', async () => {
+    const api = require('../services/api');
+    const onUnauthorized = jest.fn();
+    api.setUnauthorizedHandler(onUnauthorized);
+    api.setAuthToken('token-1');
+    (global.fetch as jest.Mock).mockResolvedValue({
+      ok: false,
+      status: 401,
+      headers: { get: () => 'application/json' },
+      json: async () => ({ message: 'Unauthorized' }),
+      text: async () => 'Unauthorized',
+    });
+
+    await expect(
+      api.fetchWithAuth('/graphql', { method: 'POST', body: '{}', skipUnauthorized: true })
+    ).rejects.toThrow('Unauthorized');
+    expect(onUnauthorized).not.toHaveBeenCalled();
+    expect(secureStore.deleteItemAsync).not.toHaveBeenCalled();
+  });
+
   it('retries transient server errors and succeeds', async () => {
     const api = require('../services/api');
     api.setAuthToken('token-1');
@@ -66,6 +86,28 @@ describe('API auth reliability', () => {
     expect((global.fetch as jest.Mock).mock.calls.length).toBe(2);
   });
 
+  it('backs off and recovers after rate limiting', async () => {
+    const api = require('../services/api');
+    api.setAuthToken('token-1');
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        headers: { get: () => 'application/json' },
+        json: async () => ({ message: 'Too many requests' }),
+        text: async () => 'Too many requests',
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: { throttled: false } }),
+      });
+
+    const res = await api.fetchWithAuth('/graphql', { method: 'POST', body: '{}' });
+    expect(res).toEqual({ data: { throttled: false } });
+    expect((global.fetch as jest.Mock).mock.calls.length).toBe(2);
+  });
+
   it('retries network failure and returns improved error text', async () => {
     const api = require('../services/api');
     api.setAuthToken('token-1');
@@ -73,5 +115,30 @@ describe('API auth reliability', () => {
 
     await expect(api.fetchWithAuth('/graphql', { method: 'POST', body: '{}' })).rejects.toThrow('Could not connect to server');
     expect((global.fetch as jest.Mock).mock.calls.length).toBe(3);
+  });
+
+  it('retries abort-like failures and returns a timeout error', async () => {
+    const api = require('../services/api');
+    api.setAuthToken('token-1');
+    (global.fetch as jest.Mock).mockRejectedValue(Object.assign(new Error('Aborted'), { name: 'AbortError' }));
+
+    await expect(api.fetchWithAuth('/notes')).rejects.toThrow('Request timed out');
+    expect((global.fetch as jest.Mock).mock.calls.length).toBe(3);
+  });
+
+  it('recovers after a transient abort during note loading', async () => {
+    const api = require('../services/api');
+    api.setAuthToken('token-1');
+    (global.fetch as jest.Mock)
+      .mockRejectedValueOnce(Object.assign(new Error('Aborted'), { name: 'AbortError' }))
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ([]),
+      });
+
+    const res = await api.fetchWithAuth('/notes');
+    expect(res).toEqual([]);
+    expect((global.fetch as jest.Mock).mock.calls.length).toBe(2);
   });
 });

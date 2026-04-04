@@ -13,10 +13,10 @@ const normalizeBaseUrl = (url: string) => {
 };
 
 export const resolveSocketBaseUrl = (apiUrl?: string) => {
-  if (!apiUrl) return 'https://daylited.com';
+  if (!apiUrl) return normalizeBaseUrl(API_URL);
   const normalized = normalizeBaseUrl(apiUrl);
   if (normalized.startsWith('http://') || normalized.startsWith('https://')) return normalized;
-  return 'https://daylited.com';
+  return normalizeBaseUrl(API_URL);
 };
 
 let socket: Socket | null = null;

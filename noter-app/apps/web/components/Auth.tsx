@@ -6,7 +6,8 @@ import { FaCog } from 'react-icons/fa';
 import ApiUrlModal from './ApiUrlModal';
 
 export default function Auth() {
-  const { login, register } = useStore();
+  const login = useStore((state) => state.login);
+  const register = useStore((state) => state.register);
   const { t } = useTranslation();
   const [isLogin, setIsLogin] = useState(true);
   const [serverError, setServerError] = useState('');
@@ -44,8 +45,8 @@ export default function Auth() {
         <button
           onClick={() => setIsApiModalOpen(true)}
           className="absolute top-3 right-3 p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
-          aria-label="API settings"
-          title="API settings"
+          aria-label={t('settings.apiSettings')}
+          title={t('settings.apiSettings')}
           type="button"
         >
           <FaCog />

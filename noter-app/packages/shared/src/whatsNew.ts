@@ -7,6 +7,17 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    version: '1.0.15',
+    build: '2026.04.04.1',
+    date: '2026-04-04',
+    highlights: [
+      'Open source: Hela monorepot är sanerat från commitade .env-filer, hårdkodade produktionsdomäner och osäkra fallback-hemligheter',
+      'Webb och Electron: Backend-URL och renderer-paths styrs nu via lokala settings eller lokala env-filer i stället för repo-inbakade värden',
+      'Mobil: AI-integrationshemligheter läses nu endast från lokal krypterad lagring och YouTube-embeds använder direkt säker leverantörs-URL',
+      'Dokumentation: README-filer, licens och open source-setup beskriver nu hur varje app startas utan att exponera hemligheter i GitHub',
+    ],
+  },
+  {
     version: '1.0.14',
     build: '2026.04.01.2',
     date: '2026-04-01',

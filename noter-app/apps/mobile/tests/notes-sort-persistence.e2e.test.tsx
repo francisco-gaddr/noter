@@ -1,6 +1,7 @@
 import React from 'react';
 import renderer, { act } from 'react-test-renderer';
 import NotesScreen from '../app/(tabs)/index';
+import { createMockStoreState } from './helpers/mockUseStore';
 
 const mockSetOptions = jest.fn();
 const mockGetItem = jest.fn().mockResolvedValue(null);
@@ -41,19 +42,22 @@ jest.mock('react-native', () => ({
   Alert: { alert: jest.fn() },
 }));
 
+const mockStoreState = createMockStoreState({
+  notes: [],
+  isLoading: false,
+  isRefreshingNotes: false,
+  error: null,
+  fetchNotes: jest.fn(),
+  viewMode: 'list',
+  setViewMode: jest.fn(),
+  activeProjectId: null,
+  updateNote: jest.fn(),
+  reorderNotes: jest.fn(),
+  deleteNote: jest.fn(),
+});
+
 jest.mock('@/stores/useStore', () => ({
-  useStore: () => ({
-    notes: [],
-    isLoading: false,
-    error: null,
-    fetchNotes: jest.fn(),
-    viewMode: 'list',
-    setViewMode: jest.fn(),
-    activeProjectId: null,
-    updateNote: jest.fn(),
-    reorderNotes: jest.fn(),
-    deleteNote: jest.fn(),
-  }),
+  ...require('./helpers/mockUseStore').createSelectorStoreMock(() => mockStoreState),
 }));
 
 jest.mock('@/components/NoteList', () => 'NoteList');

@@ -11,6 +11,45 @@ node_modules
 .env.development.local
 .env.test.local
 .env.production.local
+.envrc
+.direnv/
+
+# Local AI/Trae files
+.trae/
+**/.trae/
+AGENTS.md
+agent.md
+*.agent.md
+INSTRUCTIONS.md
+RULES_INDEX.md
+**/AGENTS.md
+**/agent.md
+**/*.agent.md
+**/INSTRUCTIONS.md
+**/RULES_INDEX.md
+
+# Local IDE/assistant files
+.vscode/
+**/.vscode/
+.idea/
+**/.idea/
+.cursor/
+**/.cursor/
+.windsurf/
+**/.windsurf/
+.continue/
+**/.continue/
+.cline/
+**/.cline/
+.roo/
+**/.roo/
+.zed/
+**/.zed/
+.fleet/
+**/.fleet/
+.aider*
+**/.aider*
+*.code-workspace
 
 # Testing
 coverage

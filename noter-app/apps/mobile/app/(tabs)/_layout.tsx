@@ -76,7 +76,7 @@ export default function TabLayout() {
         name="lists"
         options={{
           href: null,
-          title: 'Lists',
+          title: t('tabs.lists', 'Lists'),
           tabBarIcon: ({ color }) => <TabBarIcon name="list" color={color} />,
         }}
       />

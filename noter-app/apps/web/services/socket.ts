@@ -22,7 +22,7 @@ export const resolveSocketBaseUrl = (options?: {
   apiBaseUrl?: string;
 }) => {
   const isServer = options?.isServer ?? typeof window === 'undefined';
-  const apiBaseUrl = options?.apiBaseUrl ?? (isServer ? process.env.NEXT_PUBLIC_API_URL : getApiBaseUrl());
+  const apiBaseUrl = options?.apiBaseUrl ?? (isServer ? process.env.API_URL || process.env.NEXT_PUBLIC_API_URL : getApiBaseUrl());
 
   if (apiBaseUrl) {
     if (apiBaseUrl.startsWith('/')) {

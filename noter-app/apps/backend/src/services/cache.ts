@@ -1,27 +1,52 @@
 import { createClient } from 'redis';
 
-const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
+const getRedisUrl = () => {
+  const raw = process.env.REDIS_URL;
+  if (typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
 
-const client = createClient({ url: REDIS_URL });
+let client: ReturnType<typeof createClient> | null = null;
+let connectPromise: Promise<void> | null = null;
 
-client.on('error', (err) => {
-  console.error('Redis Client Error', err);
-});
+const getClient = () => {
+  const redisUrl = getRedisUrl();
+  if (!redisUrl) return null;
+  if (client) return client;
+  client = createClient({ url: redisUrl });
+  client.on('error', (err) => {
+    console.error('Redis Client Error', err);
+  });
+  return client;
+};
 
 const ensureConnected = async () => {
-  if (!client.isOpen) {
+  const redisClient = getClient();
+  if (!redisClient) return null;
+  if (redisClient.isOpen) return redisClient;
+  if (connectPromise) {
+    await connectPromise;
+    return redisClient;
+  }
+  connectPromise = (async () => {
     try {
-      await client.connect();
+      await redisClient.connect();
     } catch (err) {
       console.error('Failed to connect to Redis', err);
       throw err;
+    } finally {
+      connectPromise = null;
     }
-  }
+  })();
+  await connectPromise;
+  return redisClient;
 };
 
 const get = async <T = any>(key: string): Promise<T | null> => {
-  await ensureConnected();
-  const raw = await client.get(key);
+  const redisClient = await ensureConnected();
+  if (!redisClient) return null;
+  const raw = await redisClient.get(key);
   if (!raw) return null;
   try {
     return JSON.parse(raw) as T;
@@ -31,18 +56,20 @@ const get = async <T = any>(key: string): Promise<T | null> => {
 };
 
 const set = async (key: string, value: any, ttlSeconds?: number): Promise<void> => {
-  await ensureConnected();
+  const redisClient = await ensureConnected();
+  if (!redisClient) return;
   const payload = JSON.stringify(value);
   if (ttlSeconds && ttlSeconds > 0) {
-    await client.set(key, payload, { EX: ttlSeconds });
+    await redisClient.set(key, payload, { EX: ttlSeconds });
   } else {
-    await client.set(key, payload);
+    await redisClient.set(key, payload);
   }
 };
 
 const del = async (key: string): Promise<void> => {
-  await ensureConnected();
-  await client.del(key);
+  const redisClient = await ensureConnected();
+  if (!redisClient) return;
+  await redisClient.del(key);
 };
 
 export default { get, set, del };

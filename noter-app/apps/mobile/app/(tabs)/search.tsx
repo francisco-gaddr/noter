@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useDeferredValue, useMemo, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { Searchbar, Text, useTheme } from 'react-native-paper';
 import { FlashList } from '@shopify/flash-list';
@@ -19,11 +19,14 @@ type SearchResultRow =
 const SEARCH_RESULT_LIMIT = 200;
 
 export default function SearchScreen() {
-  const { notes, tasks, updateTask } = useStore();
+  const notes = useStore((state) => state.notes);
+  const tasks = useStore((state) => state.tasks);
+  const updateTask = useStore((state) => state.updateTask);
   const theme = useTheme();
   const { t } = useTranslation();
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useState('');
+  const deferredSearchQuery = useDeferredValue(searchQuery);
 
   const noteFuse = useMemo(() => {
     return new Fuse(notes, {
@@ -40,10 +43,10 @@ export default function SearchScreen() {
   }, [tasks]);
 
   const filteredNotes = useMemo(() => {
-    if (!searchQuery) return [];
+    if (!deferredSearchQuery) return [];
     const map = buildSecurityNoteMap(notes as any);
     return noteFuse
-      .search(searchQuery)
+      .search(deferredSearchQuery)
       .map((result) => result.item)
       .filter((note) => {
         const type = normalizeNoteType((note as any).type);
@@ -51,15 +54,15 @@ export default function SearchScreen() {
         const blocking = findBlockingLockedAncestor(note as any, map as any, new Set() as any);
         return !blocking;
       });
-  }, [searchQuery, noteFuse, notes]);
+  }, [deferredSearchQuery, noteFuse, notes]);
 
   const filteredTasks = useMemo(() => {
-    if (!searchQuery) return [];
-    return taskFuse.search(searchQuery).map(result => result.item);
-  }, [searchQuery, taskFuse]);
+    if (!deferredSearchQuery) return [];
+    return taskFuse.search(deferredSearchQuery).map(result => result.item);
+  }, [deferredSearchQuery, taskFuse]);
 
   const searchResults = useMemo<SearchResultRow[]>(() => {
-    if (!searchQuery) return [];
+    if (!deferredSearchQuery) return [];
     const rows: SearchResultRow[] = [];
     const limitedNotes = filteredNotes.slice(0, SEARCH_RESULT_LIMIT);
     const remainingSlots = Math.max(SEARCH_RESULT_LIMIT - limitedNotes.length, 0);
@@ -73,7 +76,7 @@ export default function SearchScreen() {
       rows.push(...limitedTasks.map((task) => ({ id: `task-${task._id}`, type: 'task' as const, task })));
     }
     return rows;
-  }, [filteredNotes, filteredTasks, searchQuery, t]);
+  }, [deferredSearchQuery, filteredNotes, filteredTasks, t]);
 
   const handleToggleTask = async (task: Task) => {
     try {

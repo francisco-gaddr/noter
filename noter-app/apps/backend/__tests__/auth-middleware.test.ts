@@ -38,6 +38,15 @@ describe('auth middleware helpers', () => {
     expect(res.status).toHaveBeenCalledWith(401);
   });
 
+  it('rejects demo-token when no opt-in environment variable is set', () => {
+    const req: any = { method: 'GET', headers: { authorization: 'Bearer demo-token' } };
+    const res: any = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+    const next = jest.fn();
+    authMiddleware(req, res, next);
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(401);
+  });
+
   it('accepts demo-token when explicitly enabled', () => {
     process.env.ALLOW_DEMO_TOKEN = 'true';
     const req: any = { method: 'GET', headers: { authorization: 'Bearer demo-token' } };

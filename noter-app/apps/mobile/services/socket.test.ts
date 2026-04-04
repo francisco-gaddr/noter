@@ -13,7 +13,7 @@ describe('resolveSocketBaseUrl', () => {
     expect(resolveSocketBaseUrl('https://api.example.com/api')).toBe('https://api.example.com');
   });
 
-  it('falls back to daylited.com', () => {
-    expect(resolveSocketBaseUrl()).toBe('https://daylited.com');
+  it('falls back to the current API base url', () => {
+    expect(resolveSocketBaseUrl()).toBe('http://10.0.2.2:3001');
   });
 });

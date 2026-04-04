@@ -1,0 +1,42 @@
+name: Feature request
+description: Föreslå en förbättring eller ny funktion
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem eller behov
+      description: Beskriv vilket problem som ska lösas
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Förslag
+      description: Beskriv lösningen eller beteendet du önskar
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Berörd del
+      options:
+        - backend
+        - web
+        - mobile
+        - electron
+        - packages
+        - docs
+        - repo
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternativ
+      description: Eventuella alternativa lösningar eller workarounds
+  - type: textarea
+    id: context
+    attributes:
+      label: Extra kontext
+      description: Exempel, skisser, användningsfall eller releasepåverkan

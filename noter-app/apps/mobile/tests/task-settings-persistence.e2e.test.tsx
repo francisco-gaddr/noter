@@ -1,6 +1,7 @@
 import React from 'react';
 import renderer, { act } from 'react-test-renderer';
 import TasksScreen from '../app/(tabs)/tasks';
+import { createMockStoreState } from './helpers/mockUseStore';
 
 const mockSetOptions = jest.fn();
 const mockGetItem = jest.fn().mockResolvedValue(null);
@@ -61,23 +62,24 @@ jest.mock('react-native', () => ({
   Platform: { OS: 'ios' },
 }));
 
+const mockStoreState = createMockStoreState({
+  tasks: [],
+  notes: [],
+  isLoading: false,
+  isRefreshingNotes: false,
+  isRefreshingTasks: false,
+  fetchTasks: jest.fn(),
+  fetchNotes: jest.fn(),
+  updateTask: jest.fn(),
+  reorderTasks: jest.fn(),
+  createNote: jest.fn(),
+  updateNote: jest.fn(),
+  deleteNote: jest.fn(),
+  deleteTask: jest.fn(),
+});
+
 jest.mock('@/stores/useStore', () => ({
-  useStore: (selector?: any) => {
-    const state = {
-      tasks: [],
-      notes: [],
-      isLoading: false,
-      fetchTasks: jest.fn(),
-      fetchNotes: jest.fn(),
-      updateTask: jest.fn(),
-      reorderTasks: jest.fn(),
-      createNote: jest.fn(),
-      updateNote: jest.fn(),
-      deleteNote: jest.fn(),
-      deleteTask: jest.fn(),
-    };
-    return selector ? selector(state) : state;
-  },
+  ...require('./helpers/mockUseStore').createSelectorStoreMock(() => mockStoreState),
 }));
 
 jest.mock('@/components/TaskList', () => 'TaskList');

@@ -43,4 +43,19 @@ describe('API URL security', () => {
     const api = require('../services/api');
     await expect(api.setApiUrl('http://example.com')).rejects.toThrow('HTTPS');
   });
+
+  it('allows localhost http for simulator-safe development flows', async () => {
+    (global as any).__DEV__ = false;
+    setNodeEnv('production');
+    const api = require('../services/api');
+    await api.setApiUrl('http://127.0.0.1:3001');
+    expect(api.API_URL).toBe('http://127.0.0.1:3001/api');
+  });
+
+  it('preserves nested api paths without duplicating suffixes', async () => {
+    setNodeEnv('development');
+    const api = require('../services/api');
+    await api.setApiUrl('https://example.com/custom/api/');
+    expect(api.API_URL).toBe('https://example.com/custom/api');
+  });
 });

@@ -203,6 +203,9 @@ export const noteContentToPlainText = (content: any): string => {
   if (!content) return '';
 
   if (typeof content === 'string') {
+    const trimmedStr = content.trim();
+    if (/<\/?[a-z][\s\S]*>/i.test(trimmedStr)) return stripHtml(trimmedStr).trim();
+    
     const parsed = parseJsonChain(content);
     if (Array.isArray(parsed)) return slateValueToText(parsed);
     if (parsed && typeof parsed === 'object') {
@@ -246,6 +249,9 @@ export const tiptapJsonToHtml = (json: any): string => {
   if (!json) return '';
   
   if (typeof json === 'string') {
+    const trimmedStr = json.trim();
+    if (/<\/?[a-z][\s\S]*>/i.test(trimmedStr)) return trimmedStr; // Return HTML directly if it's already HTML
+    
     const parsed = parseJsonChain(json);
     if (Array.isArray(parsed)) return slateValueToHtml(parsed);
     if (parsed && typeof parsed === 'object') {

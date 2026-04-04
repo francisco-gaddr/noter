@@ -2,6 +2,7 @@ import React from 'react';
 import { StyleSheet, View, ScrollView, TouchableOpacity } from 'react-native';
 import { Modal, Portal, Text, Button, useTheme, IconButton, Searchbar } from 'react-native-paper';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
+import { useTranslation } from 'react-i18next';
 
 interface IconPickerModalProps {
   visible: boolean;
@@ -71,6 +72,7 @@ const COLORS = [
 
 export default function IconPickerModal({ visible, onDismiss, onSelect, currentIcon, currentColor }: IconPickerModalProps) {
   const theme = useTheme();
+  const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = React.useState('');
   const [selectedColor, setSelectedColor] = React.useState(currentColor);
   const [selectedIcon, setSelectedIcon] = React.useState(currentIcon);
@@ -109,10 +111,10 @@ export default function IconPickerModal({ visible, onDismiss, onSelect, currentI
   return (
     <Portal>
       <Modal visible={visible} onDismiss={onDismiss} contentContainerStyle={[styles.modalContent, { backgroundColor: theme.colors.surface }]}>
-        <Text variant="titleMedium" style={styles.title}>Välj ikon</Text>
+        <Text variant="titleMedium" style={styles.title}>{t('iconPicker.title')}</Text>
         
         <Searchbar
-          placeholder="Sök ikon..."
+          placeholder={t('iconPicker.searchPlaceholder')}
           onChangeText={setSearchQuery}
           value={searchQuery}
           style={styles.searchBar}
@@ -170,8 +172,8 @@ export default function IconPickerModal({ visible, onDismiss, onSelect, currentI
         </ScrollView>
         
         <View style={styles.footer}>
-            <Button onPress={onDismiss} style={styles.button}>Avbryt</Button>
-            <Button mode="contained" onPress={handleConfirm} style={styles.button}>Välj</Button>
+            <Button onPress={onDismiss} style={styles.button}>{t('common.cancel')}</Button>
+            <Button mode="contained" onPress={handleConfirm} style={styles.button}>{t('common.ok')}</Button>
         </View>
       </Modal>
     </Portal>

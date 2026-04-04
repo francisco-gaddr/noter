@@ -63,6 +63,7 @@ const DraggableTaskCard = ({ task, onClick, onStatusChange }: { task: Task, onCl
                                         todayLabel: 'Idag',
                                         tomorrowLabel: 'Imorgon',
                                         yesterdayLabel: 'Igår',
+                                        dayBeforeYesterdayLabel: 'I förrgår',
                                         timePrefix: 'kl',
                                     })}
                                 </span>

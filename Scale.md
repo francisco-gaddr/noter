@@ -1,4 +1,4 @@
-VPS med publik IP 217.154.2.108
+VPS med publik host eller IP
 
 Raspberry Pi 5 bakom NAT
 
@@ -10,14 +10,14 @@ Minimal konfiguration
 
 Detta är den enklaste möjliga lösningen.
 
-Din setup (konkret)
-- VPS publik IP: 217.154.2.108
-- Raspberry Pi LAN-IP: 192.168.50.16 (du skrev även 192.168.50.116 – välj den som faktiskt är din Pi)
+Exempelsetup
+- VPS publik host/IP: REPLACE_WITH_PUBLIC_HOST_OR_IP
+- Raspberry Pi LAN-IP: REPLACE_WITH_PI_LAN_IP
 - För Noter (detta repo): Pi kör docker-compose med en nginx-container på port 80, som servar /app och /api
 - Om du exponerar en annan Docker-service direkt: byt porten i stegen (t.ex. 3000)
 
 Målet
-- Pi ska vara nåbar från internet via VPS: http://217.154.2.108/app → (VPS) → (Tailscale/WireGuard) → (Pi nginx:80) → (web/backend)
+- Pi ska vara nåbar från internet via VPS: http://REPLACE_WITH_PUBLIC_HOST_OR_IP/app → (VPS) → (Tailscale/WireGuard) → (Pi nginx:80) → (web/backend)
 - Ingen portöppning i hemrouter behövs
 
 Viktigt
@@ -33,10 +33,10 @@ Steg 1 – Installera Tailscale på VPS
 Från din dator (Windows) – kopiera scripts
 
 VPS:
-scp infra/tailscale/vps-setup.sh infra/tailscale/vps-nginx-proxy.sh root@217.154.2.108:/tmp/
+scp infra/tailscale/vps-setup.sh infra/tailscale/vps-nginx-proxy.sh root@REPLACE_WITH_PUBLIC_HOST_OR_IP:/tmp/
 
 Pi (LAN):
-scp infra/tailscale/pi-setup.sh realdini@192.168.50.16:/tmp/
+scp infra/tailscale/pi-setup.sh pi@REPLACE_WITH_PI_LAN_IP:/tmp/
 
 Logga in på VPS och kör setup:
 
@@ -44,7 +44,7 @@ curl -fsSL https://tailscale.com/install.sh | sh
 
 Eller (rekommenderat) kör scriptet:
 
-ssh root@217.154.2.108
+ssh root@REPLACE_WITH_PUBLIC_HOST_OR_IP
 chmod +x /tmp/vps-setup.sh
 sudo /tmp/vps-setup.sh
 
@@ -68,7 +68,7 @@ Steg 2 – Installera Tailscale på Raspberry Pi
 
 På Pi (rekommenderat via script):
 
-ssh realdini@192.168.50.16
+ssh pi@REPLACE_WITH_PI_LAN_IP
 chmod +x /tmp/pi-setup.sh
 sudo /tmp/pi-setup.sh
 
@@ -117,7 +117,7 @@ Manuell config (om du hellre vill):
 
 server {
     listen 80;
-    server_name 217.154.2.108;
+    server_name REPLACE_WITH_PUBLIC_HOST_OR_IP;
 
     location / {
         proxy_pass http://100.x.y.z:80;
@@ -142,7 +142,7 @@ Felsökning (vanligaste felen)
   - Testa från VPS via tunneln: curl -i http://100.x.y.z/health
   - Om du proxyar en specifik port (t.ex. 3000): kontrollera att tjänsten lyssnar på 0.0.0.0, inte bara 127.0.0.1
 - Kräver du HTTPS:
-  - Skaffa domän och peka A-record till 217.154.2.108
+  - Skaffa domän och peka A-record till din publika host eller IP
   - Kör certbot på VPS (nginx-plugin) efter att HTTP fungerar
 
 Alternativ: Ingen VPS behövs

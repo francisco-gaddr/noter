@@ -9,7 +9,7 @@ Efter implementation av kärnfunktioner, integreras säkerhet, prestanda och kon
 
 ## 1. Förberedelser och Setup
 [x] **Konfigurera utvecklingsmiljö för AI-agentutveckling**  
-    [ ] Installera llama.cpp och relaterade beroenden i en delad repo för både React Native och Next.js.  
+    [x] Installera llama.cpp och relaterade beroenden i en delad repo för både React Native och Next.js.  
     [x] Skapa en shared library (t.ex. via npm package) för gemensam AI-logik, inklusive tool-calling och entitetshantering.  
     [ ] Uppdatera CI/CD-pipeline för att inkludera AI-specifika tester (unit, integration) och plattformsspecifika builds.  
     [ ] Definiera enhetstest-ramverk för tool calls och modellinteraktion (t.ex. Jest för JS/TS).  
@@ -24,7 +24,7 @@ Efter implementation av kärnfunktioner, integreras säkerhet, prestanda och kon
 [x] **Integrera llama.cpp för lokal inferens**  
     [x] Skapa en bridge för llama.cpp i React Native (använd native modules för iOS/Android).  
     [x] Implementera llama.cpp i Next.js via Node runtime eller WebAssembly för web-kompatibilitet.  
-    [ ] Stöd för GGUF-modeller: Lägg till parsing och laddning av modeller i shared library.  
+    [x] Stöd för GGUF-modeller: Lägg till parsing och laddning av modeller i shared library.  
     [ ] Implementera dynamiskt modellval: Skapa UI-komponent för val av aktiv modell i chatt-menyn (mobil) och sidopanel (web).  
 
 [x] **Konfigurerbara parametrar och streaming**  
@@ -49,8 +49,8 @@ Efter implementation av kärnfunktioner, integreras säkerhet, prestanda och kon
 [x] **Implementera agent-logik med tool-calling**  
     [x] Skapa agent-core i shared library: Tolka intention, avgör verktygsbehov, hantera JSON-format för tool calls.  
     [x] Definiera interna tool-functions: För entitetshantering (skapa/uppdatera/läsa).  
-    [ ] Integrera MCP-tool calls: Mappa till externa tjänster.  
-    [ ] Testa tool-calling: Skapa mock-scenarier för intentionstolkning.  
+    [x] Integrera MCP-tool calls: Mappa till externa tjänster.  
+    [x] Testa tool-calling: Skapa mock-scenarier för intentionstolkning.  
     [x] Varje gång AIn använder en tool call ska detta listas i AI chatten så att det tydligt står vilken tool call som ahar använts.
     
 

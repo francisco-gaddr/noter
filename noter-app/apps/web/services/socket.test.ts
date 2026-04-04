@@ -11,10 +11,10 @@ describe('resolveSocketBaseUrl', () => {
 
   it('converts https API URL to wss and strips /api', () => {
     expect(resolveSocketBaseUrl({
-      apiBaseUrl: 'https://daylited.com/api',
+      apiBaseUrl: 'https://example.com/api',
       origin: 'http://localhost:3000',
       isServer: false
-    })).toBe('wss://daylited.com');
+    })).toBe('wss://example.com');
   });
 
   it('uses window origin for relative API URL and maps to ws', () => {

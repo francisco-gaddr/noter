@@ -6,6 +6,7 @@ import { Note } from '@repo/shared';
 import { useFocusEffect } from 'expo-router';
 import { useCallback } from 'react';
 import { orderBy } from 'lodash';
+import { useTranslation } from 'react-i18next';
 
 const normalizeNoteType = (value: unknown): string => {
   if (typeof value !== 'string') return 'note';
@@ -16,6 +17,7 @@ const normalizeNoteType = (value: unknown): string => {
 };
 
 export default function ListsScreen() {
+  const { t } = useTranslation();
   const theme = useTheme();
   const { notes, fetchNotes, createNote, updateNote, deleteNote } = useStore();
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -54,7 +56,7 @@ export default function ListsScreen() {
   const handleCreate = async () => {
     setIsLoading(true);
     try {
-      const created = await createNote({ title: 'Ny lista', content: '', type: 'task_list' });
+      const created = await createNote({ title: t('tasks.newList'), content: '', type: 'task_list' });
       setEditingId(created._id);
       setEditingTitle(created.title || '');
     } finally {
@@ -74,17 +76,17 @@ export default function ListsScreen() {
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <ScrollView>
-        <List.Section title="Lists">
+        <List.Section title={t('lists.title')}>
         {lists.length === 0 && (
           <View style={styles.empty}>
-            <Text variant="bodySmall">Skapa din första lista</Text>
+            <Text variant="bodySmall">{t('lists.empty')}</Text>
           </View>
         )}
         {/* "Alla" list (virtual, non-removable) */}
         <View>
           <TouchableOpacity activeOpacity={0.8}>
             <List.Item
-              title="Alla"
+              title={t('common.all')}
               left={props => <List.Icon {...props} icon="format-list-checks" />}
               right={() => (
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -112,7 +114,7 @@ export default function ListsScreen() {
             ) : (
               <TouchableOpacity activeOpacity={0.8} onLongPress={() => startEdit(list)}>
                 <List.Item
-                  title={list.title || 'Lista'}
+                  title={list.title || t('tasks.listFallback')}
                   left={props => <List.Icon {...props} icon="format-list-bulleted" />}
                   right={() => (
                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -133,7 +135,7 @@ export default function ListsScreen() {
         style={styles.fab}
         onPress={handleCreate}
         disabled={isLoading}
-        label="Ny lista"
+        label={t('tasks.newList')}
       />
     </View>
   );

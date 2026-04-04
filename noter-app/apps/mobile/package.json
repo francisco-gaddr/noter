@@ -2,6 +2,7 @@
   "name": "mobile",
   "main": "index.js",
   "version": "1.0.0",
+  "license": "MIT",
   "engines": {
     "node": ">=18"
   },
@@ -13,7 +14,7 @@
     "web": "expo start --web",
     "verify:build-ready": "node scripts/verify-build-readiness.cjs",
     "build:apk:preflight": "npm run check-types && npm test && npx expo config --type introspect",
-    "build:apk:ready": "npm run verify:build-ready && npm run build:apk:preflight && npx -y expo-doctor && npx expo install --check && npx --yes eas-cli config --platform android --profile apk",
+    "build:apk:ready": "npm run verify:build-ready && npm run build:apk:preflight && npx -y expo-doctor && npx expo install --check && node scripts/check-eas-config.cjs",
     "build:android": "npx --yes eas-cli build -p android --profile preview",
     "build:apk": "npx --yes eas-cli build -p android --profile apk",
     "check-types": "tsc --noEmit",

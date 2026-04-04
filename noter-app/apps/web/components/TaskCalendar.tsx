@@ -33,7 +33,7 @@ interface TaskCalendarProps {
 export default function TaskCalendar({ tasks, onTaskClick, onCreateTask, view: initialView }: TaskCalendarProps) {
     const { t, i18n } = useTranslation();
     const currentLocale = i18n.language?.startsWith('sv') ? 'sv' : 'en';
-    const { updateTask } = useStore();
+    const updateTask = useStore((state) => state.updateTask);
     const DnDCalendar = withDragAndDrop(Calendar as any) as any;
     const [isMounted, setIsMounted] = React.useState(false);
     const [currentTime, setCurrentTime] = React.useState(new Date());
@@ -183,6 +183,7 @@ export default function TaskCalendar({ tasks, onTaskClick, onCreateTask, view: i
                 startAccessor="start"
                 endAccessor="end"
                 style={{ height: '100%' }}
+                scrollToTime={currentTime}
                 onSelectEvent={handleSelectEvent}
                 culture={currentLocale}
                 view={view}

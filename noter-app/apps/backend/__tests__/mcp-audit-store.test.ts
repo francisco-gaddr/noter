@@ -17,6 +17,7 @@ describe('mcp audit store encryption', () => {
   beforeEach(() => {
     createMock.mockReset();
     findMock.mockReset();
+    process.env.NODE_ENV = 'test';
     delete process.env.MCP_AUDIT_MASTER_KEYS;
     delete process.env.MCP_AUDIT_ACTIVE_KEY_ID;
     process.env.MCP_AUDIT_MASTER_KEY = 'test-master';
@@ -94,5 +95,21 @@ describe('mcp audit store encryption', () => {
     const list = await listMcpAuditForUser({ userId: 'legacy-user', limit: 20 });
     expect(list.length).toBe(1);
     expect(list[0].toolName).toBe('notion.search');
+  });
+
+  it('fails closed in production when audit encryption keys are missing', async () => {
+    process.env.NODE_ENV = 'production';
+    delete process.env.MCP_AUDIT_MASTER_KEY;
+
+    await expect(
+      appendMcpAudit({
+        at: Date.now(),
+        userId: 'prod-user',
+        service: 'notion',
+        action: 'error',
+        ok: false,
+        message: 'missing-key',
+      }),
+    ).rejects.toThrow('MCP_AUDIT_MASTER_KEY or MCP_AUDIT_MASTER_KEYS must be set in production');
   });
 });

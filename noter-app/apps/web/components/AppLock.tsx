@@ -6,7 +6,13 @@ import { FaLock, FaSignOutAlt } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
 
 export default function AppLock() {
-    const { isAppLocked, setAppLocked, user, login, logout, autoLockTimeout, verifyAppLockPassword } = useStore();
+    const isAppLocked = useStore((state) => state.isAppLocked);
+    const setAppLocked = useStore((state) => state.setAppLocked);
+    const user = useStore((state) => state.user);
+    const login = useStore((state) => state.login);
+    const logout = useStore((state) => state.logout);
+    const autoLockTimeout = useStore((state) => state.autoLockTimeout);
+    const verifyAppLockPassword = useStore((state) => state.verifyAppLockPassword);
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [mounted, setMounted] = useState(false);

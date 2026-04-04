@@ -1,6 +1,7 @@
 import React from 'react';
 import renderer, { act } from 'react-test-renderer';
 import NotesScreen from '../app/(tabs)/index';
+import { createMockStoreState } from './helpers/mockUseStore';
 
 const mockSetOptions = jest.fn();
 let capturedNoteListProps: any = null;
@@ -39,28 +40,30 @@ jest.mock('react-native', () => ({
   Alert: { alert: jest.fn() },
 }));
 
+const mockStoreState = createMockStoreState({
+  notes: [
+    { _id: 'p1', title: 'Projekt A', type: 'project-folder', parentId: null, content: '', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+    { _id: 'n1', title: 'Anteckning 1', type: 'note', parentId: 'p1', content: '', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+    { _id: 'n2', title: 'Anteckning 2', type: 'note', parentId: '"p1"', content: '', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+    { _id: 'n4', title: 'Anteckning 3', type: 'note', parentId: "'\"p1\"'", content: '', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+    { _id: 'n5', title: 'Barn till anteckning', type: 'note', parentId: 'n2', content: '', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+    { _id: 'n3', title: 'Utanför projekt', type: 'note', parentId: null, content: '', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+    { _id: 'pLocked', title: 'Låst Projekt', type: 'project', parentId: null, content: '', locked: true, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+    { _id: 'nLocked', title: 'Hemlig anteckning', type: 'note', parentId: 'pLocked', content: '', locked: true, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+  ],
+  isLoading: false,
+  isRefreshingNotes: false,
+  error: null,
+  fetchNotes: jest.fn(),
+  viewMode: 'list',
+  setViewMode: jest.fn(),
+  updateNote: jest.fn(),
+  reorderNotes: jest.fn(),
+  deleteNote: jest.fn(),
+});
+
 jest.mock('@/stores/useStore', () => ({
-  useStore: () => ({
-    notes: [
-      { _id: 'p1', title: 'Projekt A', type: 'project-folder', parentId: null, content: '', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
-      { _id: 'n1', title: 'Anteckning 1', type: 'note', parentId: 'p1', content: '', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
-      { _id: 'n2', title: 'Anteckning 2', type: 'note', parentId: '"p1"', content: '', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
-      { _id: 'n4', title: 'Anteckning 3', type: 'note', parentId: "'\"p1\"'", content: '', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
-      { _id: 'n5', title: 'Barn till anteckning', type: 'note', parentId: 'n2', content: '', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
-      { _id: 'n3', title: 'Utanför projekt', type: 'note', parentId: null, content: '', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
-      { _id: 'pLocked', title: 'Låst Projekt', type: 'project', parentId: null, content: '', locked: true, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
-      { _id: 'nLocked', title: 'Hemlig anteckning', type: 'note', parentId: 'pLocked', content: '', locked: true, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
-    ],
-    isLoading: false,
-    error: null,
-    fetchNotes: jest.fn(),
-    viewMode: 'list',
-    setViewMode: jest.fn(),
-    activeProjectId: mockActiveProjectId,
-    updateNote: jest.fn(),
-    reorderNotes: jest.fn(),
-    deleteNote: jest.fn(),
-  }),
+  ...require('./helpers/mockUseStore').createSelectorStoreMock(() => ({ ...mockStoreState, activeProjectId: mockActiveProjectId })),
 }));
 
 jest.mock('@/components/NoteList', () => (props: any) => {

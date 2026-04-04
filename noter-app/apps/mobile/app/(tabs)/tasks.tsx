@@ -106,7 +106,8 @@ export default function TasksScreen() {
   const theme = useTheme();
   const tasks = useStore((state) => state.tasks);
   const notes = useStore((state) => state.notes);
-  const isLoading = useStore((state) => state.isLoading);
+  const isRefreshingNotes = useStore((state) => state.isRefreshingNotes);
+  const isRefreshingTasks = useStore((state) => state.isRefreshingTasks);
   const fetchTasks = useStore((state) => state.fetchTasks);
   const fetchNotes = useStore((state) => state.fetchNotes);
   const updateTask = useStore((state) => state.updateTask);
@@ -498,8 +499,10 @@ export default function TasksScreen() {
       {viewMode === 'list' ? (
         <TaskList
           tasks={sortedTasks}
-          onRefresh={() => { fetchTasks(); fetchNotes(); }}
-          refreshing={isLoading}
+          onRefresh={() => {
+            void Promise.all([fetchTasks(), fetchNotes()]);
+          }}
+          refreshing={isRefreshingTasks || isRefreshingNotes}
           onToggleComplete={handleToggleComplete}
           onReorder={sortBy === 'custom' ? handleReorder : undefined}
           showViewToggle={false}

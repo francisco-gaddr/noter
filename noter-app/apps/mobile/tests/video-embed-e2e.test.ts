@@ -6,7 +6,7 @@ describe('video embed e2e', () => {
     const html = getVideoEmbedHtml('https://youtu.be/abc123');
     const rendered = tiptapJsonToHtml(html);
     expect(rendered).toContain('<iframe');
-    expect(rendered).toContain('https://daylited.com/embed/youtube?id=abc123');
+    expect(rendered).toContain('https://www.youtube.com/embed/abc123');
   });
 
   it('renders tiktok iframe html correctly', () => {

@@ -3,7 +3,7 @@ describe('ai bootstrap loader', () => {
     jest.resetModules();
   });
 
-  it('loads scoped AI bootstrap settings and resolves MCP env defaults', async () => {
+  it('loads scoped AI bootstrap settings from encrypted local storage', async () => {
     jest.doMock('@react-native-async-storage/async-storage', () => ({
       getItem: jest.fn(async (key: string) => {
         if (key.includes('ai_system_prompt_')) return 'plain prompt';
@@ -47,9 +47,6 @@ describe('ai bootstrap loader', () => {
       isAiBackgroundWorkEnabled: jest.fn(async () => true),
     }));
 
-    const previousEnv = process.env.EXPO_PUBLIC_MCP_NOTION_ENABLED;
-    process.env.EXPO_PUBLIC_MCP_NOTION_ENABLED = 'true';
-
     const { loadAiBootstrapState } = require('../services/ai/bootstrap');
     const result = await loadAiBootstrapState();
 
@@ -62,8 +59,6 @@ describe('ai bootstrap loader', () => {
     expect(result.allowBackgroundAIWork).toBe(false);
     expect(result.apiProvider).toBe('gemini');
     expect(result.geminiModel).toBe('gemini-pro');
-    expect(result.mcpSettings.env.MCP_NOTION_ENABLED).toBe('true');
-
-    process.env.EXPO_PUBLIC_MCP_NOTION_ENABLED = previousEnv;
+    expect(result.mcpSettings.env).toEqual({});
   });
 });

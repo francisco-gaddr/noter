@@ -20,7 +20,7 @@ describe('mobile EAS build readiness', () => {
   it('defines required Expo and EAS Android release settings', () => {
     expect(appJson.expo?.android?.package).toBe('com.noter.app');
     expect(appJson.expo?.android?.usesCleartextTraffic).toBeUndefined();
-    expect(appJson.expo?.extra?.eas?.projectId).toBeTruthy();
+    expect(appJson.expo?.extra?.eas?.projectId).toBeUndefined();
     expect(easJson.build?.apk?.android?.buildType).toBe('apk');
     expect(easJson.build?.preview?.android?.buildType).toBe('apk');
   });

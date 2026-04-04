@@ -33,7 +33,7 @@ const getStorage = () => {
 
 const getBaseUrl = () => {
   if (typeof window === 'undefined' && !getStorage()) {
-    return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
+    return normalizeUrl(process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || '/api');
   }
 
   const storage = getStorage();
@@ -45,10 +45,8 @@ const getBaseUrl = () => {
   const envUrl = process.env.NEXT_PUBLIC_API_URL;
   if (typeof window !== 'undefined' && window.location.protocol === 'file:') {
     if (envUrl && /^https?:\/\//i.test(envUrl)) return normalizeUrl(envUrl);
-    return 'https://daylited.com/api';
+    return '/api';
   }
-  // If envUrl is defined but contains localhost, and we are NOT on localhost, 
-  // assume we should use relative path to allow Nginx to proxy correctly.
   if (envUrl && (envUrl.includes('localhost') || envUrl.includes('127.0.0.1')) && 
       typeof window !== 'undefined' &&
       window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
@@ -64,6 +62,24 @@ export const setApiBaseUrl = (url: string) => {
   if (!storage) return;
   const trimmed = normalizeUrl(url.trim());
   storage.setItem(API_URL_KEY, trimmed);
+  const electronBridge = typeof window !== 'undefined' ? (window as any).mlc : undefined;
+  if (electronBridge?.isElectron) {
+    if (typeof electronBridge.setManySettings === 'function') {
+      Promise.resolve(electronBridge.setManySettings({
+        apiBaseUrl: trimmed,
+        apiUrl: trimmed,
+        backendUrl: trimmed,
+      })).catch(() => {});
+      return;
+    }
+    if (typeof electronBridge.setSetting === 'function') {
+      Promise.all([
+        electronBridge.setSetting('apiBaseUrl', trimmed),
+        electronBridge.setSetting('apiUrl', trimmed),
+        electronBridge.setSetting('backendUrl', trimmed),
+      ]).catch(() => {});
+    }
+  }
 };
 
 export const setApiToken = (token: string | null) => {

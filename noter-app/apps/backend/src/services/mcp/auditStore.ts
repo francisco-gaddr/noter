@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto';
 import McpAuditLog from '../../models/McpAuditLog';
 import { McpIntegrationId } from '@repo/shared';
+import { getMcpAuditMasterKey } from '../../utils/security';
 
 type PersistedAuditEvent = {
   at: number;
@@ -38,8 +39,7 @@ const getKeyRing = (): KeyRing => {
     }
   }
   if (Object.keys(keys).length === 0) {
-    const fallback = process.env.MCP_AUDIT_MASTER_KEY || process.env.JWT_SECRET || 'noter-mcp-audit-fallback';
-    keys.default = toKey(fallback);
+    keys.default = toKey(getMcpAuditMasterKey());
   }
   const configuredActive = String(process.env.MCP_AUDIT_ACTIVE_KEY_ID || '').trim();
   const activeKeyId = configuredActive && keys[configuredActive] ? configuredActive : Object.keys(keys)[0];

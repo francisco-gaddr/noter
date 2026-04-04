@@ -3,6 +3,8 @@ set -e
 
 echo "== WireGuard Pi Setup =="
 
+VPS_ENDPOINT="${VPS_ENDPOINT:-REPLACE_WITH_VPS_HOST_OR_IP:51820}"
+
 apt update
 apt install -y wireguard
 
@@ -22,7 +24,7 @@ DNS = 1.1.1.1
 [Peer]
 # VPS_PUBLIC_KEY_HÄR
 PublicKey = REPLACE_VPS_PUBLIC_KEY
-Endpoint = 217.154.2.108:51820
+Endpoint = ${VPS_ENDPOINT}
 AllowedIPs = 10.8.0.1/32
 PersistentKeepalive = 25
 EOF

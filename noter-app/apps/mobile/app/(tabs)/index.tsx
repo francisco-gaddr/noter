@@ -47,7 +47,16 @@ export default function NotesScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const theme = useTheme();
-  const { notes, isLoading, error, fetchNotes, viewMode, setViewMode, activeProjectId, updateNote, reorderNotes, deleteNote } = useStore();
+  const notes = useStore((state) => state.notes);
+  const isRefreshingNotes = useStore((state) => state.isRefreshingNotes);
+  const error = useStore((state) => state.error);
+  const fetchNotes = useStore((state) => state.fetchNotes);
+  const viewMode = useStore((state) => state.viewMode);
+  const setViewMode = useStore((state) => state.setViewMode);
+  const activeProjectId = useStore((state) => state.activeProjectId);
+  const updateNote = useStore((state) => state.updateNote);
+  const reorderNotes = useStore((state) => state.reorderNotes);
+  const deleteNote = useStore((state) => state.deleteNote);
   
   const [sortMenuVisible, setSortMenuVisible] = useState(false);
   const [projectSelectorVisible, setProjectSelectorVisible] = useState(false);
@@ -130,7 +139,7 @@ export default function NotesScreen() {
       headerTitle: () => (
         <TouchableOpacity onPress={() => setProjectSelectorVisible(true)} style={{ paddingVertical: 6 }}>
           <Text variant="titleMedium" numberOfLines={1}>
-            {activeProject ? activeProject.title : 'Notes'}
+            {activeProject ? activeProject.title : t('tabs.notes')}
           </Text>
         </TouchableOpacity>
       ),
@@ -168,29 +177,29 @@ export default function NotesScreen() {
           >
             <Menu.Item
               onPress={() => { setSortBy('custom'); setSortOrder('asc'); setSortMenuVisible(false); }}
-              title="Custom"
+              title={t('sort.custom')}
               leadingIcon={sortBy === 'custom' ? 'check' : undefined}
             />
             <Divider />
             <Menu.Item 
               onPress={() => { setSortBy('createdAt'); setSortOrder('desc'); setSortMenuVisible(false); }} 
-              title="Newest first" 
+              title={t('sort.newest')}
               leadingIcon={sortBy === 'createdAt' && sortOrder === 'desc' ? 'check' : undefined}
             />
             <Menu.Item 
               onPress={() => { setSortBy('createdAt'); setSortOrder('asc'); setSortMenuVisible(false); }} 
-              title="Oldest first"
+              title={t('sort.oldest')}
               leadingIcon={sortBy === 'createdAt' && sortOrder === 'asc' ? 'check' : undefined}
             />
             <Divider />
             <Menu.Item 
               onPress={() => { setSortBy('title'); setSortOrder('asc'); setSortMenuVisible(false); }} 
-              title="Title A-Z"
+              title={t('sort.titleAsc')}
               leadingIcon={sortBy === 'title' && sortOrder === 'asc' ? 'check' : undefined}
             />
             <Menu.Item 
               onPress={() => { setSortBy('updatedAt'); setSortOrder('desc'); setSortMenuVisible(false); }} 
-              title="Recently Updated"
+              title={t('notes.recentlyUpdated')}
               leadingIcon={sortBy === 'updatedAt' && sortOrder === 'desc' ? 'check' : undefined}
             />
           </Menu>
@@ -264,8 +273,8 @@ export default function NotesScreen() {
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {error && (
         <View style={{ padding: 10, backgroundColor: '#ffebee', margin: 10, borderRadius: 5 }}>
-            <Text style={{ color: '#c62828' }}>Error loading notes: {error}</Text>
-            <Button mode="text" onPress={fetchNotes}>Retry</Button>
+            <Text style={{ color: '#c62828' }}>{t('notes.loadError', { error })}</Text>
+            <Button mode="text" onPress={fetchNotes}>{t('common.retry')}</Button>
         </View>
       )}
       <ProjectSelector 
@@ -280,18 +289,18 @@ export default function NotesScreen() {
       <NoteList 
         notes={sortedNotes} 
         onRefresh={fetchNotes}
-        refreshing={isLoading}
+        refreshing={isRefreshingNotes}
         viewMode={viewMode}
         onReorder={handleReorder}
         sortBy={sortBy}
         sortOrder={sortOrder}
         onDelete={(note) => {
             Alert.alert(
-                "Delete Note",
-                "Are you sure you want to delete this note?",
+                t('note.deleteConfirmTitle'),
+                t('note.deleteConfirmMessage'),
                 [
-                    { text: "Cancel", style: "cancel" },
-                    { text: "Delete", style: "destructive", onPress: () => deleteNote(note._id) }
+                    { text: t('common.cancel'), style: "cancel" },
+                    { text: t('common.delete'), style: "destructive", onPress: () => deleteNote(note._id) }
                 ]
             );
         }}

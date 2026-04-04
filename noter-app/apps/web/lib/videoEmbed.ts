@@ -1,7 +1,7 @@
 export const resolveEmbedBaseUrl = (baseOverride?: string) => {
   if (baseOverride) return baseOverride.replace(/\/$/, '');
-  if (typeof window === 'undefined') return 'https://daylited.com/app';
-  if (window.location.protocol === 'file:') return 'https://daylited.com/app';
+  if (typeof window === 'undefined') return '';
+  if (window.location.protocol === 'file:') return '';
   const basePath = window.location.pathname.startsWith('/app') ? '/app' : '';
   return `${window.location.origin}${basePath}`;
 };

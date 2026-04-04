@@ -1,15 +1,13 @@
 import path from 'path';
 
+const rawBasePath = String(process.env.WEB_BASE_PATH || process.env.NEXT_PUBLIC_WEB_BASE_PATH || '').trim();
+const basePath = rawBasePath ? `/${rawBasePath.replace(/^\/+|\/+$/g, '')}` : '';
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // If the app is hosted at daylited.com/app, we need basePath set to /app
-  // But locally we might want it at root.
-  // We can use an env var, but for this specific fix requested by user, we can hardcode or default it.
-  // The user says "https://daylited.com/app/_next/...", so basePath must be /app.
-  basePath: '/app',
-  assetPrefix: '/app',
+  basePath,
+  assetPrefix: basePath || undefined,
   outputFileTracingRoot: path.join(process.cwd(), '..', '..'),
-  // Trailing slash is often needed for subpath deployments to handle redirects correctly
   trailingSlash: true,
   
   env: {
@@ -19,7 +17,6 @@ const nextConfig = {
 
   serverExternalPackages: ['node-llama-cpp'],
 
-  // Increase max body size and response timeout for large AI model downloads
   experimental: {
     serverActions: {
       bodySizeLimit: '10gb',

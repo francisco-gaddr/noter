@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { StyleSheet, View, RefreshControl } from 'react-native';
 import DraggableFlatList, { ScaleDecorator, RenderItemParams, ShadowDecorator, OpacityDecorator } from 'react-native-draggable-flatlist';
+import { FlashList } from '@shopify/flash-list';
 import { SegmentedButtons } from 'react-native-paper';
 import { Task } from '@repo/shared';
 import { useRouter } from 'expo-router';
@@ -87,6 +88,18 @@ export default function TaskList({ tasks, onRefresh, refreshing, onToggleComplet
     );
   }, [handlePress, onDelete, onReorder, onToggleComplete, isCustomSort]);
 
+  const renderStaticTask = useCallback(({ item }: { item: Task }) => (
+    <TaskItem
+      task={item}
+      onToggleComplete={onToggleComplete}
+      onDelete={onDelete}
+      onPress={handlePress}
+      disabled={false}
+      isActive={false}
+      showDragHandle={false}
+    />
+  ), [handlePress, onDelete, onToggleComplete]);
+
   if (!scrollEnabled && viewMode === 'list') {
       return (
         <View style={{ flex: 1 }}>
@@ -104,19 +117,12 @@ export default function TaskList({ tasks, onRefresh, refreshing, onToggleComplet
                     />
                 )}
             </View>
-            <View>
-                {sortedTasks.map((item) => (
-                    <View key={item._id}>
-                        <TaskItem 
-                            task={item}
-                            onToggleComplete={onToggleComplete}
-                            onDelete={onDelete}
-                            onPress={handlePress}
-                            showDragHandle={false}
-                        />
-                    </View>
-                ))}
-            </View>
+            <FlashList
+                data={sortedTasks}
+                renderItem={renderStaticTask}
+                keyExtractor={(item) => item._id}
+                contentContainerStyle={{ paddingBottom: 24 }}
+            />
         </View>
       );
   }
@@ -142,21 +148,12 @@ export default function TaskList({ tasks, onRefresh, refreshing, onToggleComplet
 
         {viewMode === 'list' && (
             !scrollEnabled ? (
-                <View style={{ paddingTop: 12, paddingBottom: 100 }}>
-                    {sortedTasks.map(task => (
-                        <View key={task._id}>
-                             <TaskItem 
-                                task={task}
-                                onToggleComplete={onToggleComplete}
-                                onDelete={onDelete}
-                                onPress={handlePress}
-                                disabled={false}
-                                isActive={false}
-                                showDragHandle={false}
-                            />
-                        </View>
-                    ))}
-                </View>
+                <FlashList
+                    data={sortedTasks}
+                    renderItem={renderStaticTask}
+                    keyExtractor={(item) => item._id}
+                    contentContainerStyle={{ paddingTop: 12, paddingBottom: 100 }}
+                />
             ) : (
                 <DraggableFlatList
                     data={sortedTasks}

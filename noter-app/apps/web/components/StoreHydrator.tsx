@@ -5,7 +5,7 @@ import { useStore } from '../stores/useStore';
 import { initWebEncryptionKey } from '../services/encryptionKey';
 
 export default function StoreHydrator() {
-  const { hydrate } = useStore();
+  const hydrate = useStore((state) => state.hydrate);
 
   useEffect(() => {
     let cancelled = false;

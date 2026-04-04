@@ -1,6 +1,7 @@
 {
   "name": "noter-app",
   "private": true,
+  "license": "MIT",
   "scripts": {
     "build": "npm run bump-build && turbo run build",
     "dev": "turbo run dev",

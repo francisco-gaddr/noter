@@ -2,9 +2,11 @@ import React, { useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { List, Text, useTheme } from 'react-native-paper';
 import { WHATS_NEW_ENTRIES } from '@repo/shared';
+import { useTranslation } from 'react-i18next';
 
 export default function WhatsNewScreen() {
   const theme = useTheme();
+  const { t } = useTranslation();
   const latestKey = useMemo(
     () => `${WHATS_NEW_ENTRIES[0]?.version ?? 'latest'}-${WHATS_NEW_ENTRIES[0]?.build ?? 'build'}`,
     []
@@ -14,9 +16,9 @@ export default function WhatsNewScreen() {
   return (
     <ScrollView style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <View style={styles.header}>
-        <Text variant="headlineSmall">What&apos;s New</Text>
+        <Text variant="headlineSmall">{t('settings.whatsNewTitle')}</Text>
         <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant }}>
-          Senaste uppdateringen är utfälld som standard.
+          {t('whatsNew.latestExpanded')}
         </Text>
       </View>
       <List.Section>

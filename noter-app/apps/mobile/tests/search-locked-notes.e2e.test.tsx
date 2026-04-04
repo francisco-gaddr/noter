@@ -1,6 +1,7 @@
 import React from 'react';
 import renderer, { act } from 'react-test-renderer';
 import SearchScreen from '../app/(tabs)/search';
+import { createMockStoreState } from './helpers/mockUseStore';
 
 let mockCapturedNotes: any[] = [];
 
@@ -32,16 +33,18 @@ jest.mock('@shopify/flash-list', () => ({
   },
 }));
 
+const mockStoreState = createMockStoreState({
+  notes: [
+    { _id: 'pLocked', title: 'Låst projekt', content: '', type: 'project', parentId: null, locked: true, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+    { _id: 'nLocked', title: 'Hemlig anteckning', content: '', type: 'note', parentId: 'pLocked', locked: true, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+    { _id: 'nOpen', title: 'Publik anteckning', content: 'synlig text', type: 'note', parentId: null, locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
+  ],
+  tasks: [],
+  updateTask: jest.fn(),
+});
+
 jest.mock('@/stores/useStore', () => ({
-  useStore: () => ({
-    notes: [
-      { _id: 'pLocked', title: 'Låst projekt', content: '', type: 'project', parentId: null, locked: true, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
-      { _id: 'nLocked', title: 'Hemlig anteckning', content: '', type: 'note', parentId: 'pLocked', locked: true, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
-      { _id: 'nOpen', title: 'Publik anteckning', content: 'synlig text', type: 'note', parentId: null, locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
-    ],
-    tasks: [],
-    updateTask: jest.fn(),
-  }),
+  ...require('./helpers/mockUseStore').createSelectorStoreMock(() => mockStoreState),
 }));
 
 jest.mock('@/components/NoteItem', () => ({

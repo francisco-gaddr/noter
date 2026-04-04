@@ -4,35 +4,40 @@ import { z } from 'zod';
 class MockProvider implements LLMProvider {
   async generateResponse(messages: ChatMessage[]): Promise<string> {
     const last = messages[messages.length - 1];
-    if (last.content.includes('note')) {
+    
+    // If user says "Create note", return tool call
+    if (last.role === 'user' && last.content.includes('note')) {
         return JSON.stringify({ tool: 'create_note', arguments: { title: 'Test', content: 'Content' } });
     }
+    
+    // If previous message was a tool result, confirm creation
+    if (last.role === 'tool' && last.toolCallId === 'create_note') {
+        return "Note created successfully!";
+    }
+    
     return "Hello!";
   }
-  async streamResponse() {}
-  async loadModel() {}
 }
 
 describe('AI Agent Integration', () => {
-  it('should process input and execute tool', async () => {
+  it('should process input, execute tool, and return final response', async () => {
     const provider = new MockProvider();
     const agent = new AIAgent(provider);
     
+    const mockExecute = jest.fn().mockResolvedValue({ success: true, id: '123' });
     const mockTool: Tool = {
         name: 'create_note',
         description: 'Create note',
         parameters: z.object({ title: z.string(), content: z.string() }),
-        execute: jest.fn().mockResolvedValue({ success: true })
+        execute: mockExecute
     };
     
-    // In a real scenario, we would register the tool.
-    // For now, we simulate the tool execution handling in the agent or client code.
-    // This test verifies the agent can use the provider to get a tool call response.
+    agent.registerTool(mockTool);
     
-    const response = await agent.process('Create a note');
-    const parsed = JSON.parse(response);
+    const newMessages = await agent.process('Create a note');
     
-    expect(parsed.tool).toBe('create_note');
-    expect(parsed.arguments).toEqual({ title: 'Test', content: 'Content' });
+    expect(mockExecute).toHaveBeenCalledWith({ title: 'Test', content: 'Content' });
+    const finalResponse = newMessages[newMessages.length - 1].content;
+    expect(finalResponse).toBe("Note created successfully!");
   });
 });

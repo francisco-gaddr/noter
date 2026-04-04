@@ -51,7 +51,7 @@ if (errors.length === 0) {
   ensure(typeof android.package === 'string' && android.package.trim().length > 0, 'expo.android.package måste vara satt');
   ensure(androidPackagePattern.test(android.package || ''), 'expo.android.package måste vara ett giltigt Android package-namn');
   ensure(typeof ios.bundleIdentifier === 'string' && ios.bundleIdentifier.trim().length > 0, 'expo.ios.bundleIdentifier måste vara satt');
-  ensure(typeof extra?.eas?.projectId === 'string' && extra.eas.projectId.trim().length > 0, 'expo.extra.eas.projectId måste vara satt');
+  warn(typeof extra?.eas?.projectId !== 'string' || extra.eas.projectId.trim().length === 0, 'expo.extra.eas.projectId är inte satt i repot. Kör eas init lokalt innan cloud-build.');
 
   ensure(typeof build?.apk?.android?.buildType === 'string' && build.apk.android.buildType === 'apk', 'eas build.apk.android.buildType måste vara apk');
   ensure(typeof build?.preview?.android?.buildType === 'string' && build.preview.android.buildType === 'apk', 'eas build.preview.android.buildType måste vara apk');

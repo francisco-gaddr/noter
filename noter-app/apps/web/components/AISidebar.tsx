@@ -1803,16 +1803,13 @@ export const AISidebar = () => {
 
   const resolveGraphqlUrl = () => {
     const cleaned = getApiBaseUrl().trim().replace(/^[`'"]+|[`'"]+$/g, '').trim().replace(/\/+$/, '');
-    // Ensure we don't double up on /api or /graphql
     let base = cleaned;
     if (base.endsWith('/graphql')) base = base.replace(/\/graphql$/, '');
-    
-    // If we have a full URL like https://daylited.com/app/api, we want https://daylited.com/api/graphql
+
     if (base.includes('/app/api')) {
         return `${base.replace('/app/api', '/api')}/graphql`;
     }
-    
-    // Default fallback
+
     if (base.endsWith('/api')) return `${base}/graphql`;
     return `${base}/api/graphql`;
   };

@@ -10,7 +10,7 @@ const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
   title: 'Noter',
-  description: 'Secure Notes App',
+  description: 'Noter',
   manifest: '/manifest.json'
 }
 

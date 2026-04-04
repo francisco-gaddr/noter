@@ -383,19 +383,29 @@ const mergeTasksForScope = (existingTasks: Task[], scopedTasks: Task[], parentNo
 const shouldFallbackToOffline = (error: unknown) => {
   const err = error as any;
   const status = typeof err?.status === 'number' ? err.status : undefined;
+  const code = String(err?.code ?? '').toLowerCase();
   const message = String(err?.message ?? '').toLowerCase();
 
   const isConnectivity =
+    code === 'request_timeout' ||
     message.includes('could not connect to server') ||
     message.includes('network request failed') ||
     message.includes('failed to fetch') ||
-    message.includes('network error');
+    message.includes('network error') ||
+    message === 'aborted' ||
+    message.includes('abort') ||
+    message.includes('timed out') ||
+    message.includes('timeout');
 
   const isServer = typeof status === 'number' && status >= 500;
   const isRateLimit = status === 429;
 
   return isConnectivity || isServer || isRateLimit;
 };
+
+const shouldSuppressCollectionError = (error: unknown, localCount: number) => (
+  localCount > 0 && shouldFallbackToOffline(error)
+);
 
 const syncTaskReminder = async (task: Task, notificationsEnabled: boolean) => {
   if (!notificationsEnabled || !task.reminderEnabled) {
@@ -874,7 +884,7 @@ export const useStore = create<AppState>((set, get) => ({
         const netState = await NetInfo.fetch();
         
         if (netState.isConnected) {
-          const notes = await fetchWithAuth('/notes');
+          const notes = await fetchWithAuth('/notes', { timeoutMs: 45000 });
           const safeNotes = Array.isArray(notes) ? notes : [];
           const securedNotes = materializeNotesFromEncrypted(safeNotes as any, new Set(get().unlockedProtectedNoteIds));
           const persistableNotes = (safeNotes as any[]).map((note) => normalizeEncryptedNote(note as Note));
@@ -898,7 +908,11 @@ export const useStore = create<AppState>((set, get) => ({
         console.error('[Store] Fetch notes error:', error);
         const localNotes = await Database.getNotesLocal();
         const securedNotes = materializeNotesFromEncrypted(localNotes.map(processLocalNote) as any, new Set(get().unlockedProtectedNoteIds));
-        set({ notes: securedNotes, isRefreshingNotes: false, error: error.message });
+        set({
+          notes: securedNotes,
+          isRefreshingNotes: false,
+          error: shouldSuppressCollectionError(error, localNotes.length) ? null : error.message,
+        });
       }
     })();
     try {
@@ -1185,7 +1199,7 @@ export const useStore = create<AppState>((set, get) => ({
         const netState = await NetInfo.fetch();
         if (netState.isConnected) {
           const url = parentNoteId ? `/tasks?parentNoteId=${encodeURIComponent(parentNoteId)}` : '/tasks';
-          const tasks = await fetchWithAuth(url);
+          const tasks = await fetchWithAuth(url, { timeoutMs: 30000 });
           const decryptedTasks = tasks.map(processApiTask);
           const localTaskIndex = typeof Database.getLocalTaskSyncIndex === 'function'
             ? await Database.getLocalTaskSyncIndex()
@@ -1224,7 +1238,11 @@ export const useStore = create<AppState>((set, get) => ({
         const filtered = parentNoteId ? localTasks.filter(t => t.parentNoteId === parentNoteId) : localTasks;
         const mapped = filtered.map(processLocalTask);
         const mergedTasks = mergeTasksForScope(get().tasks, mapped, parentNoteId);
-        set({ tasks: mergedTasks, isRefreshingTasks: false, error: error.message });
+        set({
+          tasks: mergedTasks,
+          isRefreshingTasks: false,
+          error: shouldSuppressCollectionError(error, filtered.length) ? null : error.message,
+        });
         if (get().notificationsEnabled) {
           await syncAllTaskReminders(mergedTasks, true, { cancelMissing: !parentNoteId });
         }
@@ -1247,8 +1265,8 @@ export const useStore = create<AppState>((set, get) => ({
       if (!netState.isConnected) return;
 
       const [notes, tasks] = await Promise.all([
-        fetchWithAuth('/notes'),
-        fetchWithAuth('/tasks'),
+        fetchWithAuth('/notes', { timeoutMs: 45000 }),
+        fetchWithAuth('/tasks', { timeoutMs: 30000 }),
       ]);
       const safeNotes = Array.isArray(notes) ? notes : [];
       const decryptedNotes = materializeNotesFromEncrypted(safeNotes as any, new Set(get().unlockedProtectedNoteIds));

@@ -26,7 +26,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   onCreate
 }) => {
   const { t } = useTranslation();
-  const { notes } = useStore();
+  const notes = useStore((state) => state.notes);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<'low' | 'medium' | 'high'>('low');

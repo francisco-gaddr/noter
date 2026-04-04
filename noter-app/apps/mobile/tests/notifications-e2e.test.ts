@@ -36,7 +36,6 @@ describe('task notifications e2e', () => {
   it('reschedules when reminder settings change', async () => {
     mockScheduleNotificationAsync
       .mockResolvedValueOnce('id-0')
-      .mockResolvedValueOnce('id-10')
       .mockResolvedValueOnce('id-30');
 
     const task: Task = {
@@ -56,14 +55,12 @@ describe('task notifications e2e', () => {
     await scheduleTaskReminder(task);
     await scheduleTaskReminder({ ...task, reminderOffsetMinutes: [10] });
 
-    expect(mockScheduleNotificationAsync).toHaveBeenCalledTimes(3);
+    expect(mockScheduleNotificationAsync).toHaveBeenCalledTimes(2);
     expect(mockCancelScheduledNotificationAsync).toHaveBeenCalled();
   });
 
   it('stops reminders when task is marked as completed', async () => {
-    mockScheduleNotificationAsync
-      .mockResolvedValueOnce('id-0')
-      .mockResolvedValueOnce('id-10');
+    mockScheduleNotificationAsync.mockResolvedValueOnce('id-10');
 
     const task: Task = {
       _id: 'task-4',
@@ -82,7 +79,7 @@ describe('task notifications e2e', () => {
     await scheduleTaskReminder(task);
     await scheduleTaskReminder({ ...task, completed: true });
 
-    expect(mockScheduleNotificationAsync).toHaveBeenCalledTimes(2);
-    expect(mockCancelScheduledNotificationAsync).toHaveBeenCalledTimes(2);
+    expect(mockScheduleNotificationAsync).toHaveBeenCalledTimes(1);
+    expect(mockCancelScheduledNotificationAsync).toHaveBeenCalledTimes(1);
   });
 });

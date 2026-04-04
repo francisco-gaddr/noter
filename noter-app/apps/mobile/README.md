@@ -5,107 +5,93 @@
 
 # Noter Mobile App
 
-Detta är mobilapplikationen för Noter-systemet, byggd med React Native och Expo. Appen är designad för att vara en förlängning av webbapplikationen med fokus på offline-first funktionalitet, snabbhet och säkerhet.
+Mobilappen är byggd med Expo och React Native och delar anteckningar, tasks, kryptering och AI-flöden med webb och Electron. Open source-förberedelsen innebär att backend-URL och andra känsliga värden hålls lokalt via settings eller lokala env-filer.
 
-## Status och Funktioner (Pågående)
+## Funktioner
 
-Applikationen är under aktiv utveckling. Nedan listas nuvarande status för olika delar av appen.
+- Notes, tasks, projekt och sökning
+- Lokal kryptering och app-lås med biometri
+- Offline-first lagring i SQLite och lokal synckö
+- AI-inställningar och integrationsvärden i lokal krypterad lagring
+- Backend-URL via kugghjulet på login-skärmen eller i inställningar
 
-### Implementerade Funktioner
-*   **Anteckningar (Notes):**
-    *   Visa lista av anteckningar (List/Grid view).
-    *   Skapa och redigera anteckningar med rich text (formaterad text).
-    *   Automatisk sparning (Auto-save) vid redigering.
-    *   Sortering (Datum, Titel).
-*   **Uppgifter (Tasks):**
-    *   Skapa, redigera och ta bort uppgifter.
-    *   Markera som klara/ej klara.
-    *   Prioritetsnivåer (High, Medium, Low).
-    *   Koppling till anteckningar (Parent Note).
-*   **Sökning:**
-    *   Global sökning (Fuzzy search) som hittar både anteckningar och uppgifter.
-*   **Säkerhet & Kryptering:**
-    *   **E2E-kryptering:** Anteckningar och uppgifter krypteras lokalt innan de skickas till backend.
-    *   **Låsta Anteckningar:** Skydda känsliga anteckningar med lösenord.
-    *   **Biometri:** App-låsning via FaceID/Fingerprint.
-*   **Backend Integration:**
-    *   Kopplad till Noter Backend API.
-    *   **Smart API URL-detektering:** Appen försöker automatiskt hitta backenden på ditt nätverk (LAN) om den körs på en fysisk enhet, eller använder `10.0.2.2` för Android Emulator och `localhost` för iOS Simulator.
-
-### Kommande Funktioner (Prioriterade)
-*   **Offline-stöd:** Fullständig offline-funktionalitet med lokal databas (SQLite) och synkronisering.
-*   **Autentisering:** Riktig inloggning och registrering (körs nu mot demo-user).
-
-## Komma Igång
+## Kom igång
 
 ### Förutsättningar
-*   Node.js (v20+)
-*   Expo CLI
-*   En mobiltelefon med "Expo Go" appen installerad (iOS eller Android) eller en emulator.
-*   Noter Backend körandes lokalt.
 
-### Installation
+- Node.js 20+
+- Expo CLI eller `npx expo`
+- Expo Go eller emulator/simulator
+- En lokalt körande Noter-backend
 
-1.  Gå till mobil-mappen:
-    ```bash
-    cd apps/mobile
-    ```
-2.  Installera beroenden:
-    ```bash
-    npm install
-    ```
+### Lokal konfiguration
 
-### Köra Appen
+Kopiera `.env.example` till `.env` om du vill förifylla en lokal API-URL:
 
-1.  Starta backend (från roten av repot):
-    ```bash
-    npm run dev:backend
-    ```
-    *(Eller gå till `apps/backend` och kör `npm run dev`)*
+```env
+EXPO_PUBLIC_API_URL=http://localhost:3001/api
+```
 
-2.  Starta mobilappen:
-    ```bash
-    npx expo start
-    ```
+Du kan också lämna env-filen tom och i stället ange backend-URL lokalt via:
 
-3.  **Testa på fysisk enhet:**
-    *   Se till att din telefon och dator är på **samma WiFi-nätverk**.
-    *   Öppna **Expo Go** på din telefon.
-    *   Skanna QR-koden som visas i terminalen.
-    *   Appen kommer automatiskt försöka ansluta till backenden via din dators lokala IP-adress.
+- kugghjulet på login-skärmen
+- Settings-fliken när du är inloggad
 
-### Backend-anslutning & Felsökning
+### Starta lokalt
 
-För att appen ska fungera på en fysisk enhet måste den kunna nå din dator där backenden körs.
+```bash
+npm run dev --workspace=apps/backend
+```
 
-*   **Automatisk Konfiguration:** Appen är programmerad (`services/api.ts`) att ignorera `localhost`-inställningar på Android-enheter och istället försöka hitta din dators LAN-IP (via Expos konfiguration).
-*   **Om det inte fungerar:**
-    1.  Kontrollera att backend körs (port 3001).
-    2.  Kontrollera brandvägg (Windows Firewall kan blockera inkommande trafik till Node.js).
-    3.  Gå till **Inställningar (Settings)** i mobilappen.
-    4.  Kontrollera vad som står under "API URL".
-    5.  Om det står `http://localhost:3001/api` och du är på en fysisk Android-enhet, ändra detta manuellt till din dators IP-adress, t.ex. `http://192.168.1.50:3001/api`.
+```bash
+npm run start --workspace=apps/mobile
+```
+
+### Fysisk enhet
+
+- Se till att telefon och dator är på samma nätverk
+- Om `localhost` inte fungerar på en fysisk enhet, ange datorns LAN-adress i appens settings
+- Den URL du sparar lagras lokalt i SecureStore
+
+### Felsökning
+
+- Om anteckningar eller tasks ibland visar `Aborted` eller timeout-liknande fel använder appen nu längre lästimeout för samlingshämtningar och faller tyst tillbaka till lokal cache när sådan finns
+- Om du inte har någon lokal cache ännu och hämtningen timeoutar: kontrollera att backend kör, att enheten når rätt API-URL och att stora datamängder kan hämtas från `/notes` och `/tasks`
+- Vid fysisk enhet är felaktig `localhost` den vanligaste orsaken till laddningsfel
 
 ## Bygga APK (EAS)
 
-1. Installera EAS CLI (om du inte redan har):
-   ```bash
-   npm i -g eas-cli
-   ```
-2. Logga in:
-   ```bash
-   eas login
-   ```
-3. Bygg en APK (profil `preview`):
-   ```bash
-   eas build -p android --profile preview
-   ```
+Projekt-ID för EAS ingår inte längre i repot. Initiera ditt eget EAS-projekt lokalt innan du kör cloud-builds.
 
-Profilen `preview` är konfigurerad för att bygga en APK i [eas.json](file:///f:/Tech/Projekt/Noter/noter-app/apps/mobile/eas.json).
+```bash
+npm run verify:build-ready --workspace=apps/mobile
+npm run build:apk:ready --workspace=apps/mobile
+npm run build:apk:preflight --workspace=apps/mobile
+```
+
+Om du vill använda EAS cloud-build behöver du först köra `eas init` eller konfigurera ditt eget projekt lokalt.
 
 ## Teknisk Stack
-*   **Ramverk:** React Native (Expo)
-*   **Navigering:** Expo Router
-*   **State Management:** Zustand
-*   **Databas (Lokal):** Expo SQLite
-*   **API:** Fetch & Socket.io
+
+- React Native / Expo
+- Expo Router
+- Zustand
+- Expo SQLite
+- SecureStore
+- Socket.io
+
+## Open source-checklista
+
+- Checka aldrig in `.env`
+- Lagra aldrig API-nycklar i `EXPO_PUBLIC_*`
+- Sätt backend-URL lokalt i appen eller i lokal `.env`
+- Behåll EAS-konfiguration och bundle-publicering i din egen lokala Expo-konto-konfiguration
+
+## Verifiering
+
+```bash
+npm test --workspace=apps/mobile
+npm run verify:build-ready --workspace=apps/mobile
+```
+
+- Säkerhets- och releasegates körs även via `npm run validate:prepush` från `noter-app`

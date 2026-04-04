@@ -1,11 +1,18 @@
 import { NextRequest } from 'next/server';
-import { NodeLlamaProvider } from '../../../lib/ai/provider';
 import { ChatMessage } from '@repo/ai';
 
-const provider = new NodeLlamaProvider();
+let providerPromise: Promise<any> | null = null;
+
+const getProvider = async () => {
+  if (!providerPromise) {
+    providerPromise = import('../../../lib/ai/provider').then((mod) => new mod.NodeLlamaProvider());
+  }
+  return providerPromise;
+};
 
 export async function POST(req: NextRequest) {
   try {
+    const provider = await getProvider();
     const body = await req.json();
     const { messages, modelPath, gpuLayers } = body;
 

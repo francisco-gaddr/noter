@@ -33,7 +33,7 @@ const getApiUrl = () => {
   // NOTE: We intentionally ignore EXPO_PUBLIC_API_URL on Android if it's localhost
   // to avoid issues on physical devices/emulators where localhost refers to the device itself.
   if (process.env.EXPO_PUBLIC_API_URL) {
-    return process.env.EXPO_PUBLIC_API_URL;
+    return normalizeApiUrl(process.env.EXPO_PUBLIC_API_URL);
   }
 
   // Try multiple Expo host hints
@@ -68,10 +68,6 @@ const getApiUrl = () => {
         return `http://${host}:3001/api`;
       } catch {}
     }
-  }
-
-  if (Constants.appOwnership && Constants.appOwnership !== 'expo' && Constants.appOwnership !== 'guest') {
-    return 'https://daylited.com/api';
   }
 
   return Platform.select({
@@ -118,6 +114,26 @@ export const getAuthToken = () => authToken;
 
 export const setUnauthorizedHandler = (handler: null | (() => void | Promise<void>)) => {
   unauthorizedHandler = handler;
+};
+
+const isAbortLikeError = (error: unknown) => {
+  const err = error as any;
+  const name = String(err?.name ?? '').toLowerCase();
+  const message = String(err?.message ?? '').toLowerCase();
+  return (
+    name === 'aborterror' ||
+    message === 'aborted' ||
+    message.includes('abort') ||
+    message.includes('timed out') ||
+    message.includes('timeout')
+  );
+};
+
+const getRequestTimeoutMs = (endpoint: string, method: string) => {
+  if (method === 'GET' && endpoint === '/notes') return 45000;
+  if (method === 'GET' && endpoint.startsWith('/tasks')) return 30000;
+  if (method === 'GET') return 20000;
+  return 15000;
 };
 
 const handleApiError = (error: any, url: string) => {
@@ -196,10 +212,10 @@ export async function register(username: string, password: string) {
 
 export async function fetchWithAuth(
   endpoint: string,
-  options: (RequestInit & { skipUnauthorized?: boolean }) = {}
+  options: (RequestInit & { skipUnauthorized?: boolean; timeoutMs?: number }) = {}
 ) {
   const url = `${API_URL}${endpoint}`;
-  const { skipUnauthorized, ...fetchOptions } = options;
+  const { skipUnauthorized, timeoutMs: timeoutOverrideMs, ...fetchOptions } = options;
   
   // If no token in memory, try to get from SecureStore (fallback/recovery)
   if (!authToken) {
@@ -229,11 +245,12 @@ export async function fetchWithAuth(
 
   const maxRetries = 3;
   const baseDelayMs = 500;
+  const method = String(fetchOptions.method || 'GET').toUpperCase();
+  const timeoutMs = timeoutOverrideMs ?? getRequestTimeoutMs(endpoint, method);
 
   for (let attempt = 0; attempt < maxRetries; attempt += 1) {
     try {
-      logDebug(`[API] Requesting: ${options.method || 'GET'} ${url}`);
-      const timeoutMs = 15000;
+      logDebug(`[API] Requesting: ${method} ${url}`);
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), timeoutMs);
       let response: Response;
@@ -272,7 +289,6 @@ export async function fetchWithAuth(
         const serverMessage =
           isRecord(body) && typeof body.message === 'string' ? body.message : 'Request failed';
 
-        const method = String(options.method || 'GET').toUpperCase();
         const shouldHintApiMismatch =
           response.status === 404 &&
           (endpoint.startsWith('/notes') || endpoint.startsWith('/tasks')) &&
@@ -313,17 +329,27 @@ export async function fetchWithAuth(
     } catch (error: any) {
       const status = (error as any)?.status;
       let message = error?.message ? String(error.message) : 'Request failed';
+      const isAbortError = isAbortLikeError(error);
 
       const isNetworkError =
         message === 'Network request failed' ||
         message.toLowerCase().includes('network error') ||
         message.toLowerCase().includes('failed to fetch');
 
-      const shouldRetry = attempt < maxRetries - 1 && (isNetworkError || status >= 500);
+      const shouldRetry = attempt < maxRetries - 1 && (isNetworkError || isAbortError || status >= 500);
       if (shouldRetry) {
         const delay = baseDelayMs * Math.pow(2, attempt);
         await new Promise((r) => setTimeout(r, delay));
         continue;
+      }
+
+      if (isAbortError) {
+        const err: any = new Error(`Request timed out after ${Math.round(timeoutMs / 1000)}s while loading ${endpoint}`);
+        err.code = 'REQUEST_TIMEOUT';
+        err.url = url;
+        err.method = method;
+        err.status = 408;
+        throw err;
       }
 
       if (isNetworkError) {

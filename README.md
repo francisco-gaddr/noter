@@ -1,73 +1,112 @@
-# Noter - Säker och Modern Anteckningsapplikation
+# Noter
 
-"Noter" är en webbapplikation designad för enkelhet, modern design och maximal säkerhet genom full end-to-end (E2E) kryptering. Applikationen syftar till att erbjuda en trygg plats för dina tankar, idéer och projekt, med stöd för rich-text, media-embedding och hierarkisk organisering.
+Noter är ett open source-monorepo för anteckningar, uppgifter, offline-first sync och lokalt skyddad data i webb, mobil, Electron och backend. Repot är sanerat för publik publicering: inga deployade domäner, inga commitade `.env`-filer och inga inbakade produktionshemligheter följer med källkoden.
 
-## 🌟 Nyckelfunktioner
+## Innehåll
 
-*   **Full E2E-Kryptering:** All data krypteras på klienten (AES-256) innan den skickas till servern. Din integritet är garanterad.
-*   **Hierarkisk Struktur:** Organisera anteckningar i trädstrukturer med drag-and-drop funktionalitet.
-*   **Rich-Text Editor:** Skriv med stil med stöd för fetstil, listor, kodblock, och mer (via Slate).
-*   **Media & Embedding:** Ladda upp bilder, bädda in videor och länkar direkt i dina anteckningar.
-*   **Realtidssynkronisering:** Arbeta sömlöst över enheter med omedelbara uppdateringar (Socket.io).
-*   **Offline-stöd:** Fortsätt arbeta utan internetanslutning; ändringar synkroniseras när du är online igen (PWA/IndexedDB).
-*   **Export:** Exportera dina anteckningar till PDF, Markdown eller Text.
-*   **Tasks:** Integrerad uppgiftshantering kopplad till dina anteckningar.
+- `noter-app/apps/web` – Next.js-webbapp med PWA-stöd och lokal API-konfiguration via inställningar
+- `noter-app/apps/mobile` – Expo/React Native-app med lokal backend-URL via inloggningsvy och inställningar
+- `noter-app/apps/backend` – Express/MongoDB-backend med fail-closed säkerhetsinställningar
+- `electron-noter` – Electron-shell för webbappen med krypterad lokal settings-lagring
+- `noter-app/packages/*` – delade typer, krypteringshelpers och UI/AI-paket
+- `Doc` – runbooks, säkerhetsdokument och tekniska genomgångar
 
-## 🏗 Arkitektur och Teknikstack
-
-Projektet är ett monorepo som använder **Turborepo** för att hantera frontend, backend och delad kod.
-
-### Frontend (`/apps/web`)
-*   **Ramverk:** Next.js 14+ (App Router)
-*   **Språk:** TypeScript
-*   **Styling:** Tailwind CSS (med stöd för Dark Mode)
-*   **State Management:** Zustand
-*   **Editor:** Slate-react
-*   **Lokala Data:** IndexedDB (idb)
-
-### Backend (`/apps/backend`)
-*   **Runtime:** Node.js 20+
-*   **Ramverk:** Express.js
-*   **Databas:** MongoDB (med Mongoose)
-*   **Realtid:** Socket.io
-*   **Autentisering:** JWT (JSON Web Tokens)
-
-### Delad Kod (`/packages/shared`)
-*   Typdefinitioner (TypeScript interfaces)
-*   Krypteringslogik (CryptoJS)
-*   Valideringsscheman
-
-## 🚀 Kom igång
+## Snabbstart
 
 ### Förutsättningar
-*   Node.js 20+
-*   npm eller yarn
 
-### Installation
-1.  Klona repot (eller skapa mappen):
-    ```bash
-    git clone <repo-url>
-    cd noter-app
-    ```
-2.  Installera beroenden:
-    ```bash
-    npm install
-    ```
-3.  Starta utvecklingsmiljön:
-    ```bash
-    npm run dev
-    ```
+- Node.js 20 eller senare
+- npm 11 eller senare
+- MongoDB om du vill köra backenden med persistent lagring
 
-## 🔐 Säkerhet
-Säkerheten är kärnan i Noter.
-*   **Klientkryptering:** Inga okrypterade data lämnar någonsin din enhet.
-*   **Nyckelhantering:** Krypteringsnycklar härleds från ditt lösenord med PBKDF2.
+### Installera
 
-## 📄 Dokumentation
-Se `Doc/` mappen för detaljerad dokumentation:
-*   [Overview.md](Doc/Overview.md) - Kravspecifikation och systemöversikt.
-*   [Implementation.md](Doc/Implementation.md) - Steg-för-steg implementeringsplan.
+```bash
+npm install
+cd noter-app
+npm install
+cd ..
+cd electron-noter
+npm install
+```
 
-## 📱 Version
-*   **Mobile:** 1.0.1 (Build 3)
-*   **Web:** 1.0.0
+### Lokal konfiguration
+
+- Backend: kopiera `noter-app/apps/backend/.env.example` till `noter-app/apps/backend/.env`
+- Web: kopiera `noter-app/apps/web/.env.example` till `noter-app/apps/web/.env.local` om du vill sätta lokal API-bas eller base path vid build
+- Mobil: kopiera `noter-app/apps/mobile/.env.example` till `noter-app/apps/mobile/.env` om du vill förifylla lokal backend-URL
+- Electron: kopiera `electron-noter/.env.example` till `electron-noter/.env` om du vill styra renderer-URL lokalt
+
+### Kör apparna
+
+```bash
+cd noter-app
+npm run dev --workspace=apps/backend
+```
+
+```bash
+cd noter-app
+npm run dev --workspace=apps/web
+```
+
+```bash
+cd noter-app
+npm run start --workspace=apps/mobile
+```
+
+```bash
+cd electron-noter
+npm run dev
+```
+
+## Open source-säkerhet
+
+- Inga riktiga tokens, API-nycklar eller commitade `.env`-filer ingår i repot
+- Backend kräver lokal `JWT_SECRET` i produktion och genererar endast temporära processhemligheter i utveckling/test
+- MCP- och AI-integrationshemligheter läses från lokal krypterad lagring i klienterna eller lokal env på serversidan
+- Backend-URL för mobil, web och Electron kan sättas lokalt via inloggningsvyn eller inställningar utan att hårdkodas i koden
+- Electron lagrar settings krypterat via operativsystemets säkra storage där det är tillgängligt
+
+## Verifiering
+
+```bash
+cd noter-app
+npm run validate:prepush
+```
+
+```bash
+cd noter-app
+npm run test:repo:open-source
+```
+
+- `validate:prepush` kör repo-scan, lint, kritiska integrationstester, säkerhetstester, web/mobile/backend-guardrails och mutationssvit
+- `test:repo:open-source` söker efter incheckade `.env`-filer, publika secret-variabler, gamla produktionsdomäner samt lokala AI-/Trae-/IDE-filer i spårade filer
+- GitHub Actions kör även `.github/workflows/monorepo-guardrails.yml`, `.github/workflows/web-e2e-smoke.yml`, `.github/workflows/dependency-review.yml` och `.github/workflows/codeql.yml` för att stärka publik repo-hygien
+
+## Lokala AI-filer
+
+- Trae-filer, skills, rules och lokala AI-agentfiler ignoreras via `.gitignore` och ska inte checkas in
+- Filer som `AGENTS.md`, `agent.md`, `*.agent.md`, `INSTRUCTIONS.md`, `RULES_INDEX.md` och allt under `.trae/` ska hållas lokalt
+- Lokala IDE-mappar som `.vscode/`, `.idea/`, `.cursor/`, `.windsurf/`, `.continue/`, `.cline/`, `.roo/`, `.zed/`, `.fleet/`, `.aider*`, `.direnv/`, `.envrc` och `*.code-workspace` ska också hållas utanför repot
+- Repo-scannern stoppar publicering om sådana filer fortfarande är spårade av git
+
+## Dokumentation
+
+- [README.md](noter-app/README.md) – översikt över det aktiva monorepot
+- [README.md](noter-app/apps/backend/README.md) – backend-setup och säkerhetskrav
+- [README.md](noter-app/apps/web/README.md) – webbapp, lokal API-konfiguration och testning
+- [README.md](noter-app/apps/mobile/README.md) – mobil setup, lokal backend-URL och build-flöden
+- [README.md](electron-noter/README.md) – Electron-shell, secure settings och releasegates
+- [Overview.md](Doc/Overview.md) – systemöversikt
+- [Public Release Commit Checklist.md](Doc/Public%20Release%20Commit%20Checklist.md) – sista publik commit-kontroll före open source-publicering
+
+## Community
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) – hur du bidrar och verifierar ändringar
+- [SECURITY.md](SECURITY.md) – hur säkerhetsproblem rapporteras
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) – förväntat beteende i projektet
+- [SUPPORT.md](SUPPORT.md) – var du börjar när du behöver hjälp
+
+## Licens
+
+Projektet distribueras under [MIT](LICENSE).

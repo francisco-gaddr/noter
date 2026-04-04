@@ -9,7 +9,13 @@ const isValidKey = (key: unknown): key is string => typeof key === 'string' && K
 export const initLocalEncryptionKey = async () => {
   const SecureStore = require('expo-secure-store');
   const Crypto = require('expo-crypto');
-  let key = await SecureStore.getItemAsync(STORAGE_KEY);
+  const storedKey: unknown = await SecureStore.getItemAsync(STORAGE_KEY);
+  const legacyKey = typeof storedKey === 'string' ? storedKey.trim() : '';
+  if (legacyKey && !KEY_PATTERN.test(legacyKey)) {
+    setEncryptionKey(legacyKey);
+    return legacyKey;
+  }
+  let key = isValidKey(storedKey) ? storedKey : '';
   if (!isValidKey(key)) {
     const bytes: Uint8Array = await Crypto.getRandomBytesAsync(32);
     key = toHex(bytes);

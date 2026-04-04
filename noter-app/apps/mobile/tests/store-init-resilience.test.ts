@@ -144,4 +144,85 @@ describe('store init resilience', () => {
     expect(migrateLocalEncryptedData).toHaveBeenCalledTimes(1);
     expect(addEventListener).toHaveBeenCalledTimes(1);
   });
+
+  it('reloads collections and reconnects socket on login after initialized session', async () => {
+    jest.useFakeTimers();
+    const fetchWithAuth = jest.fn(async (path: string) => {
+      if (path === '/notes') return [];
+      if (path === '/tasks') return [];
+      return [];
+    });
+    const apiLogin = jest.fn(async () => ({ token: 'fresh-token' }));
+    const initSocket = jest.fn(() => ({ connected: true, off: jest.fn(), on: jest.fn() }));
+
+    jest.doMock('react-native-get-random-values', () => ({}));
+    jest.doMock('../services/api', () => ({
+      fetchWithAuth,
+      login: apiLogin,
+      register: jest.fn(),
+      setAuthToken: jest.fn(),
+      initApiUrl: jest.fn(async () => undefined),
+      setUnauthorizedHandler: jest.fn(),
+    }));
+    jest.doMock('../services/database', () => ({
+      initDatabase: jest.fn(async () => undefined),
+      migrateLocalEncryptedData: jest.fn(async () => undefined),
+      getNotesLocal: jest.fn(async () => []),
+      getTasksLocal: jest.fn(async () => []),
+      saveNoteLocal: jest.fn(async () => undefined),
+      saveTaskLocal: jest.fn(async () => undefined),
+    }));
+    jest.doMock('../services/socket', () => ({
+      initSocket,
+      disconnectSocket: jest.fn(),
+      getSocket: jest.fn(),
+    }));
+    jest.doMock('../services/notifications', () => ({
+      scheduleTaskReminder: jest.fn(),
+      cancelTaskReminder: jest.fn(),
+      cancelAllTaskReminders: jest.fn(),
+      syncAllTaskReminders: jest.fn(),
+    }));
+    jest.doMock('../services/ai/security', () => ({
+      buildSecurityNoteMap: jest.fn(() => new Map()),
+      findBlockingLockedAncestor: jest.fn(() => null),
+    }));
+    jest.doMock('../services/i18n', () => ({
+      __esModule: true,
+      default: {
+        t: (key: string) => key,
+      },
+    }));
+    jest.doMock('../services/encryptionKey', () => ({
+      initLocalEncryptionKey: jest.fn(async () => undefined),
+    }));
+    jest.doMock('@react-native-community/netinfo', () => ({
+      __esModule: true,
+      default: {
+        addEventListener: jest.fn(() => jest.fn()),
+        fetch: jest.fn(async () => ({ isConnected: true })),
+      },
+    }));
+    jest.doMock('expo-secure-store', () => ({
+      getItemAsync: jest.fn(async () => null),
+      setItemAsync: jest.fn(async () => undefined),
+      deleteItemAsync: jest.fn(async () => undefined),
+    }));
+    jest.doMock('@react-native-async-storage/async-storage', () => ({
+      getItem: jest.fn(async () => null),
+      setItem: jest.fn(async () => undefined),
+    }));
+
+    const { useStore } = require('../stores/useStore');
+    useStore.setState({ isInitialized: true, securityLocked: false });
+
+    await useStore.getState().login('demo', 'secret');
+    jest.runOnlyPendingTimers();
+    jest.useRealTimers();
+
+    expect(apiLogin).toHaveBeenCalledWith('demo', 'secret');
+    expect(fetchWithAuth).toHaveBeenCalledWith('/notes', { timeoutMs: 45000 });
+    expect(fetchWithAuth).toHaveBeenCalledWith('/tasks', { timeoutMs: 30000 });
+    expect(initSocket).toHaveBeenCalledWith('fresh-token');
+  });
 });

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Button, Dialog, Portal, TextInput, HelperText } from 'react-native-paper';
+import { useTranslation } from 'react-i18next';
 
 interface PasswordModalProps {
   visible: boolean;
@@ -17,9 +18,10 @@ export default function PasswordModal({
   onSubmit, 
   error, 
   loading,
-  title = "Enter Password",
-  submitLabel = "Unlock"
+  title,
+  submitLabel
 }: PasswordModalProps) {
+  const { t } = useTranslation();
   const [password, setPassword] = useState('');
 
   useEffect(() => {
@@ -36,10 +38,10 @@ export default function PasswordModal({
   return (
     <Portal>
       <Dialog visible={visible} onDismiss={onDismiss}>
-        <Dialog.Title>{title}</Dialog.Title>
+        <Dialog.Title>{title || t('passwordModal.enterPassword')}</Dialog.Title>
         <Dialog.Content>
           <TextInput
-            label="Password"
+            label={t('common.password')}
             value={password}
             onChangeText={setPassword}
             secureTextEntry
@@ -51,9 +53,9 @@ export default function PasswordModal({
           {error && <HelperText type="error">{error}</HelperText>}
         </Dialog.Content>
         <Dialog.Actions>
-          <Button onPress={onDismiss}>Cancel</Button>
+          <Button onPress={onDismiss}>{t('common.cancel')}</Button>
           <Button onPress={handleSubmit} loading={loading} disabled={!password || loading}>
-            {submitLabel}
+            {submitLabel || t('passwordModal.unlock')}
           </Button>
         </Dialog.Actions>
       </Dialog>
