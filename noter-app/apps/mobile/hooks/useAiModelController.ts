@@ -8,6 +8,7 @@ import { getModelInstallBlocker, getLocalAiRuntimeStatus } from '@/services/ai/n
 import { getLocalConversionCapabilities } from '@/services/ai/native/MLCModule';
 import { getModelsLocal, saveModelLocal } from '@/services/database';
 import { MobileLlamaProvider } from '@/services/ai/provider';
+import { listModelInstallSessions } from '@/services/ai/installSession';
 
 type LocalModelEntry = AIModel & { invalidReason?: string; sourcePath: string };
 
@@ -183,6 +184,23 @@ export const useAiModelController = ({
     if (resumingDownloadsRef.current) return;
     resumingDownloadsRef.current = true;
     try {
+      const sessions = await listModelInstallSessions();
+      if (isMountedRef.current) {
+        const nextProcessing: Record<string, boolean> = {};
+        const nextProgress: Record<string, number> = {};
+        const nextStage: Record<string, string> = {};
+        for (const session of sessions) {
+          if (session.stage === 'completed' || session.stage === 'failed') continue;
+          nextProcessing[session.model.id] = true;
+          nextProgress[session.model.id] = session.progress;
+          nextStage[session.model.id] = session.stage;
+        }
+        if (Object.keys(nextProcessing).length > 0) {
+          setProcessingModels((prev) => ({ ...prev, ...nextProcessing }));
+          setDownloadProgress((prev) => ({ ...prev, ...nextProgress }));
+          setDownloadStage((prev) => ({ ...prev, ...nextStage }));
+        }
+      }
       await resumePendingModelDownloads({
         onProgress: (modelId, percent) => {
           if (!isMountedRef.current) return;

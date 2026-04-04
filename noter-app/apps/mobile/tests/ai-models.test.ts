@@ -62,6 +62,7 @@ jest.mock('../services/ai/ModelDownloader', () => ({
   getModelDir: jest.fn().mockReturnValue('/docs/mlc_models/user_model/Q4_K_M'),
   getPlatformTarget: jest.fn().mockReturnValue('iphone'),
   validateModelPackage: jest.fn(async (path: string) => path),
+  validateModelPackageWithRetry: jest.fn(async (path: string) => path),
 }));
 
 jest.mock('../services/ai/installSession', () => ({
@@ -84,6 +85,7 @@ describe('AI Models', () => {
     mockUnzip.mockReset();
     mockConvertGGUFToMLC.mockReset();
     mockGetLocalConversionCapabilities.mockReset();
+    mockGetLocalConversionCapabilities.mockResolvedValue({ engineAvailable: false, converterAvailable: false });
   });
 
   it('downloads compiled model package and returns model directory', async () => {
@@ -102,7 +104,7 @@ describe('AI Models', () => {
     const { saveModelLocal } = require('../services/database');
     const model = { id: 'user/model', name: 'model', author: 'user', downloads: 0, likes: 0, tags: [] };
     const file = { filename: 'model.Q4_K_M.gguf', size: 123, url: 'https://hf.test', quantization: 'Q4_K_M' };
-    const result = await downloadModel(model as any, file as any);
+    const result = await downloadModel(model as any, file as any, undefined, { preferLocalConversion: true });
     expect(result).toBe(getModelDir('user/model', 'Q4_K_M'));
     expect(saveModelLocal).toHaveBeenCalledWith(expect.objectContaining({
       id: 'model_user_model_Q4_K_M',
@@ -126,6 +128,23 @@ describe('AI Models', () => {
     expect(mockConvertGGUFToMLC).toHaveBeenCalled();
   });
 
+  it('does not fall back to server conversion when local preference has usable native capabilities', async () => {
+    const { downloadModel } = require('../services/ai/modelService');
+    const { requestModelConversion, getCompiledModelUrl } = require('../services/ai/huggingface');
+    const model = { id: 'user/model', name: 'model', author: 'user', downloads: 0, likes: 0, tags: [] };
+    const file = { filename: 'model.Q4_K_M.gguf', size: 123, url: 'https://hf.test/model.gguf', quantization: 'Q4_K_M' };
+
+    mockExists.mockResolvedValue(false);
+    mockDownloadFile.mockReturnValue({ promise: Promise.resolve({ statusCode: 200 }) });
+    mockGetLocalConversionCapabilities.mockResolvedValue({ engineAvailable: true, converterAvailable: true });
+    mockConvertGGUFToMLC.mockRejectedValue(new Error('Local conversion failed'));
+
+    await expect(downloadModel(model as any, file as any, undefined, { preferLocalConversion: true })).rejects.toThrow('Local conversion failed');
+
+    expect(getCompiledModelUrl).not.toHaveBeenCalled();
+    expect(requestModelConversion).not.toHaveBeenCalled();
+  });
+
   it('downloads precompiled package directly when already available', async () => {
     const { downloadModel } = require('../services/ai/modelService');
     const { getCompiledModelUrl, requestModelConversion } = require('../services/ai/huggingface');
@@ -135,7 +154,7 @@ describe('AI Models', () => {
     mockExists.mockResolvedValue(false);
     getCompiledModelUrl.mockResolvedValue({ url: 'https://models.test/compiled.zip', filename: 'Q4_K_M.zip', available: true });
 
-    const result = await downloadModel(model as any, file as any);
+    const result = await downloadModel(model as any, file as any, undefined, { preferLocalConversion: true });
 
     expect(result).toBe('/docs/mlc_models/user_model/Q4_K_M');
     expect(requestModelConversion).not.toHaveBeenCalled();
@@ -154,11 +173,9 @@ describe('AI Models', () => {
     mockConvertGGUFToMLC.mockResolvedValue('/docs/mlc_models/user_model/Q4_K_M/local');
     getCompiledModelUrl.mockResolvedValue({ url: 'https://models.test/compiled.zip', filename: 'Q4_K_M.zip', available: true });
     downloader.downloadCompiledModel.mockRejectedValueOnce(new Error('Invalid model package: package root not found'));
-    downloader.validateModelPackage
-      .mockRejectedValueOnce(new Error('Invalid model package: package root not found'))
-      .mockImplementation(async (path: string) => path);
+    downloader.validateModelPackageWithRetry.mockImplementation(async (path: string) => path);
 
-    const result = await downloadModel(model as any, file as any);
+    const result = await downloadModel(model as any, file as any, undefined, { preferLocalConversion: true });
 
     expect(mockConvertGGUFToMLC).toHaveBeenCalled();
     expect(result).toBe('/docs/mlc_models/user_model/Q4_K_M/local');
@@ -192,8 +209,8 @@ describe('AI Models', () => {
   it('persists normalized model path when package root changes', async () => {
     const { normalizeStoredModelRecord } = require('../services/ai/modelService');
     const { saveModelLocal } = require('../services/database');
-    const { validateModelPackage } = require('../services/ai/ModelDownloader');
-    validateModelPackage.mockResolvedValue('/docs/mlc_models/user_model/Q4_K_M/model');
+    const { validateModelPackageWithRetry } = require('../services/ai/ModelDownloader');
+    validateModelPackageWithRetry.mockResolvedValue('/docs/mlc_models/user_model/Q4_K_M/model');
 
     const normalized = await normalizeStoredModelRecord({
       id: 'model_user_model_Q4_K_M',
@@ -214,8 +231,8 @@ describe('AI Models', () => {
   it('does not rewrite model metadata when stored package path is already normalized', async () => {
     const { normalizeStoredModelRecord } = require('../services/ai/modelService');
     const { saveModelLocal } = require('../services/database');
-    const { validateModelPackage } = require('../services/ai/ModelDownloader');
-    validateModelPackage.mockResolvedValue('/docs/mlc_models/user_model/Q4_K_M');
+    const { validateModelPackageWithRetry } = require('../services/ai/ModelDownloader');
+    validateModelPackageWithRetry.mockResolvedValue('/docs/mlc_models/user_model/Q4_K_M');
 
     const normalized = await normalizeStoredModelRecord({
       id: 'model_user_model_Q4_K_M',

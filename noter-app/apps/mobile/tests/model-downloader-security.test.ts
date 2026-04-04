@@ -1,3 +1,5 @@
+import { act } from 'react-test-renderer';
+
 const mockExists = jest.fn();
 const mockMkdir = jest.fn();
 const mockReadDir = jest.fn();
@@ -183,5 +185,29 @@ describe('ModelDownloader security', () => {
     }));
 
     await expect(validateModelPackage('/docs/mlc_models/user_model/Q4_K_M')).resolves.toBe('/docs/mlc_models/user_model/Q4_K_M');
+  });
+
+  it('försöker validera om modellpaketet några gånger innan fel kastas', async () => {
+    jest.useFakeTimers();
+    const { validateModelPackageWithRetry } = require('../services/ai/ModelDownloader');
+    mockExists.mockImplementation((path: string) =>
+      Promise.resolve(path === '/docs/mlc_models/user_model/Q4_K_M/mlc-chat-config.json')
+    );
+    mockReadDir.mockResolvedValue([
+      { path: '/docs/mlc_models/user_model/Q4_K_M/params_shard_0.bin', name: 'params_shard_0.bin', isDirectory: () => false },
+    ]);
+    mockReadFile
+      .mockRejectedValueOnce(new Error('transient'))
+      .mockResolvedValueOnce(JSON.stringify({ params_shards: ['params_shard_0.bin'] }));
+
+    const pending = validateModelPackageWithRetry('/docs/mlc_models/user_model/Q4_K_M', 2, 5);
+
+    await act(async () => {
+      jest.advanceTimersByTime(5);
+      await Promise.resolve();
+    });
+
+    await expect(pending).resolves.toBe('/docs/mlc_models/user_model/Q4_K_M');
+    jest.useRealTimers();
   });
 });

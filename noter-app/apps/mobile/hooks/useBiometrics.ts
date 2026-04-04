@@ -12,26 +12,31 @@ export const useBiometrics = () => {
   const [isEnrolled, setIsEnrolled] = useState(false);
   const [authType, setAuthType] = useState<LocalAuthentication.AuthenticationType[]>([]);
 
+  const refreshAvailability = async () => {
+    const compatible = await LocalAuthentication.hasHardwareAsync();
+    const enrolled = compatible ? await LocalAuthentication.isEnrolledAsync() : false;
+    const types = compatible ? await LocalAuthentication.supportedAuthenticationTypesAsync() : [];
+    setIsSupported(compatible);
+    setIsEnrolled(enrolled);
+    setAuthType(types);
+    return {
+      compatible,
+      enrolled,
+    };
+  };
+
   useEffect(() => {
     (async () => {
-      const compatible = await LocalAuthentication.hasHardwareAsync();
-      setIsSupported(compatible);
-      
-      if (compatible) {
-        const enrolled = await LocalAuthentication.isEnrolledAsync();
-        setIsEnrolled(enrolled);
-        
-        const types = await LocalAuthentication.supportedAuthenticationTypesAsync();
-        setAuthType(types);
-      }
+      await refreshAvailability();
     })();
   }, []);
 
   const authenticate = async (promptMessage: string = 'Verifiera din identitet'): Promise<BiometricAuthResult> => {
-    if (!isSupported) {
+    const availability = await refreshAvailability();
+    if (!availability.compatible) {
       return { success: false, error: 'Biometri stöds ej på denna enhet.' };
     }
-    if (!isEnrolled) {
+    if (!availability.enrolled) {
       return { success: false, error: 'Ingen biometri konfigurerad.' };
     }
 

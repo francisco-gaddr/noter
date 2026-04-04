@@ -25,6 +25,7 @@ type Options = {
   setGeminiApiKey: (value: string) => void;
   setMcpSettings: (value: any) => void;
   setSyncPreferenceLoaded: (value: boolean) => void;
+  systemPrompt: string;
   enableToolUse: boolean;
   toolAccessMode: 'read-only' | 'full';
   promptPreset: 'balanced' | 'research' | 'execution' | 'concise';
@@ -61,6 +62,7 @@ export const useAiBootstrapPersistence = ({
   setGeminiApiKey,
   setMcpSettings,
   setSyncPreferenceLoaded,
+  systemPrompt,
   enableToolUse,
   toolAccessMode,
   promptPreset,
@@ -125,6 +127,15 @@ export const useAiBootstrapPersistence = ({
     setToolAccessMode,
     setUserScopeKey,
   ]);
+
+  useEffect(() => {
+    if (!userScopeKey) return;
+    if (!systemPrompt.trim()) {
+      AsyncStorage.removeItem(`ai_system_prompt_${userScopeKey}`);
+      return;
+    }
+    AsyncStorage.setItem(`ai_system_prompt_${userScopeKey}`, encrypt(systemPrompt));
+  }, [systemPrompt, userScopeKey]);
 
   useEffect(() => {
     if (!userScopeKey) return;

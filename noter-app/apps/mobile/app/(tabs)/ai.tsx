@@ -436,6 +436,7 @@ export default function AIScreen() {
     setGeminiApiKey,
     setMcpSettings,
     setSyncPreferenceLoaded,
+    systemPrompt,
     enableToolUse,
     toolAccessMode,
     promptPreset,
@@ -645,7 +646,7 @@ export default function AIScreen() {
       if (message.includes('Zip module not available')) return 'Zip-stöd saknas i denna build. Installera om den senaste EAS APK:n.';
       if (message.includes('Native filesystem not available')) return 'Filsystem saknas i denna build. Installera om den senaste EAS APK:n.';
       if (message.includes('MLCModule')) return 'MLC‑modulen saknas i denna build. Installera om den senaste EAS APK:n.';
-      if (message.includes('Local conversion unsupported')) return 'Lokal konvertering stöds inte i denna build. Server-fallback används.';
+      if (message.includes('Local conversion unsupported')) return 'Lokal konvertering stöds inte i denna build. Installera en EAS APK med native AI-stöd eller stäng av lokal konvertering.';
       if (message.includes('Failed to download GGUF')) return 'Kunde inte ladda ner GGUF-filen för lokal konvertering.';
       if (message.includes('package root not found')) return 'Modellpaketet kunde inte öppnas korrekt. Paketroten eller mlc-chat-config.json saknas.';
       if (message.includes('missing model artifacts')) return 'Modellpaketet saknar nödvändiga modellfiler, tokenizerfiler eller parametrar.';

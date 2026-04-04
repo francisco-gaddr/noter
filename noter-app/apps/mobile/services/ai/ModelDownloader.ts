@@ -4,6 +4,8 @@ import { getReactNativeFs, getZipArchive } from './nativeRuntime';
 const MODEL_CONFIG_FILE = 'mlc-chat-config.json';
 const PACKAGE_SCAN_MAX_DEPTH = 12;
 const PACKAGE_LIST_MAX_DEPTH = 10;
+const VALIDATION_RETRY_DELAY_MS = 350;
+const VALIDATION_RETRY_ATTEMPTS = 8;
 
 const getBaseDir = () => {
   const RNFS = getReactNativeFs();
@@ -195,6 +197,26 @@ export const validateModelPackage = async (path: string) => {
   return resolvedPath;
 };
 
+export const validateModelPackageWithRetry = async (
+  path: string,
+  attempts = VALIDATION_RETRY_ATTEMPTS,
+  delayMs = VALIDATION_RETRY_DELAY_MS
+) => {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      return await validateModelPackage(path);
+    } catch (error) {
+      lastError = error;
+      if (attempt === attempts - 1) {
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  throw lastError;
+};
+
 export const downloadCompiledModel = async (
   url: string,
   modelId: string,
@@ -235,7 +257,7 @@ export const downloadCompiledModel = async (
 
   await ZipArchive.unzip(zipPath, modelDir);
   await RNFS.unlink(zipPath).catch(() => {});
-  return validateModelPackage(modelDir);
+  return validateModelPackageWithRetry(modelDir);
 };
 
 export const getPlatformTarget = () => (Platform.OS === 'ios' ? 'iphone' : 'android');

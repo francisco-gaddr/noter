@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AppState, View, StyleSheet } from 'react-native';
-import { Button, Text, Surface, useTheme } from 'react-native-paper';
+import { ActivityIndicator, Button, Text, Surface, useTheme } from 'react-native-paper';
 import { useBiometrics } from '@/hooks/useBiometrics';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
@@ -34,12 +34,13 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
   const expoGo = isExpoGo();
   const appState = useRef(AppState.currentState);
   const [isLocked, setIsLocked] = useState(!expoGo);
-  const { isSupported, isEnrolled, authenticate, getBiometryLabel } = useBiometrics();
+  const { authenticate, getBiometryLabel } = useBiometrics();
   const theme = useTheme();
   const [checking, setChecking] = useState(!expoGo);
   const [lockTiming, setLockTiming] = useState<LockTiming>('immediate');
   const lastBackgroundAtRef = useRef<number | null>(null);
   const isMounted = useRef(false);
+  const authInFlightRef = useRef(false);
   const setSecurityLocked = useStore((s) => s.setSecurityLocked);
 
   useEffect(() => {
@@ -87,39 +88,44 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
   }, [expoGo, setSecurityLocked]);
 
   const checkBiometrics = async () => {
-    // Wait for hook to initialize
-    // Quick delay to let hook settle and ensure we haven't unlocked in the meantime
     setTimeout(async () => {
         if (!isMounted.current) return;
-        
-        // If already unlocked (e.g. by time check), don't prompt
+
         if (!isLocked) {
              setChecking(false);
              return;
         }
 
         const hasHardware = await LocalAuthentication.hasHardwareAsync();
-        const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+        const enrolled = await LocalAuthentication.isEnrolledAsync();
         
-        if (!hasHardware || !isEnrolled) {
+        if (!hasHardware || !enrolled) {
             setIsLocked(false);
             await setSecurityLocked(false);
             setChecking(false);
             return;
         }
 
-        // Try to authenticate
-        unlockApp();
+        await unlockApp();
     }, 500);
   };
 
   const unlockApp = async () => {
-    const result = await authenticate(t('passwordModal.unlock'));
-    if (result.success) {
-      setIsLocked(false);
-      await setSecurityLocked(false);
+    if (authInFlightRef.current) {
+      return;
     }
-    setChecking(false);
+    authInFlightRef.current = true;
+    setChecking(true);
+    try {
+      const result = await authenticate(t('passwordModal.unlock'));
+      if (result.success) {
+        setIsLocked(false);
+        await setSecurityLocked(false);
+      }
+    } finally {
+      authInFlightRef.current = false;
+      setChecking(false);
+    }
   };
 
   // AppState listener
@@ -176,9 +182,8 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
 
   // Effect to trigger auth when locked becomes true
   useEffect(() => {
-    if (isLocked && !checking && isMounted.current) {
-        // If we just got locked (e.g. from background), try to auth immediately
-        unlockApp();
+    if (isLocked && isMounted.current) {
+        void unlockApp();
     }
   }, [isLocked]);
 
@@ -196,13 +201,22 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
         <Text style={{ marginBottom: 20, textAlign: 'center' }}>
           {t('note.lockedMessage')}
         </Text>
-        <Button 
-          mode="contained" 
-          onPress={unlockApp}
-          icon="lock-open"
-        >
-          {`${t('passwordModal.unlock')} ${t('common.with')} ${getBiometryLabel()}`}
-        </Button>
+        {checking ? (
+          <View style={styles.loadingRow}>
+            <ActivityIndicator />
+            <Text style={styles.loadingText}>
+              {`${t('passwordModal.unlock')} ${t('common.with')} ${getBiometryLabel()}`}
+            </Text>
+          </View>
+        ) : (
+          <Button 
+            mode="contained" 
+            onPress={unlockApp}
+            icon="lock-open"
+          >
+            {`${t('passwordModal.unlock')} ${t('common.with')} ${getBiometryLabel()}`}
+          </Button>
+        )}
       </Surface>
     </View>
   );
@@ -219,5 +233,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 10,
     width: '80%',
+  },
+  loadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginLeft: 12,
+    textAlign: 'center',
   },
 });

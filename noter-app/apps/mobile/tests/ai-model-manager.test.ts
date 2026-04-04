@@ -19,6 +19,7 @@ jest.mock('../services/ai/ModelDownloader', () => ({
   downloadCompiledModel: (url: string, modelId: string, quantization?: string) =>
     mockDownloadCompiledModel(url, modelId, quantization),
   validateModelPackage: (path: string) => mockValidateModelPackage(path),
+  validateModelPackageWithRetry: (path: string) => mockValidateModelPackage(path),
 }));
 
 describe('ModelManager', () => {

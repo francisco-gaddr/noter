@@ -1,6 +1,6 @@
 import { HFFile, HFModel } from '@repo/ai';
 import { saveModelLocal, deleteModelLocal } from '@/services/database';
-import { downloadCompiledModel, getModelDir, getPlatformTarget, validateModelPackage } from './ModelDownloader';
+import { downloadCompiledModel, getModelDir, getPlatformTarget, validateModelPackage, validateModelPackageWithRetry } from './ModelDownloader';
 import { requestModelConversion, getConversionStatus, getCompiledModelUrl } from './huggingface';
 import { getReactNativeFs } from './nativeRuntime';
 import { convertGGUFToMLC, getLocalConversionCapabilities } from './native/MLCModule';
@@ -64,6 +64,12 @@ const swallowAsync = async (operation: unknown) => {
     try {
         await Promise.resolve(operation);
     } catch {}
+};
+
+const getSafeLocalConversionCapabilities = async () => {
+    return Promise.resolve(getLocalConversionCapabilities())
+        .catch(() => ({ engineAvailable: false, converterAvailable: false }))
+        .then((value) => value || { engineAvailable: false, converterAvailable: false });
 };
 const isRecoverableCompiledPackageError = (error: unknown) => {
     const message = String((error as any)?.message || '').toLowerCase();
@@ -158,7 +164,7 @@ const tryLocalConversion = async (
     const convertedPath = await convertGGUFToMLC(ggufPath, modelDir, file.quantization || 'Q4_K_M', platform);
     const finalPath = typeof convertedPath === 'string' && convertedPath ? convertedPath : modelDir;
     onStageChange?.('validating');
-    const validatedPath = await validateModelPackage(finalPath);
+    const validatedPath = await validateModelPackageWithRetry(finalPath);
     await swallowAsync(RNFS.unlink(ggufPath));
     onProgress?.(1);
     onStageChange?.('completed');
@@ -175,6 +181,14 @@ export const downloadModel = async (
     const platform = getPlatformTarget();
     const modelDir = getModelDir(model.id, file.quantization);
     const sessionKey = getModelInstallSessionKey(model.id, file.quantization);
+    const preferLocalConversion = Boolean(options?.preferLocalConversion);
+    const requestedStrictLocalConversion = Boolean(options?.strictLocalConversion);
+    const localCapabilities = preferLocalConversion ? await getSafeLocalConversionCapabilities() : { engineAvailable: false, converterAvailable: false };
+    const strictLocalConversion = requestedStrictLocalConversion || (
+        preferLocalConversion
+        && localCapabilities.engineAvailable
+        && localCapabilities.converterAvailable
+    );
     if (!modelDir) {
         throw new Error('Native filesystem not available');
     }
@@ -182,8 +196,8 @@ export const downloadModel = async (
         key: sessionKey,
         model,
         file,
-        preferLocalConversion: Boolean(options?.preferLocalConversion),
-        strictLocalConversion: Boolean(options?.strictLocalConversion),
+        preferLocalConversion,
+        strictLocalConversion,
         stage: 'queued',
         progress: 0,
         platform,
@@ -196,7 +210,7 @@ export const downloadModel = async (
     try {
         if (!exists) {
             await updateInstallProgress(sessionKey, 'queued', 0, onProgress, options?.onStageChange, options?.existingJobId ? { jobId: options.existingJobId } : undefined);
-        if (options?.preferLocalConversion) {
+        if (preferLocalConversion) {
             localConversionAttempted = true;
             await updateInstallProgress(sessionKey, 'local_conversion_requested', 0.02, onProgress, options?.onStageChange);
             try {
@@ -217,7 +231,7 @@ export const downloadModel = async (
                     onProgress,
                     options?.onStageChange
                 );
-                if (options?.strictLocalConversion) {
+                if (strictLocalConversion) {
                     throw error;
                 }
             }
@@ -225,7 +239,7 @@ export const downloadModel = async (
 
         let validExistingPath: string | null = null;
         try {
-            validExistingPath = await validateModelPackage(resolvedModelDir);
+            validExistingPath = await validateModelPackageWithRetry(resolvedModelDir);
         } catch {}
 
         if (!validExistingPath) {
@@ -305,9 +319,9 @@ export const downloadModel = async (
                     patchModelInstallSession(sessionKey, { stage: 'downloading_compiled', progress: nextProgress }).catch(() => {});
                 });
                 await updateInstallProgress(sessionKey, 'validating', 0.99, onProgress, options?.onStageChange, { jobId: jobId || '', outputUrl });
-                resolvedModelDir = await validateModelPackage(resolvedModelDir);
+                resolvedModelDir = await validateModelPackageWithRetry(resolvedModelDir);
             } catch (compiledError) {
-                const capabilities = await getLocalConversionCapabilities().catch(() => ({ engineAvailable: false, converterAvailable: false }));
+                const capabilities = await getSafeLocalConversionCapabilities();
                 const canFallbackToLocal = !localConversionAttempted && capabilities.engineAvailable && capabilities.converterAvailable && isRecoverableCompiledPackageError(compiledError);
                 if (!canFallbackToLocal) {
                     throw compiledError;
@@ -331,7 +345,7 @@ export const downloadModel = async (
         } else {
             await updateInstallProgress(sessionKey, 'validating', 0.98, onProgress, options?.onStageChange);
             try {
-                resolvedModelDir = await validateModelPackage(modelDir);
+                resolvedModelDir = await validateModelPackageWithRetry(modelDir);
             } catch {
                 await swallowAsync(RNFS.unlink(modelDir));
                 await removeModelInstallSession(sessionKey);
@@ -363,11 +377,11 @@ export const downloadModel = async (
 };
 
 export const prepareModelForChat = async (path: string) => {
-    return validateModelPackage(path);
+    return validateModelPackageWithRetry(path);
 };
 
 export const normalizeStoredModelRecord = async (model: StoredModelRecord) => {
-    const preparedPath = await validateModelPackage(model.path);
+    const preparedPath = await validateModelPackageWithRetry(model.path);
     if (preparedPath === model.path) {
         return model;
     }

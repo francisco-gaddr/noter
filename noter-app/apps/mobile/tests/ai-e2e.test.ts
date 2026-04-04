@@ -28,6 +28,7 @@ jest.mock('../services/ai/ModelDownloader', () => ({
   getModelDir: jest.fn().mockReturnValue('/docs/mlc_models/user_model/Q4_K_M'),
   getPlatformTarget: jest.fn().mockReturnValue('iphone'),
   validateModelPackage: jest.fn(async (path: string) => path),
+  validateModelPackageWithRetry: jest.fn(async (path: string) => path),
 }));
 
 jest.mock('../services/ai/huggingface', () => ({
@@ -42,6 +43,11 @@ jest.mock('../services/ai/installSession', () => ({
   patchModelInstallSession: jest.fn().mockResolvedValue(undefined),
   removeModelInstallSession: jest.fn().mockResolvedValue(undefined),
   upsertModelInstallSession: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('../services/ai/native/MLCModule', () => ({
+  convertGGUFToMLC: jest.fn(),
+  getLocalConversionCapabilities: jest.fn().mockResolvedValue({ engineAvailable: false, converterAvailable: false }),
 }));
 
 jest.mock('react-native-fs', () => ({

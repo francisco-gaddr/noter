@@ -1,7 +1,7 @@
 import { AppState } from "react-native";
 
 import { loadModel, chat, unloadModel } from "./native/MLCModule";
-import { downloadCompiledModel, validateModelPackage } from "./ModelDownloader";
+import { downloadCompiledModel, validateModelPackageWithRetry } from "./ModelDownloader";
 import { isAiBackgroundWorkEnabled } from "./runtimeSettings";
 import { getReactNativeFs } from "./nativeRuntime";
 
@@ -33,7 +33,7 @@ class ModelManager {
 
   async install(modelMeta: { url: string; modelId: string; quantization?: string }) {
     const downloadedPath = await downloadCompiledModel(modelMeta.url, modelMeta.modelId, modelMeta.quantization);
-    const resolvedPath = await validateModelPackage(downloadedPath);
+    const resolvedPath = await validateModelPackageWithRetry(downloadedPath);
     const shouldLoad = await this.replaceLoadedModel(resolvedPath);
     if (!shouldLoad) return;
     await this.assertModelPathReady(resolvedPath);
@@ -43,7 +43,7 @@ class ModelManager {
   }
 
   async load(path: string) {
-    const resolvedPath = await validateModelPackage(path);
+    const resolvedPath = await validateModelPackageWithRetry(path);
     const shouldLoad = await this.replaceLoadedModel(resolvedPath);
     if (!shouldLoad) return;
     await this.assertModelPathReady(resolvedPath);
