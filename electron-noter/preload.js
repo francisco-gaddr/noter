@@ -24,5 +24,6 @@ contextBridge.exposeInMainWorld('mlc', {
   getSetting: (key) => ipcRenderer.invoke('settings:get', key),
   getManySettings: (keys) => ipcRenderer.invoke('settings:get-many', keys),
   setSetting: (key, value) => ipcRenderer.invoke('settings:set', { key, value }),
-  setManySettings: (values) => ipcRenderer.invoke('settings:set-many', values)
+  setManySettings: (values) => ipcRenderer.invoke('settings:set-many', values),
+  setLockState: (locked) => ipcRenderer.invoke('settings:set', { key: 'appLocked', value: Boolean(locked) })
 });

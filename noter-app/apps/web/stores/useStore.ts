@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Note, Task, UpdateTaskDto, User, decrypt, encrypt, normalizeId } from '@repo/shared';
+import { Note, Task, UpdateTaskDto, User, decrypt, encrypt, normalizeId, normalizeNoteType } from '@repo/shared';
 import { api, getApiBaseUrl, getUUID, setApiBaseUrl, setApiToken } from '../services/api';
 import { socket, connectSocket, disconnectSocket, setSocketToken } from '../services/socket';
 import { db } from '../services/db';
@@ -166,30 +166,6 @@ const parseNoteLocked = (value: unknown): boolean => {
     }
   }
   return false;
-};
-
-const normalizeNoteType = (value: unknown): string => {
-  if (typeof value !== 'string') return 'note';
-  let normalized = value.trim().toLowerCase();
-  while (
-    normalized.length >= 2 &&
-    (
-      (normalized.startsWith('"') && normalized.endsWith('"')) ||
-      (normalized.startsWith("'") && normalized.endsWith("'")) ||
-      (normalized.startsWith('`') && normalized.endsWith('`'))
-    )
-  ) {
-    normalized = normalized.slice(1, -1).trim();
-  }
-  normalized = normalized.replace(/\s+/g, '_');
-  normalized = normalized.replace(/-/g, '_');
-  if (normalized === 'projectfolder' || normalized === 'project_folder') return 'project';
-  if (normalized.includes('project') || normalized.includes('folder')) return 'project';
-  if (normalized === 'folder') return 'project';
-  if (normalized === 'dir' || normalized === 'directory') return 'project';
-  if (normalized === 'tasklist' || normalized === 'task_list') return 'task_list';
-  if (normalized.includes('task') && normalized.includes('list')) return 'task_list';
-  return normalized || 'note';
 };
 
 const parseNoteDateValue = (value: unknown): string => {
@@ -384,6 +360,111 @@ const materializeNotesFromEncrypted = (notes: Note[], unlockedIds: Set<string>):
   });
 };
 
+type ProtectedVisibilityState = {
+  notes: Note[];
+  tasks: Task[];
+  selectedNoteId: string | null;
+  selectedTaskListId: string | null;
+  activeProjectId: string | null;
+  activeTab: 'notes' | 'tasks';
+  unlockedProtectedNoteIds: string[];
+};
+
+const toUnlockedIdSet = (ids: string[] = []) =>
+  new Set(ids.map((id) => normalizeId(id)).filter((id): id is string => Boolean(id)));
+
+const isTaskReadableWithLocks = (
+  task: Pick<Task, 'parentNoteId' | 'parentId'>,
+  noteMap: Map<string, Note>,
+  unlockedIds: Set<string>,
+) => {
+  const parentId = normalizeId((task as any).parentNoteId ?? (task as any).parentId);
+  if (!parentId) return true;
+  const parentNote = noteMap.get(parentId);
+  if (!parentNote) return false;
+  return !findBlockingLockedAncestor(parentNote as any, noteMap as any, unlockedIds as any);
+};
+
+const filterTasksByLockState = (tasks: Task[], notes: Note[], unlockedProtectedNoteIds: string[]) => {
+  const noteMap = buildSecurityNoteMap(notes as any) as Map<string, Note>;
+  const unlockedIds = toUnlockedIdSet(unlockedProtectedNoteIds);
+  return tasks.filter((task) => isTaskReadableWithLocks(task, noteMap, unlockedIds));
+};
+
+const filterEncryptedTasksByLockState = (tasks: any[], notes: Note[], unlockedProtectedNoteIds: string[]) => {
+  const noteMap = buildSecurityNoteMap(notes as any) as Map<string, Note>;
+  const unlockedIds = toUnlockedIdSet(unlockedProtectedNoteIds);
+  return tasks.filter((task) => isTaskReadableWithLocks(task, noteMap, unlockedIds));
+};
+
+const syncPersistedSelections = (selectedNoteId: string | null, selectedTaskListId: string | null) => {
+  if (typeof window === 'undefined') return;
+  if (selectedNoteId) {
+    localStorage.setItem('lastSelectedNoteId', selectedNoteId);
+    localStorage.setItem('selectedNoteId', selectedNoteId);
+  } else {
+    localStorage.removeItem('lastSelectedNoteId');
+    localStorage.removeItem('selectedNoteId');
+  }
+  if (selectedTaskListId) {
+    localStorage.setItem('lastSelectedTaskListId', selectedTaskListId);
+  } else {
+    localStorage.removeItem('lastSelectedTaskListId');
+  }
+};
+
+const deriveProtectedVisibilityState = (
+  state: ProtectedVisibilityState,
+  overrides: Partial<ProtectedVisibilityState> = {},
+) => {
+  const next = { ...state, ...overrides };
+  const unlockedIds = toUnlockedIdSet(next.unlockedProtectedNoteIds);
+  const noteMap = buildSecurityNoteMap(next.notes as any);
+  const keepUnlockedIds = new Set<string>();
+  const activeProjectId = normalizeId(next.activeProjectId);
+  if (activeProjectId && unlockedIds.has(activeProjectId)) {
+    keepUnlockedIds.add(activeProjectId);
+  }
+
+  const selectedContextId = normalizeId(next.activeTab === 'tasks' ? next.selectedTaskListId : next.selectedNoteId);
+  let currentId = selectedContextId;
+  const seen = new Set<string>();
+  while (currentId) {
+    if (seen.has(currentId)) break;
+    seen.add(currentId);
+    if (unlockedIds.has(currentId)) {
+      keepUnlockedIds.add(currentId);
+    }
+    const currentNote = noteMap.get(currentId);
+    currentId = normalizeId(currentNote?.parentId);
+  }
+
+  const nextUnlocked = next.unlockedProtectedNoteIds.filter((id) => {
+    const normalized = normalizeId(id);
+    return Boolean(normalized && keepUnlockedIds.has(normalized));
+  });
+  const rematerializedNotes = materializeNotesFromEncrypted(next.notes as any, new Set(nextUnlocked));
+  const rematerializedNoteMap = buildSecurityNoteMap(rematerializedNotes as any);
+  const unlockedAfterRelock = new Set(nextUnlocked);
+  const selectedNoteId = normalizeId(next.selectedNoteId);
+  const selectedTaskListId = normalizeId(next.selectedTaskListId);
+  const selectedNoteBlocked = selectedNoteId
+    ? findBlockingLockedAncestor(rematerializedNoteMap.get(selectedNoteId) as any, rematerializedNoteMap as any, unlockedAfterRelock as any)
+    : null;
+  const selectedTaskListBlocked = selectedTaskListId
+    ? findBlockingLockedAncestor(rematerializedNoteMap.get(selectedTaskListId) as any, rematerializedNoteMap as any, unlockedAfterRelock as any)
+    : null;
+
+  return {
+    ...overrides,
+    notes: rematerializedNotes,
+    tasks: filterTasksByLockState(next.tasks, rematerializedNotes, nextUnlocked),
+    unlockedProtectedNoteIds: nextUnlocked,
+    ...(selectedNoteBlocked ? { selectedNoteId: null } : {}),
+    ...(selectedTaskListBlocked ? { selectedTaskListId: null } : {}),
+  };
+};
+
 interface StoreState {
   user: User | null;
   token: string | null;
@@ -452,19 +533,16 @@ export const useStore = create<StoreState>((set, get) => ({
   activeProjectId: null,
   setActiveProject: (id) => {
     const normalized = id ? normalizeId(id) : null;
-    set((state) => {
-      const previous = state.activeProjectId ? normalizeId(state.activeProjectId) : null;
-      if (previous && previous !== normalized) {
-        const nextUnlocked = state.unlockedProtectedNoteIds.filter((item) => normalizeId(item) !== previous);
-        return {
-          activeProjectId: normalized,
-          unlockedProtectedNoteIds: nextUnlocked,
-          notes: materializeNotesFromEncrypted(state.notes as any, new Set(nextUnlocked)),
-        };
+    set((state) => deriveProtectedVisibilityState(state, { activeProjectId: normalized }));
+    if (typeof window !== 'undefined') {
+      if (normalized) {
+        localStorage.setItem('activeProjectId', normalized);
+      } else {
+        localStorage.removeItem('activeProjectId');
       }
-      return { activeProjectId: normalized };
-    });
-    localStorage.setItem('activeProjectId', normalized || '');
+    }
+    const nextState = get();
+    syncPersistedSelections(nextState.selectedNoteId, nextState.selectedTaskListId);
   },
   language: 'sv',
   setLanguage: (lng) => {
@@ -637,7 +715,9 @@ export const useStore = create<StoreState>((set, get) => ({
     if (typeof window !== 'undefined') {
       localStorage.setItem('activeTab', tab);
     }
-    set({ activeTab: tab });
+    set((state) => deriveProtectedVisibilityState(state, { activeTab: tab }));
+    const nextState = get();
+    syncPersistedSelections(nextState.selectedNoteId, nextState.selectedTaskListId);
   },
   
   activeUsers: {},
@@ -756,7 +836,7 @@ export const useStore = create<StoreState>((set, get) => ({
       }
       // Batch the state update and DB operation
       requestAnimationFrame(() => {
-        set(state => ({ notes: uniqBy([decryptedNote, ...state.notes], '_id') }));
+        set(state => deriveProtectedVisibilityState(state, { notes: uniqBy([decryptedNote, ...state.notes], '_id') as any }));
         db.saveNote(decryptedNote);
       });
     });
@@ -796,7 +876,7 @@ export const useStore = create<StoreState>((set, get) => ({
                          // Let's rely on 'locked' status.
                      }
                 }
-                return { notes: newNotes };
+                return deriveProtectedVisibilityState(state, { notes: newNotes as any });
             });
             db.saveNote(decryptedNote); // Cache incoming
         });
@@ -857,7 +937,13 @@ export const useStore = create<StoreState>((set, get) => ({
                 delete nextPending[decryptedTask._id];
                 return { pendingCreated: { ...state.pendingCreated, tasks: nextPending } };
             }
-            return { tasks: uniqBy([decryptedTask, ...state.tasks], '_id') };
+            return {
+              tasks: filterTasksByLockState(
+                uniqBy([decryptedTask, ...state.tasks], '_id') as any,
+                state.notes,
+                state.unlockedProtectedNoteIds,
+              ),
+            };
         });
         db.saveTask(decryptedTask);
         scheduleWebReminder(decryptedTask);
@@ -888,7 +974,11 @@ export const useStore = create<StoreState>((set, get) => ({
             reminderOffsetMinutes: updatedTask.reminderOffsetMinutes ? (() => { try { return parseReminderOffsets(decrypt(updatedTask.reminderOffsetMinutes)); } catch { return []; } })() : [],
         };
         set(state => ({
-            tasks: state.tasks.map(t => t._id === decryptedTask._id ? decryptedTask : t)
+            tasks: filterTasksByLockState(
+              state.tasks.map(t => t._id === decryptedTask._id ? decryptedTask : t),
+              state.notes,
+              state.unlockedProtectedNoteIds,
+            )
         }));
         db.saveTask(decryptedTask);
         scheduleWebReminder(decryptedTask);
@@ -1064,9 +1154,15 @@ export const useStore = create<StoreState>((set, get) => ({
           validCachedCount: validNotes.length,
         });
         if (validNotes.length > 0) {
-            set({ notes: validNotes, isLoading: false });
+            set((state) => ({
+              ...deriveProtectedVisibilityState(state, { notes: validNotes }),
+              isLoading: false,
+            }));
         } else {
-            set({ notes: [], isLoading: false });
+            set((state) => ({
+              ...deriveProtectedVisibilityState(state, { notes: [] }),
+              isLoading: false,
+            }));
         }
       } catch (e) {
         console.error('Failed to load notes from DB', e);
@@ -1122,7 +1218,20 @@ export const useStore = create<StoreState>((set, get) => ({
           typeCounts,
           activeProjectId: get().activeProjectId || null,
         });
-        set({ notes: nextNotes, isLoading: false });
+        set((state) => {
+          const noteExists = (id: string | null) => Boolean(id && nextNotes.some((note) => note._id === id));
+          return {
+            ...deriveProtectedVisibilityState(state, {
+              notes: nextNotes,
+              ...(state.selectedNoteId && !noteExists(state.selectedNoteId) ? { selectedNoteId: null } : {}),
+              ...(state.selectedTaskListId && !noteExists(state.selectedTaskListId) ? { selectedTaskListId: null } : {}),
+              ...(state.activeProjectId && !noteExists(state.activeProjectId) ? { activeProjectId: null } : {}),
+            }),
+            isLoading: false,
+          };
+        });
+        const nextState = get();
+        syncPersistedSelections(nextState.selectedNoteId, nextState.selectedTaskListId);
         const noteSyncIndex = typeof db.getNoteSyncIndex === 'function'
           ? await db.getNoteSyncIndex()
           : new Map<string, string>();
@@ -1165,6 +1274,11 @@ export const useStore = create<StoreState>((set, get) => ({
       set({ isLoading: false });
       return;
     }
+    if (notesFetchPromise) {
+      await notesFetchPromise;
+    } else if (get().notes.length === 0 && get().token) {
+      await get().fetchNotes();
+    }
     const currentFetchKey = taskFetchKey(parentNoteId);
     const inFlight = taskFetchPromises.get(currentFetchKey);
     if (inFlight) return inFlight;
@@ -1174,8 +1288,9 @@ export const useStore = create<StoreState>((set, get) => ({
         const cachedTasks = await db.getAllTasks();
         const validTasks = cachedTasks.filter(t => !(t as any).deleted);
         if (validTasks.length > 0) {
-             set({ tasks: validTasks, isLoading: false });
-             validTasks.forEach(scheduleWebReminder);
+             const visibleCachedTasks = filterTasksByLockState(validTasks as any, get().notes, get().unlockedProtectedNoteIds);
+             set({ tasks: visibleCachedTasks, isLoading: false });
+             visibleCachedTasks.forEach(scheduleWebReminder);
         } else {
              set({ tasks: [], isLoading: false });
         }
@@ -1186,7 +1301,12 @@ export const useStore = create<StoreState>((set, get) => ({
       try {
         // Always try to fetch, regardless of navigator.onLine status
         const encryptedTasks = await api.fetchTasks(parentNoteId);
-        const tasks = await api.decryptTasks(encryptedTasks);
+        const readableEncryptedTasks = filterEncryptedTasksByLockState(
+          Array.isArray(encryptedTasks) ? encryptedTasks : [],
+          get().notes,
+          get().unlockedProtectedNoteIds,
+        );
+        const tasks = await api.decryptTasks(readableEncryptedTasks);
         
         const pendingTasks = await db.getPendingSyncTasks();
         
@@ -1224,14 +1344,15 @@ export const useStore = create<StoreState>((set, get) => ({
             }
         }
 
-        set({ tasks: uniqBy(mergedTasks, '_id'), isLoading: false });
+        const visibleTasks = filterTasksByLockState(uniqBy(mergedTasks, '_id') as any, get().notes, get().unlockedProtectedNoteIds);
+        set({ tasks: visibleTasks, isLoading: false });
         const taskSyncIndex = typeof db.getTaskSyncIndex === 'function'
           ? await db.getTaskSyncIndex()
           : new Map<string, string>();
         const tasksToPersist = tasks.filter((task) => taskSyncIndex.get(task._id) !== String(task.updatedAt || ''));
         await persistInBatches(tasksToPersist, 50, (task) => db.saveTask(task));
         
-        tasks.forEach(scheduleWebReminder);
+        visibleTasks.forEach(scheduleWebReminder);
       } catch (error: any) {
         set({ error: error.message, isLoading: false });
       } finally {
@@ -1244,21 +1365,14 @@ export const useStore = create<StoreState>((set, get) => ({
 
   selectNote: (id) => {
     const { activeTab } = get();
-    if (typeof window !== 'undefined') {
-      if (activeTab === 'tasks') {
-        if (id) localStorage.setItem('lastSelectedTaskListId', id);
-        else localStorage.removeItem('lastSelectedTaskListId');
-      } else {
-        if (id) {
-          localStorage.setItem('lastSelectedNoteId', id);
-          localStorage.setItem('selectedNoteId', id);
-        } else {
-          localStorage.removeItem('lastSelectedNoteId');
-          localStorage.removeItem('selectedNoteId');
-        }
-      }
-    }
-    set(activeTab === 'tasks' ? { selectedTaskListId: id } : { selectedNoteId: id });
+    set((state) =>
+      deriveProtectedVisibilityState(
+        state,
+        activeTab === 'tasks' ? { selectedTaskListId: id } : { selectedNoteId: id },
+      ),
+    );
+    const nextState = get();
+    syncPersistedSelections(nextState.selectedNoteId, nextState.selectedTaskListId);
   },
 
   createNote: async (title, parentId = null, type: 'note' | 'task_list' | 'project' = 'note', order?: number, icon?: string) => {
@@ -1348,12 +1462,11 @@ export const useStore = create<StoreState>((set, get) => ({
         }
         stateUpdates.title = i18n.t('note.locked');
         stateUpdates.content = '';
-        set((state) => ({ unlockedProtectedNoteIds: state.unlockedProtectedNoteIds.filter((item) => item !== id) }));
     }
 
     // Optimistic update
-    set((state) => ({
-      notes: state.notes.map((n) => {
+    set((state) => {
+      const nextNotes = state.notes.map((n) => {
         if (n._id === id) {
             return {
                 ...n,
@@ -1362,8 +1475,15 @@ export const useStore = create<StoreState>((set, get) => ({
             };
         }
         return n;
-      })
-    }));
+      });
+      const nextUnlocked = updates.locked === true
+        ? state.unlockedProtectedNoteIds.filter((item) => normalizeId(item) !== normalizeId(id))
+        : state.unlockedProtectedNoteIds;
+      return deriveProtectedVisibilityState(state, {
+        notes: nextNotes as any,
+        unlockedProtectedNoteIds: nextUnlocked,
+      });
+    });
     
     // Save to DB (optimistic)
     const currentNote = get().notes.find(n => n._id === id);
@@ -1380,8 +1500,8 @@ export const useStore = create<StoreState>((set, get) => ({
       payload.updatedAt = encrypt(new Date().toISOString());
 
       const updatedNote = await api.updateNote(id, payload);
-      set((state) => ({
-        notes: materializeNotesFromEncrypted(state.notes.map((n) => (n._id === id ? updatedNote : n)) as any, new Set(state.unlockedProtectedNoteIds))
+      set((state) => deriveProtectedVisibilityState(state, {
+        notes: state.notes.map((n) => (n._id === id ? updatedNote : n)) as any,
       }));
       await db.saveNote(updatedNote, false); // Mark synced
     } catch (error: any) {
@@ -1419,11 +1539,17 @@ export const useStore = create<StoreState>((set, get) => ({
       const { success, content, title, unlockedId } = await api.verifyLock(id, password);
       if (success) {
         const effectiveUnlockId = unlockedId || id;
-        set((state) => ({
-          unlockedProtectedNoteIds: Array.from(new Set([...state.unlockedProtectedNoteIds, effectiveUnlockId])),
-          notes: state.notes.map((n) => (n._id === id ? { ...n, content, ...(title ? { title } : {}) } : n)),
-        }));
+        set((state) => {
+          const updatedNotes = state.notes.map((n) => (n._id === id ? { ...n, content, ...(title ? { title } : {}) } : n));
+          return deriveProtectedVisibilityState(state, {
+            notes: updatedNotes,
+            unlockedProtectedNoteIds: Array.from(new Set([...state.unlockedProtectedNoteIds, id, effectiveUnlockId])),
+          });
+        });
         await get().fetchNotes();
+        await get().fetchTasks(get().selectedTaskListId ?? undefined);
+        const nextState = get();
+        syncPersistedSelections(nextState.selectedNoteId, nextState.selectedTaskListId);
         return true;
       }
       return false;

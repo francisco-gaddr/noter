@@ -12,6 +12,7 @@ jest.mock('../services/api', () => ({
     fetchNotes: jest.fn(),
     decryptTasks: jest.fn((tasks: any[]) => Promise.resolve(tasks)),
     getNote: jest.fn(),
+    verifyLock: jest.fn(),
     createNote: jest.fn(),
     updateNote: jest.fn(),
     deleteNote: jest.fn(),
@@ -56,6 +57,11 @@ describe('Web Store', () => {
       tasks: [],
       user: null,
       token: null,
+      activeProjectId: null,
+      selectedNoteId: null,
+      selectedTaskListId: null,
+      unlockedProtectedNoteIds: [],
+      activeTab: 'notes',
     });
   });
 
@@ -279,6 +285,87 @@ describe('Web Store', () => {
     const state = useStore.getState();
     expect(state.unlockedProtectedNoteIds).not.toContain('p1');
     expect((state.notes.find((n: any) => n._id === 'n1') as any)?.locked).toBe(true);
+  });
+
+  it('should not decrypt tasks that belong to locked project hierarchies', async () => {
+    const { api } = require('../services/api');
+    const now = new Date().toISOString();
+    useStore.setState({
+      notes: [
+        { _id: 'p1', title: 'Projekt', content: '', type: 'project', parentId: null, locked: true, tags: [], createdAt: now, updatedAt: now } as any,
+        { _id: 'n1', title: 'Barn', content: '', type: 'note', parentId: 'p1', locked: false, tags: [], createdAt: now, updatedAt: now } as any,
+        { _id: 'n2', title: 'Fri', content: '', type: 'note', parentId: null, locked: false, tags: [], createdAt: now, updatedAt: now } as any,
+      ],
+      unlockedProtectedNoteIds: [],
+    } as any);
+    api.fetchTasks.mockResolvedValueOnce([
+      { _id: 'task-locked', title: 'A', description: '', completed: false, priority: 'medium', createdAt: now, updatedAt: now, parentNoteId: 'n1' },
+      { _id: 'task-open', title: 'B', description: '', completed: false, priority: 'medium', createdAt: now, updatedAt: now, parentNoteId: 'n2' },
+    ]);
+
+    await act(async () => {
+      await useStore.getState().fetchTasks();
+    });
+
+    expect(api.decryptTasks).toHaveBeenCalledWith([
+      expect.objectContaining({ _id: 'task-open', parentNoteId: 'n2' }),
+    ]);
+    expect(useStore.getState().tasks.map((task) => task._id)).toEqual(['task-open']);
+  });
+
+  it('should keep the unlocked note readable after successful unlock inside locked hierarchy', async () => {
+    const { api } = require('../services/api');
+    const now = new Date().toISOString();
+    useStore.setState({
+      activeProjectId: 'p1',
+      activeTab: 'notes',
+      selectedNoteId: 'n1',
+      notes: [
+        { _id: 'p1', title: 'Projekt', content: '', type: 'project', parentId: null, locked: true, tags: [], createdAt: now, updatedAt: now } as any,
+        { _id: 'n1', title: 'Låst anteckning', content: '', type: 'note', parentId: 'p1', locked: true, tags: [], createdAt: now, updatedAt: now } as any,
+      ],
+    } as any);
+    api.verifyLock.mockResolvedValueOnce({
+      success: true,
+      unlockedId: 'p1',
+      title: 'Barn',
+      content: 'Hemlig text',
+    });
+    api.fetchNotes.mockResolvedValueOnce([
+      { _id: 'p1', title: 'Projekt', content: '', type: 'project', parentId: null, locked: true, tags: [], createdAt: now, updatedAt: now },
+      { _id: 'n1', title: 'Barn', content: 'Hemlig text', type: 'note', parentId: 'p1', locked: true, tags: [], createdAt: now, updatedAt: now },
+    ]);
+    api.fetchTasks.mockResolvedValueOnce([]);
+
+    await act(async () => {
+      const success = await useStore.getState().unlockNote('n1', 'secret');
+      expect(success).toBe(true);
+    });
+
+    expect(useStore.getState().unlockedProtectedNoteIds).toEqual(expect.arrayContaining(['n1', 'p1']));
+    expect(useStore.getState().notes.find((note) => note._id === 'n1')?.content).toBe('Hemlig text');
+  });
+
+  it('should relock unlocked protected note when leaving it', () => {
+    const now = new Date().toISOString();
+    useStore.setState({
+      activeTab: 'notes',
+      selectedNoteId: 'n1',
+      unlockedProtectedNoteIds: ['n1'],
+      notes: [
+        { _id: 'n1', title: 'Hemlig', content: 'Text', type: 'note', parentId: null, locked: true, tags: [], createdAt: now, updatedAt: now } as any,
+      ],
+    } as any);
+
+    act(() => {
+      useStore.getState().selectNote(null);
+    });
+
+    const state = useStore.getState();
+    expect(state.selectedNoteId).toBeNull();
+    expect(state.unlockedProtectedNoteIds).toEqual([]);
+    expect((state.notes[0] as any).locked).toBe(true);
+    expect(state.notes[0]?.content).toBe('');
   });
 
 });

@@ -615,7 +615,7 @@ export default function TaskList() {
 
                 {viewMode === 'calendar' && (
                     <TaskCalendar 
-                        tasks={tasks.filter(t => !selectedTaskListId ? true : t.parentNoteId === selectedTaskListId)} 
+                        tasks={localTasks} 
                         onTaskClick={openTaskDetail} 
                         onCreateTask={handleCreateTaskWithDate}
                     />
