@@ -1091,6 +1091,7 @@ export const AISidebar = () => {
   };
 
   const openNewProjectDialog = () => {
+    setIsMenuOpen(false);
     setProjectDialogId(null);
     setProjectDialogName('');
     setProjectDialogPrompt('');
@@ -1101,6 +1102,7 @@ export const AISidebar = () => {
   };
 
   const openEditProjectDialog = (project: LocalAIProject) => {
+    setIsMenuOpen(false);
     setProjectDialogId(project.id);
     setProjectDialogName(project.name);
     setProjectDialogPrompt(project.systemPrompt || '');
@@ -3291,7 +3293,10 @@ export const AISidebar = () => {
                 <button onClick={openNewProjectDialog} className="text-xs text-blue-600 hover:underline">Nytt projekt</button>
               </div>
               <button
-                onClick={() => setActiveProjectId(null)}
+                onClick={() => {
+                  setActiveProjectId(null);
+                  setIsMenuOpen(false);
+                }}
                 className={`w-full text-left px-2 py-1 rounded ${activeProjectId === null ? 'bg-blue-100 dark:bg-blue-900' : 'hover:bg-gray-100 dark:hover:bg-gray-800'}`}
               >
                 Alla
@@ -3302,7 +3307,10 @@ export const AISidebar = () => {
                   return (
                 <div key={project.id} className="flex items-center justify-between px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800">
                   <button
-                    onClick={() => setActiveProjectId(project.id)}
+                    onClick={() => {
+                      setActiveProjectId(project.id);
+                      setIsMenuOpen(false);
+                    }}
                     className={`text-left flex-1 flex items-center gap-2 ${activeProjectId === project.id ? 'font-semibold' : ''}`}
                   >
                     <Icon size={14} color={project.iconColor || undefined} />
@@ -3762,6 +3770,9 @@ export const AISidebar = () => {
                     data-testid="lmstudio-model-select"
                   >
                     <option value="">Välj modell</option>
+                    {lmSelectedModel && !lmModels.some((model) => model.key === lmSelectedModel) && (
+                      <option value={lmSelectedModel}>{lmSelectedModel}</option>
+                    )}
                     {lmModels.map(m => (
                       <option key={m.key} value={m.key}>{m.displayName}</option>
                     ))}

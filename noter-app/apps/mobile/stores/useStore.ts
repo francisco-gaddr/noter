@@ -577,11 +577,15 @@ export const useStore = create<AppState>((set, get) => ({
             measureStartupStage('loadLocalNotes', () => Database.getNotesLocal()),
             measureStartupStage('loadLocalTasks', () => Database.getTasksLocal()),
           ]);
+          const processedLocalTasks = localTasks.map(processLocalTask);
           const unlocked = new Set(get().unlockedProtectedNoteIds || []);
           set({
             notes: materializeNotesFromEncrypted(localNotes.map(processLocalNote), unlocked),
-            tasks: localTasks.map(processLocalTask)
+            tasks: processedLocalTasks
           });
+          if (get().notificationsEnabled) {
+            await syncAllTaskReminders(processedLocalTasks, true, { cancelMissing: true });
+          }
         }
       } catch (error: any) {
         console.error('[Store] Init failed:', error);

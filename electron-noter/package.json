@@ -12,7 +12,8 @@
     "build:ready": "npm run verify:build-ready && npm run test && npm run test:e2e && npm run clean:packaging && npm run build:web && node src/build-ready.js",
     "verify:build-ready": "node src/verify-build-readiness.js",
     "test": "jest",
-    "test:e2e": "node src/run-e2e.js"
+    "test:e2e": "node src/run-e2e.js",
+    "test:e2e:locks": "node tests/e2e/electron-lock-flow.e2e.js"
   },
   "keywords": [],
   "author": "",

@@ -32,6 +32,8 @@ ELECTRON_USER_DATA_DIR=
 npm run dev
 ```
 
+Electron dev-shellen väntar på renderer-rooten, normalt `http://localhost:3001/`, och återanvänder en redan körande lokal webserver i stället för att starta en andra instans.
+
 Om du kör renderer på en annan lokal adress anger du den i `ELECTRON_RENDERER_URL` i din lokala `.env`.
 
 ## Readiness före release

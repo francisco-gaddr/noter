@@ -34,6 +34,11 @@ describe('E2E Encryption Tests', () => {
     expect(localStorageMock.setItem).toHaveBeenCalledWith('apiBaseUrl', 'https://example.com/api');
   });
 
+  it('appends api suffix for root backend urls', () => {
+    setApiBaseUrl('https://example.com');
+    expect(localStorageMock.setItem).toHaveBeenCalledWith('apiBaseUrl', 'https://example.com/api');
+  });
+
   describe('fetchNotes', () => {
     it('returns empty array for offline fallback payload', async () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({

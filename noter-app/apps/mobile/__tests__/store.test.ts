@@ -55,6 +55,7 @@ jest.mock('../services/notifications', () => ({
   scheduleTaskReminder: jest.fn(),
   cancelTaskReminder: jest.fn(),
   cancelAllTaskReminders: jest.fn(),
+  syncAllTaskReminders: jest.fn(),
 }));
 
 describe('Mobile Store', () => {
@@ -155,6 +156,48 @@ describe('Mobile Store', () => {
     expect(state.token).toBe('abc');
     expect(fetchWithAuth).toHaveBeenCalledWith('/notes', { timeoutMs: 45000 });
     expect(fetchWithAuth).toHaveBeenCalledWith('/tasks', { timeoutMs: 30000 });
+  });
+
+  it('should resync local task reminders immediately during init', async () => {
+    const AsyncStorage = require('@react-native-async-storage/async-storage');
+    const SecureStore = require('expo-secure-store');
+    const Database = require('../services/database');
+    const Notifications = require('../services/notifications');
+
+    AsyncStorage.getItem.mockImplementation(async (key: string) => {
+      if (key === 'notificationsEnabled') return 'true';
+      return null;
+    });
+    SecureStore.getItemAsync.mockResolvedValue(null);
+    Database.getTasksLocal.mockResolvedValue([
+      {
+        _id: 'task-reminder-1',
+        title: 'Påminn mig exakt',
+        description: '',
+        dueDate: new Date('2026-06-01T12:00:00.000Z').toISOString(),
+        completed: false,
+        priority: 'medium',
+        reminderEnabled: true,
+        reminderOffsetMinutes: [0, 10],
+        createdAt: new Date('2026-06-01T09:00:00.000Z').toISOString(),
+        updatedAt: new Date('2026-06-01T09:00:00.000Z').toISOString(),
+      },
+    ]);
+
+    await useStore.getState().init();
+
+    expect(Notifications.syncAllTaskReminders).toHaveBeenCalledTimes(1);
+    expect(Notifications.syncAllTaskReminders).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({
+          _id: 'task-reminder-1',
+          reminderEnabled: true,
+          reminderOffsetMinutes: [0, 10],
+        }),
+      ]),
+      true,
+      { cancelMissing: true },
+    );
   });
 
   it('should fetch notes from API when online', async () => {

@@ -1340,15 +1340,21 @@ function NoteEditorContent() {
 
   const previousNoteIdRef = useRef<string | null>(null);
   const loadedAfterUnlockRef = useRef(false);
+  const previousBlockingIdForLoadRef = useRef<string | null>(null);
+  const previousBlockingIdForFocusRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!selectedNoteId) return;
     if (!selectedNote) return;
+    const currentBlockingId = blockingLockedAncestor?._id || null;
+    const becameReadable = Boolean(previousBlockingIdForLoadRef.current && !currentBlockingId);
 
     const shouldLoad =
       previousNoteIdRef.current !== selectedNoteId ||
+      becameReadable ||
       (isUnlockedLocally && !loadedAfterUnlockRef.current);
 
+    previousBlockingIdForLoadRef.current = currentBlockingId;
     if (!shouldLoad) return;
 
     setValue(loadedValue);
@@ -1358,16 +1364,20 @@ function NoteEditorContent() {
     setTitle(selectedNote.title || '');
     previousNoteIdRef.current = selectedNoteId;
     loadedAfterUnlockRef.current = isUnlockedLocally;
-  }, [loadedValue, selectedNote, selectedNoteId, isUnlockedLocally]);
+  }, [blockingLockedAncestor, loadedValue, selectedNote, selectedNoteId, isUnlockedLocally]);
 
   useEffect(() => {
     if (!selectedNoteId) return;
     if (isEffectiveLocked && !isUnlockedLocally) return;
+    const currentBlockingId = blockingLockedAncestor?._id || null;
+    const becameReadable = Boolean(previousBlockingIdForFocusRef.current && !currentBlockingId);
     
     // Only focus editor when note changes, not during regular typing
     const shouldFocus = previousNoteIdRef.current !== selectedNoteId || 
+                      becameReadable ||
                       (isUnlockedLocally && !loadedAfterUnlockRef.current);
     
+    previousBlockingIdForFocusRef.current = currentBlockingId;
     if (!shouldFocus) return;
     
     requestAnimationFrame(() => {
@@ -1381,7 +1391,7 @@ function NoteEditorContent() {
         }
       } catch {}
     });
-  }, [editor, isEffectiveLocked, isUnlockedLocally, selectedNoteId]);
+  }, [blockingLockedAncestor, editor, isEffectiveLocked, isUnlockedLocally, selectedNoteId]);
 
   useEffect(() => {
     return () => {

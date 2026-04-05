@@ -148,15 +148,15 @@ export const scheduleTaskReminder = async (task: Task) => {
       ? Array.from(new Set(task.reminderOffsetMinutes.filter((v): v is number => typeof v === 'number' && v >= 0)))
       : [0];
     const normalizedOffsets = offsets.length > 0 ? offsets : [0];
-    const triggerPair = normalizedOffsets
+    const triggerPairs = normalizedOffsets
       .map((offset) => ({ offset, triggerAt: new Date(due.getTime() - offset * 60000) }))
       .filter(({ triggerAt }) => triggerAt.getTime() > Date.now())
-      .sort((a, b) => a.triggerAt.getTime() - b.triggerAt.getTime())[0];
+      .sort((a, b) => a.triggerAt.getTime() - b.triggerAt.getTime());
 
     await cancelStoredNotificationIds(task._id);
     const map = await readMap();
 
-    if (!triggerPair) {
+    if (triggerPairs.length === 0) {
       delete map[task._id];
       await writeMap(map);
       taskReminderSignatureCache.delete(task._id);
@@ -172,15 +172,17 @@ export const scheduleTaskReminder = async (task: Task) => {
 
     const ids: string[] = [];
     try {
-      const id = await Notifications.scheduleNotificationAsync({
-        content: {
-          title: task.title || 'Påminnelse',
-          body: triggerPair.offset > 0 ? `${triggerPair.offset} minuter innan förfallotid` : 'Vid förfallotid',
-          data: { taskId: task._id }
-        },
-        trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: triggerPair.triggerAt }
-      });
-      ids.push(id);
+      for (const triggerPair of triggerPairs) {
+        const id = await Notifications.scheduleNotificationAsync({
+          content: {
+            title: task.title || 'Påminnelse',
+            body: triggerPair.offset > 0 ? `${triggerPair.offset} minuter innan förfallotid` : 'Vid förfallotid',
+            data: { taskId: task._id, reminderOffsetMinutes: triggerPair.offset }
+          },
+          trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: triggerPair.triggerAt }
+        });
+        ids.push(id);
+      }
     } catch (error) {
       for (const notificationId of ids) {
         try {

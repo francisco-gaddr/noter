@@ -30,6 +30,23 @@ export function Providers({ children }: { children: React.ReactNode }) {
     i18n.changeLanguage(language)
   }, [language])
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || process.env.NODE_ENV === 'production') return
+    ;(window as any).__NOTER_E2E__ = {
+      getState: () => useStore.getState(),
+      setState: (partial: Record<string, unknown>) => useStore.setState(partial as any),
+      fetchNotes: () => useStore.getState().fetchNotes(),
+      fetchTasks: (parentNoteId?: string) => useStore.getState().fetchTasks(parentNoteId),
+      unlockNote: (id: string, password: string) => useStore.getState().unlockNote(id, password),
+      selectNote: (id: string | null) => useStore.getState().selectNote(id),
+      setActiveProject: (id: string | null) => useStore.getState().setActiveProject(id),
+      hydrate: () => useStore.getState().hydrate(),
+    }
+    return () => {
+      delete (window as any).__NOTER_E2E__
+    }
+  }, [])
+
   return (
     React.createElement(
       DndProvider as any,

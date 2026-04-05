@@ -14,6 +14,7 @@ Mobilappen är byggd med Expo och React Native och delar anteckningar, tasks, kr
 - Offline-first lagring i SQLite och lokal synckö
 - AI-inställningar och integrationsvärden i lokal krypterad lagring
 - Backend-URL via kugghjulet på login-skärmen eller i inställningar
+- Lokala task-påminnelser som schemaläggs exakt för varje vald offset
 
 ## Kom igång
 
@@ -52,6 +53,13 @@ npm run start --workspace=apps/mobile
 - Se till att telefon och dator är på samma nätverk
 - Om `localhost` inte fungerar på en fysisk enhet, ange datorns LAN-adress i appens settings
 - Den URL du sparar lagras lokalt i SecureStore
+
+### Påminnelser
+
+- Task-påminnelser i mobilappen är lokalt schemalagda Expo-notiser, inte server-push
+- Varje vald offset, till exempel `30 min`, `10 min` och `vid förfallotid`, schemaläggs separat
+- Appen återställer lokala påminnelser direkt vid init så att redan sparade tasks inte väntar på senare sync innan notiserna blir aktiva
+- Operativsystemets batterioptimering kan fortfarande påverka faktisk leverans på enskilda enheter, men appen räknar och schemalägger nu tiderna exakt
 
 ### Felsökning
 

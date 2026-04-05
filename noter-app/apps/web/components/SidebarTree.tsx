@@ -167,6 +167,7 @@ const TreeNode = React.memo(({ note, allNotes, noteById, childrenMap, level, sel
                     ${isDragging ? 'opacity-50' : ''}
                     ${isOver && canDrop ? 'ring-2 ring-green-500' : ''}
                 `}
+                data-testid={`sidebar-note-${note._id}`}
                 style={{ paddingLeft: `${level * 12 + 8}px`, contentVisibility: 'auto', containIntrinsicSize: '40px' }}
                 onClick={() => onSelect(note._id)}
             >
@@ -294,12 +295,19 @@ export default function SidebarTree() {
   const activeProjectId = useStore((state) => state.activeProjectId);
   const setActiveProject = useStore((state) => state.setActiveProject);
   const unlockedProtectedNoteIds = useStore((state) => state.unlockedProtectedNoteIds);
+  const clearTransientUnlockedProtectedNoteIds = useStore((state) => state.clearTransientUnlockedProtectedNoteIds);
   const [viewMode, setViewMode] = useState<'tree' | 'list'>('tree');
   const [iconPickerNote, setIconPickerNote] = useState<Note | null>(null);
   const [createModal, setCreateModal] = useState<{ isOpen: boolean; type: 'note' | 'task_list' | 'project'; parentId: string | null }>({ isOpen: false, type: 'note', parentId: null });
   const [editModal, setEditModal] = useState<{ isOpen: boolean; note: Note | null }>({ isOpen: false, note: null });
   const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; id: string | null; type: 'project' | 'note' | 'task_list' }>({ isOpen: false, id: null, type: 'note' });
-  const [projectUnlockModal, setProjectUnlockModal] = useState<{ isOpen: boolean; projectId: string | null }>({ isOpen: false, projectId: null });
+  const [unlockModal, setUnlockModal] = useState<{
+    isOpen: boolean;
+    targetId: string | null;
+    title: string;
+    noteIdToSelect: string | null;
+    projectIdToActivate: string | null;
+  }>({ isOpen: false, targetId: null, title: '', noteIdToSelect: null, projectIdToActivate: null });
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [listScrollTop, setListScrollTop] = useState(0);
@@ -394,6 +402,61 @@ export default function SidebarTree() {
     }
   }, [activeProjectId, activeProjectBlocked, noteById, setActiveProject]);
 
+  const findProjectOwnerId = (noteId: string | null) => {
+    let currentId = normalizeId(noteId);
+    const seen = new Set<string>();
+    while (currentId && !seen.has(currentId)) {
+      seen.add(currentId);
+      const currentNote = noteById.get(currentId);
+      if (!currentNote) return null;
+      if (isProjectType(currentNote.type)) return currentNote._id;
+      currentId = normalizeId(currentNote.parentId);
+    }
+    return null;
+  };
+
+  const noteBelongsToProject = (noteId: string) => {
+    const ownerId = findProjectOwnerId(noteId);
+    return Boolean(ownerId && ownerId !== noteId);
+  };
+
+  const openUnlockModal = (targetId: string, title: string, options?: { noteIdToSelect?: string | null; projectIdToActivate?: string | null }) => {
+    setUnlockModal({
+      isOpen: true,
+      targetId,
+      title,
+      noteIdToSelect: options?.noteIdToSelect ?? null,
+      projectIdToActivate: options?.projectIdToActivate ?? null,
+    });
+  };
+
+  const handleNoteSelect = (noteId: string | null) => {
+    if (!noteId) {
+      selectNote(null);
+      return;
+    }
+    const note = noteById.get(noteId);
+    if (!note) {
+      selectNote(noteId);
+      return;
+    }
+    const blocking = findBlockingLockedAncestor(note as any, securityMap as any, unlockedSet as any);
+    if (!blocking) {
+      selectNote(noteId);
+      return;
+    }
+    const projectOwnerId = findProjectOwnerId(noteId);
+    const blockingType = isProjectType((blocking as any).type);
+    openUnlockModal(
+      blocking._id,
+      blockingType ? (t('note.enterPassword') || 'Ange lösenord för projektmappen') : (t('noteEditor.unlockNoteTitle') || 'Lås upp anteckning'),
+      {
+        noteIdToSelect: noteId,
+        projectIdToActivate: projectOwnerId,
+      },
+    );
+  };
+
   const inferredProjectIds = useMemo(() => {
     const ids = new Set<string>();
     const parentIds = new Set<string>();
@@ -461,6 +524,29 @@ export default function SidebarTree() {
   const { rootNotes, flatFilteredNotes, sortedFlatNotes } = useMemo(() => {
     const readableCache = new Map<string, boolean>();
     const searchableCache = new Map<string, boolean>();
+    const activeProjectMembershipCache = new Map<string, boolean>();
+    const belongsToActiveProject = (note: Note) => {
+      if (!activeProjectId) return false;
+      const normalizedActiveProjectId = normalizeId(activeProjectId);
+      if (!normalizedActiveProjectId) return false;
+      const cached = activeProjectMembershipCache.get(note._id);
+      if (cached !== undefined) return cached;
+      let parent = normalizeId(note.parentId);
+      let belongs = false;
+      let steps = 0;
+      while (parent && steps < 100) {
+        if (parent === normalizedActiveProjectId) {
+          belongs = true;
+          break;
+        }
+        const ancestor = noteById.get(parent);
+        if (!ancestor) break;
+        parent = normalizeId(ancestor.parentId);
+        steps += 1;
+      }
+      activeProjectMembershipCache.set(note._id, belongs);
+      return belongs;
+    };
     const isReadable = (note: Note) => {
       const cached = readableCache.get(note._id);
       if (cached !== undefined) return cached;
@@ -483,7 +569,10 @@ export default function SidebarTree() {
         const noteType = normalizeNoteType((n as any).type);
         const isTaskList = noteType === 'task_list' || inferredTaskListIds.has(n._id);
         const isProject = noteType === 'project' || inferredProjectIds.has(n._id);
+        const belongsToProject = noteBelongsToProject(n._id);
         const base = activeTab === 'tasks' ? isTaskList : (!isTaskList && !isProject);
+        if (activeProjectId && activeTab !== 'tasks' && !belongsToActiveProject(n)) return false;
+        if (activeTab !== 'tasks' && !activeProjectId && belongsToProject) return false;
         return base && isSearchable(n);
       });
       return { rootNotes: [], flatFilteredNotes: filtered, sortedFlatNotes: [] };
@@ -495,31 +584,20 @@ export default function SidebarTree() {
         const noteType = normalizeNoteType((n as any).type);
         const isTaskList = noteType === 'task_list' || inferredTaskListIds.has(n._id);
         const isProject = noteType === 'project' || inferredProjectIds.has(n._id);
+        const belongsToProject = noteBelongsToProject(n._id);
         if (activeTab === 'tasks') return isTaskList && isReadable(n);
         
         if (activeProjectId) {
-             const normalizedActiveProjectId = normalizeId(activeProjectId);
-             if (!normalizedActiveProjectId) return false;
              const cached = belongsCache.get(n._id);
              if (cached !== undefined) {
                return !isTaskList && !isProject && cached && isReadable(n);
              }
-
-             let parent = normalizeId(n.parentId);
-             let belongs = false;
-             let steps = 0;
-             while (parent && steps < 100) {
-                 if (parent === normalizedActiveProjectId) { belongs = true; break; }
-                 const p = noteById.get(parent);
-                 if (!p) break;
-                 parent = normalizeId(p.parentId);
-                 steps += 1;
-             }
+             const belongs = belongsToActiveProject(n);
              belongsCache.set(n._id, belongs);
              return !isTaskList && !isProject && belongs && isReadable(n);
         }
         
-        return !isTaskList && !isProject && isReadable(n);
+        return !isTaskList && !isProject && !belongsToProject && isReadable(n);
       });
       return { rootNotes: [], flatFilteredNotes: [], sortedFlatNotes: sortNotes(filtered, sortOrder) };
     }
@@ -529,6 +607,7 @@ export default function SidebarTree() {
         const parent = n.parentId ? noteById.get(n.parentId) : null;
         const noteType = normalizeNoteType((n as any).type);
         const isProject = noteType === 'project' || inferredProjectIds.has(n._id);
+        const belongsToProject = noteBelongsToProject(n._id);
         
         const isRoot = (!n.parentId || !parent || (parent && normalizeNoteType((parent as any).type) === 'project'));
         const isTaskList = noteType === 'task_list' || inferredTaskListIds.has(n._id);
@@ -536,13 +615,12 @@ export default function SidebarTree() {
         if (activeTab === 'tasks') return isTaskList && isReadable(n);
 
         if (activeProjectId) {
-            // Show all children of the active project, including sub-projects (but filter out task lists if needed)
             const normalizedActiveProjectId = normalizeId(activeProjectId);
             const normalizedParentId = normalizeId(n.parentId);
-            return Boolean(normalizedActiveProjectId) && normalizedParentId === normalizedActiveProjectId && !isTaskList && !isProject && isReadable(n);
+            return Boolean(normalizedActiveProjectId) && normalizedParentId === normalizedActiveProjectId && !isTaskList && isReadable(n);
         }
 
-        return isRoot && !isTaskList && !isProject && isReadable(n);
+        return isRoot && !isTaskList && !isProject && !belongsToProject && isReadable(n);
     });
     return { rootNotes: sortNotes(roots, sortOrder), flatFilteredNotes: [], sortedFlatNotes: [] };
 
@@ -573,30 +651,51 @@ export default function SidebarTree() {
 
   const handleProjectSelect = async (projectId: string | null) => {
     if (!projectId) {
+      selectNote(null);
       setActiveProject(null);
       return;
     }
     const project = noteById.get(projectId);
     if (!project) {
+      selectNote(null);
       setActiveProject(projectId);
       return;
     }
     const blocking = findBlockingLockedAncestor(project as any, securityMap as any, unlockedSet as any);
     if (!blocking) {
+      selectNote(null);
       setActiveProject(projectId);
       return;
     }
-    setProjectUnlockModal({ isOpen: true, projectId });
+    openUnlockModal(projectId, t('note.enterPassword') || 'Ange lösenord för projektmappen', {
+      projectIdToActivate: projectId,
+    });
   };
 
   const handleProjectUnlockSubmit = async (password: string) => {
-    if (!projectUnlockModal.projectId) return;
-    const unlocked = await unlockNote(projectUnlockModal.projectId, password);
+    if (!unlockModal.targetId) return;
+    const previousActiveProjectId = activeProjectId;
+    const previousSelectedNoteId = selectedNoteId;
+    if (unlockModal.projectIdToActivate) {
+      setActiveProject(unlockModal.projectIdToActivate);
+    }
+    if (unlockModal.noteIdToSelect) {
+      selectNote(unlockModal.noteIdToSelect);
+    }
+    const unlocked = await unlockNote(unlockModal.targetId, password);
     if (!unlocked) {
+      setActiveProject(previousActiveProjectId);
+      selectNote(previousSelectedNoteId);
       throw new Error('incorrect password');
     }
-    setActiveProject(projectUnlockModal.projectId);
-    setProjectUnlockModal({ isOpen: false, projectId: null });
+    if (unlockModal.projectIdToActivate) {
+      setActiveProject(unlockModal.projectIdToActivate);
+    }
+    if (unlockModal.noteIdToSelect) {
+      selectNote(unlockModal.noteIdToSelect);
+    }
+    clearTransientUnlockedProtectedNoteIds();
+    setUnlockModal({ isOpen: false, targetId: null, title: '', noteIdToSelect: null, projectIdToActivate: null });
   };
 
   const handleCreateProject = () => {
@@ -758,10 +857,10 @@ export default function SidebarTree() {
         confirmLabel={t('actions.delete') || 'Delete'}
       />
       <PasswordModal
-        isOpen={projectUnlockModal.isOpen}
-        onClose={() => setProjectUnlockModal({ isOpen: false, projectId: null })}
+        isOpen={unlockModal.isOpen}
+        onClose={() => setUnlockModal({ isOpen: false, targetId: null, title: '', noteIdToSelect: null, projectIdToActivate: null })}
         onSubmit={handleProjectUnlockSubmit}
-        title={t('note.enterPassword') || 'Ange lösenord för projektmappen'}
+        title={unlockModal.title}
       />
 
       {iconPickerNote && (
@@ -939,11 +1038,12 @@ export default function SidebarTree() {
                             <li 
                                 key={note._id}
                                 role="listitem"
+                                data-testid={`sidebar-note-${note._id}`}
                                 className={`
                                     p-2 rounded cursor-pointer flex justify-between items-center group
                                     ${effectiveSelectedId === note._id ? 'bg-blue-100 dark:bg-blue-900' : 'hover:bg-gray-200 dark:hover:bg-gray-800'}
                                 `}
-                                onClick={() => selectNote(note._id)}
+                                onClick={() => handleNoteSelect(note._id)}
                             >
                                 <span className="truncate flex-1 text-gray-900 dark:text-gray-100">{note.title || t('common.untitled')}</span>
                                 <div className="flex gap-1 opacity-0 group-hover:opacity-100">
@@ -986,7 +1086,7 @@ export default function SidebarTree() {
                                 level={0} 
                                 selectedNoteId={effectiveSelectedId}
                                 sortOrder={sortOrder}
-                                onSelect={selectNote}
+                                onSelect={handleNoteSelect}
                                 onDelete={handleDelete}
                                 onCreateChild={handleCreateChild}
                                 onEdit={handleEdit}

@@ -16,13 +16,36 @@ const API_URL_KEY = 'apiBaseUrl';
 let apiTokenCache: string | null = null;
 
 const normalizeUrl = (value: string) => {
-  let next = value.trim().replace(/^[`'"]+|[`'"]+$/g, '').trim().replace(/\/+$/, '');
-  if (/\/app\/api$/i.test(next)) {
-    next = next.replace(/\/app\/api$/i, '/api');
-  } else if (/\/app$/i.test(next)) {
-    next = next.replace(/\/app$/i, '/api');
+  const raw = value.trim().replace(/^[`'"]+|[`'"]+$/g, '').trim();
+  if (!raw) return '/api';
+  if (raw.startsWith('/')) {
+    let next = raw.replace(/\/+$/, '');
+    if (/\/app\/api$/i.test(next)) {
+      next = next.replace(/\/app\/api$/i, '/api');
+    } else if (/\/app$/i.test(next)) {
+      next = next.replace(/\/app$/i, '/api');
+    } else if (!/\/api$/i.test(next)) {
+      next = `${next.replace(/\/$/, '')}/api`;
+    }
+    return next;
   }
-  return next;
+
+  const withProtocol = /^https?:\/\//i.test(raw) ? raw : `http://${raw}`;
+  try {
+    const parsed = new URL(withProtocol);
+    let normalizedPath = parsed.pathname.replace(/\/+$/, '');
+    if (/\/app\/api$/i.test(normalizedPath)) {
+      normalizedPath = normalizedPath.replace(/\/app\/api$/i, '/api');
+    } else if (/\/app$/i.test(normalizedPath)) {
+      normalizedPath = normalizedPath.replace(/\/app$/i, '/api');
+    } else if (!/\/api$/i.test(normalizedPath)) {
+      normalizedPath = `${normalizedPath || ''}/api`;
+    }
+    const finalPath = normalizedPath.replace(/\/{2,}/g, '/').replace(/\/+$/, '');
+    return `${parsed.protocol}//${parsed.host}${finalPath || '/api'}`;
+  } catch {
+    return raw.replace(/\/+$/, '');
+  }
 };
 
 const getStorage = () => {

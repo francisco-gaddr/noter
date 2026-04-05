@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 interface PasswordModalProps {
@@ -21,8 +21,24 @@ export const PasswordModal: React.FC<PasswordModalProps> = ({
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (!isOpen) {
+      setPassword('');
+      setError('');
+      setLoading(false);
+      return;
+    }
+    setPassword('');
+    setError('');
+    setLoading(false);
+    const timer = setTimeout(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [isOpen]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,8 +62,10 @@ export const PasswordModal: React.FC<PasswordModalProps> = ({
 
   const modalTitle = title ?? t('passwordModal.titleEnter');
 
+  if (!isOpen) return null;
+
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" data-testid="password-modal">
       <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-sm">
         <h3 className="text-xl font-bold mb-4 text-gray-900 dark:text-gray-100">{modalTitle}</h3>
         
@@ -59,13 +77,13 @@ export const PasswordModal: React.FC<PasswordModalProps> = ({
 
         <form onSubmit={handleSubmit}>
           <input
+            ref={inputRef}
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             data-testid="password-input"
             className="w-full p-2 border rounded mb-4 dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
             placeholder={isCreatingLock ? t('passwordModal.placeholderCreate') : t('passwordModal.placeholderEnter')}
-            autoFocus
           />
           
           {error && <p className="text-red-500 text-sm mb-4">{error}</p>}

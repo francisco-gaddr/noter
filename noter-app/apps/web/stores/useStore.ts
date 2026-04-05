@@ -368,6 +368,7 @@ type ProtectedVisibilityState = {
   activeProjectId: string | null;
   activeTab: 'notes' | 'tasks';
   unlockedProtectedNoteIds: string[];
+  transientUnlockedProtectedNoteIds: string[];
 };
 
 const toUnlockedIdSet = (ids: string[] = []) =>
@@ -421,6 +422,7 @@ const deriveProtectedVisibilityState = (
   const unlockedIds = toUnlockedIdSet(next.unlockedProtectedNoteIds);
   const noteMap = buildSecurityNoteMap(next.notes as any);
   const keepUnlockedIds = new Set<string>();
+  toUnlockedIdSet(next.transientUnlockedProtectedNoteIds).forEach((id) => keepUnlockedIds.add(id));
   const activeProjectId = normalizeId(next.activeProjectId);
   if (activeProjectId && unlockedIds.has(activeProjectId)) {
     keepUnlockedIds.add(activeProjectId);
@@ -502,6 +504,8 @@ interface StoreState {
   autoLockTimeout: number; // in minutes
   setAutoLockTimeout: (minutes: number) => void;
   unlockedProtectedNoteIds: string[];
+  transientUnlockedProtectedNoteIds: string[];
+  clearTransientUnlockedProtectedNoteIds: () => void;
   
   fetchNotes: () => Promise<void>;
   fetchTasks: (parentNoteId?: string) => Promise<void>;
@@ -698,12 +702,13 @@ export const useStore = create<StoreState>((set, get) => ({
     setElectronToken(null);
     setElectronUser(null);
     disconnectSocket();
-    set({ user: null, token: null, notes: [], tasks: [], selectedNoteId: null, selectedTaskListId: null, isAppLocked: false, unlockedProtectedNoteIds: [] });
+    set({ user: null, token: null, notes: [], tasks: [], selectedNoteId: null, selectedTaskListId: null, isAppLocked: false, unlockedProtectedNoteIds: [], transientUnlockedProtectedNoteIds: [] });
   },
 
   notes: [],
   tasks: [],
   unlockedProtectedNoteIds: [],
+  transientUnlockedProtectedNoteIds: [],
   pendingCreated: { notes: {}, tasks: {} },
   selectedNoteId: null,
   selectedTaskListId: null,
@@ -713,6 +718,7 @@ export const useStore = create<StoreState>((set, get) => ({
   searchQuery: '',
   sortOrder: 'date-desc',
   activeTab: 'notes',
+  clearTransientUnlockedProtectedNoteIds: () => set({ transientUnlockedProtectedNoteIds: [] }),
   setActiveTab: (tab) => {
     if (typeof window !== 'undefined') {
       localStorage.setItem('activeTab', tab);
@@ -753,6 +759,7 @@ export const useStore = create<StoreState>((set, get) => ({
             notes: [], 
             tasks: [], 
             unlockedProtectedNoteIds: [],
+            transientUnlockedProtectedNoteIds: [],
             activeUsers: {},
             selectedNoteId: null,
             selectedTaskListId: null,
@@ -1181,7 +1188,7 @@ export const useStore = create<StoreState>((set, get) => ({
           return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
         };
 
-        const encryptedNotes = await withTimeout(api.fetchNotes(), 8000);
+        const encryptedNotes = await withTimeout(api.fetchNotes(), 45000);
         const safeEncryptedNotes = Array.isArray(encryptedNotes) ? encryptedNotes : [];
         const notes = materializeNotesFromEncrypted(safeEncryptedNotes as any, new Set(get().unlockedProtectedNoteIds));
         logElectronDataDebug('fetchNotes-server-loaded', {
@@ -1543,15 +1550,24 @@ export const useStore = create<StoreState>((set, get) => ({
         const effectiveUnlockId = unlockedId || id;
         set((state) => {
           const updatedNotes = state.notes.map((n) => (n._id === id ? { ...n, content, ...(title ? { title } : {}) } : n));
+          const nextUnlockIds = Array.from(new Set([...state.unlockedProtectedNoteIds, id, effectiveUnlockId]));
           return deriveProtectedVisibilityState(state, {
             notes: updatedNotes,
-            unlockedProtectedNoteIds: Array.from(new Set([...state.unlockedProtectedNoteIds, id, effectiveUnlockId])),
+            unlockedProtectedNoteIds: nextUnlockIds,
+            transientUnlockedProtectedNoteIds: Array.from(new Set([...state.transientUnlockedProtectedNoteIds, id, effectiveUnlockId])),
           });
         });
-        await get().fetchNotes();
-        await get().fetchTasks(get().selectedTaskListId ?? undefined);
-        const nextState = get();
-        syncPersistedSelections(nextState.selectedNoteId, nextState.selectedTaskListId);
+        try {
+          await get().fetchNotes();
+          await get().fetchTasks(get().selectedTaskListId ?? undefined);
+          const nextState = get();
+          syncPersistedSelections(nextState.selectedNoteId, nextState.selectedTaskListId);
+          if (nextState.selectedNoteId === id || nextState.activeProjectId === effectiveUnlockId || nextState.activeProjectId === id) {
+            get().clearTransientUnlockedProtectedNoteIds();
+          }
+        } catch (refreshError: any) {
+          set({ error: refreshError?.message || null });
+        }
         return true;
       }
       return false;

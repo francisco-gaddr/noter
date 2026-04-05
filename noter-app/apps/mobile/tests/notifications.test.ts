@@ -41,8 +41,11 @@ describe('task notifications', () => {
     jest.useRealTimers();
   });
 
-  it('schedules only one reminder per task even when several offsets are selected', async () => {
-    mockScheduleNotificationAsync.mockResolvedValueOnce('id-30');
+  it('schemalägger alla framtida påminnelser för valda offsets på exakt rätt klockslag', async () => {
+    mockScheduleNotificationAsync
+      .mockResolvedValueOnce('id-30')
+      .mockResolvedValueOnce('id-10')
+      .mockResolvedValueOnce('id-0');
 
     const task: Task = {
       _id: 'task-1',
@@ -60,10 +63,17 @@ describe('task notifications', () => {
 
     await scheduleTaskReminder(task);
 
-    expect(mockScheduleNotificationAsync).toHaveBeenCalledTimes(1);
+    expect(mockScheduleNotificationAsync).toHaveBeenCalledTimes(3);
     const firstCall = mockScheduleNotificationAsync.mock.calls[0]?.[0];
+    const secondCall = mockScheduleNotificationAsync.mock.calls[1]?.[0];
+    const thirdCall = mockScheduleNotificationAsync.mock.calls[2]?.[0];
     expect(firstCall.content.title).toBe(task.title);
     expect(firstCall.content.body).toContain('30 minuter');
+    expect(firstCall.trigger.date.toISOString()).toBe('2026-06-01T10:01:00.000Z');
+    expect(secondCall.content.body).toContain('10 minuter');
+    expect(secondCall.trigger.date.toISOString()).toBe('2026-06-01T10:21:00.000Z');
+    expect(thirdCall.content.body).toContain('Vid förfallotid');
+    expect(thirdCall.trigger.date.toISOString()).toBe('2026-06-01T10:31:00.000Z');
   });
 
   it('cancels all scheduled reminders for a task', async () => {
@@ -138,7 +148,9 @@ describe('task notifications', () => {
 
   it('replaces existing reminders when the same task is rescheduled concurrently', async () => {
     mockScheduleNotificationAsync
+      .mockResolvedValueOnce('first-10')
       .mockResolvedValueOnce('first-0')
+      .mockResolvedValueOnce('second-10')
       .mockResolvedValueOnce('second-0');
 
     const task: Task = {
@@ -157,7 +169,8 @@ describe('task notifications', () => {
 
     await Promise.all([scheduleTaskReminder(task), scheduleTaskReminder(task)]);
 
-    expect(mockScheduleNotificationAsync).toHaveBeenCalledTimes(2);
+    expect(mockScheduleNotificationAsync).toHaveBeenCalledTimes(4);
+    expect(mockCancelScheduledNotificationAsync).toHaveBeenCalledWith('first-10');
     expect(mockCancelScheduledNotificationAsync).toHaveBeenCalledWith('first-0');
   });
 

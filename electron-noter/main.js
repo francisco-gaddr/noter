@@ -22,10 +22,8 @@ const allowedExternalProtocols = new Set(['https:', 'http:']);
 const rendererFallbackUrls = Array.from(new Set([
   process.env.ELECTRON_RENDERER_URL,
   process.env.ELECTRON_RENDERER_FALLBACK_URL,
-  'http://localhost:3001/app/',
   devUrl,
   'http://127.0.0.1:3001/',
-  'http://127.0.0.1:3001/app/',
 ].filter(Boolean)));
 let mlcModule = null;
 
