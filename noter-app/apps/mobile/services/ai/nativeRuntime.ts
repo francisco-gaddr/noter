@@ -23,12 +23,22 @@ export const getLocalAiRuntimeStatus = () => {
   const fileSystem = getReactNativeFs();
   const zipArchive = getZipArchive();
   const mlcModule = NativeModules?.MLCModule;
+  const mlcLoadAvailable = typeof mlcModule?.loadModel === 'function';
+  const mlcGenerateAvailable = typeof mlcModule?.generate === 'function';
+  const mlcUnloadAvailable = typeof mlcModule?.unloadModel === 'function';
+  const mlcLocalConversionAvailable =
+    typeof mlcModule?.convertGGUFToMLC === 'function'
+    && typeof mlcModule?.getLocalConversionCapabilities === 'function';
 
   return {
     expoGo: isExpoGo(),
     fileSystemAvailable: Boolean(fileSystem?.DocumentDirectoryPath),
     zipAvailable: Boolean(zipArchive?.unzip),
     mlcModuleAvailable: Boolean(mlcModule),
+    mlcLoadAvailable,
+    mlcGenerateAvailable,
+    mlcUnloadAvailable,
+    mlcLocalConversionAvailable,
   };
 };
 
@@ -49,6 +59,10 @@ export const getModelInstallBlocker = () => {
 
   if (!runtime.mlcModuleAvailable) {
     return 'Den installerade appen saknar MLC-runtime för AI-modeller. Installera en ny EAS APK med native AI-stöd.';
+  }
+
+  if (!runtime.mlcLoadAvailable || !runtime.mlcGenerateAvailable) {
+    return 'Den installerade appen har en ofullständig MLC-runtime. Bygg och installera en ny EAS APK med komplett native AI-stöd.';
   }
 
   return null;

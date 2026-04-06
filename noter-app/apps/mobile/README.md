@@ -15,6 +15,7 @@ Mobilappen är byggd med Expo och React Native och delar anteckningar, tasks, kr
 - AI-inställningar och integrationsvärden i lokal krypterad lagring
 - Backend-URL via kugghjulet på login-skärmen eller i inställningar
 - Lokala task-påminnelser som schemaläggs exakt för varje vald offset
+- AI-modellnedladdning, server- eller lokal konvertering och tydliga felmeddelanden per steg
 
 ## Kom igång
 
@@ -66,6 +67,14 @@ npm run start --workspace=apps/mobile
 - Om anteckningar eller tasks ibland visar `Aborted` eller timeout-liknande fel använder appen nu längre lästimeout för samlingshämtningar och faller tyst tillbaka till lokal cache när sådan finns
 - Om du inte har någon lokal cache ännu och hämtningen timeoutar: kontrollera att backend kör, att enheten når rätt API-URL och att stora datamängder kan hämtas från `/notes` och `/tasks`
 - Vid fysisk enhet är felaktig `localhost` den vanligaste orsaken till laddningsfel
+
+### AI-modeller
+
+- Modellsökning, filhämtning och konverteringsanrop använder tydliga timeout-fel i stället för tysta låsningar
+- Nedladdning kan avbrytas och avbrutna installsessioner återupptas inte som om de vore aktiva
+- Installerad modell förbereds och aktiveras innan den markeras som redo för lokal chatt
+- Trasiga eller ofullständiga native AI-byggen visas som tydliga runtimefel i stället för att ge missvisande “aktiv modell”-läge
+- `verify:build-ready` och `build:apk:preflight` kontrollerar nu även AI-relaterade beroenden och plugins för APK-bygg
 
 ## Bygga APK (EAS)
 

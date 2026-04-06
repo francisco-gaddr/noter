@@ -11,6 +11,7 @@ describe('AI native runtime', () => {
       NativeModules: {
         MLCModule: {
           loadModel: jest.fn(),
+          generate: jest.fn(),
         },
       },
     }));

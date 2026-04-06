@@ -303,6 +303,7 @@ export default function AIScreen() {
   const resumingDownloadsRef = useRef(false);
   const isMountedRef = useRef(true);
   const modelLoadRequestRef = useRef(0);
+  const searchRequestRef = useRef(0);
   const [tokensPerSecond, setTokensPerSecond] = useState<number | null>(null);
   const [enableToolUse, setEnableToolUse] = useState(true);
   const [toolAccessMode, setToolAccessMode] = useState<AiToolAccessMode>('full');
@@ -532,6 +533,7 @@ export default function AIScreen() {
       formatError,
       isMountedRef,
       modelLoadRequestRef,
+      searchRequestRef,
       resumingDownloadsRef,
       activeModel,
       activatingModelId,
@@ -645,9 +647,15 @@ export default function AIScreen() {
       if (message.includes('spawn mlc_llm ENOENT') || message.includes('sparn mlc_llm ENOENT')) return 'MLC-binären saknas på konverteringsservern. Installera eller konfigurera MLC_LLM_BIN, eller använd py/python-fallback.';
       if (message.includes('Zip module not available')) return 'Zip-stöd saknas i denna build. Installera om den senaste EAS APK:n.';
       if (message.includes('Native filesystem not available')) return 'Filsystem saknas i denna build. Installera om den senaste EAS APK:n.';
-      if (message.includes('MLCModule')) return 'MLC‑modulen saknas i denna build. Installera om den senaste EAS APK:n.';
+      if (message.includes('MLCModule not linked')) return t('ai.runtimeModuleMissing');
+      if (message.includes('MLC runtime incomplete') || message.includes('MLC runtime placeholder')) return t('ai.runtimeIncomplete');
+      if (message.includes('MLCModule')) return t('ai.runtimeModuleMissing');
       if (message.includes('Local conversion unsupported')) return 'Lokal konvertering stöds inte i denna build. Installera en EAS APK med native AI-stöd eller stäng av lokal konvertering.';
       if (message.includes('Failed to download GGUF')) return 'Kunde inte ladda ner GGUF-filen för lokal konvertering.';
+      if (message.includes('Download cancelled')) return t('ai.downloadCancelled');
+      if (message.includes('Conversion request timed out')) return t('ai.conversionRequestTimeout');
+      if (message.includes('Request timed out')) return t('ai.networkTimeout');
+      if (message.includes('Failed to fetch')) return t('ai.networkUnavailable');
       if (message.includes('package root not found')) return 'Modellpaketet kunde inte öppnas korrekt. Paketroten eller mlc-chat-config.json saknas.';
       if (message.includes('missing model artifacts')) return 'Modellpaketet saknar nödvändiga modellfiler, tokenizerfiler eller parametrar.';
       if (message.includes('Invalid model package')) return 'Modellpaketet är ogiltigt eller saknar filer.';
@@ -682,6 +690,7 @@ export default function AIScreen() {
           zipping: t('ai.downloadStagePacking'),
           validating: t('ai.downloadStageFinalizing'),
           completed: t('ai.downloadStageCompleted'),
+          cancelled: t('ai.downloadStageCancelled'),
           finalizing: t('ai.downloadStageFinalizing'),
       };
       return map[stage] || stage;
@@ -1751,18 +1760,18 @@ export default function AIScreen() {
     if (!input.trim() || loading) return;
 
     if (!aiUseApiProviders && !activeModel) {
-        alert('Please select a model first');
+        alert(t('ai.selectModelFirst'));
         setSettingsTab('models');
         setSettingsVisible(true);
         return;
     }
     if (aiUseApiProviders && apiProvider === 'openrouter' && (!openRouterApiKey || !openRouterModel)) {
-        alert('Ange OpenRouter API-nyckel och modell först');
+        alert(t('ai.openRouterConfigRequired'));
         setSettingsVisible(true);
         return;
     }
     if (aiUseApiProviders && apiProvider === 'gemini' && (!geminiApiKey || !geminiModel)) {
-        alert('Ange Gemini API-nyckel och modell först');
+        alert(t('ai.geminiConfigRequired'));
         setSettingsVisible(true);
         return;
     }

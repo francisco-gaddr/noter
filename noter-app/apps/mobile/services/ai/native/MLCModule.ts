@@ -2,6 +2,16 @@ import { NativeModules } from "react-native";
 
 const { MLCModule } = NativeModules;
 
+const getBridgeError = () => {
+  if (!MLCModule) {
+    return 'MLCModule not linked';
+  }
+  if (typeof MLCModule.loadModel !== 'function' || typeof MLCModule.generate !== 'function') {
+    return 'MLC runtime incomplete';
+  }
+  return null;
+};
+
 export const canConvertLocally = () => {
   return !!MLCModule
     && typeof MLCModule.convertGGUFToMLC === 'function'
@@ -9,18 +19,23 @@ export const canConvertLocally = () => {
 };
 
 export async function loadModel(path: string) {
-  if (!MLCModule) {
-      console.warn("MLCModule is not linked. Make sure to rebuild the native app.");
-      return;
+  const bridgeError = getBridgeError();
+  if (bridgeError) {
+      throw new Error(bridgeError);
   }
   return MLCModule.loadModel(path);
 }
 
 export async function chat(prompt: string) {
-  if (!MLCModule) {
-      throw new Error("MLCModule not linked");
+  const bridgeError = getBridgeError();
+  if (bridgeError) {
+      throw new Error(bridgeError);
   }
-  return MLCModule.generate(prompt);
+  const response = await MLCModule.generate(prompt);
+  if (typeof response === 'string' && /not fully implemented yet/i.test(response)) {
+      throw new Error('MLC runtime placeholder');
+  }
+  return response;
 }
 
 export async function unloadModel() {

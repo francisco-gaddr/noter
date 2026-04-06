@@ -20,6 +20,10 @@ const rootDir = path.resolve(__dirname, '..');
 const appJsonPath = path.join(rootDir, 'app.json');
 const easJsonPath = path.join(rootDir, 'eas.json');
 const packageJsonPath = path.join(rootDir, 'package.json');
+const customEntryPluginPath = path.join(rootDir, 'plugins', 'withCustomEntryPoint.js');
+const customBuildGradlePluginPath = path.join(rootDir, 'plugins', 'withCustomBuildGradle.js');
+const androidBridgePath = path.join(rootDir, 'services', 'ai', 'native', 'android', 'MLCModule.java');
+const androidPackagePath = path.join(rootDir, 'services', 'ai', 'native', 'android', 'MLCPackage.java');
 const repoRoot = path.resolve(rootDir, '..', '..');
 const easIgnorePath = path.join(repoRoot, '.easignore');
 const workspaceParentEasIgnorePath = path.resolve(repoRoot, '..', '.easignore');
@@ -74,11 +78,21 @@ if (errors.length === 0) {
   ensure(typeof dependencies.i18next === 'string', 'dependency i18next saknas');
   ensure(typeof dependencies['react-i18next'] === 'string', 'dependency react-i18next saknas');
   ensure(typeof dependencies['react-native'] === 'string', 'dependency react-native saknas');
+  ensure(typeof dependencies['react-native-fs'] === 'string', 'dependency react-native-fs saknas för lokal AI-modellhantering');
+  ensure(typeof dependencies['react-native-zip-archive'] === 'string', 'dependency react-native-zip-archive saknas för modellpaket');
 
   const hasRouterPlugin = plugins.some((plugin) => plugin === 'expo-router');
   const hasBuildProperties = plugins.some((plugin) => plugin === 'expo-build-properties' || (Array.isArray(plugin) && plugin[0] === 'expo-build-properties'));
+  const hasCustomEntryPlugin = plugins.some((plugin) => plugin === './plugins/withCustomEntryPoint');
+  const hasCustomBuildGradlePlugin = plugins.some((plugin) => plugin === './plugins/withCustomBuildGradle');
   ensure(hasRouterPlugin, 'expo-router plugin saknas i app.json');
   ensure(hasBuildProperties, 'expo-build-properties plugin saknas i app.json');
+  ensure(hasCustomEntryPlugin, 'withCustomEntryPoint-plugin saknas i app.json');
+  ensure(hasCustomBuildGradlePlugin, 'withCustomBuildGradle-plugin saknas i app.json');
+  ensure(fs.existsSync(customEntryPluginPath), 'plugins/withCustomEntryPoint.js saknas');
+  ensure(fs.existsSync(customBuildGradlePluginPath), 'plugins/withCustomBuildGradle.js saknas');
+  ensure(fs.existsSync(androidBridgePath), 'services/ai/native/android/MLCModule.java saknas');
+  ensure(fs.existsSync(androidPackagePath), 'services/ai/native/android/MLCPackage.java saknas');
 
   const easIgnore = fs.readFileSync(easIgnorePath, 'utf8');
   ensure(easIgnore.includes('apps/web/'), '.easignore bör exkludera apps/web/');

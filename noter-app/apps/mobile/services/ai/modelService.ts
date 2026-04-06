@@ -95,6 +95,7 @@ type DownloadStage =
     | 'zipping'
     | 'validating'
     | 'completed'
+    | 'cancelled'
     | 'failed';
 
 type DownloadOptions = {
@@ -103,6 +104,38 @@ type DownloadOptions = {
     onStageChange?: (stage: DownloadStage) => void;
     existingJobId?: string;
 };
+
+type InstallTaskState = {
+    cancelRequested: boolean;
+    downloadJobIds: Set<number>;
+};
+
+const activeInstallTasks = new Map<string, InstallTaskState>();
+const getInstallTask = (sessionKey: string) => activeInstallTasks.get(sessionKey);
+const ensureInstallTask = (sessionKey: string) => {
+    let task = activeInstallTasks.get(sessionKey);
+    if (!task) {
+        task = {
+            cancelRequested: false,
+            downloadJobIds: new Set<number>(),
+        };
+        activeInstallTasks.set(sessionKey, task);
+    }
+    return task;
+};
+const clearInstallTask = (sessionKey: string) => {
+    activeInstallTasks.delete(sessionKey);
+};
+const registerDownloadJob = (sessionKey: string, jobId?: number) => {
+    if (typeof jobId !== 'number') return;
+    ensureInstallTask(sessionKey).downloadJobIds.add(jobId);
+};
+const throwIfCancelled = (sessionKey: string) => {
+    if (getInstallTask(sessionKey)?.cancelRequested) {
+        throw new Error('Download cancelled');
+    }
+};
+const getPollingDelay = (attempt: number) => Math.min(5000, 1500 + attempt * 250);
 
 const updateInstallProgress = async (
     sessionKey: string,
@@ -123,6 +156,7 @@ const updateInstallProgress = async (
 
 const tryLocalConversion = async (
     RNFS: any,
+    sessionKey: string,
     model: HFModel,
     file: HFFile,
     modelDir: string,
@@ -153,7 +187,10 @@ const tryLocalConversion = async (
             onProgress(Math.min(0.6, (res.bytesWritten / res.contentLength) * 0.6));
         },
     });
+    registerDownloadJob(sessionKey, download?.jobId);
+    throwIfCancelled(sessionKey);
     const result = await download.promise;
+    throwIfCancelled(sessionKey);
     if (result.statusCode !== 200) {
         await swallowAsync(RNFS.unlink(ggufPath));
         throw new Error('Failed to download GGUF');
@@ -162,6 +199,7 @@ const tryLocalConversion = async (
     onStageChange?.('converting_locally');
     onProgress?.(0.7);
     const convertedPath = await convertGGUFToMLC(ggufPath, modelDir, file.quantization || 'Q4_K_M', platform);
+    throwIfCancelled(sessionKey);
     const finalPath = typeof convertedPath === 'string' && convertedPath ? convertedPath : modelDir;
     onStageChange?.('validating');
     const validatedPath = await validateModelPackageWithRetry(finalPath);
@@ -204,18 +242,21 @@ export const downloadModel = async (
         jobId: options?.existingJobId,
         updatedAt: new Date().toISOString(),
     });
+    ensureInstallTask(sessionKey);
     const exists = await RNFS.exists(modelDir);
     let resolvedModelDir = modelDir;
     let localConversionAttempted = false;
     try {
         if (!exists) {
             await updateInstallProgress(sessionKey, 'queued', 0, onProgress, options?.onStageChange, options?.existingJobId ? { jobId: options.existingJobId } : undefined);
+        throwIfCancelled(sessionKey);
         if (preferLocalConversion) {
             localConversionAttempted = true;
             await updateInstallProgress(sessionKey, 'local_conversion_requested', 0.02, onProgress, options?.onStageChange);
             try {
                 resolvedModelDir = await tryLocalConversion(
                     RNFS,
+                    sessionKey,
                     model,
                     file,
                     modelDir,
@@ -270,6 +311,7 @@ export const downloadModel = async (
             const maxAttempts = 120;
             if (!outputUrl && jobId) {
                 for (let i = 0; i < maxAttempts; i += 1) {
+                    throwIfCancelled(sessionKey);
                     const status = await getConversionStatus(jobId);
                     await updateInstallProgress(
                         sessionKey,
@@ -295,7 +337,7 @@ export const downloadModel = async (
                         }
                         throw new Error(status.message || 'Conversion failed');
                     }
-                    await sleep(2000);
+                    await sleep(getPollingDelay(i));
                 }
             }
 
@@ -317,7 +359,8 @@ export const downloadModel = async (
                     const nextProgress = 0.92 + p * 0.06;
                     onProgress?.(nextProgress);
                     patchModelInstallSession(sessionKey, { stage: 'downloading_compiled', progress: nextProgress }).catch(() => {});
-                });
+                }, (downloadJobId) => registerDownloadJob(sessionKey, downloadJobId));
+                throwIfCancelled(sessionKey);
                 await updateInstallProgress(sessionKey, 'validating', 0.99, onProgress, options?.onStageChange, { jobId: jobId || '', outputUrl });
                 resolvedModelDir = await validateModelPackageWithRetry(resolvedModelDir);
             } catch (compiledError) {
@@ -331,6 +374,7 @@ export const downloadModel = async (
                 await updateInstallProgress(sessionKey, 'local_conversion_requested', 0.55, onProgress, options?.onStageChange, { jobId: jobId || '', outputUrl });
                 resolvedModelDir = await tryLocalConversion(
                     RNFS,
+                    sessionKey,
                     model,
                     file,
                     modelDir,
@@ -368,11 +412,22 @@ export const downloadModel = async (
 
         return resolvedModelDir;
     } catch (error) {
+        if (String((error as any)?.message || '').includes('Download cancelled')) {
+            await patchModelInstallSession(sessionKey, {
+                stage: 'cancelled',
+                progress: 0,
+            });
+            await swallowAsync(RNFS.unlink(modelDir));
+            await removeModelInstallSession(sessionKey);
+            throw error;
+        }
         await patchModelInstallSession(sessionKey, {
             stage: 'failed',
             progress: 0,
         });
         throw error;
+    } finally {
+        clearInstallTask(sessionKey);
     }
 };
 
@@ -408,6 +463,10 @@ export const resumePendingModelDownloads = async (handlers?: {
         if (session.stage === 'failed') {
             continue;
         }
+        if (session.stage === 'cancelled') {
+            await removeModelInstallSession(session.key);
+            continue;
+        }
         try {
             const path = await downloadModel(
                 session.model,
@@ -440,8 +499,21 @@ export const deleteModel = async (id: string, path: string) => {
 };
 
 export const cancelDownload = async (modelId: string) => {
-    // RNFS download cancellation requires job ID. 
-    // In this simple impl, we don't track job IDs globally exposed yet.
-    // For now, no-op or implement job tracking map if needed.
-    console.warn("Cancel download not fully implemented for RNFS");
+    const RNFS = getReactNativeFs();
+    const sessions = await listModelInstallSessions();
+    const activeSessions = sessions.filter((session) => session.model.id === modelId);
+    for (const session of activeSessions) {
+        const task = ensureInstallTask(session.key);
+        task.cancelRequested = true;
+        if (typeof session.jobId === 'number') {
+            task.downloadJobIds.add(session.jobId);
+        }
+        if (typeof RNFS?.stopDownload === 'function') {
+            await Promise.all(Array.from(task.downloadJobIds).map((jobId) => swallowAsync(RNFS.stopDownload(jobId))));
+        }
+        await patchModelInstallSession(session.key, {
+            stage: 'cancelled',
+            progress: 0,
+        });
+    }
 };

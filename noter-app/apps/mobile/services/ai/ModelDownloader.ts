@@ -221,7 +221,8 @@ export const downloadCompiledModel = async (
   url: string,
   modelId: string,
   quantization?: string,
-  onProgress?: (percent: number) => void
+  onProgress?: (percent: number) => void,
+  onJobCreated?: (jobId: number) => void
 ) => {
   const RNFS = getReactNativeFs();
   const ZipArchive = getZipArchive();
@@ -245,6 +246,9 @@ export const downloadCompiledModel = async (
       onProgress(percent);
     },
   });
+  if (typeof download?.jobId === 'number') {
+    onJobCreated?.(download.jobId);
+  }
   const result = await download.promise;
   if (result.statusCode !== 200) {
     await RNFS.unlink(zipPath).catch(() => {});

@@ -12,13 +12,26 @@ export const resolveWebBaseUrl = () => {
 };
 
 const fetchJson = async (url: string) => {
-    const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-            'Accept': 'application/json',
-            'Cache-Control': 'no-cache'
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    let response: Response;
+    try {
+        response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'Accept': 'application/json',
+                'Cache-Control': 'no-cache'
+            },
+            signal: controller.signal,
+        });
+    } catch (error: any) {
+        if (error?.name === 'AbortError') {
+            throw new Error('Request timed out');
         }
-    });
+        throw error;
+    } finally {
+        clearTimeout(timeout);
+    }
 
     if (!response.ok) {
         const text = await response.text().catch(() => '');
@@ -98,16 +111,29 @@ export const requestModelConversion = async (params: {
 }): Promise<{ jobId: string }> => {
     const webBase = resolveWebBaseUrl();
     const quant = (params.quantization || 'Q4_K_M').toUpperCase();
-    const res = await fetch(`${webBase}/api/ai/models/convert`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            modelId: params.modelId,
-            ggufUrl: params.ggufUrl,
-            quant: quant,
-            platform: params.platform
-        })
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+    let res: Response;
+    try {
+        res = await fetch(`${webBase}/api/ai/models/convert`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                modelId: params.modelId,
+                ggufUrl: params.ggufUrl,
+                quant: quant,
+                platform: params.platform
+            }),
+            signal: controller.signal,
+        });
+    } catch (error: any) {
+        if (error?.name === 'AbortError') {
+            throw new Error('Conversion request timed out');
+        }
+        throw error;
+    } finally {
+        clearTimeout(timeout);
+    }
     if (!res.ok) {
         const text = await res.text().catch(() => '');
         throw new Error(`HTTP ${res.status} ${text.substring(0, 100)}`);

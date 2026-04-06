@@ -4,6 +4,7 @@ const mockUnlink = jest.fn();
 const mockReadDir = jest.fn();
 const mockDownloadPromise = jest.fn();
 const mockDownloadFile = jest.fn();
+const mockStopDownload = jest.fn();
 const mockUnzip = jest.fn();
 const mockConvertGGUFToMLC = jest.fn();
 const mockGetLocalConversionCapabilities = jest.fn();
@@ -19,6 +20,7 @@ jest.mock('react-native-fs', () => ({
   unlink: (path: string) => mockUnlink(path),
     readDir: (path: string) => mockReadDir(path),
   downloadFile: (...args: any[]) => mockDownloadFile(...args),
+  stopDownload: (...args: any[]) => mockStopDownload(...args),
   default: {
     DocumentDirectoryPath: '/docs',
     exists: (path: string) => mockExists(path),
@@ -26,6 +28,7 @@ jest.mock('react-native-fs', () => ({
     unlink: (path: string) => mockUnlink(path),
     downloadFile: (...args: any[]) => mockDownloadFile(...args),
     readDir: (path: string) => mockReadDir(path),
+    stopDownload: (...args: any[]) => mockStopDownload(...args),
   },
 }));
 
@@ -82,6 +85,7 @@ describe('AI Models', () => {
     mockReadDir.mockReset();
     mockDownloadPromise.mockReset();
     mockDownloadFile.mockReset();
+    mockStopDownload.mockReset();
     mockUnzip.mockReset();
     mockConvertGGUFToMLC.mockReset();
     mockGetLocalConversionCapabilities.mockReset();
@@ -204,6 +208,30 @@ describe('AI Models', () => {
     await resumePendingModelDownloads({ onCompleted: completed });
 
     expect(completed).toHaveBeenCalledWith('user/model', '/docs/mlc_models/user_model/Q4_K_M');
+  });
+
+  it('cancels active downloads and marks sessions as cancelled', async () => {
+    const { cancelDownload } = require('../services/ai/modelService');
+    const installSession = require('../services/ai/installSession');
+
+    installSession.listModelInstallSessions.mockResolvedValue([
+      {
+        key: 'user/model::Q4_K_M',
+        model: { id: 'user/model', name: 'model', author: 'user', downloads: 0, likes: 0, tags: [] },
+        file: { filename: 'model.Q4_K_M.gguf', size: 123, url: 'https://hf.test/model.gguf', quantization: 'Q4_K_M' },
+        stage: 'downloading_gguf',
+        progress: 0.3,
+        jobId: 42,
+      },
+    ]);
+
+    await cancelDownload('user/model');
+
+    expect(mockStopDownload).toHaveBeenCalledWith(42);
+    expect(installSession.patchModelInstallSession).toHaveBeenCalledWith('user/model::Q4_K_M', expect.objectContaining({
+      stage: 'cancelled',
+      progress: 0,
+    }));
   });
 
   it('persists normalized model path when package root changes', async () => {

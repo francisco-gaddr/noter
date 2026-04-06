@@ -18,6 +18,7 @@ type Options = {
   formatError: (error: unknown) => string;
   isMountedRef: React.MutableRefObject<boolean>;
   modelLoadRequestRef: React.MutableRefObject<number>;
+  searchRequestRef: React.MutableRefObject<number>;
   resumingDownloadsRef: React.MutableRefObject<boolean>;
   activeModel: string | null;
   activatingModelId: string | null;
@@ -43,6 +44,7 @@ export const useAiModelController = ({
   formatError,
   isMountedRef,
   modelLoadRequestRef,
+  searchRequestRef,
   resumingDownloadsRef,
   activeModel,
   activatingModelId,
@@ -214,6 +216,7 @@ export const useAiModelController = ({
         },
         onCompleted: async (modelId, path) => {
           const preparedPath = await prepareModelForChat(path);
+          await provider.loadModel(preparedPath);
           await loadModels();
           if (!isMountedRef.current) return;
           setActiveModel(preparedPath);
@@ -243,32 +246,45 @@ export const useAiModelController = ({
 
   const handleSearch = useCallback(async (searchQuery: string) => {
     if (!searchQuery) return;
+    const requestId = ++searchRequestRef.current;
     setIsSearching(true);
     setLoading(true);
     setSearchResults([]);
     setSearchSizes({});
     try {
       const results = await searchHuggingFaceModels(searchQuery);
+      if (!isMountedRef.current || requestId !== searchRequestRef.current) {
+        return;
+      }
       if (results.length === 0) {
-        alert('No models found matching your query.');
+        alert(t('ai.noModelsMatchedQuery'));
       }
       setSearchResults(results);
-      results.forEach(async (model) => {
+      const sizes = await Promise.all(results.map(async (model) => {
         try {
           const files = await getModelFiles(model.id);
           const best = getBestQuantization(files);
-          setSearchSizes((prev) => ({ ...prev, [model.id]: best?.size ?? null }));
+          return [model.id, best?.size ?? null] as const;
         } catch {
-          setSearchSizes((prev) => ({ ...prev, [model.id]: null }));
+          return [model.id, null] as const;
         }
-      });
+      }));
+      if (!isMountedRef.current || requestId !== searchRequestRef.current) {
+        return;
+      }
+      setSearchSizes(Object.fromEntries(sizes));
     } catch (error) {
-      alert('Search failed: ' + String(error));
+      if (!isMountedRef.current || requestId !== searchRequestRef.current) {
+        return;
+      }
+      alert(formatError(error));
     } finally {
-      setIsSearching(false);
-      setLoading(false);
+      if (requestId === searchRequestRef.current) {
+        setIsSearching(false);
+        setLoading(false);
+      }
     }
-  }, [setIsSearching, setLoading, setSearchResults, setSearchSizes]);
+  }, [formatError, isMountedRef, searchRequestRef, setIsSearching, setLoading, setSearchResults, setSearchSizes, t]);
 
   const downloadModel = useCallback(async (model: HFModel) => {
     try {
@@ -285,7 +301,7 @@ export const useAiModelController = ({
       const file = getBestQuantization(files);
 
       if (!file) {
-        alert('No suitable GGUF file found for this model');
+        alert(t('ai.noCompatibleModelFile'));
         clearModelProgress(model.id);
         return;
       }
@@ -299,14 +315,15 @@ export const useAiModelController = ({
 
       await loadModels();
       const preparedPath = await prepareModelForChat(installedPath);
+      await provider.loadModel(preparedPath);
       setActiveModel(preparedPath);
-      alert(`Modellen ${model.name} installerades, aktiverades och är redo för chatt.`);
+      alert(t('ai.modelInstalledReady'));
       clearModelProgress(model.id);
     } catch (error) {
-      alert('Download failed: ' + formatError(error));
+      alert(formatError(error));
       clearModelProgress(model.id);
     }
-  }, [clearModelProgress, formatError, loadModels, preferLocalConversion, setActiveModel, setDownloadProgress, setDownloadStage, setProcessingModels]);
+  }, [clearModelProgress, formatError, loadModels, preferLocalConversion, provider, setActiveModel, setDownloadProgress, setDownloadStage, setProcessingModels, t]);
 
   const runDeviceLocalConversionCheck = useCallback(async (model: HFModel) => {
     let localStageObserved = false;
@@ -321,7 +338,7 @@ export const useAiModelController = ({
       const files = await getModelFiles(model.id);
       const file = getBestQuantization(files);
       if (!file) {
-        throw new Error('No suitable GGUF file found for this model');
+        throw new Error(t('ai.noCompatibleModelFile'));
       }
       await serviceDownloadModel(model, file, (percent) => {
         setDownloadProgress((prev) => ({ ...prev, [model.id]: percent }));
@@ -355,16 +372,16 @@ export const useAiModelController = ({
 
   const handleDeleteModel = useCallback(async (model: LocalModelEntry) => {
     if (isModelSelected(model)) {
-      alert('Cannot delete active model');
+      alert(t('ai.deleteActiveModelBlocked'));
       return;
     }
     try {
       await serviceDeleteModel(model.id, model.path);
       await loadModels();
     } catch (error) {
-      alert('Delete failed: ' + String(error));
+      alert(formatError(error));
     }
-  }, [isModelSelected, loadModels]);
+  }, [formatError, isModelSelected, loadModels, t]);
 
   const handleActivateModel = useCallback(async (model: LocalModelEntry) => {
     if (model.invalidReason) {
