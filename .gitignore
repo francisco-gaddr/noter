@@ -17,16 +17,24 @@ node_modules
 # Local AI/Trae files
 .trae/
 **/.trae/
+.trae-local/
+**/.trae-local/
+.trae-docs/
+**/.trae-docs/
 AGENTS.md
 agent.md
 *.agent.md
 INSTRUCTIONS.md
 RULES_INDEX.md
+TRAE*.md
+*.trae.md
 **/AGENTS.md
 **/agent.md
 **/*.agent.md
 **/INSTRUCTIONS.md
 **/RULES_INDEX.md
+**/TRAE*.md
+**/*.trae.md
 
 # Local IDE/assistant files
 .vscode/
