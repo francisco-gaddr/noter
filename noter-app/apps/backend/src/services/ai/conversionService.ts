@@ -112,7 +112,20 @@ const runLocalConversion = async (job: ConversionJob) => {
       outDir,
     ];
     await new Promise<void>((resolve, reject) => {
-      const proc = spawn(resolved.command, args, { stdio: 'inherit' });
+      const proc = spawn(resolved.command, args, {
+        stdio: 'inherit',
+        env: resolved.envPathEntries?.length
+          ? {
+              ...process.env,
+              PATH: [...resolved.envPathEntries, process.env.Path || process.env.PATH || '']
+                .filter(Boolean)
+                .join(path.delimiter),
+              Path: [...resolved.envPathEntries, process.env.Path || process.env.PATH || '']
+                .filter(Boolean)
+                .join(path.delimiter),
+            }
+          : process.env,
+      });
       proc.on('exit', (code) => {
         if (code === 0) resolve();
         else reject(new Error(`MLC-konvertering misslyckades via ${resolved.display} (${code})`));

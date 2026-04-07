@@ -2478,14 +2478,16 @@ export default function AIScreen() {
                             {t('ai.download')}
                           </Button>
                         )}
-                        <Button
-                          mode="text"
-                          onPress={() => runDeviceLocalConversionCheck(item)}
-                          disabled={!!processingModels[item.id]}
-                          compact
-                        >
-                          {t('ai.deviceE2ECheck')}
-                        </Button>
+                        {__DEV__ ? (
+                          <Button
+                            mode="text"
+                            onPress={() => runDeviceLocalConversionCheck(item)}
+                            disabled={!!processingModels[item.id]}
+                            compact
+                          >
+                            {t('ai.deviceE2ECheck')}
+                          </Button>
+                        ) : null}
                         {typeof downloadProgress[item.id] === 'number' && (
                           <View style={{ width: 120, marginTop: 6 }}>
                             <ProgressBar progress={downloadProgress[item.id]} />

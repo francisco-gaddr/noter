@@ -5,6 +5,7 @@ describe('mlcBinary resolution', () => {
     jest.resetModules();
     jest.restoreAllMocks();
     delete process.env.MLC_LLM_BIN;
+    delete process.env.LOCALAPPDATA;
     Object.defineProperty(process, 'platform', { value: originalPlatform });
   });
 
@@ -37,6 +38,7 @@ describe('mlcBinary resolution', () => {
 
   it('uses py module fallback on windows', async () => {
     Object.defineProperty(process, 'platform', { value: 'win32' });
+    process.env.LOCALAPPDATA = 'C:\\Users\\oscar\\AppData\\Local';
     const spawnMock = jest.fn((command: string, args: string[]) => {
       const listeners: Record<string, Array<(value?: any) => void>> = {};
       const proc = {
@@ -61,10 +63,20 @@ describe('mlcBinary resolution', () => {
     jest.doMock('fs/promises', () => ({
       __esModule: true,
       default: {
-        readdir: jest.fn().mockResolvedValue([]),
+        readdir: jest.fn().mockImplementation(async (target: string) => {
+          if (target.endsWith('Programs\\Python')) {
+            return [{ name: 'Python311', isDirectory: () => true }];
+          }
+          return [];
+        }),
         access: jest.fn().mockRejectedValue(new Error('missing')),
       },
-      readdir: jest.fn().mockResolvedValue([]),
+      readdir: jest.fn().mockImplementation(async (target: string) => {
+        if (target.endsWith('Programs\\Python')) {
+          return [{ name: 'Python311', isDirectory: () => true }];
+        }
+        return [];
+      }),
       access: jest.fn().mockRejectedValue(new Error('missing')),
     }));
 
@@ -73,5 +85,14 @@ describe('mlcBinary resolution', () => {
 
     expect(resolved.command).toBe('py');
     expect(resolved.prefixArgs).toEqual(['-m', 'mlc_llm']);
+    expect(spawnMock).toHaveBeenCalledWith(
+      'py',
+      ['-m', 'mlc_llm', '--help'],
+      expect.objectContaining({
+        env: expect.objectContaining({
+          Path: expect.stringContaining('Python311\\Lib\\site-packages\\tvm'),
+        }),
+      })
+    );
   });
 });

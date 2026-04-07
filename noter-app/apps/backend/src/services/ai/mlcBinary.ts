@@ -8,6 +8,7 @@ export type ResolvedMlcCommand = {
   prefixArgs: string[];
   display: string;
   source: 'env' | 'py-module' | 'python-module' | 'path' | 'python-scripts';
+  envPathEntries?: string[];
 };
 
 type Candidate = ResolvedMlcCommand;
@@ -51,9 +52,72 @@ const executableExists = async (filePath: string) => {
   }
 };
 
+const getPythonRuntimeDirsFromScripts = (scriptsDir: string) => {
+  const pythonDir = path.resolve(scriptsDir, '..');
+  const sitePackagesDir = path.join(pythonDir, 'Lib', 'site-packages');
+  return [
+    scriptsDir,
+    pythonDir,
+    path.join(pythonDir, 'DLLs'),
+    sitePackagesDir,
+    path.join(sitePackagesDir, 'tvm'),
+    path.join(sitePackagesDir, 'tvm', 'lib'),
+    path.join(sitePackagesDir, 'torch', 'lib'),
+  ];
+};
+
+const buildEnvPathEntries = async () => {
+  if (!isWindows) {
+    return [];
+  }
+  const scriptDirs = await listPythonScriptDirs();
+  const home = os.homedir();
+  const extraLibraryRoots = [
+    process.env.CONDA_PREFIX ? path.join(process.env.CONDA_PREFIX, 'Library', 'bin') : '',
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'miniconda3', 'Library', 'bin') : '',
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'anaconda3', 'Library', 'bin') : '',
+    home ? path.join(home, 'miniconda3', 'Library', 'bin') : '',
+    home ? path.join(home, 'anaconda3', 'Library', 'bin') : '',
+    'C:\\pinokio\\bin\\miniconda\\Library\\bin',
+  ].filter(Boolean);
+  const availableLibraryRoots = (
+    await Promise.all(
+      extraLibraryRoots.map(async (dirPath) => ((await executableExists(path.join(dirPath, 'zstd.dll'))) ? dirPath : ''))
+    )
+  ).filter(Boolean);
+  return dedupe([
+    ...scriptDirs.flatMap((scriptsDir) => getPythonRuntimeDirsFromScripts(scriptsDir)),
+    ...availableLibraryRoots,
+  ]);
+};
+
+const buildCandidateEnv = (candidate: Candidate) => {
+  const pathEntries = (candidate.envPathEntries || []).filter(Boolean);
+  if (pathEntries.length === 0) {
+    return process.env;
+  }
+  const delimiter = path.delimiter;
+  const currentPath = process.env.Path || process.env.PATH || '';
+  const nextPath = dedupe([...pathEntries, ...currentPath.split(delimiter).filter(Boolean)]).join(delimiter);
+  return {
+    ...process.env,
+    PATH: nextPath,
+    Path: nextPath,
+  };
+};
+
 const probeCandidate = async (candidate: Candidate) =>
   new Promise<boolean>((resolve) => {
-    const proc = spawn(candidate.command, [...candidate.prefixArgs, '--help'], { stdio: 'ignore' });
+    let proc;
+    try {
+      proc = spawn(candidate.command, [...candidate.prefixArgs, '--help'], {
+        stdio: 'ignore',
+        env: buildCandidateEnv(candidate),
+      });
+    } catch {
+      resolve(false);
+      return;
+    }
     const timeout = setTimeout(() => {
       proc.kill();
       resolve(false);
@@ -71,6 +135,7 @@ const probeCandidate = async (candidate: Candidate) =>
 const buildCandidates = async (): Promise<Candidate[]> => {
   const envBinary = (process.env.MLC_LLM_BIN || '').trim();
   const candidates: Candidate[] = [];
+  const windowsRuntimeDirs = await buildEnvPathEntries();
 
   if (envBinary) {
     candidates.push({
@@ -78,6 +143,7 @@ const buildCandidates = async (): Promise<Candidate[]> => {
       prefixArgs: [],
       display: envBinary,
       source: 'env',
+      envPathEntries: windowsRuntimeDirs,
     });
   }
 
@@ -88,12 +154,14 @@ const buildCandidates = async (): Promise<Candidate[]> => {
         prefixArgs: ['-m', 'mlc_llm'],
         display: 'py -m mlc_llm',
         source: 'py-module',
+        envPathEntries: windowsRuntimeDirs,
       },
       {
         command: 'python',
         prefixArgs: ['-m', 'mlc_llm'],
         display: 'python -m mlc_llm',
         source: 'python-module',
+        envPathEntries: windowsRuntimeDirs,
       }
     );
 
@@ -107,6 +175,7 @@ const buildCandidates = async (): Promise<Candidate[]> => {
             prefixArgs: [],
             display: filePath,
             source: 'python-scripts',
+            envPathEntries: getPythonRuntimeDirsFromScripts(scriptsDir),
           });
         }
       }
@@ -133,6 +202,7 @@ const buildCandidates = async (): Promise<Candidate[]> => {
     prefixArgs: [],
     display: 'mlc_llm',
     source: 'path',
+    envPathEntries: windowsRuntimeDirs,
   });
 
   const seen = new Set<string>();
@@ -148,7 +218,7 @@ const buildCandidates = async (): Promise<Candidate[]> => {
 
 export const getMlcInstallHint = () =>
   isWindows
-    ? 'MLC-binären hittades inte. Appen försöker använda py/python automatiskt. Om problemet kvarstår, sätt MLC_LLM_BIN eller kör electron-noter/scripts/setup-mlc.ps1.'
+    ? 'MLC-binären eller dess Windows-runtime hittades inte. Appen försöker använda py/python automatiskt. Om problemet kvarstår, kör electron-noter/scripts/setup-mlc.ps1 och verifiera Python Scripts, site-packages, tvm/lib, torch/lib, eventuell Conda Library/bin och VC++-runtime.'
     : 'MLC-binären hittades inte. Sätt MLC_LLM_BIN eller installera mlc_llm i PATH.';
 
 export const resolveMlcCommand = async (): Promise<ResolvedMlcCommand> => {
