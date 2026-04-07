@@ -11,6 +11,8 @@ on:
       - 'noter-app/.gitignore'
       - 'noter-app/.easignore'
       - 'noter-app/.dockerignore'
+      - 'noter-app/package.json'
+      - 'noter-app/scripts/local-assistant-guard.mjs'
       - 'noter-app/scripts/open-source-sanity-check.mjs'
       - 'noter-app/**'
   push:
@@ -26,10 +28,29 @@ on:
       - 'noter-app/.gitignore'
       - 'noter-app/.easignore'
       - 'noter-app/.dockerignore'
+      - 'noter-app/package.json'
+      - 'noter-app/scripts/local-assistant-guard.mjs'
       - 'noter-app/scripts/open-source-sanity-check.mjs'
       - 'noter-app/**'
 
 jobs:
+  local-assistant-guard:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: noter-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: noter-app/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Verify local assistant files stay local
+        run: npm run test:repo:local-assistant-guard
+
   validate-monorepo:
     runs-on: ubuntu-latest
     defaults:
