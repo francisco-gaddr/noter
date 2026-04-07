@@ -366,6 +366,7 @@ export default function AIScreen() {
   const [conversionHealthDetailText, setConversionHealthDetailText] = useState<string>('');
   const [deviceConversionHealthText, setDeviceConversionHealthText] = useState<string>('');
   const [searchSizes, setSearchSizes] = useState<Record<string, number | null>>({});
+  const [searchCompiledAvailability, setSearchCompiledAvailability] = useState<Record<string, boolean>>({});
 
   // History
   const [conversations, setConversations] = useState<LocalConversation[]>([]);
@@ -543,6 +544,7 @@ export default function AIScreen() {
       setActiveModel,
       setSearchResults,
       setSearchSizes,
+      setSearchCompiledAvailability,
       setIsSearching,
       setProcessingModels,
       setDownloadProgress,
@@ -2473,11 +2475,18 @@ export default function AIScreen() {
                           <Button
                             mode="contained-tonal"
                             onPress={() => downloadModel(item)}
-                            disabled={!!processingModels[item.id]}
+                            disabled={!!processingModels[item.id] || searchCompiledAvailability[item.id] !== true}
                           >
                             {t('ai.download')}
                           </Button>
                         )}
+                        <Text style={{ fontSize: 10, marginTop: 4, color: theme.colors.onSurfaceVariant }}>
+                          {searchCompiledAvailability[item.id] === true
+                            ? t('ai.compiledPackageReady')
+                            : searchCompiledAvailability[item.id] === false
+                              ? t('ai.compiledPackageMissing')
+                              : t('ai.compiledPackageChecking')}
+                        </Text>
                         {__DEV__ ? (
                           <Button
                             mode="text"

@@ -2,10 +2,11 @@ import type React from 'react';
 import { useCallback, useEffect } from 'react';
 import { AIModel } from '@repo/shared';
 import { HFModel } from '@repo/ai';
-import { getConversionHealth, getModelFiles, searchHuggingFaceModels } from '@/services/ai/huggingface';
+import { getCompiledModelUrl, getConversionHealth, getModelFiles, searchHuggingFaceModels } from '@/services/ai/huggingface';
 import { downloadModel as serviceDownloadModel, getBestQuantization, deleteModel as serviceDeleteModel, cancelDownload as cancelModelDownload, normalizeStoredModelRecord, prepareModelForChat, resumePendingModelDownloads } from '@/services/ai/modelService';
 import { getModelInstallBlocker, getLocalAiRuntimeStatus } from '@/services/ai/nativeRuntime';
 import { getLocalConversionCapabilities } from '@/services/ai/native/MLCModule';
+import { getPlatformTarget } from '@/services/ai/ModelDownloader';
 import { getModelsLocal, saveModelLocal } from '@/services/database';
 import { MobileLlamaProvider } from '@/services/ai/provider';
 import { listModelInstallSessions } from '@/services/ai/installSession';
@@ -28,6 +29,7 @@ type Options = {
   setActiveModel: React.Dispatch<React.SetStateAction<string | null>>;
   setSearchResults: React.Dispatch<React.SetStateAction<HFModel[]>>;
   setSearchSizes: React.Dispatch<React.SetStateAction<Record<string, number | null>>>;
+  setSearchCompiledAvailability: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   setIsSearching: React.Dispatch<React.SetStateAction<boolean>>;
   setProcessingModels: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   setDownloadProgress: React.Dispatch<React.SetStateAction<Record<string, number>>>;
@@ -54,6 +56,7 @@ export const useAiModelController = ({
   setActiveModel,
   setSearchResults,
   setSearchSizes,
+  setSearchCompiledAvailability,
   setIsSearching,
   setProcessingModels,
   setDownloadProgress,
@@ -251,6 +254,7 @@ export const useAiModelController = ({
     setLoading(true);
     setSearchResults([]);
     setSearchSizes({});
+    setSearchCompiledAvailability({});
     try {
       const results = await searchHuggingFaceModels(searchQuery);
       if (!isMountedRef.current || requestId !== searchRequestRef.current) {
@@ -260,19 +264,29 @@ export const useAiModelController = ({
         alert(t('ai.noModelsMatchedQuery'));
       }
       setSearchResults(results);
-      const sizes = await Promise.all(results.map(async (model) => {
+      const platform = getPlatformTarget();
+      const metadata = await Promise.all(results.map(async (model) => {
         try {
           const files = await getModelFiles(model.id);
           const best = getBestQuantization(files);
-          return [model.id, best?.size ?? null] as const;
+          if (!best) {
+            return [model.id, { size: null, compiledAvailable: false }] as const;
+          }
+          const compiled = await getCompiledModelUrl({
+            modelId: model.id,
+            quantization: best.quantization,
+            platform,
+          }).catch(() => ({ available: false }));
+          return [model.id, { size: best.size ?? null, compiledAvailable: Boolean(compiled.available) }] as const;
         } catch {
-          return [model.id, null] as const;
+          return [model.id, { size: null, compiledAvailable: false }] as const;
         }
       }));
       if (!isMountedRef.current || requestId !== searchRequestRef.current) {
         return;
       }
-      setSearchSizes(Object.fromEntries(sizes));
+      setSearchSizes(Object.fromEntries(metadata.map(([modelId, value]) => [modelId, value.size])));
+      setSearchCompiledAvailability(Object.fromEntries(metadata.map(([modelId, value]) => [modelId, value.compiledAvailable])));
     } catch (error) {
       if (!isMountedRef.current || requestId !== searchRequestRef.current) {
         return;
@@ -284,7 +298,7 @@ export const useAiModelController = ({
         setLoading(false);
       }
     }
-  }, [formatError, isMountedRef, searchRequestRef, setIsSearching, setLoading, setSearchResults, setSearchSizes, t]);
+  }, [formatError, isMountedRef, searchRequestRef, setIsSearching, setLoading, setSearchCompiledAvailability, setSearchResults, setSearchSizes, t]);
 
   const downloadModel = useCallback(async (model: HFModel) => {
     try {
@@ -302,6 +316,16 @@ export const useAiModelController = ({
 
       if (!file) {
         alert(t('ai.noCompatibleModelFile'));
+        clearModelProgress(model.id);
+        return;
+      }
+      const compiled = await getCompiledModelUrl({
+        modelId: model.id,
+        quantization: file.quantization,
+        platform: getPlatformTarget(),
+      });
+      if (!compiled.available) {
+        alert(t('ai.compiledPackageUnavailable'));
         clearModelProgress(model.id);
         return;
       }
