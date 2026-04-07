@@ -4,8 +4,14 @@ on:
   pull_request:
     paths:
       - '.github/workflows/monorepo-guardrails.yml'
+      - '.gitignore'
+      - '.easignore'
       - 'README.md'
       - 'Doc/**'
+      - 'noter-app/.gitignore'
+      - 'noter-app/.easignore'
+      - 'noter-app/.dockerignore'
+      - 'noter-app/scripts/open-source-sanity-check.mjs'
       - 'noter-app/**'
   push:
     branches:
@@ -13,8 +19,14 @@ on:
       - master
     paths:
       - '.github/workflows/monorepo-guardrails.yml'
+      - '.gitignore'
+      - '.easignore'
       - 'README.md'
       - 'Doc/**'
+      - 'noter-app/.gitignore'
+      - 'noter-app/.easignore'
+      - 'noter-app/.dockerignore'
+      - 'noter-app/scripts/open-source-sanity-check.mjs'
       - 'noter-app/**'
 
 jobs:

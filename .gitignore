@@ -21,11 +21,23 @@ node_modules
 **/.trae-local/
 .trae-docs/
 **/.trae-docs/
+.claude/
+**/.claude/
+.gemini/
+**/.gemini/
+.copilot/
+**/.copilot/
 AGENTS.md
 agent.md
 *.agent.md
 INSTRUCTIONS.md
 RULES_INDEX.md
+CLAUDE.md
+GEMINI.md
+COPILOT.md
+CURSOR.md
+WINDSURF.md
+AIDER.md
 TRAE*.md
 *.trae.md
 **/AGENTS.md
@@ -33,6 +45,12 @@ TRAE*.md
 **/*.agent.md
 **/INSTRUCTIONS.md
 **/RULES_INDEX.md
+**/CLAUDE.md
+**/GEMINI.md
+**/COPILOT.md
+**/CURSOR.md
+**/WINDSURF.md
+**/AIDER.md
 **/TRAE*.md
 **/*.trae.md
 

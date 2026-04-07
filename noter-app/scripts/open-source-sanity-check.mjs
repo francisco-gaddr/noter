@@ -34,14 +34,27 @@ const ignoredPathFragments = [
 ];
 
 const publicSecretPattern = /\b(?:NEXT_PUBLIC|EXPO_PUBLIC)_[A-Z0-9_]*(?:TOKEN|SECRET|API_KEY|PASSWORD|CLIENT_SECRET)\b/;
+const localAssistantBasenames = [
+  'AGENTS',
+  'agent',
+  'INSTRUCTIONS',
+  'RULES_INDEX',
+  'CLAUDE',
+  'GEMINI',
+  'COPILOT',
+  'CURSOR',
+  'WINDSURF',
+  'AIDER',
+];
 const localAiFileChecks = [
   { label: 'lokal Trae-konfiguration', pattern: /(^|[\\/])\.trae([\\/]|$)/i },
   { label: 'lokal Trae-konfiguration', pattern: /(^|[\\/])\.trae-local([\\/]|$)/i },
   { label: 'lokal Trae-dokumentation', pattern: /(^|[\\/])\.trae-docs([\\/]|$)/i },
-  { label: 'lokal AI-agentfil', pattern: /(^|[\\/])(AGENTS|agent|INSTRUCTIONS|RULES_INDEX)\.md$/i },
+  { label: 'lokal AI-agentfil', pattern: new RegExp(`(^|[\\\\/])(?:${localAssistantBasenames.join('|')})\\.md$`, 'i') },
   { label: 'lokal AI-agentfil', pattern: /(^|[\\/])[^\\/]+\.agent\.md$/i },
   { label: 'lokal AI-agentfil', pattern: /(^|[\\/])TRAE[^\\/]*\.md$/i },
   { label: 'lokal AI-agentfil', pattern: /(^|[\\/])[^\\/]+\.trae\.md$/i },
+  { label: 'lokal AI-agentkatalog', pattern: /(^|[\\/])\.(claude|gemini|copilot)([\\/]|$)/i },
   { label: 'lokal IDE-konfiguration', pattern: /(^|[\\/])\.(vscode|idea|cursor|windsurf|continue|cline|roo|zed|fleet)([\\/]|$)/i },
   { label: 'lokal AI-assistentdata', pattern: /(^|[\\/])\.aider[^\\/]*$/i },
   { label: 'lokal miljökonfiguration', pattern: /(^|[\\/])(\.direnv([\\/]|$)|\.envrc$)/i },
