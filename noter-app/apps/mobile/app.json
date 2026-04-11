@@ -54,6 +54,7 @@
       "expo-task-manager",
       "./plugins/withCustomEntryPoint",
       "./plugins/withCustomBuildGradle",
+      "./plugins/withAndroidMlcBridge",
       [
         "expo-build-properties",
         {
