@@ -1,5 +1,5 @@
 import express, { Request, Response } from 'express';
-import { createConversionJob, getConversionHealth, getConversionJob } from '../services/ai/conversionService';
+import { createConversionJob, ensureConversionJob, getConversionHealth, getConversionJob } from '../services/ai/conversionService';
 import { getCompiledUrl, getZipPath, zipExists } from '../services/ai/mlcStorage';
 
 const router = express.Router();
@@ -84,6 +84,8 @@ router.get('/compiled', async (req: Request, res: Response) => {
   const modelId = String(req.query.modelId || '').trim();
   const platform = String(req.query.platform || '').trim() as 'iphone' | 'android';
   const quant = String(req.query.quant || '').trim();
+  const ggufUrl = String(req.query.ggufUrl || '').trim();
+  const autoCreate = String(req.query.autoCreate || '').trim() === '1';
   if (modelId.length > 128) {
     return json(res, { error: 'modelId too long' }, 400);
   }
@@ -93,7 +95,26 @@ router.get('/compiled', async (req: Request, res: Response) => {
   const url = getCompiledUrl(modelId, platform, quant);
   const available = await zipExists(modelId, platform, quant);
   const filename = `${(quant || 'Q4_K_M').toUpperCase()}.zip`;
-  return json(res, { url, filename, available });
+  if (available) {
+    return json(res, { url, filename, available: true });
+  }
+  if (!autoCreate) {
+    return json(res, { url, filename, available: false });
+  }
+  if (!/^https?:\/\//i.test(ggufUrl)) {
+    return json(res, { error: 'Invalid ggufUrl' }, 400);
+  }
+  if (!/huggingface\.co/i.test(ggufUrl) && !process.env.ALLOW_EXTERNAL_GGUF_URLS) {
+    return json(res, { error: 'Only huggingface.co ggufUrl is allowed' }, 400);
+  }
+  const job = ensureConversionJob({ modelId, ggufUrl, quant, platform });
+  return json(res, {
+    url,
+    filename,
+    available: false,
+    jobId: job.id,
+    status: job.status,
+  }, 202);
 });
 
 router.get('/compiled-file', async (req: Request, res: Response) => {

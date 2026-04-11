@@ -323,8 +323,10 @@ export const useAiModelController = ({
         modelId: model.id,
         quantization: file.quantization,
         platform: getPlatformTarget(),
+        ggufUrl: file.url,
+        autoCreate: true,
       });
-      if (!compiled.available) {
+      if (!compiled.available && !compiled.jobId) {
         alert(t('ai.compiledPackageUnavailable'));
         clearModelProgress(model.id);
         return;
@@ -334,6 +336,7 @@ export const useAiModelController = ({
         setDownloadProgress((prev) => ({ ...prev, [model.id]: percent }));
       }, {
         preferLocalConversion,
+        existingJobId: compiled.jobId,
         onStageChange: (stage) => setDownloadStage((prev) => ({ ...prev, [model.id]: stage }))
       });
 

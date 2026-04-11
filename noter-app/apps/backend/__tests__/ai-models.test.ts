@@ -3,6 +3,7 @@ import { app, server } from '../src/index';
 
 jest.mock('../src/services/ai/conversionService', () => ({
   createConversionJob: jest.fn(() => 'job-1'),
+  ensureConversionJob: jest.fn(() => ({ id: 'job-1', status: 'queued' })),
   getConversionJob: jest.fn(() => ({ status: 'completed', progress: 1, outputUrl: 'https://models.test/q4.zip' })),
   getConversionHealth: jest.fn(async () => ({
     mode: 'local',
@@ -36,6 +37,32 @@ describe('AI Models API', () => {
     expect(res.status).toBe(200);
     expect(res.body.url).toBe('https://models.example.com/iphone/user%2Fmodel/Q4_K_M.zip');
     expect(typeof res.body.available).toBe('boolean');
+  });
+
+  it('starts or reuses conversion job from compiled endpoint when package is missing', async () => {
+    const res = await request(app).get('/api/ai/models/compiled').query({
+      modelId: 'user/model',
+      platform: 'android',
+      quant: 'Q4_K_M',
+      autoCreate: '1',
+      ggufUrl: 'https://huggingface.co/user/model/resolve/main/model.Q4_K_M.gguf',
+    });
+    expect(res.status).toBe(202);
+    expect(res.body.available).toBe(false);
+    expect(res.body.jobId).toBe('job-1');
+    expect(res.body.status).toBe('queued');
+  });
+
+  it('rejects compiled auto-create without valid huggingface gguf url', async () => {
+    const res = await request(app).get('/api/ai/models/compiled').query({
+      modelId: 'user/model',
+      platform: 'android',
+      quant: 'Q4_K_M',
+      autoCreate: '1',
+      ggufUrl: 'https://example.com/model.gguf',
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain('huggingface.co');
   });
 
   it('starts conversion job', async () => {

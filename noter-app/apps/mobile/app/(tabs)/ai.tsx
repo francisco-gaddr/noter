@@ -2475,7 +2475,7 @@ export default function AIScreen() {
                           <Button
                             mode="contained-tonal"
                             onPress={() => downloadModel(item)}
-                            disabled={!!processingModels[item.id] || searchCompiledAvailability[item.id] !== true}
+                            disabled={!!processingModels[item.id]}
                           >
                             {t('ai.download')}
                           </Button>
@@ -2484,7 +2484,7 @@ export default function AIScreen() {
                           {searchCompiledAvailability[item.id] === true
                             ? t('ai.compiledPackageReady')
                             : searchCompiledAvailability[item.id] === false
-                              ? t('ai.compiledPackageMissing')
+                              ? t('ai.compiledPackageAutoCreate')
                               : t('ai.compiledPackageChecking')}
                         </Text>
                         {__DEV__ ? (

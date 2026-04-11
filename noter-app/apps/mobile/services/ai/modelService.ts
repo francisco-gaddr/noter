@@ -1,7 +1,7 @@
 import { HFFile, HFModel } from '@repo/ai';
 import { saveModelLocal, deleteModelLocal } from '@/services/database';
 import { downloadCompiledModel, getModelDir, getPlatformTarget, validateModelPackage, validateModelPackageWithRetry } from './ModelDownloader';
-import { getConversionStatus, getCompiledModelUrl } from './huggingface';
+import { getConversionStatus, getCompiledModelUrl, requestModelConversion } from './huggingface';
 import { getReactNativeFs } from './nativeRuntime';
 import { convertGGUFToMLC, getLocalConversionCapabilities } from './native/MLCModule';
 import {
@@ -289,7 +289,18 @@ export const downloadModel = async (
                 let jobId = options?.existingJobId;
 
                 if (!outputUrl && !jobId) {
-                    throw new Error('Compiled package unavailable');
+                    const created = await requestModelConversion({
+                        modelId: model.id,
+                        ggufUrl: file.url,
+                        quantization: file.quantization,
+                        platform
+                    });
+                    jobId = created.jobId;
+                    await patchModelInstallSession(sessionKey, {
+                        jobId,
+                        stage: 'converting_server',
+                        progress: 0.15,
+                    });
                 }
 
                 const maxAttempts = 120;

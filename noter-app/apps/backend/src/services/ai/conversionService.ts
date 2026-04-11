@@ -207,6 +207,31 @@ export const createConversionJob = (input: {
   return id;
 };
 
+export const ensureConversionJob = (input: {
+  modelId: string;
+  ggufUrl: string;
+  quant?: string;
+  platform: 'iphone' | 'android';
+}) => {
+  const normalizedQuant = normalizeQuant(input.quant);
+  const existing = Array.from(jobs.values())
+    .sort((left, right) => right.updatedAt - left.updatedAt)
+    .find((job) =>
+      job.modelId === input.modelId
+      && job.ggufUrl === input.ggufUrl
+      && job.quant === normalizedQuant
+      && job.platform === input.platform
+      && job.status !== 'failed'
+    );
+
+  if (existing) {
+    return existing;
+  }
+
+  const jobId = createConversionJob(input);
+  return jobs.get(jobId)!;
+};
+
 export const getConversionJob = (id: string) => {
   return jobs.get(id) || null;
 };

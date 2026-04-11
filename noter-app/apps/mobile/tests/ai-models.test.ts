@@ -132,7 +132,7 @@ describe('AI Models', () => {
     expect(mockConvertGGUFToMLC).toHaveBeenCalled();
   });
 
-  it('requires a precompiled package for normal installs even when local conversion is preferred', async () => {
+  it('starts automatic conversion when compiled package is missing', async () => {
     const { downloadModel } = require('../services/ai/modelService');
     const { requestModelConversion, getCompiledModelUrl } = require('../services/ai/huggingface');
     const downloader = require('../services/ai/ModelDownloader');
@@ -145,10 +145,15 @@ describe('AI Models', () => {
     mockConvertGGUFToMLC.mockRejectedValue(new Error('Local conversion failed'));
     downloader.validateModelPackageWithRetry.mockRejectedValueOnce(new Error('Invalid model package'));
 
-    await expect(downloadModel(model as any, file as any, undefined, { preferLocalConversion: true })).rejects.toThrow('Compiled package unavailable');
+    const result = await downloadModel(model as any, file as any, undefined, { preferLocalConversion: true });
 
+    expect(result).toBe('/docs/mlc_models/user_model/Q4_K_M');
     expect(getCompiledModelUrl).toHaveBeenCalled();
-    expect(requestModelConversion).not.toHaveBeenCalled();
+    expect(requestModelConversion).toHaveBeenCalledWith(expect.objectContaining({
+      modelId: 'user/model',
+      ggufUrl: 'https://hf.test/model.gguf',
+      quantization: 'Q4_K_M',
+    }));
     expect(mockConvertGGUFToMLC).not.toHaveBeenCalled();
   });
 

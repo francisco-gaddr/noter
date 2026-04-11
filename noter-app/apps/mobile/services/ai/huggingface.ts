@@ -92,15 +92,34 @@ export const getCompiledModelUrl = async (params: {
     modelId: string;
     quantization?: string;
     platform: 'iphone' | 'android';
-}): Promise<{ url: string; filename: string; available: boolean }> => {
+    ggufUrl?: string;
+    autoCreate?: boolean;
+}): Promise<{ url: string; filename: string; available: boolean; jobId?: string; status?: string }> => {
     const webBase = resolveWebBaseUrl();
     const quant = (params.quantization || 'Q4_K_M').toUpperCase();
-    const url = `${webBase}/api/ai/models/compiled?modelId=${encodeURIComponent(params.modelId)}&quant=${encodeURIComponent(quant)}&platform=${params.platform}`;
+    const searchParams = new URLSearchParams({
+        modelId: params.modelId,
+        quant,
+        platform: params.platform,
+    });
+    if (params.ggufUrl) {
+        searchParams.set('ggufUrl', params.ggufUrl);
+    }
+    if (params.autoCreate) {
+        searchParams.set('autoCreate', '1');
+    }
+    const url = `${webBase}/api/ai/models/compiled?${searchParams.toString()}`;
     const data = await fetchJson(url);
     if (!data?.url || !data?.filename) {
         throw new Error('Invalid compiled model response');
     }
-    return { url: data.url, filename: data.filename, available: Boolean(data.available) };
+    return {
+        url: data.url,
+        filename: data.filename,
+        available: Boolean(data.available),
+        jobId: data.jobId ? String(data.jobId) : undefined,
+        status: data.status ? String(data.status) : undefined,
+    };
 };
 
 export const requestModelConversion = async (params: {
