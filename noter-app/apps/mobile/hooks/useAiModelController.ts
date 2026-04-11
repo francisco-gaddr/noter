@@ -319,24 +319,11 @@ export const useAiModelController = ({
         clearModelProgress(model.id);
         return;
       }
-      const compiled = await getCompiledModelUrl({
-        modelId: model.id,
-        quantization: file.quantization,
-        platform: getPlatformTarget(),
-        ggufUrl: file.url,
-        autoCreate: true,
-      });
-      if (!compiled.available && !compiled.jobId) {
-        alert(t('ai.compiledPackageUnavailable'));
-        clearModelProgress(model.id);
-        return;
-      }
 
       const installedPath = await serviceDownloadModel(model, file, (percent) => {
         setDownloadProgress((prev) => ({ ...prev, [model.id]: percent }));
       }, {
         preferLocalConversion,
-        existingJobId: compiled.jobId,
         onStageChange: (stage) => setDownloadStage((prev) => ({ ...prev, [model.id]: stage }))
       });
 

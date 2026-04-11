@@ -116,7 +116,7 @@ describe('AI Models', () => {
     }));
   });
 
-  it('uses local conversion only for strict device checks', async () => {
+  it('uses local conversion directly when local conversion is preferred and supported', async () => {
     const { downloadModel } = require('../services/ai/modelService');
     const model = { id: 'user/model', name: 'model', author: 'user', downloads: 0, likes: 0, tags: [] };
     const file = { filename: 'model.Q4_K_M.gguf', size: 123, url: 'https://hf.test/model.gguf', quantization: 'Q4_K_M' };
@@ -126,7 +126,7 @@ describe('AI Models', () => {
     mockGetLocalConversionCapabilities.mockResolvedValue({ engineAvailable: true, converterAvailable: true });
     mockConvertGGUFToMLC.mockResolvedValue('/docs/mlc_models/user_model/Q4_K_M');
 
-    const result = await downloadModel(model as any, file as any, undefined, { preferLocalConversion: true, strictLocalConversion: true });
+    const result = await downloadModel(model as any, file as any, undefined, { preferLocalConversion: true });
 
     expect(result).toBe('/docs/mlc_models/user_model/Q4_K_M');
     expect(mockConvertGGUFToMLC).toHaveBeenCalled();
@@ -141,8 +141,7 @@ describe('AI Models', () => {
 
     mockExists.mockResolvedValue(false);
     mockDownloadFile.mockReturnValue({ promise: Promise.resolve({ statusCode: 200 }) });
-    mockGetLocalConversionCapabilities.mockResolvedValue({ engineAvailable: true, converterAvailable: true });
-    mockConvertGGUFToMLC.mockRejectedValue(new Error('Local conversion failed'));
+    mockGetLocalConversionCapabilities.mockResolvedValue({ engineAvailable: false, converterAvailable: false });
     downloader.validateModelPackageWithRetry.mockRejectedValueOnce(new Error('Invalid model package'));
 
     const result = await downloadModel(model as any, file as any, undefined, { preferLocalConversion: true });
@@ -181,7 +180,9 @@ describe('AI Models', () => {
 
     mockExists.mockResolvedValue(false);
     mockDownloadFile.mockReturnValue({ promise: Promise.resolve({ statusCode: 200 }) });
-    mockGetLocalConversionCapabilities.mockResolvedValue({ engineAvailable: true, converterAvailable: true });
+    mockGetLocalConversionCapabilities
+      .mockResolvedValueOnce({ engineAvailable: false, converterAvailable: false })
+      .mockResolvedValue({ engineAvailable: true, converterAvailable: true });
     mockConvertGGUFToMLC.mockResolvedValue('/docs/mlc_models/user_model/Q4_K_M/local');
     getCompiledModelUrl.mockResolvedValue({ url: 'https://models.test/compiled.zip', filename: 'Q4_K_M.zip', available: true });
     downloader.validateModelPackageWithRetry.mockRejectedValueOnce(new Error('Invalid model package'));
@@ -230,7 +231,7 @@ describe('AI Models', () => {
         file: { filename: 'model.Q4_K_M.gguf', size: 123, url: 'https://hf.test/model.gguf', quantization: 'Q4_K_M' },
         stage: 'downloading_gguf',
         progress: 0.3,
-        jobId: 42,
+        downloadJobId: 42,
       },
     ]);
 

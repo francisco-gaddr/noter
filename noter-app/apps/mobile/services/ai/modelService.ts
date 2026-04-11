@@ -129,6 +129,7 @@ const clearInstallTask = (sessionKey: string) => {
 const registerDownloadJob = (sessionKey: string, jobId?: number) => {
     if (typeof jobId !== 'number') return;
     ensureInstallTask(sessionKey).downloadJobIds.add(jobId);
+    patchModelInstallSession(sessionKey, { downloadJobId: jobId }).catch(() => {});
 };
 const throwIfCancelled = (sessionKey: string) => {
     if (getInstallTask(sessionKey)?.cancelRequested) {
@@ -176,15 +177,20 @@ const tryLocalConversion = async (
     const safeQuantization = (file.quantization || 'Q4_K_M').toUpperCase().replace(/[^a-zA-Z0-9._-]+/g, '_');
     const ggufPath = `${tempDir}/${safeModelId}_${safeQuantization}.gguf`;
 
-    onStageChange?.('downloading_gguf');
+    await updateInstallProgress(sessionKey, 'downloading_gguf', 0.05, onProgress, onStageChange);
     const download = RNFS.downloadFile({
         fromUrl: file.url,
         toFile: ggufPath,
         background: true,
         discretionary: true,
         progress: (res: { bytesWritten: number; contentLength: number }) => {
-            if (!onProgress || !res.contentLength) return;
-            onProgress(Math.min(0.6, (res.bytesWritten / res.contentLength) * 0.6));
+            if (!res.contentLength) return;
+            const nextProgress = Math.min(0.6, (res.bytesWritten / res.contentLength) * 0.6);
+            onProgress?.(nextProgress);
+            patchModelInstallSession(sessionKey, {
+                stage: 'downloading_gguf',
+                progress: nextProgress,
+            }).catch(() => {});
         },
     });
     registerDownloadJob(sessionKey, download?.jobId);
@@ -196,16 +202,13 @@ const tryLocalConversion = async (
         throw new Error('Failed to download GGUF');
     }
 
-    onStageChange?.('converting_locally');
-    onProgress?.(0.7);
+    await updateInstallProgress(sessionKey, 'converting_locally', 0.7, onProgress, onStageChange);
     const convertedPath = await convertGGUFToMLC(ggufPath, modelDir, file.quantization || 'Q4_K_M', platform);
     throwIfCancelled(sessionKey);
     const finalPath = typeof convertedPath === 'string' && convertedPath ? convertedPath : modelDir;
-    onStageChange?.('validating');
+    await updateInstallProgress(sessionKey, 'validating', 0.92, onProgress, onStageChange);
     const validatedPath = await validateModelPackageWithRetry(finalPath);
     await swallowAsync(RNFS.unlink(ggufPath));
-    onProgress?.(1);
-    onStageChange?.('completed');
     return validatedPath;
 };
 
@@ -244,11 +247,18 @@ export const downloadModel = async (
     const exists = await RNFS.exists(modelDir);
     let resolvedModelDir = modelDir;
     let localConversionAttempted = false;
+    const canAttemptPreferredLocalConversion =
+        preferLocalConversion
+        && localCapabilities.engineAvailable
+        && localCapabilities.converterAvailable;
     try {
         if (!exists) {
             await updateInstallProgress(sessionKey, 'queued', 0, onProgress, options?.onStageChange, options?.existingJobId ? { jobId: options.existingJobId } : undefined);
             throwIfCancelled(sessionKey);
-            if (strictLocalConversion) {
+            if (preferLocalConversion && !strictLocalConversion && !canAttemptPreferredLocalConversion) {
+                await updateInstallProgress(sessionKey, 'local_conversion_unavailable', 0.02, onProgress, options?.onStageChange);
+            }
+            if (strictLocalConversion || canAttemptPreferredLocalConversion) {
                 localConversionAttempted = true;
                 await updateInstallProgress(sessionKey, 'local_conversion_requested', 0.02, onProgress, options?.onStageChange);
                 try {
@@ -262,6 +272,7 @@ export const downloadModel = async (
                         onProgress,
                         options?.onStageChange
                     );
+                    await updateInstallProgress(sessionKey, 'completed', 1, onProgress, options?.onStageChange);
                 } catch (error) {
                     await updateInstallProgress(
                         sessionKey,
@@ -270,7 +281,9 @@ export const downloadModel = async (
                         onProgress,
                         options?.onStageChange
                     );
-                    throw error;
+                    if (strictLocalConversion) {
+                        throw error;
+                    }
                 }
             }
             let validExistingPath: string | null = null;
@@ -505,7 +518,9 @@ export const cancelDownload = async (modelId: string) => {
     for (const session of activeSessions) {
         const task = ensureInstallTask(session.key);
         task.cancelRequested = true;
-        if (typeof session.jobId === 'number') {
+        if (typeof session.downloadJobId === 'number') {
+            task.downloadJobIds.add(session.downloadJobId);
+        } else if (typeof session.jobId === 'number') {
             task.downloadJobIds.add(session.jobId);
         }
         if (typeof RNFS?.stopDownload === 'function') {

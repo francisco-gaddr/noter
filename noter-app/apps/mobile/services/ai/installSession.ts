@@ -13,6 +13,7 @@ export type PersistedModelInstallSession = {
   progress: number;
   platform: 'iphone' | 'android';
   jobId?: string;
+  downloadJobId?: number;
   outputUrl?: string;
   updatedAt: string;
 };

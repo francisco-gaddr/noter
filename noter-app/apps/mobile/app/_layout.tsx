@@ -78,6 +78,7 @@ import { useTranslation } from 'react-i18next';
 import { isExpoGo } from '@/utils/runtime';
 import { runStartupBootstrap } from '@/services/startup';
 import { recordMobileAppReady } from '@/services/perfMetrics';
+import { initializeAiBackgroundInstallRecovery } from '@/services/ai/backgroundInstall';
 
 export function RootLayoutNav() {
   const { actualTheme } = useThemeContext();
@@ -97,6 +98,10 @@ export function RootLayoutNav() {
     return () => {
       active = false;
     };
+  }, []);
+
+  useEffect(() => {
+    initializeAiBackgroundInstallRecovery().catch(() => {});
   }, []);
 
   const router = useRouter();

@@ -5,13 +5,18 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
+import android.content.Context
+import android.os.PowerManager
 import java.io.File
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 class MLCModule(private val reactContext: ReactApplicationContext) : ReactContextBaseJavaModule(reactContext) {
     private var engine: Any? = null
     private var generateMethod: Method? = null
+    private val backgroundExecutor: ExecutorService = Executors.newSingleThreadExecutor()
 
     private val engineCandidates = listOf(
         "ai.mlc.mlcllm.MLCEngine",
@@ -27,6 +32,11 @@ class MLCModule(private val reactContext: ReactApplicationContext) : ReactContex
 
     override fun getName(): String {
         return "MLCModule"
+    }
+
+    override fun invalidate() {
+        backgroundExecutor.shutdownNow()
+        super.invalidate()
     }
 
     private fun findMethod(clazz: Class<*>, vararg names: String): Method? {
@@ -57,6 +67,19 @@ class MLCModule(private val reactContext: ReactApplicationContext) : ReactContex
             3 -> method.invoke(target, inputPath, outputPath, quantization)
             4 -> method.invoke(target, inputPath, outputPath, quantization, platform)
             else -> throw IllegalStateException("Unsupported converter method signature")
+        }
+    }
+
+    private fun <T> runWithWakeLock(label: String, block: () -> T): T {
+        val powerManager = reactContext.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "Noter:$label")
+        try {
+            wakeLock?.acquire(60 * 60 * 1000L)
+            return block()
+        } finally {
+            if (wakeLock?.isHeld == true) {
+                wakeLock.release()
+            }
         }
     }
 
@@ -145,35 +168,44 @@ class MLCModule(private val reactContext: ReactApplicationContext) : ReactContex
 
     @ReactMethod
     fun convertGGUFToMLC(inputPath: String, outputPath: String, quantization: String, platform: String, promise: Promise) {
-        try {
-            val converterClass = loadFirstClass(converterCandidates)
-            val converterMethod = resolveConverterMethod(converterClass)
-                ?: throw IllegalStateException("No compatible converter method found in MLC SDK")
-            val target = if (Modifier.isStatic(converterMethod.modifiers)) null else converterClass.getDeclaredConstructor().newInstance()
-            invokeConverter(converterMethod, target, inputPath, outputPath, quantization, platform)
-            promise.resolve(outputPath)
-        } catch (e: Throwable) {
-            promise.reject("local_conversion_failed", e.message, e)
+        backgroundExecutor.execute {
+            try {
+                runWithWakeLock("local-conversion") {
+                    val converterClass = loadFirstClass(converterCandidates)
+                    val converterMethod = resolveConverterMethod(converterClass)
+                        ?: throw IllegalStateException("No compatible converter method found in MLC SDK")
+                    val target = if (Modifier.isStatic(converterMethod.modifiers)) null else converterClass.getDeclaredConstructor().newInstance()
+                    invokeConverter(converterMethod, target, inputPath, outputPath, quantization, platform)
+                }
+                promise.resolve(outputPath)
+            } catch (e: Throwable) {
+                promise.reject("local_conversion_failed", e.message, e)
+            }
         }
     }
 
     @ReactMethod
     fun runLocalConversionSelfTest(inputPath: String, outputPath: String, quantization: String, promise: Promise) {
-        try {
-            val converterClass = loadFirstClass(converterCandidates)
-            val converterMethod = resolveConverterMethod(converterClass)
-                ?: throw IllegalStateException("No compatible converter method found in MLC SDK")
-            val target = if (Modifier.isStatic(converterMethod.modifiers)) null else converterClass.getDeclaredConstructor().newInstance()
-            invokeConverter(converterMethod, target, inputPath, outputPath, quantization, "android")
-            val map = Arguments.createMap()
-            map.putBoolean("ok", true)
-            map.putString("outputPath", outputPath)
-            map.putBoolean("configExists", File(outputPath, "mlc-chat-config.json").exists())
-            map.putString("converterClass", converterClass.name)
-            map.putString("converterMethod", converterMethod.name)
-            promise.resolve(map)
-        } catch (e: Throwable) {
-            promise.reject("self_test_failed", e.message, e)
+        backgroundExecutor.execute {
+            try {
+                val result = runWithWakeLock("local-conversion-self-test") {
+                    val converterClass = loadFirstClass(converterCandidates)
+                    val converterMethod = resolveConverterMethod(converterClass)
+                        ?: throw IllegalStateException("No compatible converter method found in MLC SDK")
+                    val target = if (Modifier.isStatic(converterMethod.modifiers)) null else converterClass.getDeclaredConstructor().newInstance()
+                    invokeConverter(converterMethod, target, inputPath, outputPath, quantization, "android")
+                    val map = Arguments.createMap()
+                    map.putBoolean("ok", true)
+                    map.putString("outputPath", outputPath)
+                    map.putBoolean("configExists", File(outputPath, "mlc-chat-config.json").exists())
+                    map.putString("converterClass", converterClass.name)
+                    map.putString("converterMethod", converterMethod.name)
+                    map
+                }
+                promise.resolve(result)
+            } catch (e: Throwable) {
+                promise.reject("self_test_failed", e.message, e)
+            }
         }
     }
 }

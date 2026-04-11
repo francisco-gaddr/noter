@@ -22,8 +22,10 @@ const easJsonPath = path.join(rootDir, 'eas.json');
 const packageJsonPath = path.join(rootDir, 'package.json');
 const customEntryPluginPath = path.join(rootDir, 'plugins', 'withCustomEntryPoint.js');
 const customBuildGradlePluginPath = path.join(rootDir, 'plugins', 'withCustomBuildGradle.js');
-const androidBridgePath = path.join(rootDir, 'services', 'ai', 'native', 'android', 'MLCModule.java');
-const androidPackagePath = path.join(rootDir, 'services', 'ai', 'native', 'android', 'MLCPackage.java');
+const androidBridgePath = path.join(rootDir, 'android', 'app', 'src', 'main', 'java', 'com', 'noter', 'app', 'MLCModule.kt');
+const androidPackagePath = path.join(rootDir, 'android', 'app', 'src', 'main', 'java', 'com', 'noter', 'app', 'MLCPackage.kt');
+const androidDeviceE2EPath = path.join(rootDir, 'android', 'app', 'src', 'androidTest', 'java', 'com', 'noter', 'app', 'MLCConverterDeviceE2ETest.kt');
+const androidAppBuildGradlePath = path.join(rootDir, 'android', 'app', 'build.gradle');
 const repoRoot = path.resolve(rootDir, '..', '..');
 const easIgnorePath = path.join(repoRoot, '.easignore');
 const workspaceParentEasIgnorePath = path.resolve(repoRoot, '..', '.easignore');
@@ -91,8 +93,14 @@ if (errors.length === 0) {
   ensure(hasCustomBuildGradlePlugin, 'withCustomBuildGradle-plugin saknas i app.json');
   ensure(fs.existsSync(customEntryPluginPath), 'plugins/withCustomEntryPoint.js saknas');
   ensure(fs.existsSync(customBuildGradlePluginPath), 'plugins/withCustomBuildGradle.js saknas');
-  ensure(fs.existsSync(androidBridgePath), 'services/ai/native/android/MLCModule.java saknas');
-  ensure(fs.existsSync(androidPackagePath), 'services/ai/native/android/MLCPackage.java saknas');
+  ensure(fs.existsSync(androidBridgePath), 'android native MLCModule.kt saknas');
+  ensure(fs.existsSync(androidPackagePath), 'android native MLCPackage.kt saknas');
+  ensure(fs.existsSync(androidDeviceE2EPath), 'android native MLCConverterDeviceE2ETest.kt saknas');
+
+  if (fs.existsSync(androidAppBuildGradlePath)) {
+    const androidBuildGradle = fs.readFileSync(androidAppBuildGradlePath, 'utf8');
+    ensure(androidBuildGradle.includes('mlc-llm.aar') || androidBuildGradle.includes('MLC_ANDROID_AAR_PATH') || androidBuildGradle.includes('MLC_ANDROID_DEPENDENCY'), 'android/app/build.gradle måste kunna paketera MLC-runtime via AAR eller dependency');
+  }
 
   const easIgnore = fs.readFileSync(easIgnorePath, 'utf8');
   ensure(easIgnore.includes('apps/web/'), '.easignore bör exkludera apps/web/');
