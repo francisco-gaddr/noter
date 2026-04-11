@@ -518,6 +518,7 @@ export default function AIScreen() {
   }, [syncPreferenceLoaded, syncWithBackend, userScopeKey]);
 
   const {
+      deviceLocalConversionReady,
       isModelSelected,
       refreshConversionHealth,
       loadModels,
@@ -563,6 +564,12 @@ export default function AIScreen() {
       });
       return () => sub.remove();
   }, [resumeBackgroundModelInstalls]);
+
+  useEffect(() => {
+    if (!deviceLocalConversionReady && preferLocalConversion) {
+      setPreferLocalConversion(false);
+    }
+  }, [deviceLocalConversionReady, preferLocalConversion]);
 
   const loadConversations = async () => {
       let convs = await getConversationsLocal();
@@ -2282,7 +2289,7 @@ export default function AIScreen() {
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
                 <Text style={{ color: theme.colors.onSurface }}>{t('ai.localConversionLabel')}</Text>
-                <Switch value={preferLocalConversion} onValueChange={setPreferLocalConversion} />
+                <Switch value={preferLocalConversion} onValueChange={setPreferLocalConversion} disabled={!deviceLocalConversionReady} />
               </View>
               <Text style={{ marginTop: 6, color: theme.colors.onSurfaceVariant }}>
                 {t('ai.localConversionHint')}
@@ -2491,7 +2498,7 @@ export default function AIScreen() {
                           <Button
                             mode="text"
                             onPress={() => runDeviceLocalConversionCheck(item)}
-                            disabled={!!processingModels[item.id]}
+                            disabled={!!processingModels[item.id] || !deviceLocalConversionReady}
                             compact
                           >
                             {t('ai.deviceE2ECheck')}

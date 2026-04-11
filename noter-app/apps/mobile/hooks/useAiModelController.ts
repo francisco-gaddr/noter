@@ -1,5 +1,5 @@
 import type React from 'react';
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { AIModel } from '@repo/shared';
 import { HFModel } from '@repo/ai';
 import { getCompiledModelUrl, getConversionHealth, getModelFiles, searchHuggingFaceModels } from '@/services/ai/huggingface';
@@ -66,6 +66,7 @@ export const useAiModelController = ({
   setConversionHealthDetailText,
   setDeviceConversionHealthText,
 }: Options) => {
+  const [deviceLocalConversionReady, setDeviceLocalConversionReady] = useState(false);
   const clearModelProgress = useCallback((modelId: string, keepFailedStage?: boolean) => {
     setProcessingModels((prev) => {
       const next = { ...prev };
@@ -154,21 +155,15 @@ export const useAiModelController = ({
       setConversionHealthDetailText(details);
       if (health.mode === 'external') {
         setConversionHealthText(t('ai.conversionHealthExternal'));
-        return;
-      }
-      if (health.localBinaryAvailable && health.storageWritable) {
+      } else if (health.localBinaryAvailable && health.storageWritable) {
         setConversionHealthText(t('ai.conversionHealthLocalOk'));
-        return;
-      }
-      if (!health.localBinaryAvailable) {
+      } else if (!health.localBinaryAvailable) {
         setConversionHealthText(t('ai.conversionHealthLocalMissing'));
-        return;
-      }
-      if (!health.storageWritable) {
+      } else if (!health.storageWritable) {
         setConversionHealthText(t('ai.conversionHealthStorageMissing'));
-        return;
+      } else {
+        setConversionHealthText('');
       }
-      setConversionHealthText('');
     } catch {
       setConversionHealthText(t('ai.conversionHealthUnknown'));
       setConversionHealthDetailText('');
@@ -176,11 +171,14 @@ export const useAiModelController = ({
     try {
       const deviceCaps = await getLocalConversionCapabilities();
       if (deviceCaps.engineAvailable && deviceCaps.converterAvailable) {
+        setDeviceLocalConversionReady(true);
         setDeviceConversionHealthText(t('ai.conversionHealthDeviceReady'));
       } else {
+        setDeviceLocalConversionReady(false);
         setDeviceConversionHealthText(t('ai.conversionHealthDeviceMissing'));
       }
     } catch {
+      setDeviceLocalConversionReady(false);
       setDeviceConversionHealthText(t('ai.conversionHealthDeviceUnknown'));
     }
   }, [setConversionHealthDetailText, setConversionHealthText, setDeviceConversionHealthText, t]);
@@ -354,7 +352,7 @@ export const useAiModelController = ({
       if (!file) {
         throw new Error(t('ai.noCompatibleModelFile'));
       }
-      await serviceDownloadModel(model, file, (percent) => {
+      const installedPath = await serviceDownloadModel(model, file, (percent) => {
         setDownloadProgress((prev) => ({ ...prev, [model.id]: percent }));
       }, {
         preferLocalConversion: true,
@@ -364,6 +362,9 @@ export const useAiModelController = ({
           setDownloadStage((prev) => ({ ...prev, [model.id]: stage }));
         }
       });
+      const preparedPath = await prepareModelForChat(installedPath);
+      await provider.loadModel(preparedPath);
+      setActiveModel(preparedPath);
       await loadModels();
       if (!localStageObserved) {
         throw new Error('Local conversion unsupported');
@@ -434,6 +435,7 @@ export const useAiModelController = ({
   }, [activatingModelId, formatError, isModelSelected, loadModels, markModelInvalid, persistPreparedModel, provider, setActivatingModelId, setActiveModel, setLocalModels]);
 
   return {
+    deviceLocalConversionReady,
     isModelSelected,
     refreshConversionHealth,
     loadModels,
