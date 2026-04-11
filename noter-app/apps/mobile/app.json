@@ -68,7 +68,11 @@
       "typedRoutes": true
     },
     "extra": {
-      "router": {}
-    }
+      "router": {},
+      "eas": {
+        "projectId": "78d433b3-18a7-4537-a4dd-2ab8a070e09c"
+      }
+    },
+    "owner": "realdini"
   }
 }
