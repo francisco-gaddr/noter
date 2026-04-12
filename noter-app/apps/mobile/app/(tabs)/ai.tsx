@@ -565,12 +565,6 @@ export default function AIScreen() {
       return () => sub.remove();
   }, [resumeBackgroundModelInstalls]);
 
-  useEffect(() => {
-    if (!deviceLocalConversionReady && preferLocalConversion) {
-      setPreferLocalConversion(false);
-    }
-  }, [deviceLocalConversionReady, preferLocalConversion]);
-
   const loadConversations = async () => {
       let convs = await getConversationsLocal();
       setConversations(convs);
@@ -2293,10 +2287,10 @@ export default function AIScreen() {
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
                 <Text style={{ color: theme.colors.onSurface }}>{t('ai.localConversionLabel')}</Text>
-                <Switch value={preferLocalConversion} onValueChange={setPreferLocalConversion} disabled={!deviceLocalConversionReady} />
+                <Switch value={preferLocalConversion} onValueChange={setPreferLocalConversion} />
               </View>
               <Text style={{ marginTop: 6, color: theme.colors.onSurfaceVariant }}>
-                {t('ai.localConversionHint')}
+                {preferLocalConversion && !deviceLocalConversionReady ? t('ai.localConversionHintFallback') : t('ai.localConversionHint')}
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
                 <Text style={{ color: theme.colors.onSurface }}>{t('ai.backgroundWorkLabel')}</Text>
@@ -2431,8 +2425,10 @@ export default function AIScreen() {
                 <Button
                   mode="contained"
                   onPress={async () => {
+                    const encryptedPrompt = encrypt(systemPrompt);
+                    await AsyncStorage.setItem('ai_system_prompt_local', encryptedPrompt);
                     if (!userScopeKey) return;
-                    await AsyncStorage.setItem(`ai_system_prompt_${userScopeKey}`, encrypt(systemPrompt));
+                    await AsyncStorage.setItem(`ai_system_prompt_${userScopeKey}`, encryptedPrompt);
                   }}
                   style={{ marginRight: 8 }}
                 >
@@ -2442,6 +2438,7 @@ export default function AIScreen() {
                   mode="outlined"
                   onPress={async () => {
                     setSystemPrompt('');
+                    await AsyncStorage.removeItem('ai_system_prompt_local');
                     if (!userScopeKey) return;
                     await AsyncStorage.removeItem(`ai_system_prompt_${userScopeKey}`);
                   }}

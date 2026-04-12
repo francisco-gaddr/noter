@@ -6,6 +6,8 @@ import { encrypt } from '@repo/shared';
 import { loadAiBootstrapState } from '@/services/ai/bootstrap';
 import { setAiBackgroundWorkEnabled } from '@/services/ai/runtimeSettings';
 
+const GLOBAL_SYSTEM_PROMPT_KEY = 'ai_system_prompt_local';
+
 type Options = {
   isMountedRef: React.MutableRefObject<boolean>;
   refreshRemoteSync: (scopeKey?: string, allowRemote?: boolean) => Promise<void>;
@@ -129,12 +131,18 @@ export const useAiBootstrapPersistence = ({
   ]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
     if (!systemPrompt.trim()) {
-      AsyncStorage.removeItem(`ai_system_prompt_${userScopeKey}`);
+      AsyncStorage.removeItem(GLOBAL_SYSTEM_PROMPT_KEY);
+      if (userScopeKey) {
+        AsyncStorage.removeItem(`ai_system_prompt_${userScopeKey}`);
+      }
       return;
     }
-    AsyncStorage.setItem(`ai_system_prompt_${userScopeKey}`, encrypt(systemPrompt));
+    const encryptedPrompt = encrypt(systemPrompt);
+    AsyncStorage.setItem(GLOBAL_SYSTEM_PROMPT_KEY, encryptedPrompt);
+    if (userScopeKey) {
+      AsyncStorage.setItem(`ai_system_prompt_${userScopeKey}`, encryptedPrompt);
+    }
   }, [systemPrompt, userScopeKey]);
 
   useEffect(() => {

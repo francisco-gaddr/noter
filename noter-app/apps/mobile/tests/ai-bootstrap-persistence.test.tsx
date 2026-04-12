@@ -127,6 +127,14 @@ describe('AI bootstrap persistence', () => {
     expect(
       mockSetItem.mock.calls.some(
         (call: unknown[]) =>
+          call[0] === 'ai_system_prompt_local' &&
+          typeof call[1] === 'string' &&
+          (call[1] as string).startsWith('U2FsdGVkX1')
+      )
+    ).toBe(true);
+    expect(
+      mockSetItem.mock.calls.some(
+        (call: unknown[]) =>
           call[0] === 'ai_system_prompt_scope-1' &&
           typeof call[1] === 'string' &&
           (call[1] as string).startsWith('U2FsdGVkX1')
@@ -140,5 +148,6 @@ describe('AI bootstrap persistence', () => {
     });
 
     expect(mockRemoveItem).toHaveBeenCalledWith('ai_system_prompt_scope-1');
+    expect(mockRemoveItem).toHaveBeenCalledWith('ai_system_prompt_local');
   });
 });

@@ -132,9 +132,10 @@ describe('AI Models', () => {
     expect(mockConvertGGUFToMLC).toHaveBeenCalled();
   });
 
-  it('uses local conversion automatically on Android when native capabilities are available', async () => {
+  it('falls back to local conversion on Android when backend conversion is unavailable', async () => {
     const { downloadModel } = require('../services/ai/modelService');
     const downloader = require('../services/ai/ModelDownloader');
+    const { requestModelConversion } = require('../services/ai/huggingface');
     const model = { id: 'user/model', name: 'model', author: 'user', downloads: 0, likes: 0, tags: [] };
     const file = { filename: 'model.Q4_K_M.gguf', size: 123, url: 'https://hf.test/model.gguf', quantization: 'Q4_K_M' };
 
@@ -143,12 +144,14 @@ describe('AI Models', () => {
     mockDownloadFile.mockReturnValue({ promise: Promise.resolve({ statusCode: 200 }) });
     mockGetLocalConversionCapabilities.mockResolvedValue({ engineAvailable: true, converterAvailable: true });
     mockConvertGGUFToMLC.mockResolvedValue('/docs/mlc_models/user_model/Q4_K_M');
+    downloader.validateModelPackageWithRetry.mockRejectedValueOnce(new Error('Invalid model package'));
+    requestModelConversion.mockRejectedValueOnce(new Error('MLC-binären hittades inte. Installera mlc_llm eller ange MLC_LLM_BIN.'));
 
     const result = await downloadModel(model as any, file as any);
 
     expect(result).toBe('/docs/mlc_models/user_model/Q4_K_M');
     expect(mockConvertGGUFToMLC).toHaveBeenCalled();
-    expect(require('../services/ai/huggingface').requestModelConversion).not.toHaveBeenCalled();
+    expect(requestModelConversion).toHaveBeenCalled();
   });
 
   it('starts automatic conversion when compiled package is missing', async () => {

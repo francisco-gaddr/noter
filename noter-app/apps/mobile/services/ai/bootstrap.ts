@@ -4,6 +4,8 @@ import * as Crypto from 'expo-crypto';
 import { McpUiSettings, createEmptyMcpUiSettings, decrypt, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings } from '@repo/shared';
 import { isAiBackgroundWorkEnabled } from './runtimeSettings';
 
+const GLOBAL_SYSTEM_PROMPT_KEY = 'ai_system_prompt_local';
+
 export type AiBootstrapState = {
   scopeKey: string;
   systemPrompt: string;
@@ -31,6 +33,7 @@ export const loadAiBootstrapState = async (): Promise<AiBootstrapState> => {
     : 'anon';
   const [
     savedSystemPrompt,
+    savedGlobalSystemPrompt,
     savedToolUse,
     savedToolAccessMode,
     savedPromptPreset,
@@ -47,6 +50,7 @@ export const loadAiBootstrapState = async (): Promise<AiBootstrapState> => {
     globalBackgroundWork,
   ] = await Promise.all([
     AsyncStorage.getItem(`ai_system_prompt_${scopeKey}`),
+    AsyncStorage.getItem(GLOBAL_SYSTEM_PROMPT_KEY),
     AsyncStorage.getItem(`ai_tool_use_enabled_${scopeKey}`),
     AsyncStorage.getItem(`ai_tool_access_mode_${scopeKey}`),
     AsyncStorage.getItem(`ai_prompt_preset_${scopeKey}`),
@@ -72,7 +76,7 @@ export const loadAiBootstrapState = async (): Promise<AiBootstrapState> => {
 
   return {
     scopeKey,
-    systemPrompt: savedSystemPrompt ? decrypt(savedSystemPrompt) : '',
+    systemPrompt: savedSystemPrompt ? decrypt(savedSystemPrompt) : (savedGlobalSystemPrompt ? decrypt(savedGlobalSystemPrompt) : ''),
     enableToolUse: savedToolUse !== null ? savedToolUse === 'true' : null,
     toolAccessMode: savedToolAccessMode === 'read-only' || savedToolAccessMode === 'full' ? savedToolAccessMode : null,
     promptPreset: savedPromptPreset === 'balanced' || savedPromptPreset === 'research' || savedPromptPreset === 'execution' || savedPromptPreset === 'concise' ? savedPromptPreset : null,

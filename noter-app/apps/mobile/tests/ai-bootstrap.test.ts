@@ -61,4 +61,43 @@ describe('ai bootstrap loader', () => {
     expect(result.geminiModel).toBe('gemini-pro');
     expect(result.mcpSettings.env).toEqual({});
   });
+
+  it('falls back to the local system prompt mirror when scoped prompt is missing', async () => {
+    jest.doMock('@react-native-async-storage/async-storage', () => ({
+      getItem: jest.fn(async (key: string) => {
+        if (key === 'ai_system_prompt_scope-1') return null;
+        if (key === 'ai_system_prompt_local') return 'local prompt';
+        return null;
+      }),
+    }));
+    jest.doMock('expo-secure-store', () => ({
+      getItemAsync: jest.fn(async (key: string) => {
+        if (key === 'token') return 'token-1';
+        return null;
+      }),
+    }));
+    jest.doMock('expo-crypto', () => ({
+      CryptoDigestAlgorithm: { SHA256: 'sha256' },
+      digestStringAsync: jest.fn(async () => 'scope-1'),
+    }));
+    jest.doMock('@repo/shared', () => {
+      const actual = jest.requireActual('@repo/shared');
+      return {
+        ...actual,
+        decrypt: (value: string) => value,
+        normalizeMcpUiSettings: (value: any) => value,
+        resolveMcpSettings: (settings: any, env: any) => ({ ...settings, env }),
+        toEffectiveMcpUiSettings: (value: any) => value,
+      };
+    });
+    jest.doMock('../services/ai/runtimeSettings', () => ({
+      isAiBackgroundWorkEnabled: jest.fn(async () => false),
+    }));
+
+    const { loadAiBootstrapState } = require('../services/ai/bootstrap');
+    const result = await loadAiBootstrapState();
+
+    expect(result.scopeKey).toBe('scope-1');
+    expect(result.systemPrompt).toBe('local prompt');
+  });
 });
