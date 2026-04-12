@@ -222,11 +222,16 @@ export const downloadModel = async (
     const platform = getPlatformTarget();
     const modelDir = getModelDir(model.id, file.quantization);
     const sessionKey = getModelInstallSessionKey(model.id, file.quantization);
-    const preferLocalConversion = Boolean(options?.preferLocalConversion);
+    const requestedPreferLocalConversion = Boolean(options?.preferLocalConversion);
     const requestedStrictLocalConversion = Boolean(options?.strictLocalConversion);
-    const localCapabilities = (preferLocalConversion || requestedStrictLocalConversion)
+    const localCapabilities = (requestedPreferLocalConversion || requestedStrictLocalConversion || platform === 'android')
         ? await getSafeLocalConversionCapabilities()
         : { engineAvailable: false, converterAvailable: false };
+    const preferLocalConversion = requestedPreferLocalConversion || (
+        platform === 'android'
+        && localCapabilities.engineAvailable
+        && localCapabilities.converterAvailable
+    );
     const strictLocalConversion = requestedStrictLocalConversion;
     if (!modelDir) {
         throw new Error('Native filesystem not available');

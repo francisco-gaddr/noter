@@ -653,7 +653,12 @@ export default function AIScreen() {
 
   function formatError(error: unknown) {
       const message = (error as any)?.message ? String((error as any).message) : String(error);
-      if (message.includes('spawn mlc_llm ENOENT') || message.includes('sparn mlc_llm ENOENT')) return 'MLC-binären saknas på konverteringsservern. Installera eller konfigurera MLC_LLM_BIN, eller använd py/python-fallback.';
+      if (
+        message.includes('spawn mlc_llm ENOENT')
+        || message.includes('sparn mlc_llm ENOENT')
+        || message.includes('MLC-binären hittades inte')
+        || message.includes('MLC-binären eller dess Windows-runtime hittades inte')
+      ) return 'Backend-konverteringen saknar fungerande MLC/py-stöd. På Android används lokal konvertering automatiskt när native AI-stöd finns; annars behöver backend konfigureras med MLC_LLM_BIN eller py/python-fallback.';
       if (message.includes('Zip module not available')) return 'Zip-stöd saknas i denna build. Installera om den senaste EAS APK:n.';
       if (message.includes('Native filesystem not available')) return 'Filsystem saknas i denna build. Installera om den senaste EAS APK:n.';
       if (message.includes('MLCModule not linked')) return t('ai.runtimeModuleMissing');
@@ -670,7 +675,6 @@ export default function AIScreen() {
       if (message.includes('Invalid model package')) return 'Modellpaketet är ogiltigt eller saknar filer.';
       if (message.includes('Model path not found')) return 'Den nedladdade modellen kunde inte hittas längre. Ladda ner eller välj modellen igen.';
       if (message.includes('Conversion failed')) return 'Konvertering misslyckades på servern.';
-      if (message.includes('MLC-binären hittades inte')) return message;
       if (message.includes('job not found')) return 'Konverteringsjobb saknas eller har löpt ut.';
       return message;
   }

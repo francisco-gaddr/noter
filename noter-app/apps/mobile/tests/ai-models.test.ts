@@ -132,6 +132,25 @@ describe('AI Models', () => {
     expect(mockConvertGGUFToMLC).toHaveBeenCalled();
   });
 
+  it('uses local conversion automatically on Android when native capabilities are available', async () => {
+    const { downloadModel } = require('../services/ai/modelService');
+    const downloader = require('../services/ai/ModelDownloader');
+    const model = { id: 'user/model', name: 'model', author: 'user', downloads: 0, likes: 0, tags: [] };
+    const file = { filename: 'model.Q4_K_M.gguf', size: 123, url: 'https://hf.test/model.gguf', quantization: 'Q4_K_M' };
+
+    downloader.getPlatformTarget.mockReturnValue('android');
+    mockExists.mockImplementation((path: string) => Promise.resolve(path.includes('mlc-chat-config.json')));
+    mockDownloadFile.mockReturnValue({ promise: Promise.resolve({ statusCode: 200 }) });
+    mockGetLocalConversionCapabilities.mockResolvedValue({ engineAvailable: true, converterAvailable: true });
+    mockConvertGGUFToMLC.mockResolvedValue('/docs/mlc_models/user_model/Q4_K_M');
+
+    const result = await downloadModel(model as any, file as any);
+
+    expect(result).toBe('/docs/mlc_models/user_model/Q4_K_M');
+    expect(mockConvertGGUFToMLC).toHaveBeenCalled();
+    expect(require('../services/ai/huggingface').requestModelConversion).not.toHaveBeenCalled();
+  });
+
   it('starts automatic conversion when compiled package is missing', async () => {
     const { downloadModel } = require('../services/ai/modelService');
     const { requestModelConversion, getCompiledModelUrl } = require('../services/ai/huggingface');
