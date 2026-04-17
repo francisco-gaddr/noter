@@ -47,6 +47,7 @@ const localAssistantBasenames = [
   'AIDER',
 ];
 const localAiFileChecks = [
+  { label: 'lokal dokumentationskatalog', pattern: /^(Doc|docs)([\\/]|$)/ },
   { label: 'lokal Trae-konfiguration', pattern: /(^|[\\/])\.trae([\\/]|$)/i },
   { label: 'lokal Trae-konfiguration', pattern: /(^|[\\/])\.trae-local([\\/]|$)/i },
   { label: 'lokal Trae-dokumentation', pattern: /(^|[\\/])\.trae-docs([\\/]|$)/i },
@@ -54,6 +55,8 @@ const localAiFileChecks = [
   { label: 'lokal AI-agentfil', pattern: /(^|[\\/])[^\\/]+\.agent\.md$/i },
   { label: 'lokal AI-agentfil', pattern: /(^|[\\/])TRAE[^\\/]*\.md$/i },
   { label: 'lokal AI-agentfil', pattern: /(^|[\\/])[^\\/]+\.trae\.md$/i },
+  { label: 'lokal AI-modellfil', pattern: /(^|[\\/])[^\\/]+\.(gguf|safetensors|onnx|tflite|pt|pth|bin)$/i },
+  { label: 'lokal AI-modellkonfiguration', pattern: /(^|[\\/])mlc-chat-config\.json$/i },
   { label: 'lokal AI-agentkatalog', pattern: /(^|[\\/])\.(claude|gemini|copilot)([\\/]|$)/i },
   { label: 'lokal IDE-konfiguration', pattern: /(^|[\\/])\.(vscode|idea|cursor|windsurf|continue|cline|roo|zed|fleet)([\\/]|$)/i },
   { label: 'lokal AI-assistentdata', pattern: /(^|[\\/])\.aider[^\\/]*$/i },
