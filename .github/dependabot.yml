@@ -11,6 +11,21 @@ updates:
       interval: weekly
     open-pull-requests-limit: 10
   - package-ecosystem: npm
+    directory: "/noter-app/apps/mobile"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+  - package-ecosystem: npm
+    directory: "/noter-app/apps/web"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+  - package-ecosystem: npm
+    directory: "/noter-app/apps/backend"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+  - package-ecosystem: npm
     directory: "/electron-noter"
     schedule:
       interval: weekly

@@ -76,6 +76,7 @@ npm run test:repo:open-source
 ```
 
 - `validate:prepush` kör workspace-lint, kritiska verifieringar, säkerhetstester, web/mobile/backend-guardrails och mutationssvit
+- `audit:high` kör en separat supply-chain-gate för high/critical `npm audit`-träffar
 - `test:repo:open-source` verifierar att spårade filer inte innehåller incheckade `.env`-filer, publika client-hemligheter, gamla produktionsdomäner eller lokala AI-/IDE-filer
 
 ## Community

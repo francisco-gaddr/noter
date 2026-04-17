@@ -12,6 +12,7 @@
     "check-types": "turbo run check-types",
     "test:repo:local-assistant-guard": "node scripts/local-assistant-guard.mjs",
     "test:repo:open-source": "node scripts/open-source-sanity-check.mjs",
+    "audit:high": "npm audit --audit-level=high",
     "test:security:mutations": "node scripts/security-mutation-suite.mjs",
     "test:security:deep": "node scripts/security-regression-suite.mjs",
     "validate:critical": "node scripts/validate-critical.mjs",
