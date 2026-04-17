@@ -155,8 +155,25 @@ io.use((socket, next) => {
   }
 });
 
+const computeRoomUsers = (noteId: string, excludeSocketId?: string) => {
+  const clients = io.sockets.adapter.rooms.get(noteId);
+  if (!clients) return [];
+  const seen = new Set<string>();
+  const users: any[] = [];
+  clients.forEach(clientId => {
+    if (excludeSocketId && clientId === excludeSocketId) return;
+    const u = socketUsers.get(clientId);
+    if (!u || !u._id) return;
+    const key = String(u._id);
+    if (seen.has(key)) return;
+    seen.add(key);
+    users.push(u);
+  });
+  return users;
+};
+
 io.on('connection', (socket) => {
-  console.log('Client connected:', socket.id);
+  logger.debug('Socket connected', { socketId: socket.id });
   const userId = (socket.data as any).userId as string | undefined;
   if (userId) {
     socket.join(`user:${userId}`);
@@ -168,76 +185,26 @@ io.on('connection', (socket) => {
     const safeNoteId = noteId.trim();
     socket.join(safeNoteId);
     socketUsers.set(socket.id, user);
-    
-    // Get all users in this room
-    const clients = io.sockets.adapter.rooms.get(safeNoteId);
-    const users: any[] = [];
-    if (clients) {
-        clients.forEach(clientId => {
-            const u = socketUsers.get(clientId);
-            if (u) {
-                // Avoid duplicates if same user has multiple tabs?
-                // For now, list all connections or unique users?
-                // Let's list unique users by _id
-                if (!users.find(existing => existing._id === u._id)) {
-                    users.push(u);
-                }
-            }
-        });
-    }
-    io.to(safeNoteId).emit('note:active-users', { noteId: safeNoteId, users });
+    io.to(safeNoteId).emit('note:active-users', { noteId: safeNoteId, users: computeRoomUsers(safeNoteId) });
   });
 
-  socket.on('note:leave', ({ noteId, user }) => {
+  socket.on('note:leave', ({ noteId }) => {
     if (typeof noteId !== 'string' || noteId.trim().length === 0 || noteId.length > 128) return;
     const safeNoteId = noteId.trim();
     socket.leave(safeNoteId);
-    // We don't remove from socketUsers yet because they might be in other rooms? 
-    // Actually usually one note at a time.
-    // But let's just re-calculate users in room.
-    
-    const clients = io.sockets.adapter.rooms.get(safeNoteId);
-    const users: any[] = [];
-    if (clients) {
-        clients.forEach(clientId => {
-            const u = socketUsers.get(clientId);
-            if (u && !users.find(existing => existing._id === u._id)) {
-                users.push(u);
-            }
-        });
-    }
-    io.to(safeNoteId).emit('note:active-users', { noteId: safeNoteId, users });
+    io.to(safeNoteId).emit('note:active-users', { noteId: safeNoteId, users: computeRoomUsers(safeNoteId, socket.id) });
   });
 
   socket.on('disconnecting', () => {
-    const user = socketUsers.get(socket.id);
-    if (user) {
-        for (const room of socket.rooms) {
-            if (room !== socket.id) {
-                // It's a note room (probably)
-                // We need to emit new user list AFTER this socket leaves
-                // But we are in 'disconnecting', so we are still in room.
-                // We can filter out current socket.
-                 const clients = io.sockets.adapter.rooms.get(room);
-                 const users: any[] = [];
-                 if (clients) {
-                     clients.forEach(clientId => {
-                         if (clientId !== socket.id) {
-                            const u = socketUsers.get(clientId);
-                            if (u && !users.find(existing => existing._id === u._id)) {
-                                users.push(u);
-                            }
-                         }
-                     });
-                 }
-                 io.to(room).emit('note:active-users', { noteId: room, users });
-            }
-        }
+    if (!socketUsers.has(socket.id)) return;
+    for (const room of socket.rooms) {
+      if (room === socket.id) continue;
+      io.to(room).emit('note:active-users', { noteId: room, users: computeRoomUsers(room, socket.id) });
     }
   });
 
   socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
+    logger.debug('Socket disconnected', { socketId: socket.id });
     socketUsers.delete(socket.id);
   });
 });
@@ -303,21 +270,16 @@ const startServer = async () => {
         socketTimeoutMS: 45000,
         bufferCommands: false, // Fail immediately if not connected
       });
-      console.log('Connected to MongoDB');
       logger.info('Connected to MongoDB');
     } catch (err) {
-      console.error('MongoDB connection error:', err);
-      logger.error('MongoDB connection error:', err);
-      console.log('Running without database connection (some features may fail)');
-      // process.exit(1); // Do not exit, allow server to run for diagnostics/offline sync
+      logger.error('MongoDB connection error', { error: (err as Error)?.message || String(err) });
+      logger.warn('Running without database connection (some features may fail)');
     }
   } else {
-    console.log('MONGO_URI not set, running without database connection');
     logger.info('MONGO_URI not set, running without database connection');
   }
 
   server.listen(Number(port), '0.0.0.0', () => {
-    console.log(`Server running at http://0.0.0.0:${port}`);
     logger.info(`Server running at http://0.0.0.0:${port}`);
   });
 };

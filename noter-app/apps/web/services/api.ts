@@ -5,9 +5,20 @@ export const getUUID = (): string => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
     return crypto.randomUUID();
   }
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    const r = Math.random() * 16 | 0;
-    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+  // Prefer a cryptographically strong fallback when available.
+  const getRandomByte = (() => {
+    if (typeof crypto !== 'undefined' && typeof (crypto as any).getRandomValues === 'function') {
+      const buffer = new Uint8Array(1);
+      return () => {
+        (crypto as any).getRandomValues(buffer);
+        return buffer[0];
+      };
+    }
+    return () => Math.floor(Math.random() * 256);
+  })();
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = getRandomByte() & 0x0f;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
 };

@@ -174,7 +174,8 @@ router.put('/:id', validate(updateTaskSchema), async (req: Request, res: Respons
       res.status(400);
       return next(new Error('Invalid ID format'));
     }
-    const task = await Task.findById(req.params.id);
+    const userId = (req as AuthRequest).user!.userId;
+    const task = await Task.findOne({ _id: req.params.id, userId });
     if (task) {
         // Only update fields that are present in the body (and validated)
         if (req.body.title !== undefined) task.title = req.body.title;
@@ -191,10 +192,10 @@ router.put('/:id', validate(updateTaskSchema), async (req: Request, res: Respons
         if (req.body.reminderOffsetMinutes !== undefined) task.reminderOffsetMinutes = req.body.reminderOffsetMinutes;
         
         const updatedTask = await task.save();
-        
+
         const io = req.app.get('io');
-        io.to(`user:${task.userId}`).emit('task:updated', updatedTask);
-        
+        io.to(`user:${userId}`).emit('task:updated', updatedTask);
+
         res.json(updatedTask);
     } else {
         res.status(404);
@@ -212,13 +213,14 @@ router.delete('/:id', async (req: Request, res: Response, next: NextFunction) =>
       res.status(400);
       return next(new Error('Invalid ID format'));
     }
-    const task = await Task.findById(req.params.id);
+    const userId = (req as AuthRequest).user!.userId;
+    const task = await Task.findOne({ _id: req.params.id, userId });
     if (task) {
       await task.deleteOne();
-      
+
       const io = req.app.get('io');
-      io.to(`user:${task.userId}`).emit('task:deleted', req.params.id);
-      
+      io.to(`user:${userId}`).emit('task:deleted', req.params.id);
+
       res.json({ message: 'Task removed' });
     } else {
       res.status(404);

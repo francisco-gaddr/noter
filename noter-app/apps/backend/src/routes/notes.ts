@@ -127,7 +127,7 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
       res.json(cachedNote);
       return;
     }
-    const note = await Note.findById(req.params.id).select('+password');
+    const note = await Note.findOne({ _id: req.params.id, userId }).select('+password');
     if (!note) {
       res.status(404);
       return next(new Error('Note not found'));
@@ -297,7 +297,8 @@ router.put('/:id', validate(updateSchema), async (req: Request, res: Response, n
       res.status(400);
       return next(new Error('Invalid ID format'));
     }
-    const note = await Note.findById(req.params.id);
+    const userId = (req as AuthRequest).user!.userId;
+    const note = await Note.findOne({ _id: req.params.id, userId });
 
     if (note) {
       if (value.title !== undefined) note.title = value.title;
@@ -330,8 +331,7 @@ router.put('/:id', validate(updateSchema), async (req: Request, res: Response, n
       if (value.updatedAt !== undefined) note.updatedAt = value.updatedAt; // Handle encrypted timestamps
 
       const updatedNote = await note.save();
-      
-      const userId = (req as AuthRequest).user!.userId;
+
       await cache.del(`notes:list:${userId}`);
       await cache.del(`notes:item:${userId}:${req.params.id}`);
 
