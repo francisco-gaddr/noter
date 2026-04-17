@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto';
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
@@ -21,7 +22,7 @@ const loginSchema = Joi.object({
 });
 
 const BCRYPT_ROUNDS = Math.max(10, Number.parseInt(process.env.BCRYPT_ROUNDS || '12', 10) || 12);
-const DUMMY_HASH = '$2b$12$90hPdzA7y6QAYnltj7LjY.BM7rjOADfVv8BfS7kqkQxB7MlMijH7e';
+const DUMMY_HASH = bcrypt.hashSync(randomBytes(16).toString('hex'), BCRYPT_ROUNDS);
 
 // Register
 router.post('/register', validate(registerSchema), async (req, res) => {

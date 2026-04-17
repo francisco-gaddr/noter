@@ -1,9 +1,9 @@
-const ENCRYPTED_PREFIX = 'U2FsdGVkX1';
+const ENCRYPTED_PREFIXES = ['U2FsdGVkX1', 'noter:v1:', 'noter:v2:'];
 
 export const isEncryptedPayload = (value: unknown): boolean => {
   if (typeof value !== 'string') return false;
-  if (!value.startsWith(ENCRYPTED_PREFIX)) return false;
-  if (value.length < ENCRYPTED_PREFIX.length + 8) return false;
   if (/\s/.test(value)) return false;
+  if (!ENCRYPTED_PREFIXES.some((prefix) => value.startsWith(prefix))) return false;
+  if (value.length < 16) return false;
   return true;
 };

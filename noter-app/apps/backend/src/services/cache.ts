@@ -73,5 +73,24 @@ const del = async (key: string): Promise<void> => {
   await redisClient.del(key);
 };
 
-export default { get, set, del };
+const delMany = async (keys: string[]): Promise<void> => {
+  if (!Array.isArray(keys) || keys.length === 0) return;
+  const redisClient = await ensureConnected();
+  if (!redisClient) return;
+  const uniqueKeys = Array.from(new Set(keys.filter((key) => typeof key === 'string' && key.length > 0)));
+  if (uniqueKeys.length === 0) return;
+  await redisClient.del(uniqueKeys);
+};
 
+const ping = async (): Promise<boolean> => {
+  const redisClient = await ensureConnected();
+  if (!redisClient) return false;
+  try {
+    const response = await redisClient.ping();
+    return response === 'PONG';
+  } catch {
+    return false;
+  }
+};
+
+export default { get, set, del, delMany, ping };

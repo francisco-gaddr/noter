@@ -12,6 +12,7 @@ import mongoSanitize from 'express-mongo-sanitize';
 import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import logger from './utils/logger';
+import cache from './services/cache';
 import noteRoutes from './routes/notes';
 import taskRoutes from './routes/tasks';
 import authRoutes from './routes/auth';
@@ -104,6 +105,8 @@ const io = new Server(server, {
     methods: ["GET", "POST", "PUT", "DELETE"],
     credentials: true
   },
+  maxHttpBufferSize: 1e6,
+  perMessageDeflate: { threshold: 1024 },
   pingInterval: 25000,
   pingTimeout: 20000
 });
@@ -181,10 +184,13 @@ io.on('connection', (socket) => {
 
   socket.on('note:join', ({ noteId, user }) => {
     if (typeof noteId !== 'string' || noteId.trim().length === 0 || noteId.length > 128) return;
-    if (userId && user?._id && user._id !== userId) return;
+    if (!userId) return;
     const safeNoteId = noteId.trim();
+    const safeUsername = typeof user?.username === 'string' && user.username.trim().length > 0
+      ? user.username.trim().slice(0, 128)
+      : undefined;
     socket.join(safeNoteId);
-    socketUsers.set(socket.id, user);
+    socketUsers.set(socket.id, { _id: userId, ...(safeUsername ? { username: safeUsername } : {}) });
     io.to(safeNoteId).emit('note:active-users', { noteId: safeNoteId, users: computeRoomUsers(safeNoteId) });
   });
 
@@ -212,12 +218,20 @@ io.on('connection', (socket) => {
 // Make io accessible to routes
 app.set('io', io);
 
-app.get('/', (req, res) => {
+app.get('/', (_req, res) => {
   res.send('Noter Backend Running');
 });
 
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', time: new Date().toISOString() });
+app.get('/api/health', async (_req, res) => {
+  const mongoOk = mongoose.connection.readyState === 1;
+  const redisOk = await cache.ping().catch(() => false);
+  const ok = mongoOk && redisOk;
+  res.status(ok ? 200 : 503).json({
+    status: ok ? 'ok' : 'degraded',
+    time: new Date().toISOString(),
+    mongo: mongoOk,
+    redis: redisOk,
+  });
 });
 
 // Routes
@@ -268,6 +282,9 @@ const startServer = async () => {
       await mongoose.connect(mongoUri, {
         serverSelectionTimeoutMS: 5000,
         socketTimeoutMS: 45000,
+        maxPoolSize: 20,
+        minPoolSize: 2,
+        maxIdleTimeMS: 60_000,
         bufferCommands: false, // Fail immediately if not connected
       });
       logger.info('Connected to MongoDB');

@@ -70,6 +70,22 @@ describe('backend encryption payload validation', () => {
     expect(String(res.body.content)).not.toContain(plaintextContent);
   });
 
+  it('accepts versioned noter:v1 payload prefixes during validation', async () => {
+    const payload = 'noter:v1:abcdefghijklmnop';
+    const res = await request(app)
+      .post('/api/notes')
+      .set('Authorization', 'Bearer demo-token')
+      .send({
+        title: payload,
+        content: payload,
+        type: payload,
+        locked: payload,
+        createdAt: payload,
+        updatedAt: payload,
+      });
+    expect(res.status).toBe(201);
+  });
+
   it('rejects plaintext task payload fields', async () => {
     const res = await request(app)
       .post('/api/tasks')
@@ -103,5 +119,12 @@ describe('backend encryption payload validation', () => {
     expect(res.status).toBe(201);
     expect(String(res.body.title)).not.toContain(plaintextTitle);
     expect(String(res.body.description)).not.toContain(plaintextDescription);
+  });
+
+  it('rejects invalid parentNoteId query values for tasks', async () => {
+    const res = await request(app)
+      .get('/api/tasks?parentNoteId=not-an-object-id')
+      .set('Authorization', 'Bearer demo-token');
+    expect(res.status).toBe(400);
   });
 });

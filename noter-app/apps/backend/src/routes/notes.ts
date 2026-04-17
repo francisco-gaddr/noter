@@ -1,16 +1,19 @@
+import { randomBytes } from 'crypto';
 import express, { Request, Response, NextFunction } from 'express';
 import Note from '../models/Note';
 import Task from '../models/Task';
 import Joi from 'joi';
 import bcrypt from 'bcryptjs';
 import rateLimit from 'express-rate-limit';
-import { decrypt, encrypt } from '@repo/shared';
+import { decrypt } from '@repo/shared';
 import { AuthRequest } from '../middleware/authMiddleware';
 import { validate } from '../middleware/validate';
 import cache from '../services/cache';
 import { isEncryptedPayload } from '../utils/encryption';
 
 const router = express.Router();
+const BCRYPT_ROUNDS = Math.max(10, Number.parseInt(process.env.BCRYPT_ROUNDS || '12', 10) || 12);
+const DUMMY_PASSWORD_HASH = bcrypt.hashSync(randomBytes(16).toString('hex'), BCRYPT_ROUNDS);
 
 const encryptedRequired = Joi.string().custom((value, helpers) => (
   isEncryptedPayload(value) ? value : helpers.error('any.invalid')
@@ -24,6 +27,14 @@ const parseEncryptedBoolean = (value: string): boolean => {
   if (decrypted === 'true') return true;
   if (decrypted === 'false') return false;
   return false;
+};
+
+const normalizePasswordInput = (value: unknown): string | null => {
+  if (typeof value !== 'string') return null;
+  if (value === '') return '';
+  const normalized = decrypt(value);
+  if (isEncryptedPayload(value) && normalized === '') return null;
+  return normalized;
 };
 
 // Validation schemas
@@ -64,6 +75,7 @@ const reorderSchema = Joi.object({
         order: Joi.alternatives().try(Joi.number(), Joi.string().allow('')).required(),
       }).unknown(true),
     )
+    .max(1000)
     .required(),
 });
 
@@ -87,7 +99,7 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
       return;
     }
 
-    const notes = await Note.find({ userId: (req as AuthRequest).user!.userId }).sort({ createdAt: -1 });
+    const notes = await Note.find({ userId: (req as AuthRequest).user!.userId }).sort({ createdAt: -1 }).lean().exec();
     
     // Early return if no notes
     if (notes.length === 0) {
@@ -97,12 +109,11 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
     
     // Since locked is now E2E encrypted, we cannot determine lock status on the server
     // The client handles lock logic and decryption. We return all notes as-is.
-    const sanitizedNotes = notes.map(note => {
-      const noteObj = note.toObject();
+    const sanitizedNotes = notes.map((note) => ({
+      ...note,
       // Note: Content hiding for locked notes is now handled client-side
       // since we cannot decrypt the locked field server-side
-      return noteObj;
-    });
+    }));
 
     await cache.set(cacheKey, sanitizedNotes, 300); // Cache for 5 minutes
     res.json(sanitizedNotes);
@@ -127,7 +138,7 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
       res.json(cachedNote);
       return;
     }
-    const note = await Note.findOne({ _id: req.params.id, userId }).select('+password');
+    const note = await Note.findOne({ _id: req.params.id, userId }).select('+password').lean().exec();
     if (!note) {
       res.status(404);
       return next(new Error('Note not found'));
@@ -142,14 +153,12 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
     // For now, let's behave like GET / and hide content if locked.
     
     // Actually, for simple sync check, we mostly care about updatedAt.
-    const noteObj = note.toObject();
-    
     // Check if locked (simplified check, not recursive for single note efficiency, but inaccurate)
     // To be consistent, we should use the same logic or just return it.
     // Let's just return it. The client handles decryption/locking view.
     // But wait, GET / hides content.
-    await cache.set(cacheKey, noteObj, 300);
-    res.json(noteObj);
+    await cache.set(cacheKey, note, 300);
+    res.json(note);
   } catch (error) {
     next(error);
   }
@@ -188,23 +197,14 @@ router.post('/:id/verify-lock', verifyLockLimiter, async (req: Request, res: Res
       return;
     }
 
-    const password = req.body?.password;
-    if (!password || !blockingNote.password) {
-      // Return 200 OK with success: false instead of 401 to prevent frontend logout
+    const password = normalizePasswordInput(req.body?.password);
+    if (password === null || password.length === 0 || !blockingNote.password) {
+      await bcrypt.compare(typeof req.body?.password === 'string' ? req.body.password : '', DUMMY_PASSWORD_HASH);
       res.json({ success: false, message: 'Invalid password' });
       return;
     }
 
-    const decryptedCandidate = decrypt(password);
-    const encryptedCandidate = encrypt(password);
-    const candidates = [password, decryptedCandidate, encryptedCandidate].filter((v, i, arr) => v && arr.indexOf(v) === i);
-    let isMatch = false;
-    for (const candidate of candidates) {
-      if (await bcrypt.compare(candidate, blockingNote.password)) {
-        isMatch = true;
-        break;
-      }
-    }
+    const isMatch = await bcrypt.compare(password, blockingNote.password);
     if (!isMatch) {
       // Return 200 OK with success: false instead of 401 to prevent frontend logout
       res.json({ success: false, message: 'Invalid password' });
@@ -233,10 +233,13 @@ router.post('/', validate(noteSchema), async (req: Request, res: Response, next:
       }
     }
 
-    if (noteData.password) {
-      const decrypted = decrypt(noteData.password);
-      const rawPassword = decrypted ? decrypted : noteData.password;
-      noteData.password = await bcrypt.hash(rawPassword, 10);
+    if (noteData.password !== undefined) {
+      const rawPassword = normalizePasswordInput(noteData.password);
+      if (rawPassword === null || rawPassword.length === 0) {
+        res.status(400);
+        return next(new Error('Invalid encrypted password payload'));
+      }
+      noteData.password = await bcrypt.hash(rawPassword, BCRYPT_ROUNDS);
     }
 
     const note = new Note(noteData);
@@ -279,6 +282,7 @@ router.put('/reorder', validate(reorderSchema), async (req: Request, res: Respon
     }
 
     await cache.del(`notes:list:${userId}`);
+    await cache.delMany(notes.map((note) => `notes:item:${userId}:${note._id}`));
 
     const io = req.app.get('io');
     io.to(`user:${userId}`).emit('notes:reordered', notes);
@@ -318,9 +322,12 @@ router.put('/:id', validate(updateSchema), async (req: Request, res: Response, n
       if (value.type !== undefined) note.type = value.type;
       if (value.password !== undefined) {
         if (value.password) {
-            const decrypted = decrypt(value.password);
-            const rawPassword = decrypted ? decrypted : value.password;
-            note.password = await bcrypt.hash(rawPassword, 10);
+            const rawPassword = normalizePasswordInput(value.password);
+            if (rawPassword === null || rawPassword.length === 0) {
+              res.status(400);
+              return next(new Error('Invalid encrypted password payload'));
+            }
+            note.password = await bcrypt.hash(rawPassword, BCRYPT_ROUNDS);
         } else {
             note.password = '';
         }

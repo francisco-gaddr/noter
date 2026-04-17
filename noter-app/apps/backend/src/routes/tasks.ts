@@ -6,6 +6,7 @@ import { AuthRequest } from '../middleware/authMiddleware';
 import mongoose from 'mongoose';
 import { validate } from '../middleware/validate';
 import { isEncryptedPayload } from '../utils/encryption';
+import cache from '../services/cache';
 
 const router = express.Router();
 
@@ -41,7 +42,7 @@ const reorderSchema = Joi.object({
       _id: Joi.string().required(),
       position: encryptedRequired.required()
     }).unknown(true)
-  ).required()
+  ).max(1000).required()
 });
 
 const updateTaskSchema = Joi.object({
@@ -59,14 +60,43 @@ const updateTaskSchema = Joi.object({
   reminderOffsetMinutes: encryptedOptional.optional()
 });
 
+const getTaskListCacheKey = (userId: string, parentNoteId?: string | null) => (
+  parentNoteId ? `tasks:list:${userId}:note:${parentNoteId}` : `tasks:list:${userId}:all`
+);
+
+const getTaskCacheKeys = (userId: string, parentNoteIds: Array<string | null | undefined>) => (
+  Array.from(new Set([
+    getTaskListCacheKey(userId),
+    ...parentNoteIds.map((parentNoteId) => getTaskListCacheKey(userId, parentNoteId ?? undefined)),
+  ]))
+);
+
 // GET /api/tasks
 router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const filter: any = { userId: (req as AuthRequest).user!.userId };
-    if (req.query.parentNoteId) {
-        filter.parentNoteId = req.query.parentNoteId;
+    const userId = (req as AuthRequest).user!.userId;
+    const rawParentNoteId = req.query.parentNoteId;
+    if (rawParentNoteId !== undefined && typeof rawParentNoteId !== 'string') {
+      res.status(400);
+      return next(new Error('Invalid parentNoteId'));
     }
-    const tasks = await Task.find(filter).sort({ createdAt: -1 });
+    const parentNoteId = typeof rawParentNoteId === 'string' ? rawParentNoteId : undefined;
+    if (parentNoteId && !mongoose.Types.ObjectId.isValid(parentNoteId)) {
+      res.status(400);
+      return next(new Error('Invalid parentNoteId'));
+    }
+    const cacheKey = getTaskListCacheKey(userId, parentNoteId);
+    const cachedTasks = await cache.get(cacheKey);
+    if (cachedTasks) {
+      res.json(cachedTasks);
+      return;
+    }
+    const filter: any = { userId };
+    if (parentNoteId) {
+      filter.parentNoteId = parentNoteId;
+    }
+    const tasks = await Task.find(filter).sort({ createdAt: -1 }).lean().exec();
+    await cache.set(cacheKey, tasks, 300);
     res.json(tasks);
   } catch (error) {
     next(error);
@@ -91,6 +121,7 @@ router.post('/', validate(taskSchema), async (req: Request, res: Response, next:
     
     const task = new Task(taskData);
     const createdTask = await task.save();
+    await cache.delMany(getTaskCacheKeys(userId, [null, createdTask.parentNoteId?.toString()]));
     
     const io = req.app.get('io');
     io.to(`user:${userId}`).emit('task:created', createdTask);
@@ -131,6 +162,7 @@ router.put('/assign-to-list', validate(assignSchema), async (req: Request, res: 
       { userId, parentNoteId: null },
       { $set: { parentNoteId: noteId } }
     );
+    await cache.delMany(getTaskCacheKeys(userId, [null, noteId]));
     res.json({ matchedCount: result.matchedCount, modifiedCount: result.modifiedCount });
   } catch (error) {
     next(error);
@@ -146,6 +178,14 @@ router.put('/reorder', validate(reorderSchema), async (req: Request, res: Respon
     const validTasks = (tasks as Array<{ _id: string; position: string }>).filter((t) =>
       mongoose.Types.ObjectId.isValid(t._id),
     );
+    const affectedTasks = validTasks.length > 0
+      ? await Task.find({
+          userId,
+          _id: {
+            $in: validTasks.map((task) => new mongoose.Types.ObjectId(task._id)),
+          },
+        }).select('parentNoteId').lean().exec()
+      : [];
 
     const updates = validTasks.map((t) => ({
       updateOne: {
@@ -157,6 +197,7 @@ router.put('/reorder', validate(reorderSchema), async (req: Request, res: Respon
     if (updates.length > 0) {
         await Task.bulkWrite(updates);
     }
+    await cache.delMany(getTaskCacheKeys(userId, affectedTasks.map((task: any) => task.parentNoteId?.toString())));
     
     const io = req.app.get('io');
     io.to(`user:${userId}`).emit('tasks:reordered', validTasks);
@@ -177,6 +218,7 @@ router.put('/:id', validate(updateTaskSchema), async (req: Request, res: Respons
     const userId = (req as AuthRequest).user!.userId;
     const task = await Task.findOne({ _id: req.params.id, userId });
     if (task) {
+        const previousParentNoteId = task.parentNoteId?.toString() ?? null;
         // Only update fields that are present in the body (and validated)
         if (req.body.title !== undefined) task.title = req.body.title;
         if (req.body.description !== undefined) task.description = req.body.description;
@@ -192,6 +234,7 @@ router.put('/:id', validate(updateTaskSchema), async (req: Request, res: Respons
         if (req.body.reminderOffsetMinutes !== undefined) task.reminderOffsetMinutes = req.body.reminderOffsetMinutes;
         
         const updatedTask = await task.save();
+        await cache.delMany(getTaskCacheKeys(userId, [previousParentNoteId, updatedTask.parentNoteId?.toString()]));
 
         const io = req.app.get('io');
         io.to(`user:${userId}`).emit('task:updated', updatedTask);
@@ -216,7 +259,9 @@ router.delete('/:id', async (req: Request, res: Response, next: NextFunction) =>
     const userId = (req as AuthRequest).user!.userId;
     const task = await Task.findOne({ _id: req.params.id, userId });
     if (task) {
+      const parentNoteId = task.parentNoteId?.toString() ?? null;
       await task.deleteOne();
+      await cache.delMany(getTaskCacheKeys(userId, [parentNoteId]));
 
       const io = req.app.get('io');
       io.to(`user:${userId}`).emit('task:deleted', req.params.id);

@@ -45,7 +45,7 @@ describe('security utility fallbacks', () => {
   it('fails closed for production cors when no explicit origin list exists', () => {
     process.env.NODE_ENV = 'production';
     const { getAllowedOrigins } = loadSecurityModule();
-    expect(getAllowedOrigins()).toEqual([]);
+    expect(() => getAllowedOrigins()).toThrow('CORS_ORIGINS must be set in production');
   });
 
   it('generates an ephemeral jwt fallback outside production instead of using a committed secret', () => {

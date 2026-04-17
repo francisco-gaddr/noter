@@ -76,6 +76,9 @@ export const isDemoTokenEnabled = () => {
 export const getAllowedOrigins = () => {
   const configuredOrigins = getOptionalOriginsFromEnv();
   if (isProductionEnv()) {
+    if (configuredOrigins.length === 0) {
+      throw new Error('CORS_ORIGINS must be set in production');
+    }
     return Array.from(new Set(configuredOrigins));
   }
   return Array.from(new Set([...DEFAULT_DEV_CORS_ORIGINS, ...configuredOrigins]));

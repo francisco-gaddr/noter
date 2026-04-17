@@ -2,6 +2,7 @@ const connectMock = jest.fn(async () => undefined);
 const getMock = jest.fn(async () => null);
 const setMock = jest.fn(async () => 'OK');
 const delMock = jest.fn(async () => 1);
+const pingMock = jest.fn(async () => 'PONG');
 const onMock = jest.fn();
 const createClientMock = jest.fn(() => ({
   isOpen: false,
@@ -9,6 +10,7 @@ const createClientMock = jest.fn(() => ({
   get: getMock,
   set: setMock,
   del: delMock,
+  ping: pingMock,
   on: onMock,
 }));
 
@@ -26,6 +28,7 @@ describe('cache service env fallback', () => {
     getMock.mockClear();
     setMock.mockClear();
     delMock.mockClear();
+    pingMock.mockClear();
     onMock.mockClear();
     process.env = { ...originalEnv };
     delete process.env.REDIS_URL;
@@ -40,6 +43,8 @@ describe('cache service env fallback', () => {
     await expect(cache.get('notes:list:user-1')).resolves.toBeNull();
     await expect(cache.set('notes:list:user-1', { ok: true })).resolves.toBeUndefined();
     await expect(cache.del('notes:list:user-1')).resolves.toBeUndefined();
+    await expect(cache.delMany(['notes:list:user-1'])).resolves.toBeUndefined();
+    await expect(cache.ping()).resolves.toBe(false);
     expect(createClientMock).not.toHaveBeenCalled();
   });
 });

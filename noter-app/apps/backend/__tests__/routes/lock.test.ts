@@ -14,6 +14,8 @@ jest.mock('../../src/services/cache', () => ({
   get: jest.fn(),
   set: jest.fn(),
   del: jest.fn(),
+  delMany: jest.fn(),
+  ping: jest.fn(async () => false),
 }));
 
 const app = express();
