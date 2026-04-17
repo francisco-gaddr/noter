@@ -98,18 +98,25 @@ const run = async () => {
     });
 
     await page.waitForTimeout(1500);
-    await page.evaluate((injectedApiBaseUrl) => {
-      sessionStorage.setItem('token', 'test-token');
-      localStorage.setItem('token', 'test-token');
-      localStorage.setItem('user', JSON.stringify({ _id: 'user-1', username: 'test' }));
-      localStorage.setItem('apiBaseUrl', injectedApiBaseUrl);
+    await page.evaluate(async (injectedApiBaseUrl) => {
+      await window.mlc.setSession({
+        token: 'test-token',
+        user: { _id: 'user-1', username: 'test', createdAt: new Date().toISOString() },
+      });
+      await window.mlc.setManySettings({
+        apiBaseUrl: injectedApiBaseUrl,
+        apiUrl: injectedApiBaseUrl,
+        backendUrl: injectedApiBaseUrl,
+      });
     }, apiBaseUrl);
     await page.reload();
-    await page.waitForTimeout(4000);
+    await page.waitForFunction(() => Boolean(window.__NOTER_E2E__), null, { timeout: 15000 });
+    await page.waitForTimeout(2500);
 
     const hasHook = await page.evaluate(() => Boolean(window.__NOTER_E2E__));
     if (hasHook) {
       await page.evaluate(async () => {
+        await window.__NOTER_E2E__.hydrate();
         await window.__NOTER_E2E__.fetchNotes();
       });
     }

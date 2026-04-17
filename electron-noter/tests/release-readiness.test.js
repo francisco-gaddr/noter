@@ -15,7 +15,9 @@ describe('electron release readiness', () => {
     expect(packageJson.scripts['build:ready:mac']).toContain('npm run verify:build-ready');
     expect(packageJson.scripts['build:ready:mac']).toContain('npm run test');
     expect(packageJson.scripts['build:ready:mac']).toContain('npm run test:e2e');
+    expect(packageJson.scripts['build:ready:mac']).toContain('npm run test:e2e:ui');
     expect(packageJson.scripts['test:e2e']).toBe('node src/run-e2e.js');
+    expect(packageJson.scripts['test:e2e:ui']).toBe('E2E_UI=1 node src/run-e2e.js');
   });
 
   it('declares mac arm64 build targets and notarization hook', () => {
@@ -27,25 +29,25 @@ describe('electron release readiness', () => {
   });
 
   it('keeps hardened BrowserWindow settings and strict renderer output checks', () => {
-    const writeSettingsStart = mainJs.indexOf('const writeSettings = (next) => {');
-    const rewriteSettingsStart = mainJs.indexOf('const shouldRewriteSettingsOnStartup = () => {');
-    const writeSettingsBlock = mainJs.slice(writeSettingsStart, rewriteSettingsStart);
     expect(mainJs).toContain('contextIsolation: true');
     expect(mainJs).toContain('nodeIntegration: false');
     expect(mainJs).toContain('sandbox: true');
+    expect(mainJs).toContain("titleBarStyle: isMac ? 'hiddenInset' : 'default'");
+    expect(mainJs).toContain("vibrancy: isMac ? 'sidebar' : undefined");
     expect(mainJs).toContain('setWindowOpenHandler');
-    expect(mainJs).toContain("const allowedExternalProtocols = new Set(['https:', 'http:'])");
+    expect(mainJs).toMatch(/const allowedExternalProtocols = new Set\(\['https:', 'http:'\]\);/);
     expect(mainJs).toContain('return allowedExternalProtocols.has(parsed.protocol);');
     expect(mainJs).toContain('const rendererRecoveryDelayMs = 2500;');
     expect(mainJs).toContain('scheduleRendererRecovery();');
     expect(mainJs).toContain("win.webContents.on('did-finish-load'");
-    expect(mainJs).toContain('if (!safeStorage?.isEncryptionAvailable?.()) return {};');
+    expect(mainJs).toContain("const isSafeStorageAvailable = () => {");
+    expect(mainJs).toContain('return Boolean(safeStorage?.isEncryptionAvailable?.());');
+    expect(mainJs).toContain("mode: 'localKey'");
+    expect(mainJs).toContain("mode: 'safeStorage'");
     expect(mainJs).toContain('const writeSettings = (next) => {');
-    expect(writeSettingsBlock).toContain("if (!safeStorage?.isEncryptionAvailable?.()) {\n    return true;\n  }");
-    expect(mainJs).toContain("const filePath = path.join(app.getPath('userData'), settingsFileName);");
+    expect(mainJs).toContain('const getLocalSettingsKey = () => {');
+    expect(mainJs).toContain('const getSettingsKeyPath = () => path.join(app.getPath(\'userData\'), settingsKeyFileName);');
     expect(mainJs).toContain('const shouldRewriteSettingsOnStartup = () => {');
-    expect(mainJs).toContain('if (!safeStorage?.isEncryptionAvailable?.()) {');
-    expect(mainJs).toContain('return false;');
     expect(mainJs).toContain("if (shouldRewriteSettingsOnStartup()) {");
     expect(mainJs).toContain('__encrypted: true');
     expect(mainJs).toContain("payload: encrypted.toString('base64')");

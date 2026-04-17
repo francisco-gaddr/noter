@@ -31,6 +31,11 @@ let refreshTokenCache: string | null = null;
 let refreshPromise: Promise<string | null> | null = null;
 let authTokenListener: null | ((token: string | null) => void) = null;
 
+const shouldUseCookieSession = () => {
+  if (typeof window === 'undefined') return false;
+  return !(window as any)?.mlc?.isElectron;
+};
+
 const normalizeUrl = (value: string) => {
   const raw = value.trim().replace(/^[`'"]+|[`'"]+$/g, '').trim();
   if (!raw) return '/api';
@@ -159,19 +164,20 @@ const getHeaders = () => {
   const token = apiTokenCache || getWebAuthTokenSync();
   return {
     'Content-Type': 'application/json',
-    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+    ...((token && !shouldUseCookieSession()) ? { 'Authorization': `Bearer ${token}` } : {}),
   };
 };
 
 const refreshSession = async (): Promise<string | null> => {
   const refreshToken = refreshTokenCache || getWebRefreshTokenSync();
-  if (!refreshToken) return null;
+  if (!shouldUseCookieSession() && !refreshToken) return null;
   if (refreshPromise) return refreshPromise;
   refreshPromise = (async () => {
     const res = await fetch(`${getBaseUrl()}/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken }),
+      credentials: 'include',
+      ...(refreshToken ? { body: JSON.stringify({ refreshToken }) } : {}),
     });
     if (!res.ok) {
       clearSession();
@@ -191,6 +197,7 @@ const refreshSession = async (): Promise<string | null> => {
 const authedFetch = async (url: string, init: RequestInit = {}, allowRefresh = true): Promise<Response> => {
   const response = await fetch(url, {
     ...init,
+    credentials: 'include',
     headers: {
       ...getHeaders(),
       ...((init.headers as Record<string, string>) || {}),
@@ -201,6 +208,7 @@ const authedFetch = async (url: string, init: RequestInit = {}, allowRefresh = t
     if (refreshedToken) {
       return fetch(url, {
         ...init,
+        credentials: 'include',
         headers: {
           ...getHeaders(),
           ...((init.headers as Record<string, string>) || {}),
@@ -339,6 +347,7 @@ export const api = {
   async register(username: string, password: string): Promise<AuthResponse> {
     const res = await fetch(`${getBaseUrl()}/auth/register`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
     });
@@ -350,6 +359,7 @@ export const api = {
   async login(username: string, password: string): Promise<AuthResponse> {
     const res = await fetch(`${getBaseUrl()}/auth/login`, {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
     });
@@ -361,16 +371,35 @@ export const api = {
   async logout(): Promise<void> {
     const currentRefreshToken = refreshTokenCache || getWebRefreshTokenSync();
     try {
-      if (currentRefreshToken) {
-        await fetch(`${getBaseUrl()}/auth/logout`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refreshToken: currentRefreshToken }),
-        });
-      }
+      await fetch(`${getBaseUrl()}/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        ...(currentRefreshToken ? { body: JSON.stringify({ refreshToken: currentRefreshToken }) } : {}),
+      });
     } finally {
       clearSession();
     }
+  },
+
+  async restoreSession(): Promise<AuthResponse | null> {
+    const token = apiTokenCache || getWebAuthTokenSync();
+    if (!token && !shouldUseCookieSession()) {
+      return null;
+    }
+    const refreshedToken = token || await refreshSession();
+    if (!refreshedToken) return null;
+    const me = await authedFetch(`${getBaseUrl()}/auth/me`, {}, false);
+    if (!me.ok) {
+      clearSession();
+      return null;
+    }
+    const user = await handleResponse(me);
+    return {
+      user,
+      token: refreshedToken,
+      ...(refreshTokenCache ? { refreshToken: refreshTokenCache } : {}),
+    };
   },
 
   // Notes

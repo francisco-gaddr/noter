@@ -2,6 +2,10 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('mlc', {
   isElectron: true,
+  platform: process.platform,
+  arch: process.arch,
+  isMac: process.platform === 'darwin',
+  isAppleSilicon: process.platform === 'darwin' && process.arch === 'arm64',
   getModels: () => ipcRenderer.invoke('mlc:get-models'),
   searchModels: (payload) => ipcRenderer.invoke('mlc:search-models', payload),
   getModelFiles: (payload) => ipcRenderer.invoke('mlc:get-model-files', payload),

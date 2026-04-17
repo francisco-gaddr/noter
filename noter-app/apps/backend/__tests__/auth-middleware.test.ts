@@ -1,5 +1,5 @@
 import jwt from 'jsonwebtoken';
-import { authMiddleware, getBearerTokenFromRequestLike, getUserIdFromDecodedToken } from '../src/middleware/authMiddleware';
+import { authMiddleware, getBearerTokenFromRequestLike, getCookieValueFromRequestLike, getUserIdFromDecodedToken } from '../src/middleware/authMiddleware';
 
 describe('auth middleware helpers', () => {
   afterEach(() => {
@@ -19,6 +19,12 @@ describe('auth middleware helpers', () => {
   it('extracts bearer token from header arrays and strips quotes', () => {
     const req = { headers: { authorization: ['Bearer "`quoted.token`"'] } };
     expect(getBearerTokenFromRequestLike(req)).toBe('quoted.token');
+  });
+
+  it('extracts cookie values from cookie headers', () => {
+    const req = { headers: { cookie: 'foo=bar; noter_at=cookie-token; noter_rt=refresh-token' } };
+    expect(getCookieValueFromRequestLike(req, 'noter_at')).toBe('cookie-token');
+    expect(getCookieValueFromRequestLike(req, 'noter_rt')).toBe('refresh-token');
   });
 
   it('extracts userId from supported claims', () => {

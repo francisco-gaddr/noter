@@ -51,6 +51,7 @@ if (errors.length === 0) {
   ensure(typeof packageJson.scripts?.['build:mac:arm64'] === 'string', 'script build:mac:arm64 saknas i electron-noter');
   ensure(typeof packageJson.scripts?.['verify:build-ready'] === 'string', 'script verify:build-ready saknas i electron-noter');
   ensure(typeof packageJson.scripts?.['test:e2e'] === 'string', 'script test:e2e saknas i electron-noter');
+  ensure(typeof packageJson.scripts?.['test:e2e:ui'] === 'string', 'script test:e2e:ui saknas i electron-noter');
   ensure(typeof packageJson.build?.appId === 'string' && packageJson.build.appId.trim().length > 0, 'electron build.appId saknas');
   ensure(typeof packageJson.build?.productName === 'string' && packageJson.build.productName.trim().length > 0, 'electron build.productName saknas');
   ensure(Array.isArray(packageJson.build?.asarUnpack), 'electron build.asarUnpack saknas');
@@ -67,6 +68,7 @@ if (errors.length === 0) {
   ensure(String(packageJson.scripts?.['build:ready']).includes('npm run verify:build-ready'), 'build:ready måste köra verify:build-ready');
   ensure(String(packageJson.scripts?.['build:ready']).includes('npm run test'), 'build:ready måste köra tester');
   ensure(String(packageJson.scripts?.['build:ready']).includes('npm run test:e2e'), 'build:ready måste köra Electron E2E');
+  ensure(String(packageJson.scripts?.['build:ready:mac']).includes('npm run test:e2e:ui'), 'build:ready:mac måste köra Electron UI E2E');
   ensure(fs.readFileSync(buildWebPath, 'utf8').includes("renderer-standalone"), 'build-web måste bygga renderer-standalone');
   ensure(mainJs.includes('contextIsolation: true'), 'main.js måste ha contextIsolation: true');
   ensure(mainJs.includes('nodeIntegration: false'), 'main.js måste ha nodeIntegration: false');

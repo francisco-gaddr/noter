@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const net = require('net');
 const { spawn } = require('child_process');
+const { createCipheriv, createDecipheriv, randomBytes } = require('crypto');
 const {
   getElectronPerformanceSnapshot,
   recordAiChatSample,
@@ -18,6 +19,7 @@ const isTest = process.env.ELECTRON_TEST === '1';
 const devUrl = process.env.ELECTRON_RENDERER_URL || 'http://localhost:3001/';
 const userDataDir = process.env.ELECTRON_USER_DATA_DIR;
 const settingsFileName = 'settings.json';
+const settingsKeyFileName = 'settings.key';
 const encryptedSettingsVersion = 1;
 const rendererRecoveryDelayMs = 2500;
 const allowedExternalProtocols = new Set(['https:', 'http:']);
@@ -71,23 +73,88 @@ const getMlcModule = () => {
   return mlcModule;
 };
 
+const isSafeStorageAvailable = () => {
+  if (process.env.ELECTRON_DISABLE_SAFESTORAGE === '1') return false;
+  return Boolean(safeStorage?.isEncryptionAvailable?.());
+};
+
+const getSettingsFilePath = () => path.join(app.getPath('userData'), settingsFileName);
+const getSettingsKeyPath = () => path.join(app.getPath('userData'), settingsKeyFileName);
+
+const getLocalSettingsKey = () => {
+  const keyPath = getSettingsKeyPath();
+  fs.mkdirSync(path.dirname(keyPath), { recursive: true });
+  if (fs.existsSync(keyPath)) {
+    return fs.readFileSync(keyPath);
+  }
+  const key = randomBytes(32);
+  fs.writeFileSync(keyPath, key, { mode: 0o600 });
+  return key;
+};
+
+const encryptSettingsPayload = (value) => {
+  const json = JSON.stringify(value);
+  if (isSafeStorageAvailable()) {
+    const encrypted = safeStorage.encryptString(json);
+    return {
+      __encrypted: true,
+      mode: 'safeStorage',
+      version: encryptedSettingsVersion,
+      payload: encrypted.toString('base64'),
+    };
+  }
+  const iv = randomBytes(12);
+  const key = getLocalSettingsKey();
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const encrypted = Buffer.concat([cipher.update(json, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return {
+    __encrypted: true,
+    mode: 'localKey',
+    version: encryptedSettingsVersion,
+    iv: iv.toString('base64'),
+    tag: tag.toString('base64'),
+    payload: encrypted.toString('base64'),
+  };
+};
+
+const decryptSettingsPayload = (parsed) => {
+  if (!parsed?.__encrypted || typeof parsed.payload !== 'string') return {};
+  if ((parsed.mode === 'localKey' || (!isSafeStorageAvailable() && parsed.iv && parsed.tag))) {
+    const key = getLocalSettingsKey();
+    const decipher = createDecipheriv(
+      'aes-256-gcm',
+      key,
+      Buffer.from(String(parsed.iv || ''), 'base64'),
+    );
+    decipher.setAuthTag(Buffer.from(String(parsed.tag || ''), 'base64'));
+    const decrypted = Buffer.concat([
+      decipher.update(Buffer.from(parsed.payload, 'base64')),
+      decipher.final(),
+    ]).toString('utf8');
+    const data = JSON.parse(decrypted);
+    return data && typeof data === 'object' ? data : {};
+  }
+  if (!isSafeStorageAvailable()) return {};
+  const decrypted = safeStorage.decryptString(Buffer.from(parsed.payload, 'base64'));
+  const data = JSON.parse(decrypted);
+  return data && typeof data === 'object' ? data : {};
+};
+
 if (userDataDir) {
   app.setPath('userData', userDataDir);
 }
 
 const readSettings = () => {
   try {
-    const filePath = path.join(app.getPath('userData'), settingsFileName);
+    const filePath = getSettingsFilePath();
     if (!fs.existsSync(filePath)) return {};
     const raw = fs.readFileSync(filePath, 'utf8');
     const parsed = JSON.parse(raw);
     if (parsed?.__encrypted === true && typeof parsed.payload === 'string') {
-      if (!safeStorage?.isEncryptionAvailable?.()) return {};
-      const decrypted = safeStorage.decryptString(Buffer.from(parsed.payload, 'base64'));
-      const data = JSON.parse(decrypted);
-      return data && typeof data === 'object' ? data : {};
+      return decryptSettingsPayload(parsed);
     }
-    if (safeStorage?.isEncryptionAvailable?.()) {
+    if (isSafeStorageAvailable()) {
       return parsed && typeof parsed === 'object' ? parsed : {};
     }
     return {};
@@ -97,31 +164,24 @@ const readSettings = () => {
 };
 
 const writeSettings = (next) => {
-  if (!safeStorage?.isEncryptionAvailable?.()) {
-    return true;
-  }
-  const filePath = path.join(app.getPath('userData'), settingsFileName);
-  const encrypted = safeStorage.encryptString(JSON.stringify(next));
-  fs.writeFileSync(filePath, JSON.stringify({
-    __encrypted: true,
-    version: encryptedSettingsVersion,
-    payload: encrypted.toString('base64'),
-  }));
+  const filePath = getSettingsFilePath();
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(encryptSettingsPayload(next)));
   return true;
 };
 
 const shouldRewriteSettingsOnStartup = () => {
-  if (!safeStorage?.isEncryptionAvailable?.()) {
-    return false;
-  }
   try {
-    const filePath = path.join(app.getPath('userData'), settingsFileName);
+    const filePath = getSettingsFilePath();
     if (!fs.existsSync(filePath)) {
       return true;
     }
     const raw = fs.readFileSync(filePath, 'utf8');
     const parsed = JSON.parse(raw);
-    return !(parsed?.__encrypted === true && typeof parsed.payload === 'string');
+    if (isSafeStorageAvailable()) {
+      return !(parsed?.__encrypted === true && typeof parsed.payload === 'string');
+    }
+    return !(parsed?.__encrypted === true && typeof parsed.payload === 'string' && (parsed.mode === 'localKey' || (parsed.iv && parsed.tag)));
   } catch {
     return true;
   }
@@ -261,11 +321,16 @@ const openExternalSafely = (url) => {
 
 const createWindow = () => {
   recordStartupEvent('window-created');
+  const isMac = process.platform === 'darwin';
   const win = new BrowserWindow({
     show: isTest,
     width: 1280,
     height: 800,
-    backgroundColor: '#0f172a',
+    backgroundColor: isMac ? '#00000000' : '#0f172a',
+    titleBarStyle: isMac ? 'hiddenInset' : 'default',
+    vibrancy: isMac ? 'sidebar' : undefined,
+    visualEffectState: isMac ? 'active' : undefined,
+    trafficLightPosition: isMac ? { x: 16, y: 14 } : undefined,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -273,6 +338,17 @@ const createWindow = () => {
       sandbox: true,
     },
   });
+
+  if (isMac) {
+    try {
+      win.setWindowButtonVisibility(true);
+    } catch {}
+    try {
+      if (typeof win.setBackgroundMaterial === 'function') {
+        win.setBackgroundMaterial('sidebar');
+      }
+    } catch {}
+  }
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     openExternalSafely(url);

@@ -242,6 +242,20 @@ const toReminderOffsets = (value?: number | number[]): number[] => {
 
 const reminderTimers = new Map<string, number[]>();
 
+const clearReminderTimer = (taskId: string) => {
+  const existing = reminderTimers.get(taskId);
+  if (existing && existing.length > 0) {
+    existing.forEach((timeoutId) => clearTimeout(timeoutId));
+    reminderTimers.delete(taskId);
+  }
+};
+
+const clearReminderTimers = (taskIds: Iterable<string>) => {
+  for (const taskId of taskIds) {
+    clearReminderTimer(taskId);
+  }
+};
+
 const scheduleWebReminder = (task: Task) => {
   if (typeof window === 'undefined') return;
   if (!task.reminderEnabled) {
@@ -429,6 +443,54 @@ const syncPersistedSelections = (selectedNoteId: string | null, selectedTaskList
   } else {
     localStorage.removeItem('lastSelectedTaskListId');
   }
+};
+
+const collectCascadeNoteIds = (notes: Note[], rootId: string): string[] => {
+  const normalizedRootId = normalizeId(rootId);
+  if (!normalizedRootId) return [];
+  const collected = new Set<string>();
+  const queue = [normalizedRootId];
+  while (queue.length > 0) {
+    const currentId = queue.shift();
+    if (!currentId || collected.has(currentId)) continue;
+    collected.add(currentId);
+    notes.forEach((note) => {
+      const parentId = normalizeId(note.parentId);
+      const noteId = normalizeId(note._id);
+      if (noteId && parentId === currentId && !collected.has(noteId)) {
+        queue.push(noteId);
+      }
+    });
+  }
+  return Array.from(collected);
+};
+
+const collectTaskIdsForNotes = (tasks: Task[], noteIds: Iterable<string>): string[] => {
+  const noteIdSet = new Set(Array.from(noteIds).map((id) => normalizeId(id)).filter((id): id is string => Boolean(id)));
+  return tasks
+    .map((task) => {
+      const parentNoteId = normalizeId((task as any).parentNoteId ?? (task as any).parentId);
+      return parentNoteId && noteIdSet.has(parentNoteId) ? normalizeId(task._id) : null;
+    })
+    .filter((id): id is string => Boolean(id));
+};
+
+const deriveCascadeDeletionState = (
+  state: ProtectedVisibilityState,
+  deletedNoteIds: string[],
+  deletedTaskIds: string[] = [],
+) => {
+  const deletedNoteIdSet = new Set(deletedNoteIds.map((id) => normalizeId(id)).filter((id): id is string => Boolean(id)));
+  const deletedTaskIdSet = new Set(deletedTaskIds.map((id) => normalizeId(id)).filter((id): id is string => Boolean(id)));
+  return deriveProtectedVisibilityState(state, {
+    notes: state.notes.filter((note) => !deletedNoteIdSet.has(normalizeId(note._id) || '')),
+    tasks: state.tasks.filter((task) => !deletedTaskIdSet.has(normalizeId(task._id) || '')),
+    selectedNoteId: deletedNoteIdSet.has(normalizeId(state.selectedNoteId) || '') ? null : state.selectedNoteId,
+    selectedTaskListId: deletedNoteIdSet.has(normalizeId(state.selectedTaskListId) || '') ? null : state.selectedTaskListId,
+    activeProjectId: deletedNoteIdSet.has(normalizeId(state.activeProjectId) || '') ? null : state.activeProjectId,
+    unlockedProtectedNoteIds: state.unlockedProtectedNoteIds.filter((id) => !deletedNoteIdSet.has(normalizeId(id) || '')),
+    transientUnlockedProtectedNoteIds: state.transientUnlockedProtectedNoteIds.filter((id) => !deletedNoteIdSet.has(normalizeId(id) || '')),
+  });
 };
 
 const deriveProtectedVisibilityState = (
@@ -667,10 +729,32 @@ export const useStore = create<StoreState>((set, get) => ({
             });
             set({ isOffline: typeof navigator !== 'undefined' ? !navigator.onLine : false });
         }
-        if (!hasElectronSettingsBridge && token && !nextLocked) {
-            get().fetchNotes();
-            get().fetchTasks();
-            get().initSocket();
+        if (!hasElectronSettingsBridge && !nextLocked) {
+            if (token) {
+                get().fetchNotes();
+                get().fetchTasks();
+                get().initSocket();
+            } else {
+                Promise.resolve(api.restoreSession())
+                    .then((session) => {
+                        if (!session) {
+                            localStorage.removeItem('user');
+                            set({ user: null, token: null });
+                            return;
+                        }
+                        localStorage.setItem('user', JSON.stringify(session.user));
+                        set({ user: session.user, token: session.token, isAppLocked: false });
+                        setApiToken(session.token);
+                        setSocketToken(session.token);
+                        get().fetchNotes();
+                        get().fetchTasks();
+                        get().initSocket();
+                    })
+                    .catch(() => {
+                        localStorage.removeItem('user');
+                        set({ user: null, token: null });
+                    });
+            }
         }
     } catch (e) {
         console.error('Failed to hydrate store', e);
@@ -926,11 +1010,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
     socket.off('note:deleted');
     socket.on('note:deleted', (noteId: string) => {
-        set(state => ({
-            notes: state.notes.filter(n => n._id !== noteId),
-            selectedNoteId: state.selectedNoteId === noteId ? null : state.selectedNoteId,
-            selectedTaskListId: state.selectedTaskListId === noteId ? null : state.selectedTaskListId
-        }));
+        set((state) => deriveCascadeDeletionState(state, [noteId]));
         db.deleteNote(noteId); // Remove from cache
     });
 
@@ -1032,11 +1112,7 @@ export const useStore = create<StoreState>((set, get) => ({
             tasks: state.tasks.filter(t => t._id !== taskId)
         }));
         db.deleteTask(taskId);
-        const existing = reminderTimers.get(taskId);
-        if (existing && existing.length > 0) {
-          existing.forEach((id) => clearTimeout(id));
-          reminderTimers.delete(taskId);
-        }
+        clearReminderTimer(taskId);
     });
 
     socket.off('tasks:reordered');
@@ -1612,26 +1688,32 @@ export const useStore = create<StoreState>((set, get) => ({
 
   deleteNote: async (id) => {
     set({ isLoading: true, error: null });
-    // Optimistic delete
-    const previousNotes = get().notes;
+    const cascadeNoteIds = collectCascadeNoteIds(get().notes, id);
+    const cascadeTaskIds = collectTaskIdsForNotes(get().tasks, cascadeNoteIds);
+    const tempNoteIds = cascadeNoteIds.filter((noteId) => noteId.startsWith('temp-'));
+    const persistedNoteIds = cascadeNoteIds.filter((noteId) => !noteId.startsWith('temp-'));
+    const tempTaskIds = cascadeTaskIds.filter((taskId) => taskId.startsWith('temp-'));
+    const persistedTaskIds = cascadeTaskIds.filter((taskId) => !taskId.startsWith('temp-'));
+    clearReminderTimers(cascadeTaskIds);
     set((state) => ({
-      notes: state.notes.filter((n) => n._id !== id),
-      selectedNoteId: state.selectedNoteId === id ? null : state.selectedNoteId,
-      selectedTaskListId: state.selectedTaskListId === id ? null : state.selectedTaskListId,
-      isLoading: false
+      ...deriveCascadeDeletionState(state, cascadeNoteIds, cascadeTaskIds),
+      isLoading: false,
     }));
 
+    await Promise.all(tempNoteIds.map((noteId) => db.deleteNote(noteId)));
+    await Promise.all(tempTaskIds.map((taskId) => db.deleteTask(taskId)));
+
     if (id.startsWith('temp-')) {
-        await db.deleteNote(id);
-        return;
+      return;
     }
 
     try {
       await api.deleteNote(id);
-      await db.deleteNote(id);
+      await Promise.all(persistedNoteIds.map((noteId) => db.deleteNote(noteId)));
+      await Promise.all(persistedTaskIds.map((taskId) => db.deleteTask(taskId)));
     } catch (error: any) {
-      // Offline delete
-      await db.markAsDeleted(id);
+      await Promise.all(persistedNoteIds.map((noteId) => db.markAsDeleted(noteId)));
+      await Promise.all(persistedTaskIds.map((taskId) => db.markTaskAsDeleted(taskId)));
       set({ error: 'Offline: Note marked for deletion', isLoading: false });
     }
   },
@@ -1758,11 +1840,7 @@ export const useStore = create<StoreState>((set, get) => ({
       set(state => ({
           tasks: state.tasks.filter(t => t._id !== id)
       }));
-      const existing = reminderTimers.get(id);
-      if (existing && existing.length > 0) {
-        existing.forEach((timeoutId) => clearTimeout(timeoutId));
-        reminderTimers.delete(id);
-      }
+      clearReminderTimer(id);
 
       if (id.startsWith('temp-')) {
           await db.deleteTask(id);

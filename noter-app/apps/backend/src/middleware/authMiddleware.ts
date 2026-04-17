@@ -43,6 +43,43 @@ export const getBearerTokenFromRequestLike = (reqLike: any): string | undefined 
   return normalized || undefined;
 };
 
+const getCookieHeaderFromRequestLike = (reqLike: any): string | undefined => {
+  const pick = (value: unknown): string | undefined => {
+    if (typeof value === 'string') return value;
+    if (Array.isArray(value)) {
+      const first = value.find((item) => typeof item === 'string');
+      return typeof first === 'string' ? first : undefined;
+    }
+    return undefined;
+  };
+
+  return (
+    pick(reqLike?.headers?.cookie) ??
+    pick(reqLike?.headers?.Cookie) ??
+    pick(reqLike?.raw?.headers?.cookie) ??
+    pick(reqLike?.req?.headers?.cookie) ??
+    pick(reqLike?.request?.headers?.cookie)
+  );
+};
+
+export const getCookieValueFromRequestLike = (reqLike: any, cookieName: string): string | undefined => {
+  const header = getCookieHeaderFromRequestLike(reqLike);
+  if (!header || !cookieName) return undefined;
+  const pairs = header.split(';');
+  for (const pair of pairs) {
+    const [rawKey, ...rest] = pair.split('=');
+    if (rawKey?.trim() !== cookieName) continue;
+    const rawValue = rest.join('=').trim();
+    if (!rawValue) return undefined;
+    try {
+      return decodeURIComponent(rawValue);
+    } catch {
+      return rawValue;
+    }
+  }
+  return undefined;
+};
+
 export const getUserIdFromDecodedToken = (decoded: string | jwt.JwtPayload): string | undefined => {
   if (typeof decoded === 'string') return undefined;
   const payload = decoded as DecodedToken;
@@ -57,7 +94,7 @@ export const authMiddleware = (req: AuthRequest, res: Response, next: NextFuncti
     return next();
   }
 
-  const token = getBearerTokenFromRequestLike(req);
+  const token = getBearerTokenFromRequestLike(req) || getCookieValueFromRequestLike(req, 'noter_at');
   
   if (!token) {
     return res.status(401).json({ message: 'No token, authorization denied' });

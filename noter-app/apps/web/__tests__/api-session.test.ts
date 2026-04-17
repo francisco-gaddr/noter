@@ -3,6 +3,7 @@ describe('web api session refresh', () => {
     jest.resetModules();
     localStorage.clear();
     sessionStorage.clear();
+    (window as any).mlc = { isElectron: true };
     global.fetch = jest.fn() as any;
   });
 

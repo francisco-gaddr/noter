@@ -12,10 +12,11 @@
     "build:mac": "npm run clean:packaging && npm run build:web && node src/build-mac.js",
     "build:mac:arm64": "npm run clean:packaging && npm run build:web && node src/build-mac.js --arm64",
     "build:ready": "npm run verify:build-ready && npm run test && npm run test:e2e && npm run clean:packaging && npm run build:web && node src/build-ready.js",
-    "build:ready:mac": "npm run verify:build-ready && npm run test && npm run test:e2e && npm run clean:packaging && npm run build:web && node src/build-mac.js --arm64 --ready",
+    "build:ready:mac": "npm run verify:build-ready && npm run test && npm run test:e2e && npm run test:e2e:ui && npm run clean:packaging && npm run build:web && node src/build-mac.js --arm64 --ready",
     "verify:build-ready": "node src/verify-build-readiness.js",
     "test": "jest",
     "test:e2e": "node src/run-e2e.js",
+    "test:e2e:ui": "E2E_UI=1 node src/run-e2e.js",
     "test:e2e:locks": "node tests/e2e/electron-lock-flow.e2e.js"
   },
   "keywords": [],
@@ -81,6 +82,8 @@
   "devDependencies": {
     "@electron/notarize": "^3.1.0",
     "@playwright/test": "^1.58.2",
+    "@types/crypto-js": "^4.2.2",
+    "crypto-js": "^4.2.0",
     "electron": "^40.6.1",
     "electron-builder": "^26.8.1",
     "jest": "^30.2.0"

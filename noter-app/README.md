@@ -32,7 +32,47 @@ npm install
 - Kopiera `apps/backend/.env.example` till `apps/backend/.env`
 - Kopiera `apps/web/.env.example` till `apps/web/.env.local` om du vill förifylla lokal API-URL eller base path
 - Kopiera `apps/mobile/.env.example` till `apps/mobile/.env` om du vill förifylla mobilens lokala backend-URL
+- Kopiera `../electron-noter/.env.example` till `../electron-noter/.env` om du vill förifylla Electron-renderer, lokal `userData` eller Apple-notarization-variabler för macOS-release
 - API-URL kan också anges lokalt via login/settings i web, mobil och Electron
+
+### Electron-miljö för macOS
+
+Electron-shellen använder en standalone-byggd Next-renderer, krypterad settings/session-lagring via main/preload och paketeras för macOS Apple Silicon (`arm64`) som `dmg` och `zip`.
+
+Valfria lokala variabler i `electron-noter/.env`:
+
+```env
+ELECTRON_RENDERER_URL=http://localhost:3001/
+ELECTRON_RENDERER_FALLBACK_URL=
+ELECTRON_USER_DATA_DIR=
+APPLE_ID=
+APPLE_APP_SPECIFIC_PASSWORD=
+APPLE_TEAM_ID=
+```
+
+- `ELECTRON_RENDERER_URL` används i lokal utveckling om du kör renderern på annan adress
+- `ELECTRON_RENDERER_FALLBACK_URL` ger extra lokal fallback om primär renderer inte svarar
+- `ELECTRON_USER_DATA_DIR` låter dig isolera Electron-data per lokal miljö eller test
+- `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` och `APPLE_TEAM_ID` krävs bara om du vill att mac-builden ska notariseras automatiskt
+
+### Electron för Mac
+
+Bygg och readiness för Apple Silicon:
+
+```bash
+cd ../electron-noter
+npm run build:ready:mac
+```
+
+Snabbare ren arm64-build:
+
+```bash
+cd ../electron-noter
+npm run build:mac:arm64
+```
+
+- Installationsbar macOS-artifakt skapas som `.dmg` i `electron-noter/dist-electron-ready-mac-arm64` eller motsvarande output-katalog
+- Om Apple-notarization-variabler saknas byggs appen fortfarande och signeras ad-hoc, men Gatekeeper/notarization blir inte fullständigt klar för distribution utanför lokal användning
 
 ### Köra apparna
 

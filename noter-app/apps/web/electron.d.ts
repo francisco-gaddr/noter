@@ -4,6 +4,10 @@ declare global {
   interface Window {
     mlc?: {
       isElectron: boolean;
+      platform?: string;
+      arch?: string;
+      isMac?: boolean;
+      isAppleSilicon?: boolean;
       getModels: () => Promise<any[]>;
       searchModels: (payload: any) => Promise<any[]>;
       getModelFiles: (payload: any) => Promise<any[]>;
@@ -15,6 +19,8 @@ declare global {
       onChatToken: (handler: (data: any) => void) => (() => void) | void;
       getPerformanceSnapshot: () => Promise<any>;
       resetPerformanceSnapshot: () => Promise<any>;
+      getSession?: () => Promise<any>;
+      setSession?: (payload: any) => Promise<any>;
       getSetting: (key: string) => Promise<any>;
       getManySettings?: (keys: string[]) => Promise<Record<string, any>>;
       setSetting: (key: string, value: any) => Promise<any>;

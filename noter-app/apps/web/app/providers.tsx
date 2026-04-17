@@ -31,12 +31,43 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }, [language])
 
   useEffect(() => {
+    if (typeof window === 'undefined') return
+    const mlc = (window as any).mlc
+    const root = document.documentElement
+    const isElectronShell = Boolean(mlc?.isElectron)
+    const isMacShell = Boolean(mlc?.isMac || mlc?.platform === 'darwin')
+    const isAppleSiliconShell = Boolean(mlc?.isAppleSilicon || (mlc?.platform === 'darwin' && mlc?.arch === 'arm64'))
+    root.classList.toggle('electron-shell', isElectronShell)
+    root.classList.toggle('platform-mac', isMacShell)
+    root.classList.toggle('apple-silicon', isAppleSiliconShell)
+    return () => {
+      root.classList.remove('electron-shell', 'platform-mac', 'apple-silicon')
+    }
+  }, [])
+
+  useEffect(() => {
     if (typeof window === 'undefined' || process.env.NODE_ENV === 'production') return
     ;(window as any).__NOTER_E2E__ = {
       getState: () => useStore.getState(),
       setState: (partial: Record<string, unknown>) => useStore.setState(partial as any),
       fetchNotes: () => useStore.getState().fetchNotes(),
       fetchTasks: (parentNoteId?: string) => useStore.getState().fetchTasks(parentNoteId),
+      createNote: async (title: string, _content = '', parentId: string | null = null, type: 'note' | 'project' | 'task_list' = 'note') => {
+        const beforeIds = new Set(useStore.getState().notes.map((note) => note._id))
+        await useStore.getState().createNote(title, parentId, type)
+        return useStore.getState().notes.find((note) => !beforeIds.has(note._id)) ?? null
+      },
+      updateNote: (id: string, data: Record<string, unknown>) =>
+        useStore.getState().updateNote(id, data as any),
+      createTask: async (title: string, parentNoteId?: string | null) => {
+        const beforeIds = new Set(useStore.getState().tasks.map((task) => task._id))
+        await useStore.getState().createTask(title, parentNoteId || undefined)
+        return useStore.getState().tasks.find((task) => !beforeIds.has(task._id)) ?? null
+      },
+      deleteNote: (id: string) => useStore.getState().deleteNote(id),
+      deleteTask: (id: string) => useStore.getState().deleteTask(id),
+      updateTask: (id: string, data: Record<string, unknown>) =>
+        useStore.getState().updateTask(id, data as any),
       unlockNote: (id: string, password: string) => useStore.getState().unlockNote(id, password),
       selectNote: (id: string | null) => useStore.getState().selectNote(id),
       setActiveProject: (id: string | null) => useStore.getState().setActiveProject(id),

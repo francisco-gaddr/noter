@@ -6,6 +6,7 @@
   --foreground-rgb: 0, 0, 0;
   --background-start-rgb: 214, 219, 220;
   --background-end-rgb: 255, 255, 255;
+  color-scheme: light dark;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -19,6 +20,24 @@
 body.ai-sidebar-open {
   padding-right: var(--ai-sidebar-width, 0px);
   transition: padding-right 0.3s ease;
+}
+
+html.electron-shell.platform-mac body {
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  background: transparent;
+}
+
+html.electron-shell.platform-mac .bg-white,
+html.electron-shell.platform-mac .dark\:bg-gray-900,
+html.electron-shell.platform-mac .dark\:bg-gray-950,
+html.electron-shell.platform-mac .dark\:bg-gray-800 {
+  backdrop-filter: saturate(1.2) blur(24px);
+}
+
+html.electron-shell.platform-mac.apple-silicon * {
+  text-rendering: optimizeLegibility;
 }
 
 /* Fix React Big Calendar Event Text Color */

@@ -51,8 +51,8 @@ const mutationCases = [
     label: 'Electron krypterad settings-fallback',
     cwd: electronRoot,
     filePath: path.join(electronRoot, 'main.js'),
-    searchRegex: /  if \(!safeStorage\?\.isEncryptionAvailable\?\.\(\)\) \{\r?\n    return true;\r?\n  \}/,
-    replace: "  if (!safeStorage?.isEncryptionAvailable?.()) {\n    return false;\n  }",
+    search: '  return Boolean(safeStorage?.isEncryptionAvailable?.());',
+    replace: '  return false;',
     args: ['run', 'test', '--', 'tests/release-readiness.test.js'],
   },
 ];

@@ -11,6 +11,7 @@ jest.mock('../services/api', () => ({
   api: {
     login: jest.fn(),
     register: jest.fn(),
+    restoreSession: jest.fn().mockResolvedValue(null),
     fetchNotes: jest.fn(),
     decryptTasks: jest.fn((tasks: any[]) => Promise.resolve(tasks)),
     getNote: jest.fn(),
@@ -44,10 +45,14 @@ jest.mock('../services/db', () => ({
     getAllNotes: jest.fn().mockResolvedValue([]),
     getNoteSyncIndex: jest.fn().mockResolvedValue(new Map()),
     getPendingSyncNotes: jest.fn().mockResolvedValue([]),
+    deleteNote: jest.fn(),
+    markAsDeleted: jest.fn(),
     saveTask: jest.fn(),
     getAllTasks: jest.fn().mockResolvedValue([]),
     getTaskSyncIndex: jest.fn().mockResolvedValue(new Map()),
     getPendingSyncTasks: jest.fn().mockResolvedValue([]),
+    deleteTask: jest.fn(),
+    markTaskAsDeleted: jest.fn(),
   },
 }));
 
@@ -90,6 +95,7 @@ describe('Web Store', () => {
 
   it('should init socket on hydrate when token exists', async () => {
     const { connectSocket } = require('../services/socket');
+    (window as any).mlc = { isElectron: true };
     localStorage.setItem('user', JSON.stringify({ _id: '1', username: 'test' }));
     sessionStorage.setItem('token', 'abc');
 
@@ -320,6 +326,44 @@ describe('Web Store', () => {
     expect(db.saveTask).toHaveBeenCalledTimes(1);
     expect(db.saveTask).toHaveBeenCalledWith(expect.objectContaining({ _id: 'task-changed' }));
   });
+
+  it('should cascade project deletion through child notes, task lists and tasks', async () => {
+    const { api } = require('../services/api');
+    const { db } = require('../services/db');
+    const now = new Date().toISOString();
+    useStore.setState({
+      notes: [
+        { _id: 'project-1', title: 'Projekt', content: '', type: 'project', locked: false, parentId: null, createdAt: now, updatedAt: now } as any,
+        { _id: 'list-1', title: 'Lista', content: '', type: 'task_list', locked: false, parentId: 'project-1', createdAt: now, updatedAt: now } as any,
+        { _id: 'note-1', title: 'Anteckning', content: '', type: 'note', locked: false, parentId: 'project-1', createdAt: now, updatedAt: now } as any,
+      ],
+      tasks: [
+        { _id: 'task-1', title: 'Uppgift', description: '', completed: false, priority: 'medium', parentNoteId: 'list-1', createdAt: now, updatedAt: now } as any,
+      ],
+      activeProjectId: 'project-1',
+      selectedTaskListId: 'list-1',
+      selectedNoteId: 'note-1',
+      unlockedProtectedNoteIds: ['project-1', 'list-1'],
+      transientUnlockedProtectedNoteIds: ['project-1'],
+    } as any);
+    api.deleteNote.mockResolvedValueOnce({ message: 'removed' });
+
+    await act(async () => {
+      await useStore.getState().deleteNote('project-1');
+    });
+
+    const state = useStore.getState();
+    expect(state.notes).toEqual([]);
+    expect(state.tasks).toEqual([]);
+    expect(state.activeProjectId).toBeNull();
+    expect(state.selectedTaskListId).toBeNull();
+    expect(state.selectedNoteId).toBeNull();
+    expect(state.unlockedProtectedNoteIds).toEqual([]);
+    expect(api.deleteNote).toHaveBeenCalledWith('project-1');
+    expect(db.deleteNote).toHaveBeenCalledTimes(3);
+    expect(db.deleteTask).toHaveBeenCalledWith('task-1');
+  });
+
 
   it('should relock project session when leaving active project', async () => {
     useStore.setState({

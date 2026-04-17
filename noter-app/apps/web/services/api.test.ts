@@ -1,5 +1,5 @@
-import { encrypt, decrypt } from '@repo/shared';
-import { api, setApiBaseUrl } from './api';
+const { encrypt, decrypt } = require('@repo/shared');
+const { api, setApiBaseUrl } = require('./api');
 
 // Mock the fetch function
 global.fetch = jest.fn();
@@ -17,16 +17,39 @@ Object.defineProperty(globalThis, 'localStorage', {
   configurable: true,
 });
 
-// Mock the shared encryption functions
-jest.mock('@repo/shared', () => ({
-  encrypt: jest.fn((text: string) => `encrypted_${text}`),
-  decrypt: jest.fn((ciphertext: string) => ciphertext.replace('encrypted_', '')),
-}));
-
 describe('E2E Encryption Tests', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     localStorageMock.getItem.mockReturnValue('test-token');
+  });
+
+  it('restores browser session via refresh cookie and auth me', async () => {
+    localStorageMock.getItem.mockImplementation((key: string) => {
+      if (key === 'apiBaseUrl') return null;
+      return null;
+    });
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ token: 'fresh-token' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ _id: 'u1', username: 'user', createdAt: '2024-01-01T00:00:00.000Z' }),
+      });
+
+    const restored = await api.restoreSession();
+    expect(restored?.token).toBe('fresh-token');
+    expect(restored?.user.username).toBe('user');
+    expect((global.fetch as jest.Mock).mock.calls[0][1]).toMatchObject({
+      method: 'POST',
+      credentials: 'include',
+    });
+    expect((global.fetch as jest.Mock).mock.calls[1][1]).toMatchObject({
+      credentials: 'include',
+    });
   });
 
   it('normalizes stored api base url', () => {
@@ -54,14 +77,14 @@ describe('E2E Encryption Tests', () => {
       const mockNotes = [
         {
           _id: '1',
-          title: 'encrypted_Test Note',
-          content: 'encrypted_Test content',
-          tags: ['encrypted_tag1', 'encrypted_tag2'],
-          icon: 'encrypted_icon',
-          type: 'encrypted_note',
-          locked: 'encrypted_true',
-          createdAt: 'encrypted_2024-01-01T00:00:00.000Z',
-          updatedAt: 'encrypted_2024-01-02T00:00:00.000Z',
+          title: encrypt('Test Note'),
+          content: encrypt('Test content'),
+          tags: [encrypt('tag1'), encrypt('tag2')],
+          icon: encrypt('icon'),
+          type: encrypt('note'),
+          locked: encrypt('true'),
+          createdAt: encrypt('2024-01-01T00:00:00.000Z'),
+          updatedAt: encrypt('2024-01-02T00:00:00.000Z'),
           parentId: null,
         },
       ];
@@ -89,23 +112,18 @@ describe('E2E Encryption Tests', () => {
         updatedAt: '2024-01-02T00:00:00.000Z',
         parentId: null,
       });
-
-      // Verify decryption was called for encrypted fields
-      expect(decrypt).toHaveBeenCalledWith('encrypted_true');
-      expect(decrypt).toHaveBeenCalledWith('encrypted_2024-01-01T00:00:00.000Z');
-      expect(decrypt).toHaveBeenCalledWith('encrypted_2024-01-02T00:00:00.000Z');
     });
 
     it('should handle false locked values correctly', async () => {
       const mockNotes = [
         {
           _id: '1',
-          title: 'encrypted_Test Note',
-          content: 'encrypted_Test content',
+          title: encrypt('Test Note'),
+          content: encrypt('Test content'),
           tags: [],
-          locked: 'encrypted_false',
-          createdAt: 'encrypted_2024-01-01T00:00:00.000Z',
-          updatedAt: 'encrypted_2024-01-02T00:00:00.000Z',
+          locked: encrypt('false'),
+          createdAt: encrypt('2024-01-01T00:00:00.000Z'),
+          updatedAt: encrypt('2024-01-02T00:00:00.000Z'),
         },
       ];
 
@@ -126,12 +144,12 @@ describe('E2E Encryption Tests', () => {
       const mockNotes = [
         {
           _id: '1',
-          title: 'encrypted_Test Note',
-          content: 'encrypted_Test content',
+          title: encrypt('Test Note'),
+          content: encrypt('Test content'),
           tags: [],
           // No locked field
-          createdAt: 'encrypted_2024-01-01T00:00:00.000Z',
-          updatedAt: 'encrypted_2024-01-02T00:00:00.000Z',
+          createdAt: encrypt('2024-01-01T00:00:00.000Z'),
+          updatedAt: encrypt('2024-01-02T00:00:00.000Z'),
         },
       ];
 
@@ -173,12 +191,12 @@ describe('E2E Encryption Tests', () => {
 
       const mockResponse = {
         _id: '1',
-        title: 'encrypted_Test Note',
-        content: 'encrypted_Test content',
-        tags: ['encrypted_tag1', 'encrypted_tag2'],
-        locked: 'encrypted_true',
-        createdAt: 'encrypted_2024-01-01T00:00:00.000Z',
-        updatedAt: 'encrypted_2024-01-02T00:00:00.000Z',
+        title: encrypt('Test Note'),
+        content: encrypt('Test content'),
+        tags: [encrypt('tag1'), encrypt('tag2')],
+        locked: encrypt('true'),
+        createdAt: encrypt('2024-01-01T00:00:00.000Z'),
+        updatedAt: encrypt('2024-01-02T00:00:00.000Z'),
       };
 
       (global.fetch as jest.Mock).mockResolvedValueOnce({
@@ -193,9 +211,9 @@ describe('E2E Encryption Tests', () => {
       const fetchCall = (global.fetch as jest.Mock).mock.calls[0];
       const requestBody = JSON.parse(fetchCall[1].body);
       
-      expect(requestBody.locked).toBe('encrypted_true');
-      expect(requestBody.createdAt).toMatch(/^encrypted_/);
-      expect(requestBody.updatedAt).toMatch(/^encrypted_/);
+      expect(decrypt(requestBody.locked)).toBe('true');
+      expect(new Date(decrypt(requestBody.createdAt)).toString()).not.toBe('Invalid Date');
+      expect(new Date(decrypt(requestBody.updatedAt)).toString()).not.toBe('Invalid Date');
 
       // Verify the response was decrypted
       expect(note.locked).toBe(true);
@@ -213,12 +231,12 @@ describe('E2E Encryption Tests', () => {
 
       const mockResponse = {
         _id: '1',
-        title: 'encrypted_Test Note',
-        content: 'encrypted_Test content',
+        title: encrypt('Test Note'),
+        content: encrypt('Test content'),
         tags: [],
-        locked: 'encrypted_false',
-        createdAt: 'encrypted_2024-01-01T00:00:00.000Z',
-        updatedAt: 'encrypted_2024-01-02T00:00:00.000Z',
+        locked: encrypt('false'),
+        createdAt: encrypt('2024-01-01T00:00:00.000Z'),
+        updatedAt: encrypt('2024-01-02T00:00:00.000Z'),
       };
 
       (global.fetch as jest.Mock).mockResolvedValueOnce({
@@ -232,7 +250,7 @@ describe('E2E Encryption Tests', () => {
       const fetchCall = (global.fetch as jest.Mock).mock.calls[0];
       const requestBody = JSON.parse(fetchCall[1].body);
       
-      expect(requestBody.locked).toBe('encrypted_false');
+      expect(decrypt(requestBody.locked)).toBe('false');
     });
   });
 
@@ -247,12 +265,12 @@ describe('E2E Encryption Tests', () => {
 
       const mockResponse = {
         _id: '1',
-        title: 'encrypted_Updated Note',
-        content: 'encrypted_Updated content',
+        title: encrypt('Updated Note'),
+        content: encrypt('Updated content'),
         tags: [],
-        locked: 'encrypted_true',
-        createdAt: 'encrypted_2024-01-01T00:00:00.000Z',
-        updatedAt: 'encrypted_2024-01-02T00:00:00.000Z',
+        locked: encrypt('true'),
+        createdAt: encrypt('2024-01-01T00:00:00.000Z'),
+        updatedAt: encrypt('2024-01-02T00:00:00.000Z'),
       };
 
       (global.fetch as jest.Mock).mockResolvedValueOnce({
@@ -267,7 +285,7 @@ describe('E2E Encryption Tests', () => {
       const fetchCall = (global.fetch as jest.Mock).mock.calls[0];
       const requestBody = JSON.parse(fetchCall[1].body);
       
-      expect(requestBody.locked).toBe('encrypted_true');
+      expect(decrypt(requestBody.locked)).toBe('true');
       expect(requestBody.password).toBe('secret');
 
       // Verify the response was decrypted
@@ -281,12 +299,12 @@ describe('E2E Encryption Tests', () => {
     it('should decrypt locked, createdAt, and updatedAt fields when fetching a single note', async () => {
       const mockNote = {
         _id: '1',
-        title: 'encrypted_Test Note',
-        content: 'encrypted_Test content',
+        title: encrypt('Test Note'),
+        content: encrypt('Test content'),
         tags: [],
-        locked: 'encrypted_true',
-        createdAt: 'encrypted_2024-01-01T00:00:00.000Z',
-        updatedAt: 'encrypted_2024-01-02T00:00:00.000Z',
+        locked: encrypt('true'),
+        createdAt: encrypt('2024-01-01T00:00:00.000Z'),
+        updatedAt: encrypt('2024-01-02T00:00:00.000Z'),
       };
 
       (global.fetch as jest.Mock).mockResolvedValueOnce({
@@ -305,23 +323,15 @@ describe('E2E Encryption Tests', () => {
 
   describe('Error Handling', () => {
     it('should handle decryption errors gracefully', async () => {
-      // Mock decrypt to throw an error
-      (decrypt as jest.Mock).mockImplementation((text: string) => {
-        if (text === 'encrypted_malformed') {
-          throw new Error('Decryption failed');
-        }
-        return text.replace('encrypted_', '');
-      });
-
       const mockNotes = [
         {
           _id: '1',
-          title: 'encrypted_Test Note',
-          content: 'encrypted_Test content',
-          tags: ['encrypted_malformed'], // This will fail to decrypt
-          locked: 'encrypted_true',
-          createdAt: 'encrypted_2024-01-01T00:00:00.000Z',
-          updatedAt: 'encrypted_2024-01-02T00:00:00.000Z',
+          title: encrypt('Test Note'),
+          content: encrypt('Test content'),
+          tags: ['malformed-ciphertext'],
+          locked: encrypt('true'),
+          createdAt: encrypt('2024-01-01T00:00:00.000Z'),
+          updatedAt: encrypt('2024-01-02T00:00:00.000Z'),
         },
       ];
 
@@ -334,7 +344,6 @@ describe('E2E Encryption Tests', () => {
       const encryptedNotes = await api.fetchNotes();
       const notes = await api.decryptNotes(encryptedNotes);
 
-      // Should fallback to original value when decryption fails
       const first = notes[0]!;
       expect(first.tags).toEqual([]);
       expect(first.locked).toBe(true);

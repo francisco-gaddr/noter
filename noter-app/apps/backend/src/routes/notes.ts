@@ -6,6 +6,7 @@ import Joi from 'joi';
 import bcrypt from 'bcryptjs';
 import rateLimit from 'express-rate-limit';
 import { decrypt } from '@repo/shared';
+import mongoose from 'mongoose';
 import { AuthRequest } from '../middleware/authMiddleware';
 import { validate } from '../middleware/validate';
 import cache from '../services/cache';
@@ -36,6 +37,77 @@ const normalizePasswordInput = (value: unknown): string | null => {
   const normalized = decrypt(value);
   if (isEncryptedPayload(value) && normalized === '') return null;
   return normalized;
+};
+
+const parseStoredNoteType = (value: unknown): 'note' | 'task_list' | 'project' => {
+  if (typeof value !== 'string') return 'note';
+  const normalize = (raw: string): 'note' | 'task_list' | 'project' => (
+    raw === 'task_list' || raw === 'project' ? raw : 'note'
+  );
+  try {
+    return normalize(decrypt(value));
+  } catch {
+    return normalize(value);
+  }
+};
+
+const getTaskListCacheKey = (userId: string, parentNoteId?: string | null) => (
+  parentNoteId ? `tasks:list:${userId}:note:${parentNoteId}` : `tasks:list:${userId}:all`
+);
+
+const getTaskCacheKeys = (userId: string, parentNoteIds: Array<string | null | undefined>) => (
+  Array.from(new Set([
+    getTaskListCacheKey(userId),
+    ...parentNoteIds.map((parentNoteId) => getTaskListCacheKey(userId, parentNoteId ?? undefined)),
+  ]))
+);
+
+const collectOwnedNoteCascade = async (userId: string, rootNote: { _id: mongoose.Types.ObjectId | string; type?: unknown }) => {
+  const noteIds: string[] = [];
+  const taskListIds = new Set<string>();
+  const seen = new Set<string>();
+  let frontier = [String(rootNote._id)];
+
+  while (frontier.length > 0) {
+    frontier = frontier.filter((id) => mongoose.Types.ObjectId.isValid(id) && !seen.has(id));
+    if (frontier.length === 0) break;
+    frontier.forEach((id) => {
+      seen.add(id);
+      noteIds.push(id);
+    });
+
+    const currentType = frontier.length === 1 && frontier[0] === String(rootNote._id)
+      ? parseStoredNoteType(rootNote.type)
+      : null;
+    if (currentType === 'task_list') {
+      taskListIds.add(String(rootNote._id));
+    }
+
+    const objectIds = frontier.map((id) => new mongoose.Types.ObjectId(id));
+    const children = await Note.find({ userId, parentId: { $in: objectIds } })
+      .select('_id type')
+      .lean()
+      .exec();
+
+    frontier = [];
+    children.forEach((child: any) => {
+      const childId = String(child._id);
+      if (seen.has(childId)) return;
+      if (parseStoredNoteType(child.type) === 'task_list') {
+        taskListIds.add(childId);
+      }
+      frontier.push(childId);
+    });
+  }
+
+  if (parseStoredNoteType(rootNote.type) === 'task_list') {
+    taskListIds.add(String(rootNote._id));
+  }
+
+  return {
+    noteIds,
+    taskListIds: Array.from(taskListIds),
+  };
 };
 
 // Validation schemas
@@ -122,8 +194,6 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
     next(error);
   }
 });
-
-import mongoose from 'mongoose';
 
 // GET /api/notes/:id
 router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
@@ -360,19 +430,31 @@ router.delete('/:id', async (req: Request, res: Response, next: NextFunction) =>
     const note = await findOwnedById(Note, userId, noteId);
 
     if (note) {
-      let deletedTaskIds: string[] = [];
-      if (note.type === 'task_list') {
-        const tasks = await Task.find({ userId, parentNoteId: note._id }).select('_id');
-        deletedTaskIds = tasks.map(t => t._id.toString());
-        await Task.deleteMany({ userId, parentNoteId: note._id });
-      }
+      const { noteIds, taskListIds } = await collectOwnedNoteCascade(userId, note as any);
+      const deletedTaskIds = taskListIds.length > 0
+        ? (await Task.find({
+          userId,
+          parentNoteId: { $in: taskListIds.map((id) => new mongoose.Types.ObjectId(id)) },
+        }).select('_id').lean().exec()).map((task) => String(task._id))
+        : [];
 
-      await note.deleteOne();
-      
+      await Promise.all([
+        Note.deleteMany({ userId, _id: { $in: noteIds.map((id) => new mongoose.Types.ObjectId(id)) } }),
+        taskListIds.length > 0
+          ? Task.deleteMany({
+            userId,
+            parentNoteId: { $in: taskListIds.map((id) => new mongoose.Types.ObjectId(id)) },
+          })
+          : Promise.resolve(),
+      ]);
+
       await cache.del(`notes:list:${userId}`);
-      await cache.del(`notes:item:${userId}:${noteId}`);
+      await cache.delMany(noteIds.map((id) => `notes:item:${userId}:${id}`));
+      await cache.delMany(getTaskCacheKeys(userId, taskListIds));
       const io = req.app.get('io');
-      io.to(`user:${userId}`).emit('note:deleted', noteId);
+      for (const deletedNoteId of noteIds) {
+        io.to(`user:${userId}`).emit('note:deleted', deletedNoteId);
+      }
       for (const taskId of deletedTaskIds) {
         io.to(`user:${userId}`).emit('task:deleted', taskId);
       }

@@ -1,6 +1,11 @@
 const TOKEN_KEYS = ['token', 'auth_token'] as const;
 const REFRESH_TOKEN_KEYS = ['refresh_token', 'auth_refresh_token'] as const;
 
+const shouldPersistBrowserAuth = () => {
+  if (typeof window === 'undefined') return false;
+  return Boolean((window as any)?.mlc?.isElectron);
+};
+
 const getSafeStorage = (kind: 'local' | 'session') => {
   if (typeof window === 'undefined') return null;
   try {
@@ -11,6 +16,15 @@ const getSafeStorage = (kind: 'local' | 'session') => {
 };
 
 export const setWebAuthToken = (token: string | null) => {
+  if (!shouldPersistBrowserAuth()) {
+    const session = getSafeStorage('session');
+    const local = getSafeStorage('local');
+    for (const key of TOKEN_KEYS) {
+      session?.removeItem(key);
+      local?.removeItem(key);
+    }
+    return;
+  }
   const session = getSafeStorage('session');
   const local = getSafeStorage('local');
   if (token) {
@@ -27,6 +41,15 @@ export const setWebAuthToken = (token: string | null) => {
 };
 
 export const setWebRefreshToken = (token: string | null) => {
+  if (!shouldPersistBrowserAuth()) {
+    const session = getSafeStorage('session');
+    const local = getSafeStorage('local');
+    for (const key of REFRESH_TOKEN_KEYS) {
+      session?.removeItem(key);
+      local?.removeItem(key);
+    }
+    return;
+  }
   const session = getSafeStorage('session');
   const local = getSafeStorage('local');
   if (token) {
@@ -43,6 +66,7 @@ export const setWebRefreshToken = (token: string | null) => {
 };
 
 export const getWebAuthTokenSync = (): string | null => {
+  if (!shouldPersistBrowserAuth()) return null;
   const session = getSafeStorage('session');
   const local = getSafeStorage('local');
   for (const key of TOKEN_KEYS) {
@@ -60,6 +84,7 @@ export const getWebAuthTokenSync = (): string | null => {
 };
 
 export const getWebRefreshTokenSync = (): string | null => {
+  if (!shouldPersistBrowserAuth()) return null;
   const session = getSafeStorage('session');
   const local = getSafeStorage('local');
   for (const key of REFRESH_TOKEN_KEYS) {

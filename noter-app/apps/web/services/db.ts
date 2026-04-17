@@ -35,6 +35,17 @@ const DB_VERSION = 3;
 
 let dbPromise: Promise<IDBPDatabase<NoterDB>>;
 
+const toEncryptedString = (value: unknown): string => {
+  if (typeof value === 'string') return value;
+  if (value instanceof Date) return value.toISOString();
+  if (value === null || value === undefined) return '';
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+};
+
 export const initDB = () => {
   if (!dbPromise) {
     dbPromise = openDB<NoterDB>(DB_NAME, DB_VERSION, {
@@ -290,20 +301,20 @@ export const db = {
     const rawIconColor = (note as any).__rawEncryptedIconColor;
     const encrypted: any = {
         _id: note._id,
-        userId: note.userId ? encrypt(note.userId) : note.userId,
-        clientId: note.clientId ? encrypt(note.clientId) : note.clientId,
-        title: rawTitle && note.locked ? rawTitle : encrypt(note.title),
-        content: rawContent && note.locked ? rawContent : encrypt(note.content),
-        tags: Array.isArray(rawTags) && note.locked ? rawTags : (note.tags?.map(t => encrypt(t)) ?? []),
-        icon: rawIcon && note.locked ? rawIcon : (note.icon ? encrypt(note.icon) : undefined),
-        iconColor: rawIconColor && note.locked ? rawIconColor : (note.iconColor ? encrypt(note.iconColor) : undefined),
-        parentId: note.parentId ? encrypt(note.parentId) : null,
+        userId: note.userId ? encrypt(toEncryptedString(note.userId)) : note.userId,
+        clientId: note.clientId ? encrypt(toEncryptedString(note.clientId)) : note.clientId,
+        title: rawTitle && note.locked ? rawTitle : encrypt(toEncryptedString(note.title)),
+        content: rawContent && note.locked ? rawContent : encrypt(toEncryptedString(note.content)),
+        tags: Array.isArray(rawTags) && note.locked ? rawTags : (note.tags?.map(t => encrypt(toEncryptedString(t))) ?? []),
+        icon: rawIcon && note.locked ? rawIcon : (note.icon ? encrypt(toEncryptedString(note.icon)) : undefined),
+        iconColor: rawIconColor && note.locked ? rawIconColor : (note.iconColor ? encrypt(toEncryptedString(note.iconColor)) : undefined),
+        parentId: note.parentId ? encrypt(toEncryptedString(note.parentId)) : null,
         order: typeof note.order === 'number' ? encrypt(String(note.order)) : note.order ? encrypt(String(note.order)) : undefined,
         locked: encrypt(String(!!note.locked)),
-        password: note.password ? encrypt(note.password) : note.password,
-        createdAt: encrypt(String(note.createdAt)),
-        updatedAt: encrypt(String(note.updatedAt)),
-        type: note.type ? encrypt(note.type) : note.type,
+        password: note.password ? encrypt(toEncryptedString(note.password)) : note.password,
+        createdAt: encrypt(toEncryptedString(note.createdAt)),
+        updatedAt: encrypt(toEncryptedString(note.updatedAt)),
+        type: note.type ? encrypt(toEncryptedString(note.type)) : note.type,
         pendingSync: encrypt(String(!!pendingSync)),
         deleted: (note as any).deleted !== undefined ? encrypt(String(!!(note as any).deleted)) : (note as any).deleted
     };
@@ -431,17 +442,17 @@ export const db = {
     const db = await initDB();
     const encrypted = {
         _id: task._id,
-        userId: task.userId ? encrypt(task.userId) : task.userId,
-        clientId: task.clientId ? encrypt(task.clientId) : task.clientId,
-        title: encrypt(task.title),
-        description: encrypt(task.description || ''),
+        userId: task.userId ? encrypt(toEncryptedString(task.userId)) : task.userId,
+        clientId: task.clientId ? encrypt(toEncryptedString(task.clientId)) : task.clientId,
+        title: encrypt(toEncryptedString(task.title)),
+        description: encrypt(toEncryptedString(task.description || '')),
         completed: encrypt(String(task.completed)),
         priority: encrypt(task.priority),
-        dueDate: task.dueDate ? encrypt(String(task.dueDate)) : null,
-        createdAt: encrypt(String(task.createdAt)),
-        updatedAt: encrypt(String(task.updatedAt)),
-        parentNoteId: task.parentNoteId ? encrypt(task.parentNoteId) : null,
-        parentId: task.parentId ? encrypt(task.parentId) : null,
+        dueDate: task.dueDate ? encrypt(toEncryptedString(task.dueDate)) : null,
+        createdAt: encrypt(toEncryptedString(task.createdAt)),
+        updatedAt: encrypt(toEncryptedString(task.updatedAt)),
+        parentNoteId: task.parentNoteId ? encrypt(toEncryptedString(task.parentNoteId)) : null,
+        parentId: task.parentId ? encrypt(toEncryptedString(task.parentId)) : null,
         position: typeof task.position === 'number' ? encrypt(String(task.position)) : task.position ? encrypt(String(task.position)) : undefined,
         pendingSync: encrypt(String(!!pendingSync)),
         deleted: (task as any).deleted !== undefined ? encrypt(String(!!(task as any).deleted)) : (task as any).deleted

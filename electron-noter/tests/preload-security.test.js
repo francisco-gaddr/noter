@@ -6,6 +6,10 @@ const preloadJs = fs.readFileSync(path.join(__dirname, '..', 'preload.js'), 'utf
 describe('electron preload security contract', () => {
   it('exposes only invoke-based bridge methods', () => {
     expect(preloadJs).toContain("contextBridge.exposeInMainWorld('mlc'");
+    expect(preloadJs).toContain("platform: process.platform");
+    expect(preloadJs).toContain("arch: process.arch");
+    expect(preloadJs).toContain("isMac: process.platform === 'darwin'");
+    expect(preloadJs).toContain("isAppleSilicon: process.platform === 'darwin' && process.arch === 'arm64'");
     expect(preloadJs).toContain("ipcRenderer.invoke('mlc:get-models')");
     expect(preloadJs).toContain("ipcRenderer.invoke('perf:get-snapshot')");
     expect(preloadJs).toContain("ipcRenderer.invoke('perf:reset-snapshot')");
