@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { Note, Task, UpdateTaskDto, User, decrypt, encrypt, normalizeId, normalizeNoteType } from '@repo/shared';
-import { api, getApiBaseUrl, getUUID, setApiBaseUrl, setApiToken } from '../services/api';
+import { api, getApiBaseUrl, getUUID, setApiAuthTokenListener, setApiBaseUrl, setApiRefreshToken, setApiToken } from '../services/api';
 import { socket, connectSocket, disconnectSocket, setSocketToken } from '../services/socket';
 import { db } from '../services/db';
 import deepmerge from 'deepmerge';
@@ -8,7 +8,7 @@ import { uniqBy } from 'lodash';
 import CryptoJS from 'crypto-js';
 import { buildSecurityNoteMap, findBlockingLockedAncestor } from '../services/ai/security';
 import i18n from '../app/i18n';
-import { getWebAuthTokenSync, setWebAuthToken } from '../services/authStorage';
+import { getWebAuthTokenSync, getWebRefreshTokenSync, setWebAuthToken, setWebRefreshToken } from '../services/authStorage';
 
 let networkListenersReady = false;
 let notesFetchPromise: Promise<void> | null = null;
@@ -580,6 +580,12 @@ export const useStore = create<StoreState>((set, get) => ({
         set({ user, token, language, activeTab, sortOrder: savedSortOrder, selectedNoteId, selectedTaskListId, activeProjectId, isAppLocked: nextLocked, appLockPasswordHash, autoLockTimeout, isHydrated: true });
         setElectronLockState(nextLocked);
         setApiToken(token || null);
+        setApiRefreshToken(getWebRefreshTokenSync());
+        setApiAuthTokenListener((nextToken) => {
+            set({ token: nextToken });
+            setSocketToken(nextToken);
+            setElectronToken(nextToken);
+        });
         setSocketToken(token || null);
         if (token) setElectronToken(token);
         if (user) setElectronUser(user);
@@ -654,13 +660,15 @@ export const useStore = create<StoreState>((set, get) => ({
 
   login: async (username, password) => {
     try {
-        const { user, token } = await api.login(username, password);
+        const { user, token, refreshToken } = await api.login(username, password) as any;
         setWebAuthToken(token);
+        setWebRefreshToken(refreshToken || null);
         localStorage.setItem('user', JSON.stringify(user));
         localStorage.removeItem('isAppLocked');
         set({ user, token, isAppLocked: false });
         setElectronLockState(false);
         setApiToken(token);
+        setApiRefreshToken(refreshToken || null);
         setSocketToken(token);
         setElectronToken(token);
         setElectronUser(user);
@@ -675,13 +683,15 @@ export const useStore = create<StoreState>((set, get) => ({
 
   register: async (username, password) => {
     try {
-        const { user, token } = await api.register(username, password);
+        const { user, token, refreshToken } = await api.register(username, password) as any;
         setWebAuthToken(token);
+        setWebRefreshToken(refreshToken || null);
         localStorage.setItem('user', JSON.stringify(user));
         localStorage.removeItem('isAppLocked');
         set({ user, token, isAppLocked: false });
         setElectronLockState(false);
         setApiToken(token);
+        setApiRefreshToken(refreshToken || null);
         setSocketToken(token);
         setElectronToken(token);
         setElectronUser(user);
@@ -694,10 +704,13 @@ export const useStore = create<StoreState>((set, get) => ({
     }
   },
 
-  logout: () => {
+  logout: async () => {
+    await api.logout().catch(() => {});
     setWebAuthToken(null);
+    setWebRefreshToken(null);
     localStorage.removeItem('user');
     setApiToken(null);
+    setApiRefreshToken(null);
     setSocketToken(null);
     setElectronToken(null);
     setElectronUser(null);

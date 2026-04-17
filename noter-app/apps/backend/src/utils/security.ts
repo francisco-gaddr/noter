@@ -49,7 +49,11 @@ export const getJwtSecret = () => {
 };
 
 export const getJwtSignOptions = (): jwt.SignOptions => {
-  const expiresIn = (readTrimmedEnv('JWT_EXPIRES_IN') || '7d') as jwt.SignOptions['expiresIn'];
+  const expiresIn = (
+    readTrimmedEnv('ACCESS_TOKEN_EXPIRES_IN')
+    || readTrimmedEnv('JWT_EXPIRES_IN')
+    || '15m'
+  ) as jwt.SignOptions['expiresIn'];
   const options: jwt.SignOptions = {
     expiresIn,
   };
@@ -58,6 +62,10 @@ export const getJwtSignOptions = (): jwt.SignOptions => {
   if (issuer) options.issuer = issuer;
   if (audience) options.audience = audience;
   return options;
+};
+
+export const getRefreshTokenExpiresIn = () => {
+  return readTrimmedEnv('REFRESH_TOKEN_EXPIRES_IN') || '30d';
 };
 
 export const getJwtVerifyOptions = (): jwt.VerifyOptions => {

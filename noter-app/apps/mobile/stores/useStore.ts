@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import 'react-native-get-random-values';
 import * as Crypto from 'expo-crypto';
 import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, decryptWithSource, normalizeId } from '@repo/shared';
-import { fetchWithAuth, login as apiLogin, register as apiRegister, setAuthToken, initApiUrl, setUnauthorizedHandler } from '../services/api';
+import { fetchWithAuth, login as apiLogin, register as apiRegister, logout as apiLogout, setAuthToken, initApiUrl, setUnauthorizedHandler, setTokenUpdateHandler } from '../services/api';
 import * as Database from '../services/database';
 import { initSocket, disconnectSocket, getSocket } from '../services/socket';
 import NetInfo from '@react-native-community/netinfo';
@@ -571,6 +571,14 @@ export const useStore = create<AppState>((set, get) => ({
         setUnauthorizedHandler(async () => {
           await get().logout();
         });
+        setTokenUpdateHandler(async (token) => {
+          get().setToken(token);
+          const socket = getSocket();
+          if (socket) {
+            socket.auth = { token: token || '' };
+            if (socket.connected) socket.disconnect();
+          }
+        });
 
         if (!get().securityLocked) {
           const [localNotes, localTasks] = await Promise.all([
@@ -832,6 +840,9 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       set({ isLoading: true, isAuthenticating: true, error: null });
       const response = await apiLogin(username, password);
+      if (!response?.token) {
+        throw new Error('Login failed');
+      }
       setAuthToken(response.token);
       await SecureStore.setItemAsync('token', response.token);
       get().setToken(response.token);
@@ -869,7 +880,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   logout: async () => {
     try {
-      await SecureStore.deleteItemAsync('token');
+      await apiLogout();
     } catch {}
     setAuthToken(null);
     disconnectSocket();

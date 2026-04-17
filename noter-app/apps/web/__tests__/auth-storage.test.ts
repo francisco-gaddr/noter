@@ -1,4 +1,4 @@
-import { getWebAuthTokenSync, setWebAuthToken } from '../services/authStorage';
+import { getWebAuthTokenSync, getWebRefreshTokenSync, setWebAuthToken, setWebRefreshToken } from '../services/authStorage';
 
 describe('authStorage', () => {
   beforeEach(() => {
@@ -32,5 +32,17 @@ describe('authStorage', () => {
     expect(localStorage.getItem('auth_token')).toBeNull();
     expect(sessionStorage.getItem('token')).toBeNull();
     expect(sessionStorage.getItem('auth_token')).toBeNull();
+  });
+
+  it('stores and migrates refresh tokens separately', () => {
+    setWebRefreshToken('refresh-1');
+    expect(sessionStorage.getItem('refresh_token')).toBe('refresh-1');
+    expect(getWebRefreshTokenSync()).toBe('refresh-1');
+
+    setWebRefreshToken(null);
+    localStorage.setItem('refresh_token', 'legacy-refresh');
+    expect(getWebRefreshTokenSync()).toBe('legacy-refresh');
+    expect(sessionStorage.getItem('refresh_token')).toBe('legacy-refresh');
+    expect(localStorage.getItem('refresh_token')).toBeNull();
   });
 });

@@ -31,6 +31,7 @@ describe('API auth reliability', () => {
     const onUnauthorized = jest.fn();
     api.setUnauthorizedHandler(onUnauthorized);
     api.setAuthToken('token-1');
+    secureStore.getItemAsync.mockResolvedValue(null);
     (global.fetch as jest.Mock).mockResolvedValue({
       ok: false,
       status: 401,
@@ -42,6 +43,7 @@ describe('API auth reliability', () => {
     await expect(api.fetchWithAuth('/graphql', { method: 'POST', body: '{}' })).rejects.toThrow('Unauthorized');
     expect(onUnauthorized).toHaveBeenCalledTimes(1);
     expect(secureStore.deleteItemAsync).toHaveBeenCalledWith('token');
+    expect(secureStore.deleteItemAsync).toHaveBeenCalledWith('refresh_token');
   });
 
   it('skips session teardown when unauthorized handling is explicitly bypassed', async () => {
@@ -140,5 +142,44 @@ describe('API auth reliability', () => {
     const res = await api.fetchWithAuth('/notes');
     expect(res).toEqual([]);
     expect((global.fetch as jest.Mock).mock.calls.length).toBe(2);
+  });
+
+  it('refreshes once on 401 and retries the original request', async () => {
+    const api = require('../services/api');
+    const onUnauthorized = jest.fn();
+    const onTokenUpdate = jest.fn();
+    api.setUnauthorizedHandler(onUnauthorized);
+    api.setTokenUpdateHandler(onTokenUpdate);
+    api.setAuthToken('expired-token');
+    secureStore.getItemAsync.mockImplementation(async (key: string) => {
+      if (key === 'refresh_token') return 'refresh-123';
+      return null;
+    });
+    (global.fetch as jest.Mock)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        headers: { get: () => 'application/json' },
+        json: async () => ({ message: 'Unauthorized' }),
+        text: async () => 'Unauthorized',
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ token: 'fresh-token', refreshToken: 'refresh-456' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ data: { ok: true } }),
+      });
+
+    const res = await api.fetchWithAuth('/graphql', { method: 'POST', body: '{}' });
+    expect(res).toEqual({ data: { ok: true } });
+    expect(onUnauthorized).not.toHaveBeenCalled();
+    expect(onTokenUpdate).toHaveBeenCalledWith('fresh-token');
+    expect(secureStore.setItemAsync).toHaveBeenCalledWith('refresh_token', 'refresh-456');
+    expect((global.fetch as jest.Mock).mock.calls[1][0]).toContain('/auth/refresh');
+    expect((global.fetch as jest.Mock).mock.calls.length).toBe(3);
   });
 });

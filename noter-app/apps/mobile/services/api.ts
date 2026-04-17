@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
+import type { AuthResponse } from '@repo/shared';
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -78,6 +79,7 @@ const getApiUrl = () => {
 };
 
 export let API_URL = getApiUrl();
+type SessionAuthResponse = AuthResponse & { refreshToken?: string };
 
 export const setApiUrl = async (url: string) => {
   API_URL = normalizeApiUrl(url);
@@ -104,7 +106,10 @@ export const initApiUrl = async () => {
 logDebug('API_URL configured as:', API_URL);
 
 let authToken: string | null = null;
+let refreshToken: string | null = null;
 let unauthorizedHandler: null | (() => void | Promise<void>) = null;
+let tokenUpdateHandler: null | ((token: string | null) => void | Promise<void>) = null;
+let refreshPromise: Promise<string | null> | null = null;
 
 export const setAuthToken = (token: string | null) => {
   authToken = token;
@@ -112,8 +117,64 @@ export const setAuthToken = (token: string | null) => {
 
 export const getAuthToken = () => authToken;
 
+export const setTokenUpdateHandler = (handler: null | ((token: string | null) => void | Promise<void>)) => {
+  tokenUpdateHandler = handler;
+};
+
 export const setUnauthorizedHandler = (handler: null | (() => void | Promise<void>)) => {
   unauthorizedHandler = handler;
+};
+
+const persistSession = async (data: Partial<SessionAuthResponse>) => {
+  if (typeof data.token === 'string') {
+    authToken = data.token;
+    await SecureStore.setItemAsync('token', data.token);
+    await tokenUpdateHandler?.(data.token);
+  }
+  if (typeof data.refreshToken === 'string') {
+    refreshToken = data.refreshToken;
+    await SecureStore.setItemAsync('refresh_token', data.refreshToken);
+  }
+};
+
+const clearSession = async (invokeUnauthorized: boolean) => {
+  authToken = null;
+  refreshToken = null;
+  await SecureStore.deleteItemAsync('token');
+  await SecureStore.deleteItemAsync('refresh_token');
+  await tokenUpdateHandler?.(null);
+  if (invokeUnauthorized) {
+    try {
+      await unauthorizedHandler?.();
+    } catch {}
+  }
+};
+
+const refreshSession = async (): Promise<string | null> => {
+  if (!refreshToken) {
+    refreshToken = await SecureStore.getItemAsync('refresh_token');
+  }
+  if (!refreshToken) return null;
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = (async () => {
+    const response = await fetch(`${API_URL}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+    if (!response.ok) {
+      await clearSession(false);
+      return null;
+    }
+    const data: SessionAuthResponse = await response.json();
+    await persistSession(data);
+    return data.token || null;
+  })();
+  try {
+    return await refreshPromise;
+  } finally {
+    refreshPromise = null;
+  }
 };
 
 const isAbortLikeError = (error: unknown) => {
@@ -167,15 +228,8 @@ export async function login(username: string, password: string) {
       throw new Error(error.message || `Login failed with status ${response.status}`);
     }
 
-    const data = await response.json();
-    if (data.token) {
-      await SecureStore.setItemAsync('token', data.token);
-      authToken = data.token;
-      
-      // Initialize socket with new token
-      // We need to dynamic import or access the socket service to avoid circular deps if possible
-      // But for now, let's assume the user will reload or we handle it in the store
-    }
+    const data: SessionAuthResponse = await response.json();
+    await persistSession(data);
     return data;
   } catch (error: any) {
     handleApiError(error, url);
@@ -204,9 +258,26 @@ export async function register(username: string, password: string) {
       throw new Error(errorMessage);
     }
 
-    return response.json();
+    const data: SessionAuthResponse = await response.json();
+    await persistSession(data);
+    return data;
   } catch (error: any) {
     handleApiError(error, url);
+  }
+}
+
+export async function logout() {
+  const tokenToRevoke = refreshToken || await SecureStore.getItemAsync('refresh_token');
+  try {
+    if (tokenToRevoke) {
+      await fetch(`${API_URL}/auth/logout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: tokenToRevoke }),
+      });
+    }
+  } finally {
+    await clearSession(false);
   }
 }
 
@@ -226,6 +297,9 @@ export async function fetchWithAuth(
         await SecureStore.setItemAsync('token', authToken);
       }
     }
+  }
+  if (!refreshToken) {
+    refreshToken = await SecureStore.getItemAsync('refresh_token');
   }
 
   const headers: Record<string, string> = {
@@ -267,16 +341,20 @@ export async function fetchWithAuth(
       if (!response.ok) {
         console.warn(`[API] Error ${response.status} from ${url}`);
         if (response.status === 401) {
+          const refreshedToken =
+            !skipUnauthorized && endpoint !== '/auth/refresh' && endpoint !== '/auth/logout'
+              ? await refreshSession()
+              : null;
+          if (refreshedToken) {
+            headers['Authorization'] = `Bearer ${refreshedToken}`;
+            continue;
+          }
           const err: any = new Error('Unauthorized: Session expired or invalid credentials');
           err.status = 401;
           err.url = url;
           err.method = String(fetchOptions.method || 'GET').toUpperCase();
           if (!skipUnauthorized) {
-            await SecureStore.deleteItemAsync('token');
-            authToken = null;
-            try {
-              await unauthorizedHandler?.();
-            } catch {}
+            await clearSession(true);
           }
           throw err;
         }

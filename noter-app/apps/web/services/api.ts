@@ -1,5 +1,7 @@
 import { Note, CreateNoteDto, UpdateNoteDto, Task, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, AuthResponse } from '@repo/shared';
-import { getWebAuthTokenSync, setWebAuthToken } from './authStorage';
+import { getWebAuthTokenSync, getWebRefreshTokenSync, setWebAuthToken, setWebRefreshToken } from './authStorage';
+
+type SessionAuthResponse = AuthResponse & { refreshToken?: string };
 
 export const getUUID = (): string => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -25,6 +27,9 @@ export const getUUID = (): string => {
 
 const API_URL_KEY = 'apiBaseUrl';
 let apiTokenCache: string | null = null;
+let refreshTokenCache: string | null = null;
+let refreshPromise: Promise<string | null> | null = null;
+let authTokenListener: null | ((token: string | null) => void) = null;
 
 const normalizeUrl = (value: string) => {
   const raw = value.trim().replace(/^[`'"]+|[`'"]+$/g, '').trim();
@@ -121,12 +126,89 @@ export const setApiToken = (token: string | null) => {
   setWebAuthToken(token);
 };
 
+export const setApiAuthTokenListener = (listener: null | ((token: string | null) => void)) => {
+  authTokenListener = listener;
+};
+
+export const setApiRefreshToken = (token: string | null) => {
+  refreshTokenCache = token;
+  setWebRefreshToken(token);
+};
+
+const applyAuthResponse = (data: Partial<SessionAuthResponse>) => {
+  if (typeof data.token === 'string') {
+    apiTokenCache = data.token;
+    setWebAuthToken(data.token);
+    authTokenListener?.(data.token);
+  }
+  if (typeof data.refreshToken === 'string') {
+    refreshTokenCache = data.refreshToken;
+    setWebRefreshToken(data.refreshToken);
+  }
+};
+
+const clearSession = () => {
+  apiTokenCache = null;
+  refreshTokenCache = null;
+  setWebAuthToken(null);
+  setWebRefreshToken(null);
+  authTokenListener?.(null);
+};
+
 const getHeaders = () => {
   const token = apiTokenCache || getWebAuthTokenSync();
   return {
     'Content-Type': 'application/json',
     ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
   };
+};
+
+const refreshSession = async (): Promise<string | null> => {
+  const refreshToken = refreshTokenCache || getWebRefreshTokenSync();
+  if (!refreshToken) return null;
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = (async () => {
+    const res = await fetch(`${getBaseUrl()}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+    if (!res.ok) {
+      clearSession();
+      return null;
+    }
+    const data: SessionAuthResponse = await res.json();
+    applyAuthResponse(data);
+    return data.token || null;
+  })();
+  try {
+    return await refreshPromise;
+  } finally {
+    refreshPromise = null;
+  }
+};
+
+const authedFetch = async (url: string, init: RequestInit = {}, allowRefresh = true): Promise<Response> => {
+  const response = await fetch(url, {
+    ...init,
+    headers: {
+      ...getHeaders(),
+      ...((init.headers as Record<string, string>) || {}),
+    },
+  });
+  if (response.status === 401 && allowRefresh) {
+    const refreshedToken = await refreshSession();
+    if (refreshedToken) {
+      return fetch(url, {
+        ...init,
+        headers: {
+          ...getHeaders(),
+          ...((init.headers as Record<string, string>) || {}),
+        },
+      });
+    }
+  }
+  return response;
 };
 
 const handleResponse = async (res: Response) => {
@@ -260,7 +342,9 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
     });
-    return handleResponse(res);
+    const data = await handleResponse(res);
+    applyAuthResponse(data);
+    return data;
   },
 
   async login(username: string, password: string): Promise<AuthResponse> {
@@ -269,12 +353,29 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
     });
-    return handleResponse(res);
+    const data = await handleResponse(res);
+    applyAuthResponse(data);
+    return data;
+  },
+
+  async logout(): Promise<void> {
+    const currentRefreshToken = refreshTokenCache || getWebRefreshTokenSync();
+    try {
+      if (currentRefreshToken) {
+        await fetch(`${getBaseUrl()}/auth/logout`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken: currentRefreshToken }),
+        });
+      }
+    } finally {
+      clearSession();
+    }
   },
 
   // Notes
   async fetchNotes(): Promise<any[]> {
-    const res = await fetch(`${getBaseUrl()}/notes`, { headers: getHeaders() });
+    const res = await authedFetch(`${getBaseUrl()}/notes`);
     return ensureArrayPayload(await handleResponse(res));
   },
 
@@ -310,7 +411,7 @@ export const api = {
   },
 
   async getNote(id: string): Promise<Note> {
-    const res = await fetch(`${getBaseUrl()}/notes/${id}`, { headers: getHeaders() });
+    const res = await authedFetch(`${getBaseUrl()}/notes/${id}`);
     const note: Note = await handleResponse(res);
     const locked = parseNoteLocked(note.locked);
     return {
@@ -341,9 +442,8 @@ export const api = {
       updatedAt: encrypt(new Date().toISOString()),
     };
     
-    const res = await fetch(`${getBaseUrl()}/notes`, {
+    const res = await authedFetch(`${getBaseUrl()}/notes`, {
       method: 'POST',
-      headers: getHeaders(),
       body: JSON.stringify(encryptedData),
     });
     const note: Note = await handleResponse(res);
@@ -375,9 +475,8 @@ export const api = {
     // Always update updatedAt
     encryptedData.updatedAt = encrypt(new Date().toISOString());
 
-    const res = await fetch(`${getBaseUrl()}/notes/${id}`, {
+    const res = await authedFetch(`${getBaseUrl()}/notes/${id}`, {
       method: 'PUT',
-      headers: getHeaders(),
       body: JSON.stringify(encryptedData),
     });
     const note: Note = await handleResponse(res);
@@ -396,9 +495,8 @@ export const api = {
   },
 
   async verifyLock(id: string, password: string): Promise<{ success: boolean; content: string; title?: string; unlockedId?: string }> {
-    const res = await fetch(`${getBaseUrl()}/notes/${id}/verify-lock`, {
+    const res = await authedFetch(`${getBaseUrl()}/notes/${id}/verify-lock`, {
       method: 'POST',
-      headers: getHeaders(),
       body: JSON.stringify({ password }),
     });
 
@@ -427,9 +525,8 @@ export const api = {
   },
 
   async deleteNote(id: string): Promise<void> {
-    const res = await fetch(`${getBaseUrl()}/notes/${id}`, {
+    const res = await authedFetch(`${getBaseUrl()}/notes/${id}`, {
       method: 'DELETE',
-      headers: getHeaders(),
     });
     await handleResponse(res);
   },
@@ -437,7 +534,7 @@ export const api = {
   // Tasks
   async fetchTasks(parentNoteId?: string): Promise<any[]> {
     const url = parentNoteId ? `${getBaseUrl()}/tasks?parentNoteId=${parentNoteId}` : `${getBaseUrl()}/tasks`;
-    const res = await fetch(url, { headers: getHeaders() });
+    const res = await authedFetch(url);
     return ensureArrayPayload(await handleResponse(res));
   },
 
@@ -521,9 +618,8 @@ export const api = {
       position: data.position !== undefined ? encrypt(String(data.position)) : encrypt('0'),
     };
     
-    const res = await fetch(`${getBaseUrl()}/tasks`, {
+    const res = await authedFetch(`${getBaseUrl()}/tasks`, {
       method: 'POST',
-      headers: getHeaders(),
       body: JSON.stringify(encryptedData),
     });
     const task: any = await handleResponse(res);
@@ -602,9 +698,8 @@ export const api = {
     encryptedData.updatedAt = encrypt(new Date().toISOString());
     if (data.position !== undefined) encryptedData.position = encrypt(String(data.position));
 
-    const res = await fetch(`${getBaseUrl()}/tasks/${id}`, {
+    const res = await authedFetch(`${getBaseUrl()}/tasks/${id}`, {
       method: 'PUT',
-      headers: getHeaders(),
       body: JSON.stringify(encryptedData),
     });
     const task: any = await handleResponse(res);
@@ -660,9 +755,8 @@ export const api = {
   },
 
   async deleteTask(id: string): Promise<void> {
-    const res = await fetch(`${getBaseUrl()}/tasks/${id}`, {
+    const res = await authedFetch(`${getBaseUrl()}/tasks/${id}`, {
       method: 'DELETE',
-      headers: getHeaders(),
     });
     await handleResponse(res);
   },
@@ -672,18 +766,16 @@ export const api = {
       _id: task._id,
       position: encrypt(String(task.position))
     }));
-    const res = await fetch(`${getBaseUrl()}/tasks/reorder`, {
+    const res = await authedFetch(`${getBaseUrl()}/tasks/reorder`, {
       method: 'PUT',
-      headers: getHeaders(),
       body: JSON.stringify({ tasks: encryptedTasks }),
     });
     await handleResponse(res);
   },
  
    async assignTasksToList(noteId: string): Promise<void> {
-     const res = await fetch(`${getBaseUrl()}/tasks/assign-to-list`, {
+     const res = await authedFetch(`${getBaseUrl()}/tasks/assign-to-list`, {
        method: 'PUT',
-       headers: getHeaders(),
        body: JSON.stringify({ noteId }),
      });
      await handleResponse(res);

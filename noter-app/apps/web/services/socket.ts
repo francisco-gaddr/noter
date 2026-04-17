@@ -76,7 +76,7 @@ export const connectSocket = () => {
       withCredentials: true,
     });
   }
-  const token = socketTokenCache || getWebAuthTokenSync();
+  const token = getWebAuthTokenSync() || socketTokenCache;
   (socket as any).auth = { token };
   if (!socket.connected) socket.connect();
 };
