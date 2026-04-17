@@ -1,4 +1,4 @@
-import { createEmptyMcpUiSettings, resolveMcpSettings } from '@repo/shared/src/mcpSettings';
+import { createEmptyMcpUiSettings, resolveMcpSettings } from '../../../packages/shared/src/mcpSettings';
 
 describe('mcp settings resolution (web)', () => {
   it('uses ui values over env values', () => {

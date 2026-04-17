@@ -20,7 +20,7 @@ const RefreshTokenSchema: Schema = new Schema({
   ipHash: { type: String, default: '' },
   replacedByTokenHash: { type: String, default: null },
   revokedAt: { type: Date, default: null, index: true },
-  expiresAt: { type: Date, required: true, index: true },
+  expiresAt: { type: Date, required: true },
   createdAt: { type: Date, default: Date.now },
 });
 

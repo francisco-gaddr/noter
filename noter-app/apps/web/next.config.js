@@ -3,6 +3,7 @@ import path from 'path';
 const rawBasePath = String(process.env.WEB_BASE_PATH || process.env.NEXT_PUBLIC_WEB_BASE_PATH || '').trim();
 const basePath = rawBasePath ? `/${rawBasePath.replace(/^\/+|\/+$/g, '')}` : '';
 const isProduction = process.env.NODE_ENV === 'production';
+const isElectronStandalone = process.env.ELECTRON_STANDALONE === '1';
 
 const csp = [
   "default-src 'self'",
@@ -44,6 +45,7 @@ const securityHeaders = [
 const nextConfig = {
   basePath,
   assetPrefix: basePath || undefined,
+  ...(isElectronStandalone ? { output: 'standalone' } : {}),
   outputFileTracingRoot: path.join(process.cwd(), '..', '..'),
   trailingSlash: true,
   
@@ -53,6 +55,7 @@ const nextConfig = {
   },
 
   serverExternalPackages: ['node-llama-cpp'],
+  transpilePackages: ['@repo/ai', '@repo/shared'],
 
   experimental: {
     serverActions: {

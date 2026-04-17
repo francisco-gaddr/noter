@@ -9,7 +9,10 @@
     "clean:packaging": "node src/clean-dist.js",
     "build:web": "node src/build-web.js",
     "build": "npm run clean:packaging && npm run build:web && node src/build-electron.js",
+    "build:mac": "npm run clean:packaging && npm run build:web && node src/build-mac.js",
+    "build:mac:arm64": "npm run clean:packaging && npm run build:web && node src/build-mac.js --arm64",
     "build:ready": "npm run verify:build-ready && npm run test && npm run test:e2e && npm run clean:packaging && npm run build:web && node src/build-ready.js",
+    "build:ready:mac": "npm run verify:build-ready && npm run test && npm run test:e2e && npm run clean:packaging && npm run build:web && node src/build-mac.js --arm64 --ready",
     "verify:build-ready": "node src/verify-build-readiness.js",
     "test": "jest",
     "test:e2e": "node src/run-e2e.js",
@@ -26,9 +29,14 @@
       "output": "dist-electron-build"
     },
     "asar": true,
+    "asarUnpack": [
+      "renderer-standalone/**/*"
+    ],
+    "afterSign": "src/notarize.js",
     "files": [
       "main.js",
       "preload.js",
+      "build/**/*",
       "src/**/*.js",
       "renderer/**/*",
       "package.json",
@@ -46,9 +54,32 @@
     },
     "win": {
       "target": "nsis"
+    },
+    "mac": {
+      "category": "public.app-category.productivity",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
     }
   },
   "devDependencies": {
+    "@electron/notarize": "^3.1.0",
     "@playwright/test": "^1.58.2",
     "electron": "^40.6.1",
     "electron-builder": "^26.8.1",

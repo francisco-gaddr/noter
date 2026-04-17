@@ -5,13 +5,25 @@ const rootDir = path.join(__dirname, '..');
 const packageJson = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
 const mainJs = fs.readFileSync(path.join(rootDir, 'main.js'), 'utf8').replace(/\r\n/g, '\n');
 const buildWebJs = fs.readFileSync(path.join(rootDir, 'src', 'build-web.js'), 'utf8').replace(/\r\n/g, '\n');
+const startJs = fs.readFileSync(path.join(rootDir, 'src', 'start.js'), 'utf8').replace(/\r\n/g, '\n');
 
 describe('electron release readiness', () => {
   it('gates build:ready behind readiness and tests', () => {
     expect(packageJson.scripts['build:ready']).toContain('npm run verify:build-ready');
     expect(packageJson.scripts['build:ready']).toContain('npm run test');
     expect(packageJson.scripts['build:ready']).toContain('npm run test:e2e');
+    expect(packageJson.scripts['build:ready:mac']).toContain('npm run verify:build-ready');
+    expect(packageJson.scripts['build:ready:mac']).toContain('npm run test');
+    expect(packageJson.scripts['build:ready:mac']).toContain('npm run test:e2e');
     expect(packageJson.scripts['test:e2e']).toBe('node src/run-e2e.js');
+  });
+
+  it('declares mac arm64 build targets and notarization hook', () => {
+    expect(packageJson.build.afterSign).toBe('src/notarize.js');
+    expect(JSON.stringify(packageJson.build.asarUnpack)).toContain('renderer-standalone');
+    expect(packageJson.build.mac.hardenedRuntime).toBe(true);
+    expect(String(packageJson.build.mac.entitlements)).toContain('build/entitlements.mac.plist');
+    expect(JSON.stringify(packageJson.build.mac.target)).toContain('arm64');
   });
 
   it('keeps hardened BrowserWindow settings and strict renderer output checks', () => {
@@ -39,9 +51,15 @@ describe('electron release readiness', () => {
     expect(mainJs).toContain("payload: encrypted.toString('base64')");
     expect(mainJs).toContain("const getMlcModule = () => {");
     expect(mainJs).toContain("mlcModule = require('./src/mlc');");
+    expect(mainJs).toContain("const startStandaloneRenderer = async () => {");
+    expect(mainJs).toContain("renderer-standalone', 'apps', 'web', 'server.js'");
     expect(mainJs).toContain('show: isTest');
     expect(mainJs).toContain("if (!win.isVisible()) {");
-    expect(buildWebJs).toContain("web/out/index.html");
+    expect(buildWebJs).toContain("renderer-standalone");
+    expect(buildWebJs).toContain("webDir, '.next', 'standalone'");
+    expect(startJs).toContain("const rendererIndex = path.join(rootDir, 'renderer', 'index.html');");
+    expect(startJs).toContain("const rendererStandaloneServer = path.join(rootDir, 'renderer-standalone', 'apps', 'web', 'server.js');");
+    expect(startJs).toContain("if (fs.existsSync(rendererStandaloneServer) || fs.existsSync(rendererIndex) || fs.existsSync(legacyRendererIndex)) {");
     expect(buildWebJs).toContain('process.exit(1)');
   });
 });

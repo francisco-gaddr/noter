@@ -6,6 +6,8 @@ import { useStore } from '../stores/useStore';
 jest.mock('../services/api', () => ({
   getUUID: jest.fn(() => 'mock-uuid'),
   setApiToken: jest.fn(),
+  setApiRefreshToken: jest.fn(),
+  setApiAuthTokenListener: jest.fn(),
   api: {
     login: jest.fn(),
     register: jest.fn(),
@@ -75,7 +77,7 @@ describe('Web Store', () => {
 
   it('should set user and token on login', async () => {
     const { api } = require('../services/api');
-    api.login.mockResolvedValueOnce({ user: { _id: '1', username: 'test' }, token: 'abc' });
+    api.login.mockResolvedValueOnce({ user: { _id: '1', username: 'test' }, token: 'abc', refreshToken: 'refresh-1' });
 
     await act(async () => {
         await useStore.getState().login('test', 'password');
@@ -86,13 +88,15 @@ describe('Web Store', () => {
     expect(state.token).toBe('abc');
   });
 
-  it('should init socket on hydrate when token exists', () => {
+  it('should init socket on hydrate when token exists', async () => {
     const { connectSocket } = require('../services/socket');
     localStorage.setItem('user', JSON.stringify({ _id: '1', username: 'test' }));
     sessionStorage.setItem('token', 'abc');
 
-    act(() => {
+    await act(async () => {
       useStore.getState().hydrate();
+      await Promise.resolve();
+      await Promise.resolve();
     });
 
     expect(useStore.getState().token).toBe('abc');
@@ -130,11 +134,14 @@ describe('Web Store', () => {
   });
 
   it('should bootstrap electron settings before first sync when electron bridge exists', async () => {
-    const { api } = require('../services/api');
     (window as any).mlc = {
       isElectron: true,
       getManySettings: jest.fn().mockResolvedValue({
         apiBaseUrl: 'http://127.0.0.1:3001/api',
+      }),
+      getSession: jest.fn().mockResolvedValue({
+        token: 'abc',
+        user: { _id: '1', username: 'test' },
       }),
       getSetting: jest.fn(),
       setManySettings: jest.fn(),
@@ -150,6 +157,7 @@ describe('Web Store', () => {
     });
 
     expect((window as any).mlc.getManySettings).toHaveBeenCalled();
+    expect((window as any).mlc.getSession).toHaveBeenCalled();
   });
 
   it('should restore sort order from localStorage on hydrate', () => {

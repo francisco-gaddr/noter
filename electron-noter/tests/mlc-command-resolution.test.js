@@ -26,14 +26,15 @@ describe('mlc command resolution', () => {
     expect(resolved.prefixArgs).toEqual([]);
   });
 
-  it('falls back to py module execution when direct mlc_llm is unavailable', async () => {
+  it('falls back to platform-appropriate python module execution when direct mlc_llm is unavailable', async () => {
+    const expectedCommand = process.platform === 'win32' ? 'py' : 'python3';
     const spawnMock = jest.fn((command, args) => {
       const proc = new EventEmitter();
       proc.kill = jest.fn();
       proc.stdout = new EventEmitter();
       proc.stderr = new EventEmitter();
       process.nextTick(() => {
-        if (command === 'py' && args[0] === '-m' && args[1] === 'mlc_llm') {
+        if (command === expectedCommand && args[0] === '-m' && args[1] === 'mlc_llm') {
           proc.emit('exit', 0);
           return;
         }
@@ -46,7 +47,7 @@ describe('mlc command resolution', () => {
     const { resolveMlcCommand } = require('../src/mlc');
     const resolved = await resolveMlcCommand();
 
-    expect(resolved.command).toBe('py');
+    expect(resolved.command).toBe(expectedCommand);
     expect(resolved.prefixArgs).toEqual(['-m', 'mlc_llm']);
   });
 });

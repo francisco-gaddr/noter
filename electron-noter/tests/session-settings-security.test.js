@@ -1,0 +1,14 @@
+const fs = require('fs');
+const path = require('path');
+
+const mainJs = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8').replace(/\r\n/g, '\n');
+
+describe('electron session/settings boundary', () => {
+  it('keeps token and user behind dedicated session IPC', () => {
+    expect(mainJs).toContain("const sensitiveSessionKeys = new Set(['token', 'user'])");
+    expect(mainJs).toContain("ipcMain.handle('session:get'");
+    expect(mainJs).toContain("ipcMain.handle('session:set'");
+    expect(mainJs).toContain("if (isSensitiveSessionKey(key)) return null;");
+    expect(mainJs).toContain("if (isSensitiveSessionKey(key)) return false;");
+  });
+});

@@ -6,6 +6,12 @@
       "@testing-library/jest-dom",
       "node"
     ],
+    "paths": {
+      "@repo/shared": ["../../packages/shared/src"],
+      "@repo/shared/*": ["../../packages/shared/src/*"],
+      "@repo/ai": ["../../packages/ai/src"],
+      "@repo/ai/*": ["../../packages/ai/src/*"]
+    },
     "plugins": [
       {
         "name": "next"

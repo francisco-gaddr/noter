@@ -26,6 +26,8 @@ jest.mock('../services/api', () => ({
   setAuthToken: jest.fn(),
   initApiUrl: jest.fn(),
   setUnauthorizedHandler: jest.fn(),
+  setTokenUpdateHandler: jest.fn(),
+  logout: jest.fn().mockResolvedValue(undefined),
   API_URL: 'http://test',
 }));
 
@@ -118,7 +120,7 @@ describe('Mobile Store', () => {
     const { login, fetchWithAuth } = require('../services/api');
     const encryptedNow = encrypt(new Date().toISOString());
     const encryptedFuture = encrypt(new Date(Date.now() + 3600000).toISOString());
-    login.mockResolvedValueOnce({ token: 'abc' });
+    login.mockResolvedValueOnce({ token: 'abc', refreshToken: 'refresh-1' });
     fetchWithAuth.mockResolvedValueOnce([
       {
         _id: 'note-1',

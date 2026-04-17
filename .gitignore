@@ -136,3 +136,6 @@ mlc-chat-config.json
 /Docs/
 /doc/
 /docs/
+/electron-noter/renderer-standalone/
+/electron-noter/dist-electron-mac-arm64/
+/electron-noter/dist-electron-ready-mac-arm64/

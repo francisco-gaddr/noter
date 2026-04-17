@@ -1795,9 +1795,9 @@ export const AISidebar = () => {
     if (stateToken) return stateToken;
     const inMemory = getWebAuthTokenSync();
     if (inMemory) return inMemory;
-    if (isElectron && (window as any).mlc?.getSetting) {
-        const stored = await (window as any).mlc.getSetting('token');
-        if (stored) return stored;
+    if (isElectron && (window as any).mlc?.getSession) {
+        const stored = await (window as any).mlc.getSession();
+        if (stored?.token) return stored.token;
     }
     const legacy = await getStoredValue('auth_token');
     return legacy || '';

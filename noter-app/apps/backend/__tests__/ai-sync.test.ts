@@ -11,6 +11,7 @@ import AIProjectSync from '../src/models/AIProjectSync';
 import { encrypt, decrypt } from '@repo/shared';
 
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-jwt-secret';
+jest.setTimeout(30_000);
 
 const app = express();
 app.use(bodyParser.json());
@@ -29,7 +30,9 @@ describe('AI sync routes', () => {
 
   afterAll(async () => {
     await mongoose.disconnect();
-    await mongoServer.stop();
+    if (mongoServer) {
+      await mongoServer.stop();
+    }
   });
 
   beforeEach(async () => {

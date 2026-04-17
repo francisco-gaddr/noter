@@ -11,6 +11,11 @@ if (typeof projectId !== 'string' || projectId.trim().length === 0) {
   process.exit(0);
 }
 
+if (!process.env.EXPO_TOKEN && !process.env.EXPO_SESSION) {
+  console.log('Skipping authenticated EAS config check because no Expo credentials are configured locally. Set EXPO_TOKEN (or log in) to validate cloud EAS config.');
+  process.exit(0);
+}
+
 const command = 'npx';
 const args = ['--yes', 'eas-cli', 'config', '--platform', 'android', '--profile', 'apk'];
 const retryableOutput = /Request timed out|ETIMEDOUT|network|fetch failed/i;

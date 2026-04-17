@@ -50,6 +50,23 @@ const readElectronSettings = async (keys: string[]) => {
   return Object.fromEntries(entries);
 };
 
+const readElectronSession = async () => {
+  if (typeof window === 'undefined') return { token: null, user: null };
+  const mlc = (window as any).mlc;
+  if (!mlc?.isElectron || typeof mlc.getSession !== 'function') {
+    return { token: null, user: null };
+  }
+  try {
+    const session = await mlc.getSession();
+    return {
+      token: typeof session?.token === 'string' ? session.token : null,
+      user: session?.user ?? null,
+    };
+  } catch {
+    return { token: null, user: null };
+  }
+};
+
 const shouldLogElectronDataDebug = (): boolean => {
   if (typeof window === 'undefined') return false;
   if (window.location.protocol !== 'file:') return false;
@@ -68,15 +85,15 @@ const logElectronDataDebug = (stage: string, payload: Record<string, unknown>) =
 const setElectronToken = (value: string | null) => {
   if (typeof window === 'undefined') return;
   const mlc = (window as any).mlc;
-  if (!mlc?.setSetting) return;
-  mlc.setSetting('token', value);
+  if (!mlc?.setSession) return;
+  mlc.setSession({ token: value, user: undefined });
 };
 
 const setElectronUser = (value: User | null) => {
   if (typeof window === 'undefined') return;
   const mlc = (window as any).mlc;
-  if (!mlc?.setSetting) return;
-  mlc.setSetting('user', value);
+  if (!mlc?.setSession) return;
+  mlc.setSession({ token: undefined, user: value });
 };
 
 const setElectronLockState = (locked: boolean) => {
@@ -590,9 +607,12 @@ export const useStore = create<StoreState>((set, get) => ({
         if (token) setElectronToken(token);
         if (user) setElectronUser(user);
         if (hasElectronSettingsBridge) {
-            readElectronSettings(['token', 'user', 'apiBaseUrl', 'apiUrl', 'backendUrl']).then((settings) => {
-                const storedToken = settings.token;
-                const storedUser = settings.user;
+            Promise.all([
+                readElectronSettings(['apiBaseUrl', 'apiUrl', 'backendUrl']),
+                readElectronSession(),
+            ]).then(([settings, session]) => {
+                const storedToken = session.token;
+                const storedUser = session.user;
                 const storedApiBaseUrl = settings.apiBaseUrl;
                 const storedApiUrl = settings.apiUrl;
                 const storedBackendUrl = settings.backendUrl;

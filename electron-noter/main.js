@@ -1,6 +1,8 @@
 const { app, BrowserWindow, ipcMain, safeStorage, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const net = require('net');
+const { spawn } = require('child_process');
 const {
   getElectronPerformanceSnapshot,
   recordAiChatSample,
@@ -26,6 +28,41 @@ const rendererFallbackUrls = Array.from(new Set([
   'http://127.0.0.1:3001/',
 ].filter(Boolean)));
 let mlcModule = null;
+let rendererServer = null;
+let rendererServerPort = 0;
+
+const findFreePort = () => new Promise((resolve, reject) => {
+  const server = net.createServer();
+  server.listen(0, '127.0.0.1', () => {
+    const address = server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+    server.close(() => resolve(port));
+  });
+  server.on('error', reject);
+});
+
+const startStandaloneRenderer = async () => {
+  if (rendererServer) return { port: rendererServerPort };
+  const serverJs = path.join(__dirname, 'renderer-standalone', 'apps', 'web', 'server.js');
+  if (!fs.existsSync(serverJs)) return null;
+  const port = await findFreePort();
+  const child = spawn(process.execPath, [serverJs], {
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      PORT: String(port),
+      HOSTNAME: '127.0.0.1',
+      NODE_ENV: 'production',
+    },
+  });
+  rendererServer = child;
+  rendererServerPort = port;
+  child.on('exit', () => {
+    rendererServer = null;
+    rendererServerPort = 0;
+  });
+  return { port };
+};
 
 const getMlcModule = () => {
   if (!mlcModule) {
@@ -106,6 +143,10 @@ const isSafeSettingKey = (key) => (
 );
 const sanitizeSettingKeys = (keys) => Array.isArray(keys) ? keys.filter(isSafeSettingKey).slice(0, 32) : [];
 const sanitizeSettingEntries = (entries) => Object.entries(entries || {}).filter(([key]) => isSafeSettingKey(key)).slice(0, 32);
+const sensitiveSessionKeys = new Set(['token', 'user']);
+const isSensitiveSessionKey = (key) => sensitiveSessionKeys.has(String(key || ''));
+const filterSafeSettingKeys = (keys) => sanitizeSettingKeys(keys).filter((key) => !isSensitiveSessionKey(key));
+const filterSafeSettingEntries = (entries) => sanitizeSettingEntries(entries).filter(([key]) => !isSensitiveSessionKey(key));
 
 const flushPendingSettingsWrite = () => {
   if (!pendingSettingsSnapshot) return;
@@ -282,6 +323,21 @@ const createWindow = () => {
   if (isDev) {
     recordStartupEvent('load-started', { source: 'dev-url' });
     win.loadURL(devUrl);
+  } else if (fs.existsSync(path.join(__dirname, 'renderer-standalone', 'apps', 'web', 'server.js'))) {
+    recordStartupEvent('load-started', { source: 'renderer-standalone' });
+    startStandaloneRenderer()
+      .then(async (info) => {
+        if (!info) throw new Error('Renderer standalone missing');
+        const standaloneUrl = `http://127.0.0.1:${info.port}/`;
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          if (await isUrlReachable(standaloneUrl)) {
+            return win.loadURL(standaloneUrl);
+          }
+          await new Promise((resolve) => setTimeout(resolve, 250));
+        }
+        throw new Error('Renderer standalone unreachable');
+      })
+      .catch(() => recoverRenderer());
   } else if (fs.existsSync(rendererIndex)) {
     recordStartupEvent('load-started', { source: 'renderer-index' });
     win.loadFile(rendererIndex);
@@ -339,6 +395,16 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
+  }
+});
+
+app.on('before-quit', () => {
+  if (rendererServer) {
+    try {
+      rendererServer.kill();
+    } catch {}
+    rendererServer = null;
+    rendererServerPort = 0;
   }
 });
 
@@ -433,6 +499,7 @@ ipcMain.handle('mlc:cancel-chat', async (_event, payload) => {
 
 ipcMain.handle('settings:get', async (_event, key) => {
   if (!isSafeSettingKey(key)) return null;
+  if (isSensitiveSessionKey(key)) return null;
   const settings = settingsCache || readSettings();
   return settings[key];
 });
@@ -440,6 +507,7 @@ ipcMain.handle('settings:get', async (_event, key) => {
 ipcMain.handle('settings:set', async (_event, payload) => {
   const key = payload?.key;
   if (!isSafeSettingKey(key)) return false;
+  if (isSensitiveSessionKey(key)) return false;
   const value = payload?.value;
   await enqueueSettingsWrite((settings) => {
     if (value === null || value === undefined) {
@@ -452,7 +520,7 @@ ipcMain.handle('settings:set', async (_event, payload) => {
 });
 
 ipcMain.handle('settings:get-many', async (_event, keys) => {
-  const safeKeys = sanitizeSettingKeys(keys);
+  const safeKeys = filterSafeSettingKeys(keys);
   const settings = settingsCache || readSettings();
   return safeKeys.reduce((acc, key) => {
     acc[key] = settings[key];
@@ -461,7 +529,7 @@ ipcMain.handle('settings:get-many', async (_event, keys) => {
 });
 
 ipcMain.handle('settings:set-many', async (_event, entries) => {
-  const safeEntries = sanitizeSettingEntries(entries);
+  const safeEntries = filterSafeSettingEntries(entries);
   if (safeEntries.length === 0) return false;
   await enqueueSettingsWrite((settings) => {
     safeEntries.forEach(([key, value]) => {
@@ -471,6 +539,32 @@ ipcMain.handle('settings:set-many', async (_event, entries) => {
         settings[key] = value;
       }
     });
+  });
+  return true;
+});
+
+ipcMain.handle('session:get', async () => {
+  const settings = settingsCache || readSettings();
+  return {
+    token: typeof settings.token === 'string' ? settings.token : null,
+    user: settings.user ?? null,
+  };
+});
+
+ipcMain.handle('session:set', async (_event, payload) => {
+  const nextToken = typeof payload?.token === 'string' ? payload.token : null;
+  const nextUser = payload?.user ?? null;
+  await enqueueSettingsWrite((settings) => {
+    if (nextToken) {
+      settings.token = nextToken;
+    } else {
+      delete settings.token;
+    }
+    if (nextUser !== null && nextUser !== undefined) {
+      settings.user = nextUser;
+    } else {
+      delete settings.user;
+    }
   });
   return true;
 });
