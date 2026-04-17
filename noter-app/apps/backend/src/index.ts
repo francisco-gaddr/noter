@@ -22,9 +22,11 @@ import mcpRoutes from './routes/mcp';
 import { authMiddleware, getBearerTokenFromRequestLike, getUserIdFromDecodedToken } from './middleware/authMiddleware';
 import { errorHandler } from './middleware/errorMiddleware';
 import { blockSuspiciousRequestPatterns, enforceJsonApiRequests } from './middleware/requestSecurity';
+import { createRequestContextMiddleware } from './middleware/requestContext';
 import { createHandler } from 'graphql-http/lib/use/express';
 import { toolSchema } from './graphql/schema';
 import { getAllowedOrigins, getJwtSecret, getJwtVerifyOptions, isDemoTokenEnabled } from './utils/security';
+import { buildHealthResponse, buildReadyResponse } from './services/runtimeHealth';
 
 const dotenvPath = process.env.DOTENV_PATH;
 if (dotenvPath) {
@@ -43,9 +45,15 @@ const server = http.createServer(app);
 const port = parseInt(process.env.PORT || '3001', 10);
 const allowedOrigins = getAllowedOrigins();
 const isProduction = process.env.NODE_ENV === 'production';
+let isReady = false;
+let isShuttingDown = false;
+let serverStarted = false;
+let shutdownPromise: Promise<void> | null = null;
 
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
+
+app.use(createRequestContextMiddleware(logger));
 
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
@@ -225,13 +233,15 @@ app.get('/', (_req, res) => {
 app.get('/api/health', async (_req, res) => {
   const mongoOk = mongoose.connection.readyState === 1;
   const redisOk = await cache.ping().catch(() => false);
-  const ok = mongoOk && redisOk;
-  res.status(ok ? 200 : 503).json({
-    status: ok ? 'ok' : 'degraded',
-    time: new Date().toISOString(),
-    mongo: mongoOk,
-    redis: redisOk,
-  });
+  const response = buildHealthResponse({ mongoOk, redisOk, isReady, isShuttingDown });
+  res.status(response.statusCode).json(response.body);
+});
+
+app.get('/api/ready', async (_req, res) => {
+  const mongoOk = mongoose.connection.readyState === 1;
+  const redisOk = await cache.ping().catch(() => false);
+  const response = buildReadyResponse({ mongoOk, redisOk, isReady, isShuttingDown });
+  res.status(response.statusCode).json(response.body);
 });
 
 // Routes
@@ -276,6 +286,38 @@ app.use(errorHandler);
 // MongoDB connection
 const mongoUri = process.env.MONGO_URI;
 
+const shutdown = async (signal: string) => {
+  if (shutdownPromise) {
+    await shutdownPromise;
+    return;
+  }
+  isShuttingDown = true;
+  isReady = false;
+  shutdownPromise = (async () => {
+    logger.info('Shutdown initiated', { signal });
+    const timeout = new Promise<void>((resolve) => {
+      setTimeout(() => resolve(), 10_000);
+    });
+    await Promise.race([
+      (async () => {
+        await new Promise<void>((resolve) => {
+          if (!serverStarted) {
+            resolve();
+            return;
+          }
+          server.close(() => resolve());
+        });
+        await new Promise<void>((resolve) => io.close(() => resolve()));
+        await mongoose.disconnect().catch(() => undefined);
+        await cache.close().catch(() => undefined);
+      })(),
+      timeout,
+    ]);
+    logger.info('Shutdown completed', { signal });
+  })();
+  await shutdownPromise;
+};
+
 const startServer = async () => {
   if (mongoUri) {
     try {
@@ -297,12 +339,20 @@ const startServer = async () => {
   }
 
   server.listen(Number(port), '0.0.0.0', () => {
+    serverStarted = true;
+    isReady = true;
     logger.info(`Server running at http://0.0.0.0:${port}`);
   });
 };
 
 if (process.env.NODE_ENV !== 'test') {
+  process.once('SIGTERM', () => {
+    void shutdown('SIGTERM');
+  });
+  process.once('SIGINT', () => {
+    void shutdown('SIGINT');
+  });
   startServer();
 }
 
-export { app, server };
+export { app, server, shutdown };

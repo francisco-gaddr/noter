@@ -93,4 +93,18 @@ const ping = async (): Promise<boolean> => {
   }
 };
 
-export default { get, set, del, delMany, ping };
+const close = async (): Promise<void> => {
+  if (!client) return;
+  try {
+    if (client.isOpen) {
+      await client.quit();
+    }
+  } catch {
+    // Ignore shutdown errors so process shutdown can continue.
+  } finally {
+    client = null;
+    connectPromise = null;
+  }
+};
+
+export default { get, set, del, delMany, ping, close };

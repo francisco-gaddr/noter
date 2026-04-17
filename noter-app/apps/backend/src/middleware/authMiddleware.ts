@@ -1,9 +1,12 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import winston from 'winston';
 import { getJwtSecret, getJwtVerifyOptions, isDemoTokenEnabled } from '../utils/security';
 
 export interface AuthRequest extends Request {
   user?: { userId: string };
+  requestId?: string;
+  log?: winston.Logger;
 }
 
 type DecodedToken = jwt.JwtPayload & {
