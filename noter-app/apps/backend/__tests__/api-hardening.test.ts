@@ -50,5 +50,15 @@ describe('API hardening integration', () => {
     const res = await request(app).get('/api/ai/sync/pull');
     expect([401, 403]).toContain(res.status);
   });
-});
 
+  it('sets security headers on standard responses', async () => {
+    const res = await request(app).get('/');
+    expect(res.status).toBe(200);
+    expect(res.headers['x-frame-options']).toBe('DENY');
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(res.headers['cross-origin-opener-policy']).toBe('same-origin');
+    expect(res.headers['cross-origin-resource-policy']).toBe('same-origin');
+    expect(res.headers['permissions-policy']).toContain('camera=()');
+    expect(res.headers['referrer-policy']).toBe('no-referrer');
+  });
+});

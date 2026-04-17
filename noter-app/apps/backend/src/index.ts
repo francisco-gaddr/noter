@@ -68,8 +68,20 @@ const corsOptions: cors.CorsOptions = {
 
 // Security & Performance Middleware
 app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+  crossOriginOpenerPolicy: { policy: 'same-origin' },
+  crossOriginResourcePolicy: { policy: 'same-origin' },
+  frameguard: { action: 'deny' },
+  hsts: isProduction ? { maxAge: 63_072_000, includeSubDomains: true, preload: true } : false,
+  noSniff: true,
+  permittedCrossDomainPolicies: { permittedPolicies: 'none' },
   referrerPolicy: { policy: 'no-referrer' },
 }));
+app.use((_req, res, next) => {
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=()');
+  next();
+});
 app.use(cors(corsOptions));
 app.use(compression());
 app.use(express.json({ limit: '1mb' }));
