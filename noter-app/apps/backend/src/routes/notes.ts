@@ -10,6 +10,7 @@ import { AuthRequest } from '../middleware/authMiddleware';
 import { validate } from '../middleware/validate';
 import cache from '../services/cache';
 import { isEncryptedPayload } from '../utils/encryption';
+import { assertValidObjectId, findOwnedById } from '../utils/ownedQuery';
 
 const router = express.Router();
 const BCRYPT_ROUNDS = Math.max(10, Number.parseInt(process.env.BCRYPT_ROUNDS || '12', 10) || 12);
@@ -127,18 +128,15 @@ import mongoose from 'mongoose';
 // GET /api/notes/:id
 router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    if (!req.params.id || !mongoose.Types.ObjectId.isValid(req.params.id)) {
-      res.status(400);
-      return next(new Error('Invalid ID format'));
-    }
     const userId = (req as AuthRequest).user!.userId;
-    const cacheKey = `notes:item:${userId}:${req.params.id}`;
+    const noteId = assertValidObjectId(req.params.id, 'ID');
+    const cacheKey = `notes:item:${userId}:${noteId}`;
     const cachedNote = await cache.get(cacheKey);
     if (cachedNote) {
       res.json(cachedNote);
       return;
     }
-    const note = await Note.findOne({ _id: req.params.id, userId }).select('+password').lean().exec();
+    const note = await findOwnedById(Note, userId, noteId).select('+password').lean().exec();
     if (!note) {
       res.status(404);
       return next(new Error('Note not found'));
@@ -168,8 +166,8 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
 router.post('/:id/verify-lock', verifyLockLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = (req as AuthRequest).user!.userId;
-    const targetId = req.params.id;
-    const targetNote = await Note.findOne({ _id: targetId, userId }).select('+password');
+    const targetId = assertValidObjectId(req.params.id, 'ID');
+    const targetNote = await findOwnedById(Note, userId, targetId).select('+password');
     
     if (!targetNote) {
       res.status(404);
@@ -189,7 +187,7 @@ router.post('/:id/verify-lock', verifyLockLimiter, async (req: Request, res: Res
         break;
       }
       if (!current.parentId) break;
-      current = await Note.findOne({ _id: current.parentId, userId }).select('+password');
+      current = await findOwnedById(Note, userId, String(current.parentId)).select('+password');
     }
 
     if (!blockingNote) {
@@ -297,12 +295,9 @@ router.put('/reorder', validate(reorderSchema), async (req: Request, res: Respon
 router.put('/:id', validate(updateSchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const value = req.body;
-    if (!req.params.id || !mongoose.Types.ObjectId.isValid(req.params.id)) {
-      res.status(400);
-      return next(new Error('Invalid ID format'));
-    }
     const userId = (req as AuthRequest).user!.userId;
-    const note = await Note.findOne({ _id: req.params.id, userId });
+    const noteId = assertValidObjectId(req.params.id, 'ID');
+    const note = await findOwnedById(Note, userId, noteId);
 
     if (note) {
       if (value.title !== undefined) note.title = value.title;
@@ -340,7 +335,7 @@ router.put('/:id', validate(updateSchema), async (req: Request, res: Response, n
       const updatedNote = await note.save();
 
       await cache.del(`notes:list:${userId}`);
-      await cache.del(`notes:item:${userId}:${req.params.id}`);
+      await cache.del(`notes:item:${userId}:${noteId}`);
 
       const noteObj = updatedNote.toObject();
       
@@ -360,12 +355,9 @@ router.put('/:id', validate(updateSchema), async (req: Request, res: Response, n
 // DELETE /api/notes/:id
 router.delete('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    if (!req.params.id || !mongoose.Types.ObjectId.isValid(req.params.id)) {
-      res.status(400);
-      return next(new Error('Invalid ID format'));
-    }
     const userId = (req as AuthRequest).user!.userId;
-    const note = await Note.findOne({ _id: req.params.id, userId });
+    const noteId = assertValidObjectId(req.params.id, 'ID');
+    const note = await findOwnedById(Note, userId, noteId);
 
     if (note) {
       let deletedTaskIds: string[] = [];
@@ -378,9 +370,9 @@ router.delete('/:id', async (req: Request, res: Response, next: NextFunction) =>
       await note.deleteOne();
       
       await cache.del(`notes:list:${userId}`);
-      await cache.del(`notes:item:${userId}:${req.params.id}`);
+      await cache.del(`notes:item:${userId}:${noteId}`);
       const io = req.app.get('io');
-      io.to(`user:${userId}`).emit('note:deleted', req.params.id);
+      io.to(`user:${userId}`).emit('note:deleted', noteId);
       for (const taskId of deletedTaskIds) {
         io.to(`user:${userId}`).emit('task:deleted', taskId);
       }

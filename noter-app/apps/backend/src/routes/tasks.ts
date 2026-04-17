@@ -7,6 +7,7 @@ import mongoose from 'mongoose';
 import { validate } from '../middleware/validate';
 import { isEncryptedPayload } from '../utils/encryption';
 import cache from '../services/cache';
+import { assertValidObjectId, findOwnedById } from '../utils/ownedQuery';
 
 const router = express.Router();
 
@@ -149,20 +150,17 @@ router.put('/assign-to-list', validate(assignSchema), async (req: Request, res: 
     const userId = (req as AuthRequest).user!.userId;
     const noteId = req.body.noteId;
     
-    if (!mongoose.Types.ObjectId.isValid(noteId)) {
-      res.status(400);
-      return next(new Error('Invalid noteId'));
-    }
-    const listNote = await Note.findOne({ _id: noteId, userId });
+    const ownedNoteId = assertValidObjectId(noteId, 'noteId');
+    const listNote = await findOwnedById(Note, userId, ownedNoteId);
     if (!listNote) {
       res.status(404);
       return next(new Error('List note not found'));
     }
     const result = await Task.updateMany(
       { userId, parentNoteId: null },
-      { $set: { parentNoteId: noteId } }
+      { $set: { parentNoteId: ownedNoteId } }
     );
-    await cache.delMany(getTaskCacheKeys(userId, [null, noteId]));
+    await cache.delMany(getTaskCacheKeys(userId, [null, ownedNoteId]));
     res.json({ matchedCount: result.matchedCount, modifiedCount: result.modifiedCount });
   } catch (error) {
     next(error);
@@ -211,12 +209,9 @@ router.put('/reorder', validate(reorderSchema), async (req: Request, res: Respon
 // PUT /api/tasks/:id
 router.put('/:id', validate(updateTaskSchema), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    if (!req.params.id || !mongoose.Types.ObjectId.isValid(req.params.id)) {
-      res.status(400);
-      return next(new Error('Invalid ID format'));
-    }
     const userId = (req as AuthRequest).user!.userId;
-    const task = await Task.findOne({ _id: req.params.id, userId });
+    const taskId = assertValidObjectId(req.params.id, 'ID');
+    const task = await findOwnedById(Task, userId, taskId);
     if (task) {
         const previousParentNoteId = task.parentNoteId?.toString() ?? null;
         // Only update fields that are present in the body (and validated)
@@ -252,19 +247,16 @@ router.put('/:id', validate(updateTaskSchema), async (req: Request, res: Respons
 // DELETE /api/tasks/:id
 router.delete('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    if (!req.params.id || !mongoose.Types.ObjectId.isValid(req.params.id)) {
-      res.status(400);
-      return next(new Error('Invalid ID format'));
-    }
     const userId = (req as AuthRequest).user!.userId;
-    const task = await Task.findOne({ _id: req.params.id, userId });
+    const taskId = assertValidObjectId(req.params.id, 'ID');
+    const task = await findOwnedById(Task, userId, taskId);
     if (task) {
       const parentNoteId = task.parentNoteId?.toString() ?? null;
       await task.deleteOne();
       await cache.delMany(getTaskCacheKeys(userId, [parentNoteId]));
 
       const io = req.app.get('io');
-      io.to(`user:${userId}`).emit('task:deleted', req.params.id);
+      io.to(`user:${userId}`).emit('task:deleted', taskId);
 
       res.json({ message: 'Task removed' });
     } else {

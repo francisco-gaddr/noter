@@ -1,8 +1,8 @@
 import { GraphQLBoolean, GraphQLInputObjectType, GraphQLList, GraphQLNonNull, GraphQLObjectType, GraphQLSchema, GraphQLString } from 'graphql';
-import mongoose from 'mongoose';
 import Note from '../models/Note';
 import Task from '../models/Task';
 import { decrypt, encrypt } from '@repo/shared';
+import { assertValidObjectId, deleteOwnedById, findOwnedById, findOwnedByIdAndUpdate } from '../utils/ownedQuery';
 
 const decryptText = (value?: string | null) => {
   if (!value) return '';
@@ -14,13 +14,6 @@ const decryptBool = (value?: string | null) => {
   if (!value) return false;
   const decrypted = decrypt(value);
   return (decrypted || value) === 'true';
-};
-
-const decryptNumber = (value?: string | null) => {
-  if (!value) return null;
-  const decrypted = decrypt(value) || value;
-  const parsed = Number(decrypted);
-  return Number.isFinite(parsed) ? parsed : null;
 };
 
 const encryptText = (value?: string | null) => {
@@ -168,8 +161,7 @@ const QueryType = new GraphQLObjectType({
       args: { id: { type: new GraphQLNonNull(GraphQLString) } },
       resolve: async (_source: unknown, args: any, context: ResolverContext) => {
         const userId = requireUser(context.userId);
-        if (!mongoose.Types.ObjectId.isValid(args.id)) throw new Error('Invalid ID');
-        const note = await Note.findOne({ _id: args.id, userId });
+        const note = await findOwnedById(Note, userId, assertValidObjectId(args.id));
         return note ? toNote(note) : null;
       }
     },
@@ -196,8 +188,7 @@ const QueryType = new GraphQLObjectType({
       args: { id: { type: new GraphQLNonNull(GraphQLString) } },
       resolve: async (_source: unknown, args: any, context: ResolverContext) => {
         const userId = requireUser(context.userId);
-        if (!mongoose.Types.ObjectId.isValid(args.id)) throw new Error('Invalid ID');
-        const task = await Task.findOne({ _id: args.id, userId });
+        const task = await findOwnedById(Task, userId, assertValidObjectId(args.id));
         return task ? toTask(task) : null;
       }
     },
@@ -258,7 +249,6 @@ const MutationType = new GraphQLObjectType({
       },
       resolve: async (_source: unknown, args: any, context: ResolverContext) => {
         const userId = requireUser(context.userId);
-        if (!mongoose.Types.ObjectId.isValid(args.id)) throw new Error('Invalid ID');
         const input = args.input;
         const update: any = {};
         if (input.title !== undefined) update.title = encryptText(input.title);
@@ -274,7 +264,7 @@ const MutationType = new GraphQLObjectType({
         if (input.createdAt !== undefined) update.createdAt = encryptText(input.createdAt || new Date().toISOString());
         if (input.updatedAt !== undefined) update.updatedAt = encryptText(input.updatedAt || new Date().toISOString());
 
-        const note = await Note.findOneAndUpdate({ _id: args.id, userId }, { $set: update }, { new: true });
+        const note = await findOwnedByIdAndUpdate(Note, userId, assertValidObjectId(args.id), { $set: update }, { new: true });
         return note ? toNote(note) : null;
       }
     },
@@ -283,8 +273,7 @@ const MutationType = new GraphQLObjectType({
       args: { id: { type: new GraphQLNonNull(GraphQLString) } },
       resolve: async (_source: unknown, args: any, context: ResolverContext) => {
         const userId = requireUser(context.userId);
-        if (!mongoose.Types.ObjectId.isValid(args.id)) throw new Error('Invalid ID');
-        const res = await Note.deleteOne({ _id: args.id, userId });
+        const res = await deleteOwnedById(Note, userId, assertValidObjectId(args.id));
         return res.deletedCount > 0;
       }
     },
@@ -323,7 +312,6 @@ const MutationType = new GraphQLObjectType({
       },
       resolve: async (_source: unknown, args: any, context: ResolverContext) => {
         const userId = requireUser(context.userId);
-        if (!mongoose.Types.ObjectId.isValid(args.id)) throw new Error('Invalid ID');
         const input = args.input;
         const update: any = {};
         if (input.title !== undefined) update.title = encryptText(input.title);
@@ -341,7 +329,7 @@ const MutationType = new GraphQLObjectType({
         if (input.createdAt !== undefined) update.createdAt = encryptText(input.createdAt || new Date().toISOString());
         if (input.updatedAt !== undefined) update.updatedAt = encryptText(input.updatedAt || new Date().toISOString());
 
-        const task = await Task.findOneAndUpdate({ _id: args.id, userId }, { $set: update }, { new: true });
+        const task = await findOwnedByIdAndUpdate(Task, userId, assertValidObjectId(args.id), { $set: update }, { new: true });
         return task ? toTask(task) : null;
       }
     },
@@ -350,8 +338,7 @@ const MutationType = new GraphQLObjectType({
       args: { id: { type: new GraphQLNonNull(GraphQLString) } },
       resolve: async (_source: unknown, args: any, context: ResolverContext) => {
         const userId = requireUser(context.userId);
-        if (!mongoose.Types.ObjectId.isValid(args.id)) throw new Error('Invalid ID');
-        const res = await Task.deleteOne({ _id: args.id, userId });
+        const res = await deleteOwnedById(Task, userId, assertValidObjectId(args.id));
         return res.deletedCount > 0;
       }
     }
