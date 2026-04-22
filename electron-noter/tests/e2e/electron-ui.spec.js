@@ -187,7 +187,7 @@ test('project folders and new chat are available', async () => {
       apiUrl: apiBaseUrl,
       backendUrl: apiBaseUrl,
     });
-  }, apiBaseUrl);
+  }, '/api');
   await page.reload();
 
   await page.getByLabel('Open AI Assistant').click();
@@ -326,7 +326,7 @@ test('locks and unlocks protected notes and project folders end to end', async (
       apiUrl: injectedApiBaseUrl,
       backendUrl: injectedApiBaseUrl,
     });
-  }, apiBaseUrl);
+  }, '/api');
   await page.reload();
   await page.waitForFunction(() => Boolean(window.__NOTER_E2E__), null, { timeout: 15000 });
   const lockState = await page.evaluate(async () => {

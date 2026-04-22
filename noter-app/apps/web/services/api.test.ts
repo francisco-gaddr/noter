@@ -21,6 +21,9 @@ describe('E2E Encryption Tests', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     localStorageMock.getItem.mockReturnValue('test-token');
+    const win: any = (globalThis as any).window || {};
+    delete win.mlc;
+    (globalThis as any).window = win;
   });
 
   it('restores browser session via refresh cookie and auth me', async () => {
@@ -60,6 +63,32 @@ describe('E2E Encryption Tests', () => {
   it('appends api suffix for root backend urls', () => {
     setApiBaseUrl('https://example.com');
     expect(localStorageMock.setItem).toHaveBeenCalledWith('apiBaseUrl', 'https://example.com/api');
+  });
+
+  it('uses electron main-process bridge for absolute external auth endpoints', async () => {
+    const httpRequest = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      headers: { 'content-type': 'application/json' },
+      bodyText: JSON.stringify({ message: 'API endpoint not found' }),
+    });
+    const win: any = (globalThis as any).window || {};
+    win.mlc = {
+      isElectron: true,
+      httpRequest,
+    };
+    (globalThis as any).window = win;
+    localStorageMock.getItem.mockImplementation((key: string) => {
+      if (key === 'apiBaseUrl') return 'https://desktop.test/api';
+      return null;
+    });
+
+    await expect(api.login('demo', 'secret')).rejects.toThrow('API endpoint not found');
+    expect(httpRequest).toHaveBeenCalledWith(expect.objectContaining({
+      url: 'https://desktop.test/api/auth/login',
+      method: 'POST',
+    }));
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 
   describe('fetchNotes', () => {
@@ -176,6 +205,26 @@ describe('E2E Encryption Tests', () => {
       });
 
       await expect(api.fetchTasks()).resolves.toEqual([]);
+    });
+
+    it('keeps plaintext task title and description visible after decryptTasks', async () => {
+      const tasks = await api.decryptTasks([
+        {
+          _id: 'task-1',
+          title: 'Plain title',
+          description: 'Plain description',
+          completed: 'false',
+          priority: 'medium',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          parentNoteId: null,
+        },
+      ]);
+
+      expect(tasks[0]).toEqual(expect.objectContaining({
+        title: 'Plain title',
+        description: 'Plain description',
+      }));
     });
   });
 

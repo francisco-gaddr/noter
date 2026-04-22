@@ -80,11 +80,11 @@ export default function Navbar({ onToggleSidebar, isSidebarCollapsed }: { onTogg
   if (!mounted) return null;
 
   return (
-    <nav className="h-14 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-4 bg-white dark:bg-gray-900" aria-label={t('navbar.topNav')}>
+    <nav className="h-14 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-4 bg-white dark:bg-gray-900 electron-titlebar" aria-label={t('navbar.topNav')}>
       <div className="flex items-center gap-2">
         <button
           onClick={onToggleSidebar}
-          className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"
+          className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 electron-no-drag"
           title={isSidebarCollapsed ? t('navbar.showSidebar') : t('navbar.hideSidebar')}
           aria-label={isSidebarCollapsed ? t('navbar.showSidebar') : t('navbar.hideSidebar')}
         >
@@ -93,7 +93,7 @@ export default function Navbar({ onToggleSidebar, isSidebarCollapsed }: { onTogg
         <div className="font-bold text-xl" aria-label={t('navbar.appTitle')}>Noter</div>
       </div>
       <div className="flex items-center gap-4 flex-1 justify-center max-w-xl mx-auto">
-        <div className="relative w-full">
+        <div className="relative w-full electron-no-drag">
           <FaSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-600 dark:text-gray-300" aria-hidden="true" />
           <input
             id="navbar-search-input"
@@ -106,7 +106,7 @@ export default function Navbar({ onToggleSidebar, isSidebarCollapsed }: { onTogg
           />
         </div>
       </div>
-      <div className="flex items-center gap-4">
+      <div className="flex items-center gap-4 electron-no-drag">
         {isOffline && !hideOfflineIndicator && (
           <div className="flex items-center gap-2 px-2 py-1 rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 text-xs">
             <span>{t('navbar.offlineIndicator')}</span>
@@ -119,7 +119,7 @@ export default function Navbar({ onToggleSidebar, isSidebarCollapsed }: { onTogg
               }}
               aria-label={t('navbar.hideOfflineIndicator')}
               title={t('navbar.hideOfflineIndicator')}
-              className="text-amber-700 dark:text-amber-200 hover:opacity-80"
+              className="text-amber-700 dark:text-amber-200 hover:opacity-80 electron-no-drag"
             >
               ✕
             </button>

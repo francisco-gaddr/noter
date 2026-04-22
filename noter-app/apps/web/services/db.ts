@@ -116,7 +116,11 @@ const decryptText = (value: unknown, fallback: string | null = null): string | n
   if (value == null) return fallback;
   const raw = typeof value === 'string' ? value : String(value);
   try {
-    return decrypt(raw);
+    const decrypted = decrypt(raw);
+    if (typeof decrypted === 'string' && decrypted.length === 0 && raw.trim().length > 0) {
+      return raw;
+    }
+    return decrypted;
   } catch {
     return raw;
   }
@@ -350,13 +354,13 @@ export const db = {
     const pending = all.filter((n) => parseEncryptedBool((n as any).pendingSync));
     return pending.map(n => ({
         ...n,
-        title: decrypt(n.title),
-        content: decrypt(n.content),
-        tags: n.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? [],
-        icon: n.icon ? (() => { try { return decrypt(n.icon) } catch { return n.icon } })() : undefined,
-        iconColor: n.iconColor ? (() => { try { return decrypt(n.iconColor) } catch { return n.iconColor } })() : undefined,
-        type: n.type ? (() => { try { return decrypt(n.type) as any } catch { return n.type } })() : 'note',
-        parentId: n.parentId ? (() => { try { return decrypt(n.parentId) } catch { return n.parentId } })() : null,
+        title: decryptText(n.title, n.title) || n.title,
+        content: decryptText(n.content, n.content) || n.content,
+        tags: n.tags?.map(t => decryptText(t, String(t)) || String(t)) ?? [],
+        icon: n.icon ? (decryptText(n.icon, n.icon) || n.icon) : undefined,
+        iconColor: n.iconColor ? (decryptText(n.iconColor, n.iconColor) || n.iconColor) : undefined,
+        type: n.type ? ((decryptText(n.type, String(n.type)) || n.type) as any) : 'note',
+        parentId: n.parentId ? (decryptText(n.parentId, n.parentId) || n.parentId) : null,
         order: (() => {
             const parsed = decryptNumber((n as any).order);
             if (parsed !== null) return parsed;
@@ -416,8 +420,8 @@ export const db = {
     const tasks = await db.getAll('tasks');
     return tasks.map(t => ({
       ...t,
-      title: decrypt(t.title),
-      description: t.description ? decrypt(t.description) : '',
+      title: decryptText(t.title, t.title) || t.title,
+      description: t.description ? (decryptText(t.description, t.description) || t.description) : '',
       completed: parseTaskCompleted((t as any).completed),
       priority: parseTaskPriority((t as any).priority),
       dueDate: t.dueDate ? (() => { try { return decrypt(t.dueDate) } catch { return t.dueDate } })() : null,
@@ -489,8 +493,8 @@ export const db = {
     const pending = all.filter((t) => parseEncryptedBool((t as any).pendingSync));
     return pending.map(t => ({
       ...t,
-      title: decrypt(t.title),
-      description: t.description ? decrypt(t.description) : '',
+      title: decryptText(t.title, t.title) || t.title,
+      description: t.description ? (decryptText(t.description, t.description) || t.description) : '',
       completed: parseTaskCompleted((t as any).completed),
       priority: parseTaskPriority((t as any).priority),
       dueDate: t.dueDate ? (() => { try { return decrypt(t.dueDate) } catch { return t.dueDate } })() : null,

@@ -9,8 +9,11 @@ const createSnapshot = () => ({
     didFinishLoadAt: null,
     windowShownAt: null,
     lastLoadSource: null,
+    lastUrl: null,
+    lastError: null,
     recoveryCount: 0,
     didFailLoadCount: 0,
+    recentEvents: [],
   },
   settingsQueue: {
     enqueued: 0,
@@ -53,6 +56,18 @@ const recordStartupEvent = (event, extra = {}) => {
   if (event === 'did-fail-load') snapshot.startup.didFailLoadCount += 1;
   if (event === 'renderer-recovery') snapshot.startup.recoveryCount += 1;
   if (extra.source) snapshot.startup.lastLoadSource = extra.source;
+  if (typeof extra.url === 'string') snapshot.startup.lastUrl = extra.url;
+  if (typeof extra.error === 'string') snapshot.startup.lastError = extra.error;
+  snapshot.startup.recentEvents.push({
+    event,
+    at,
+    source: extra.source || null,
+    url: typeof extra.url === 'string' ? extra.url : null,
+    error: typeof extra.error === 'string' ? extra.error : null,
+  });
+  if (snapshot.startup.recentEvents.length > 20) {
+    snapshot.startup.recentEvents.shift();
+  }
 };
 
 const recordSettingsQueueEnqueue = ({ pendingResolvers, coalesced }) => {

@@ -144,4 +144,29 @@ describe('web db note-at-rest security', () => {
     expect(task?.title).toBe(plaintextTitle);
     expect(task?.description).toBe(plaintextDescription);
   });
+
+  it('keeps plaintext task cache entries readable instead of blanking them', async () => {
+    const { db } = await import('./db');
+    memoryTasks.set('task-plain-cache', {
+      _id: 'task-plain-cache',
+      userId: 'u1',
+      title: 'Cache plain title',
+      description: 'Cache plain description',
+      completed: 'false',
+      priority: 'medium',
+      dueDate: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      parentNoteId: null,
+      parentId: null,
+      position: 0,
+      pendingSync: 'false',
+      deleted: 'false',
+    });
+
+    const all = await db.getAllTasks();
+    const task = all.find((item) => item._id === 'task-plain-cache');
+    expect(task?.title).toBe('Cache plain title');
+    expect(task?.description).toBe('Cache plain description');
+  });
 });

@@ -2,6 +2,7 @@ import { Note, CreateNoteDto, UpdateNoteDto, Task, CreateTaskDto, UpdateTaskDto,
 import { getWebAuthTokenSync, getWebRefreshTokenSync, setWebAuthToken, setWebRefreshToken } from './authStorage';
 
 type SessionAuthResponse = AuthResponse & { refreshToken?: string };
+type ResponseLike = Pick<Response, 'ok' | 'status' | 'json' | 'text'>;
 
 export const getUUID = (): string => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -168,12 +169,70 @@ const getHeaders = () => {
   };
 };
 
+const getElectronBridge = () => {
+  if (typeof window === 'undefined') return undefined;
+  return (window as any).mlc;
+};
+
+const isAbsoluteHttpUrl = (value: string) => /^https?:\/\//i.test(value);
+
+const normalizeRequestHeaders = (headers?: HeadersInit): Record<string, string> => {
+  if (!headers) return {};
+  if (typeof Headers !== 'undefined' && headers instanceof Headers) {
+    return Object.fromEntries(headers.entries());
+  }
+  if (Array.isArray(headers)) {
+    return headers.reduce<Record<string, string>>((acc, [key, value]) => {
+      acc[String(key)] = String(value);
+      return acc;
+    }, {});
+  }
+  return Object.entries(headers).reduce<Record<string, string>>((acc, [key, value]) => {
+    if (Array.isArray(value)) {
+      acc[key] = value.map((item) => String(item)).join(', ');
+    } else if (value !== undefined) {
+      acc[key] = String(value);
+    }
+    return acc;
+  }, {});
+};
+
+const createResponseLike = (payload: { ok: boolean; status: number; bodyText?: string }): ResponseLike => {
+  const bodyText = typeof payload.bodyText === 'string' ? payload.bodyText : '';
+  return {
+    ok: payload.ok,
+    status: payload.status,
+    json: async () => bodyText ? JSON.parse(bodyText) : {},
+    text: async () => bodyText,
+  };
+};
+
+const fetchWithBridge = async (url: string, init: RequestInit = {}): Promise<ResponseLike> => {
+  const bridge = getElectronBridge();
+  if (bridge?.isElectron && typeof bridge.httpRequest === 'function' && isAbsoluteHttpUrl(url)) {
+    try {
+      const response = await bridge.httpRequest({
+        url,
+        method: init.method || 'GET',
+        headers: normalizeRequestHeaders(init.headers),
+        ...(typeof init.body === 'string' ? { body: init.body } : {}),
+      });
+      return createResponseLike(response);
+    } catch (error) {
+      const err: any = new Error(`Kunde inte nå API på ${url}`);
+      err.cause = error;
+      throw err;
+    }
+  }
+  return fetch(url, init);
+};
+
 const refreshSession = async (): Promise<string | null> => {
   const refreshToken = refreshTokenCache || getWebRefreshTokenSync();
   if (!shouldUseCookieSession() && !refreshToken) return null;
   if (refreshPromise) return refreshPromise;
   refreshPromise = (async () => {
-    const res = await fetch(`${getBaseUrl()}/auth/refresh`, {
+    const res = await fetchWithBridge(`${getBaseUrl()}/auth/refresh`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -194,8 +253,8 @@ const refreshSession = async (): Promise<string | null> => {
   }
 };
 
-const authedFetch = async (url: string, init: RequestInit = {}, allowRefresh = true): Promise<Response> => {
-  const response = await fetch(url, {
+const authedFetch = async (url: string, init: RequestInit = {}, allowRefresh = true): Promise<ResponseLike> => {
+  const response = await fetchWithBridge(url, {
     ...init,
     credentials: 'include',
     headers: {
@@ -206,7 +265,7 @@ const authedFetch = async (url: string, init: RequestInit = {}, allowRefresh = t
   if (response.status === 401 && allowRefresh) {
     const refreshedToken = await refreshSession();
     if (refreshedToken) {
-      return fetch(url, {
+      return fetchWithBridge(url, {
         ...init,
         credentials: 'include',
         headers: {
@@ -219,7 +278,7 @@ const authedFetch = async (url: string, init: RequestInit = {}, allowRefresh = t
   return response;
 };
 
-const handleResponse = async (res: Response) => {
+const handleResponse = async (res: ResponseLike) => {
     if (res.status === 401) {
         throw new Error('Unauthorized');
     }
@@ -240,17 +299,31 @@ const ensureArrayPayload = (value: unknown): any[] => {
   return [];
 };
 
+const decryptOrRawString = (value: unknown): unknown => {
+  if (typeof value !== 'string') return value;
+  try {
+    const decrypted = decrypt(value);
+    if (typeof decrypted === 'string' && decrypted.length === 0 && value.trim().length > 0) {
+      return value;
+    }
+    return decrypted;
+  } catch {
+    return value;
+  }
+};
+
+const decryptStringValue = (value: unknown, fallback = ''): string => {
+  const resolved = decryptOrRawString(value);
+  return typeof resolved === 'string' ? resolved : fallback;
+};
+
 const parseTaskCompleted = (value: unknown): boolean => {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'number') return value === 1;
   if (typeof value === 'string') {
     if (value === 'true') return true;
     if (value === 'false') return false;
-    try {
-      return decrypt(value) === 'true';
-    } catch {
-      return Boolean(value);
-    }
+    return decryptStringValue(value) === 'true';
   }
   return false;
 };
@@ -263,11 +336,7 @@ const parseTaskPriority = (value: unknown): 'low' | 'medium' | 'high' => {
 
   if (typeof value === 'string') {
     if (value === 'low' || value === 'medium' || value === 'high') return value;
-    try {
-      return normalize(decrypt(value));
-    } catch {
-      return 'medium';
-    }
+    return normalize(decryptStringValue(value, 'medium'));
   }
   return 'medium';
 };
@@ -345,7 +414,7 @@ const parseNoteLocked = (value: unknown): boolean => {
 export const api = {
   // Auth
   async register(username: string, password: string): Promise<AuthResponse> {
-    const res = await fetch(`${getBaseUrl()}/auth/register`, {
+    const res = await fetchWithBridge(`${getBaseUrl()}/auth/register`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -357,7 +426,7 @@ export const api = {
   },
 
   async login(username: string, password: string): Promise<AuthResponse> {
-    const res = await fetch(`${getBaseUrl()}/auth/login`, {
+    const res = await fetchWithBridge(`${getBaseUrl()}/auth/login`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
@@ -371,7 +440,7 @@ export const api = {
   async logout(): Promise<void> {
     const currentRefreshToken = refreshTokenCache || getWebRefreshTokenSync();
     try {
-      await fetch(`${getBaseUrl()}/auth/logout`, {
+      await fetchWithBridge(`${getBaseUrl()}/auth/logout`, {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -423,11 +492,11 @@ export const api = {
             const locked = parseNoteLocked(note.locked);
             return {
                 ...note,
-                title: locked ? 'Låst anteckning' : decrypt(note.title),
-                content: locked ? '' : decrypt(note.content),
-                tags: locked ? [] : (note.tags?.map((t: string) => { try { return decrypt(t) } catch { return t } }) ?? []),
-                icon: locked ? undefined : (note.icon ? (() => { try { return decrypt(note.icon) } catch { return note.icon } })() : undefined),
-                type: note.type ? (() => { try { return decrypt(note.type) as any } catch { return note.type } })() : 'note',
+                title: locked ? 'Låst anteckning' : decryptStringValue(note.title),
+                content: locked ? '' : decryptStringValue(note.content),
+                tags: locked ? [] : (note.tags?.map((t: string) => decryptStringValue(t, t)) ?? []),
+                icon: locked ? undefined : (note.icon ? decryptStringValue(note.icon, note.icon) : undefined),
+                type: note.type ? (decryptStringValue(note.type, String(note.type)) as any) : 'note',
                 locked: locked,
                 order: parseNoteOrder((note as any).order),
                 createdAt: decrypt(note.createdAt),
@@ -445,11 +514,11 @@ export const api = {
     const locked = parseNoteLocked(note.locked);
     return {
         ...note,
-        title: locked ? 'Låst anteckning' : decrypt(note.title),
-        content: locked ? '' : decrypt(note.content),
-        tags: locked ? [] : (note.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? []),
-        icon: locked ? undefined : (note.icon ? (() => { try { return decrypt(note.icon) } catch { return note.icon } })() : undefined),
-        type: note.type ? (() => { try { return decrypt(note.type) as any } catch { return note.type } })() : 'note',
+        title: locked ? 'Låst anteckning' : decryptStringValue(note.title),
+        content: locked ? '' : decryptStringValue(note.content),
+        tags: locked ? [] : (note.tags?.map(t => decryptStringValue(t, String(t))) ?? []),
+        icon: locked ? undefined : (note.icon ? decryptStringValue(note.icon, note.icon) : undefined),
+        type: note.type ? (decryptStringValue(note.type, String(note.type)) as any) : 'note',
         locked: locked,
         order: parseNoteOrder((note as any).order),
         createdAt: decrypt(note.createdAt),
@@ -479,11 +548,11 @@ export const api = {
     const locked = note.locked ? decrypt(String(note.locked)) === 'true' : false;
     return {
       ...note,
-      title: locked ? 'Låst anteckning' : decrypt(note.title),
-      content: locked ? '' : decrypt(note.content),
-      tags: locked ? [] : (note.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? []),
-      icon: locked ? undefined : (note.icon ? (() => { try { return decrypt(note.icon) } catch { return note.icon } })() : undefined),
-      type: note.type ? (() => { try { return decrypt(note.type) as any } catch { return note.type } })() : 'note',
+      title: locked ? 'Låst anteckning' : decryptStringValue(note.title),
+      content: locked ? '' : decryptStringValue(note.content),
+      tags: locked ? [] : (note.tags?.map(t => decryptStringValue(t, String(t))) ?? []),
+      icon: locked ? undefined : (note.icon ? decryptStringValue(note.icon, note.icon) : undefined),
+      type: note.type ? (decryptStringValue(note.type, String(note.type)) as any) : 'note',
       locked,
       order: parseNoteOrder((note as any).order),
       createdAt: decrypt(note.createdAt),
@@ -511,8 +580,8 @@ export const api = {
     const note: Note = await handleResponse(res);
     return {
       ...note,
-      title: decrypt(note.title),
-      content: decrypt(note.content),
+      title: decryptStringValue(note.title),
+      content: decryptStringValue(note.content),
       tags: note.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? [],
       icon: note.icon ? (() => { try { return decrypt(note.icon) } catch { return note.icon } })() : undefined,
       type: note.type ? (() => { try { return decrypt(note.type) as any } catch { return note.type } })() : 'note',
@@ -547,8 +616,8 @@ export const api = {
     
     return {
       success: true,
-      content: decrypt(data.content),
-      title: data.title ? decrypt(data.title) : undefined,
+      content: decryptStringValue(data.content),
+      title: data.title ? decryptStringValue(data.title) : undefined,
       unlockedId: typeof data.unlockedId === 'string' ? data.unlockedId : undefined,
     };
   },
@@ -578,8 +647,8 @@ export const api = {
 
         const decryptedChunk = chunk.map(task => ({
             ...task,
-            title: decrypt(task.title),
-            description: decrypt(task.description),
+            title: decryptStringValue(task.title),
+            description: decryptStringValue(task.description),
             completed: parseTaskCompleted(task.completed),
             priority: parseTaskPriority(task.priority),
             dueDate: task.dueDate ? (() => {
@@ -654,8 +723,8 @@ export const api = {
     const task: any = await handleResponse(res);
     return {
       ...task,
-      title: decrypt(task.title),
-      description: decrypt(task.description),
+      title: decryptStringValue(task.title),
+      description: decryptStringValue(task.description),
       completed: parseTaskCompleted(task.completed),
       priority: parseTaskPriority(task.priority),
       dueDate: task.dueDate ? (() => {
@@ -734,8 +803,8 @@ export const api = {
     const task: any = await handleResponse(res);
     return {
       ...task,
-      title: decrypt(task.title),
-      description: decrypt(task.description),
+      title: decryptStringValue(task.title),
+      description: decryptStringValue(task.description),
       completed: parseTaskCompleted(task.completed),
       priority: parseTaskPriority(task.priority),
       dueDate: task.dueDate ? (() => {

@@ -34,10 +34,21 @@ jest.mock('../stores/useStore', () => {
   };
   return {
     useStore: (selector?: any) => (selector ? selector(state) : state),
+    __mockState: state,
   };
 });
 
+const { __mockState } = jest.requireMock('../stores/useStore') as { __mockState: any };
+
 describe('SidebarTree', () => {
+  beforeEach(() => {
+    __mockState.notes = [];
+    __mockState.tasks = [];
+    __mockState.searchQuery = '';
+    __mockState.activeTab = 'notes';
+    __mockState.activeProjectId = null;
+  });
+
   it('renderar flikar med översättningar (svenska)', () => {
     render(
       <I18nextProvider i18n={i18n}>
@@ -50,5 +61,40 @@ describe('SidebarTree', () => {
     const tasksTab = screen.getByText('Uppgifter');
     if (!notesTab) { throw new Error('Anteckningar saknas'); }
     if (!tasksTab) { throw new Error('Uppgifter saknas'); }
+  });
+
+  it('visar projektmappar i Alla anteckningar när inget projektfilter är valt', () => {
+    __mockState.notes = [
+      {
+        _id: 'project-1',
+        title: 'Projekt Alpha',
+        content: '',
+        type: 'project',
+        parentId: null,
+        locked: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      {
+        _id: 'note-1',
+        title: 'Anteckning Alpha',
+        content: '',
+        type: 'note',
+        parentId: 'project-1',
+        locked: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    ];
+
+    render(
+      <I18nextProvider i18n={i18n}>
+        <DndProvider backend={HTML5Backend}>
+          <SidebarTree />
+        </DndProvider>
+      </I18nextProvider>
+    );
+
+    expect(screen.getByTestId('sidebar-note-project-1')).toBeTruthy();
   });
 });

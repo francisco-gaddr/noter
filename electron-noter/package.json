@@ -39,6 +39,7 @@
       "preload.js",
       "build/**/*",
       "src/**/*.js",
+      "renderer-standalone/**/*",
       "renderer/**/*",
       "package.json",
       "!dist{,/**/*}",

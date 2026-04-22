@@ -56,6 +56,8 @@ if (errors.length === 0) {
   ensure(typeof packageJson.build?.productName === 'string' && packageJson.build.productName.trim().length > 0, 'electron build.productName saknas');
   ensure(Array.isArray(packageJson.build?.asarUnpack), 'electron build.asarUnpack saknas');
   ensure(JSON.stringify(packageJson.build?.asarUnpack || []).includes('renderer-standalone'), 'electron build.asarUnpack måste inkludera renderer-standalone');
+  ensure(Array.isArray(packageJson.build?.files), 'electron build.files saknas');
+  ensure(JSON.stringify(packageJson.build?.files || []).includes('renderer-standalone'), 'electron build.files måste inkludera renderer-standalone');
   ensure(typeof packageJson.build?.afterSign === 'string', 'electron build.afterSign saknas (notarization hook)');
   ensure(packageJson.build?.mac?.hardenedRuntime === true, 'electron build.mac.hardenedRuntime måste vara true');
   ensure(typeof packageJson.build?.mac?.entitlements === 'string', 'electron build.mac.entitlements saknas');
@@ -73,6 +75,9 @@ if (errors.length === 0) {
   ensure(mainJs.includes('contextIsolation: true'), 'main.js måste ha contextIsolation: true');
   ensure(mainJs.includes('nodeIntegration: false'), 'main.js måste ha nodeIntegration: false');
   ensure(mainJs.includes('sandbox: true'), 'main.js måste ha sandbox: true');
+  ensure(mainJs.includes("const getStandaloneRendererServerPath = () => {"), 'main.js måste ha robust sökväg för paketerad standalone-renderer');
+  ensure(mainJs.includes("path.join(process.resourcesPath || '', 'app.asar.unpacked', relativePath)"), 'main.js måste kunna hitta unpacked standalone-renderer i paketerad app');
+  ensure(mainJs.includes("const getRendererFallbackUrls = () => {"), 'main.js måste ha särskild fallback-logik för dev och produktion');
   ensure(mainJs.includes('setWindowOpenHandler'), 'main.js bör blockera externa popupfönster via setWindowOpenHandler');
 }
 

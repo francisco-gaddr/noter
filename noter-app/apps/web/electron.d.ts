@@ -21,6 +21,17 @@ declare global {
       resetPerformanceSnapshot: () => Promise<any>;
       getSession?: () => Promise<any>;
       setSession?: (payload: any) => Promise<any>;
+      httpRequest?: (payload: {
+        url: string;
+        method?: string;
+        headers?: Record<string, string>;
+        body?: string;
+      }) => Promise<{
+        ok: boolean;
+        status: number;
+        headers?: Record<string, string>;
+        bodyText?: string;
+      }>;
       getSetting: (key: string) => Promise<any>;
       getManySettings?: (keys: string[]) => Promise<Record<string, any>>;
       setSetting: (key: string, value: any) => Promise<any>;

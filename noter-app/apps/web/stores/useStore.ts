@@ -111,11 +111,7 @@ const parseTaskCompleted = (value: unknown): boolean => {
   if (typeof value === 'string') {
     if (value === 'true') return true;
     if (value === 'false') return false;
-    try {
-      return decrypt(value) === 'true';
-    } catch {
-      return Boolean(value);
-    }
+    return decryptOrRawString(value) === 'true';
   }
   return false;
 };
@@ -128,11 +124,7 @@ const parseTaskPriority = (value: unknown): 'low' | 'medium' | 'high' => {
 
   if (typeof value === 'string') {
     if (value === 'low' || value === 'medium' || value === 'high') return value;
-    try {
-      return normalize(decrypt(value));
-    } catch {
-      return 'medium';
-    }
+    return normalize(decryptOrRawString(value));
   }
   return 'medium';
 };
@@ -379,13 +371,13 @@ const materializeNotesFromEncrypted = (notes: Note[], unlockedIds: Set<string>):
     }
     return {
       ...note,
-      title: (() => { try { return decrypt(note.__rawEncryptedTitle || note.title) } catch { return note.title } })(),
-      content: (() => { try { return decrypt(note.__rawEncryptedContent || note.content) } catch { return note.content } })(),
+      title: String(decryptOrRawString(note.__rawEncryptedTitle || note.title) ?? ''),
+      content: String(decryptOrRawString(note.__rawEncryptedContent || note.content) ?? ''),
       tags: Array.isArray(note.__rawEncryptedTags)
-        ? note.__rawEncryptedTags.map((t: any) => { try { return decrypt(t) } catch { return t } })
+        ? note.__rawEncryptedTags.map((t: any) => decryptOrRawString(t))
         : [],
-      icon: note.__rawEncryptedIcon ? (() => { try { return decrypt(note.__rawEncryptedIcon) } catch { return note.__rawEncryptedIcon } })() : undefined,
-      iconColor: note.__rawEncryptedIconColor ? (() => { try { return decrypt(note.__rawEncryptedIconColor) } catch { return note.__rawEncryptedIconColor } })() : undefined,
+      icon: note.__rawEncryptedIcon ? String(decryptOrRawString(note.__rawEncryptedIcon) ?? '') : undefined,
+      iconColor: note.__rawEncryptedIconColor ? String(decryptOrRawString(note.__rawEncryptedIconColor) ?? '') : undefined,
       locked: parseNoteLocked(note.locked),
     };
   });
@@ -1031,8 +1023,8 @@ export const useStore = create<StoreState>((set, get) => ({
     socket.on('task:created', (newTask: any) => {
         const decryptedTask = {
             ...newTask,
-            title: decrypt(newTask.title),
-            description: decrypt(newTask.description),
+            title: String(decryptOrRawString(newTask.title) ?? ''),
+            description: String(decryptOrRawString(newTask.description) ?? ''),
             completed: parseTaskCompleted(newTask.completed),
             priority: parseTaskPriority(newTask.priority),
             createdAt: decrypt(newTask.createdAt),
@@ -1075,8 +1067,8 @@ export const useStore = create<StoreState>((set, get) => ({
     socket.on('task:updated', (updatedTask: any) => {
         const decryptedTask = {
             ...updatedTask,
-            title: decrypt(updatedTask.title),
-            description: decrypt(updatedTask.description),
+            title: String(decryptOrRawString(updatedTask.title) ?? ''),
+            description: String(decryptOrRawString(updatedTask.description) ?? ''),
             completed: parseTaskCompleted(updatedTask.completed),
             priority: parseTaskPriority(updatedTask.priority),
             createdAt: decrypt(updatedTask.createdAt),

@@ -569,10 +569,8 @@ export default function SidebarTree() {
         const noteType = normalizeNoteType((n as any).type);
         const isTaskList = noteType === 'task_list' || inferredTaskListIds.has(n._id);
         const isProject = noteType === 'project' || inferredProjectIds.has(n._id);
-        const belongsToProject = noteBelongsToProject(n._id);
-        const base = activeTab === 'tasks' ? isTaskList : (!isTaskList && !isProject);
+        const base = activeTab === 'tasks' ? isTaskList : !isTaskList;
         if (activeProjectId && activeTab !== 'tasks' && !belongsToActiveProject(n)) return false;
-        if (activeTab !== 'tasks' && !activeProjectId && belongsToProject) return false;
         return base && isSearchable(n);
       });
       return { rootNotes: [], flatFilteredNotes: filtered, sortedFlatNotes: [] };
@@ -583,21 +581,19 @@ export default function SidebarTree() {
       const filtered = safeNotes.filter(n => {
         const noteType = normalizeNoteType((n as any).type);
         const isTaskList = noteType === 'task_list' || inferredTaskListIds.has(n._id);
-        const isProject = noteType === 'project' || inferredProjectIds.has(n._id);
-        const belongsToProject = noteBelongsToProject(n._id);
         if (activeTab === 'tasks') return isTaskList && isReadable(n);
         
         if (activeProjectId) {
              const cached = belongsCache.get(n._id);
              if (cached !== undefined) {
-               return !isTaskList && !isProject && cached && isReadable(n);
+               return !isTaskList && cached && isReadable(n);
              }
              const belongs = belongsToActiveProject(n);
              belongsCache.set(n._id, belongs);
-             return !isTaskList && !isProject && belongs && isReadable(n);
+             return !isTaskList && belongs && isReadable(n);
         }
         
-        return !isTaskList && !isProject && !belongsToProject && isReadable(n);
+        return !isTaskList && isReadable(n);
       });
       return { rootNotes: [], flatFilteredNotes: [], sortedFlatNotes: sortNotes(filtered, sortOrder) };
     }
@@ -607,7 +603,6 @@ export default function SidebarTree() {
         const parent = n.parentId ? noteById.get(n.parentId) : null;
         const noteType = normalizeNoteType((n as any).type);
         const isProject = noteType === 'project' || inferredProjectIds.has(n._id);
-        const belongsToProject = noteBelongsToProject(n._id);
         
         const isRoot = (!n.parentId || !parent || (parent && normalizeNoteType((parent as any).type) === 'project'));
         const isTaskList = noteType === 'task_list' || inferredTaskListIds.has(n._id);
@@ -620,7 +615,7 @@ export default function SidebarTree() {
             return Boolean(normalizedActiveProjectId) && normalizedParentId === normalizedActiveProjectId && !isTaskList && isReadable(n);
         }
 
-        return isRoot && !isTaskList && !isProject && !belongsToProject && isReadable(n);
+        return isRoot && !isTaskList && isReadable(n);
     });
     return { rootNotes: sortNotes(roots, sortOrder), flatFilteredNotes: [], sortedFlatNotes: [] };
 

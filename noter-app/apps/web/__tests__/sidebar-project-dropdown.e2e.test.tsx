@@ -58,7 +58,7 @@ describe('SidebarTree e2e project dropdown behavior', () => {
     mockSearchQuery = '';
   });
 
-  it('visar projekt i projekt-dropdown och inte i anteckningslistan', () => {
+  it('visar projekt i projekt-dropdown och i Alla anteckningar', () => {
     render(
       <I18nextProvider i18n={i18n}>
         <DndProvider backend={HTML5Backend}>
@@ -76,16 +76,10 @@ describe('SidebarTree e2e project dropdown behavior', () => {
     expect(screen.getByRole('option', { name: 'Projekt Låst' })).toBeTruthy();
     expect(screen.queryByRole('option', { name: 'Mötesanteckning' })).toBeNull();
 
-    const titleMatches = screen.getAllByText('Projekt Alpha');
-    expect(titleMatches.length).toBe(1);
-    const secondTitleMatches = screen.getAllByText('Projekt Beta');
-    expect(secondTitleMatches.length).toBe(1);
-    const thirdTitleMatches = screen.getAllByText('Projekt Gamma');
-    expect(thirdTitleMatches.length).toBe(1);
-    const fourthTitleMatches = screen.getAllByText('Projekt Delta');
-    expect(fourthTitleMatches.length).toBe(1);
-    const fifthTitleMatches = screen.getAllByText('Projekt Låst');
-    expect(fifthTitleMatches.length).toBe(1);
+    expect(screen.getByTestId('sidebar-note-p1')).toBeTruthy();
+    expect(screen.getByTestId('sidebar-note-p2')).toBeTruthy();
+    expect(screen.getByTestId('sidebar-note-p4')).toBeTruthy();
+    expect(screen.getByTestId('sidebar-note-p5')).toBeTruthy();
     expect(screen.getByText('Vanlig anteckning')).toBeTruthy();
     expect(screen.getByText('Mötesanteckning')).toBeTruthy();
     expect(screen.getByText('Mötesanteckning barn')).toBeTruthy();

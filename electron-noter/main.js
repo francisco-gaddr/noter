@@ -23,15 +23,36 @@ const settingsKeyFileName = 'settings.key';
 const encryptedSettingsVersion = 1;
 const rendererRecoveryDelayMs = 2500;
 const allowedExternalProtocols = new Set(['https:', 'http:']);
-const rendererFallbackUrls = Array.from(new Set([
-  process.env.ELECTRON_RENDERER_URL,
-  process.env.ELECTRON_RENDERER_FALLBACK_URL,
-  devUrl,
-  'http://127.0.0.1:3001/',
-].filter(Boolean)));
+const allowedHttpBridgeMethods = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']);
 let mlcModule = null;
 let rendererServer = null;
 let rendererServerPort = 0;
+let isShowingRendererFallback = false;
+
+const getStandaloneRendererServerPath = () => {
+  const relativePath = path.join('renderer-standalone', 'apps', 'web', 'server.js');
+  const candidates = [
+    path.join(process.resourcesPath || '', 'app.asar.unpacked', relativePath),
+    path.join(process.resourcesPath || '', relativePath),
+    path.join(__dirname, relativePath),
+  ].filter(Boolean);
+  return candidates.find((candidate) => fs.existsSync(candidate)) || candidates[0];
+};
+
+const getRendererFallbackUrls = () => {
+  if (isDev) {
+    return Array.from(new Set([
+      process.env.ELECTRON_RENDERER_URL,
+      process.env.ELECTRON_RENDERER_FALLBACK_URL,
+      devUrl,
+      'http://127.0.0.1:3001/',
+    ].filter(Boolean)));
+  }
+  return Array.from(new Set([
+    process.env.ELECTRON_RENDERER_URL,
+    process.env.ELECTRON_RENDERER_FALLBACK_URL,
+  ].filter(Boolean)));
+};
 
 const findFreePort = () => new Promise((resolve, reject) => {
   const server = net.createServer();
@@ -45,21 +66,29 @@ const findFreePort = () => new Promise((resolve, reject) => {
 
 const startStandaloneRenderer = async () => {
   if (rendererServer) return { port: rendererServerPort };
-  const serverJs = path.join(__dirname, 'renderer-standalone', 'apps', 'web', 'server.js');
+  const serverJs = getStandaloneRendererServerPath();
   if (!fs.existsSync(serverJs)) return null;
   const port = await findFreePort();
+  const childEnv = {
+    ...process.env,
+    ELECTRON_RUN_AS_NODE: '1',
+    PORT: String(port),
+    HOSTNAME: '127.0.0.1',
+    NODE_ENV: 'production',
+  };
   const child = spawn(process.execPath, [serverJs], {
-    stdio: 'inherit',
-    env: {
-      ...process.env,
-      PORT: String(port),
-      HOSTNAME: '127.0.0.1',
-      NODE_ENV: 'production',
-    },
+    cwd: path.dirname(serverJs),
+    stdio: 'ignore',
+    env: childEnv,
   });
+  recordStartupEvent('renderer-server-started', { source: 'spawn', url: serverJs });
   rendererServer = child;
   rendererServerPort = port;
-  child.on('exit', () => {
+  child.on('spawn', () => {
+    recordStartupEvent('renderer-server-spawned', { url: `http://127.0.0.1:${port}/` });
+  });
+  child.on('exit', (code) => {
+    recordStartupEvent('renderer-server-exit', { error: String(code ?? 'unknown') });
     rendererServer = null;
     rendererServerPort = 0;
   });
@@ -245,6 +274,11 @@ const enqueueSettingsWrite = (mutate) => {
 };
 
 app.on('before-quit', () => {
+  if (rendererServer?.kill) {
+    try {
+      rendererServer.kill();
+    } catch {}
+  }
   if (settingsFlushTimer) {
     clearTimeout(settingsFlushTimer);
     settingsFlushTimer = null;
@@ -253,6 +287,10 @@ app.on('before-quit', () => {
 });
 
 const loadErrorFallback = async (win) => {
+  if (win.isDestroyed()) return;
+  if (isShowingRendererFallback) return;
+  isShowingRendererFallback = true;
+  recordStartupEvent('renderer-fallback-shown');
   const html = `
   <!doctype html>
   <html lang="en">
@@ -276,7 +314,9 @@ const loadErrorFallback = async (win) => {
     </body>
   </html>
   `;
-  await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+  try {
+    await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+  } catch {}
 };
 
 const isUrlReachable = async (url) => {
@@ -288,7 +328,26 @@ const isUrlReachable = async (url) => {
   }
 };
 
+const loadUrlWithRetries = async (win, url, attempts = 20, delayMs = 250) => {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    if (win.isDestroyed()) return false;
+    recordStartupEvent('renderer-load-attempt', { url });
+    try {
+      await win.loadURL(url);
+      recordStartupEvent('renderer-load-success', { url });
+      return true;
+    } catch (error) {
+      recordStartupEvent('renderer-load-error', { url, error: String(error?.message || error) });
+      if (attempt < attempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+  return false;
+};
+
 const loadFirstReachableUrl = async (win) => {
+  const rendererFallbackUrls = getRendererFallbackUrls();
   for (const url of rendererFallbackUrls) {
     if (win.isDestroyed()) return false;
     const reachable = await isUrlReachable(url);
@@ -317,6 +376,37 @@ const openExternalSafely = (url) => {
   }
   shell.openExternal(url).catch(() => {});
   return true;
+};
+
+const sanitizeHttpBridgeHeaders = (headers) => (
+  Object.entries(headers || {})
+    .filter(([key, value]) => (
+      typeof key === 'string'
+      && key.length > 0
+      && key.length <= 128
+      && /^[a-zA-Z0-9-]+$/.test(key)
+      && typeof value === 'string'
+      && value.length <= 4096
+    ))
+    .slice(0, 50)
+    .reduce((acc, [key, value]) => {
+      acc[key] = value;
+      return acc;
+    }, {})
+);
+
+const isInternalAppUrl = (url) => {
+  if (!url) return false;
+  if (url.startsWith('data:text/html')) return true;
+  if (url.startsWith('file://')) return true;
+  try {
+    const parsed = new URL(url);
+    const isLocalHttp = (parsed.protocol === 'http:' || parsed.protocol === 'https:')
+      && (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost');
+    return isLocalHttp;
+  } catch {
+    return false;
+  }
 };
 
 const createWindow = () => {
@@ -351,12 +441,18 @@ const createWindow = () => {
   }
 
   win.webContents.setWindowOpenHandler(({ url }) => {
+    if (isInternalAppUrl(url)) {
+      return { action: 'allow' };
+    }
     openExternalSafely(url);
     return { action: 'deny' };
   });
 
   win.webContents.on('will-navigate', (event, url) => {
     const currentUrl = win.webContents.getURL();
+    if (isInternalAppUrl(url)) {
+      return;
+    }
     if (url && currentUrl && url !== currentUrl) {
       event.preventDefault();
       openExternalSafely(url);
@@ -371,6 +467,7 @@ const createWindow = () => {
 
   const rendererIndex = path.join(__dirname, 'renderer', 'index.html');
   const legacyRendererIndex = path.join(__dirname, 'renderer', 'app', 'index.html');
+  const standaloneRendererServer = getStandaloneRendererServerPath();
   let recovering = false;
   let recoveryTimer = null;
   const scheduleRendererRecovery = () => {
@@ -388,8 +485,12 @@ const createWindow = () => {
       await loadErrorFallback(win);
       const loaded = await loadFirstReachableUrl(win);
       if (!loaded && !win.isDestroyed()) {
+        recordStartupEvent('renderer-recovery-waiting');
         await loadErrorFallback(win);
         scheduleRendererRecovery();
+      }
+      if (loaded) {
+        isShowingRendererFallback = false;
       }
     } finally {
       recovering = false;
@@ -399,21 +500,23 @@ const createWindow = () => {
   if (isDev) {
     recordStartupEvent('load-started', { source: 'dev-url' });
     win.loadURL(devUrl);
-  } else if (fs.existsSync(path.join(__dirname, 'renderer-standalone', 'apps', 'web', 'server.js'))) {
+  } else if (fs.existsSync(standaloneRendererServer)) {
     recordStartupEvent('load-started', { source: 'renderer-standalone' });
     startStandaloneRenderer()
       .then(async (info) => {
         if (!info) throw new Error('Renderer standalone missing');
         const standaloneUrl = `http://127.0.0.1:${info.port}/`;
-        for (let attempt = 0; attempt < 20; attempt += 1) {
-          if (await isUrlReachable(standaloneUrl)) {
-            return win.loadURL(standaloneUrl);
-          }
-          await new Promise((resolve) => setTimeout(resolve, 250));
+        const loaded = await loadUrlWithRetries(win, standaloneUrl);
+        if (loaded) {
+          isShowingRendererFallback = false;
+          return;
         }
         throw new Error('Renderer standalone unreachable');
       })
-      .catch(() => recoverRenderer());
+      .catch(async (error) => {
+        recordStartupEvent('renderer-standalone-failed', { error: String(error?.message || error) });
+        await recoverRenderer();
+      });
   } else if (fs.existsSync(rendererIndex)) {
     recordStartupEvent('load-started', { source: 'renderer-index' });
     win.loadFile(rendererIndex);
@@ -421,16 +524,21 @@ const createWindow = () => {
     recordStartupEvent('load-started', { source: 'legacy-renderer-index' });
     win.loadFile(legacyRendererIndex);
   } else {
+    recordStartupEvent('renderer-missing');
     recoverRenderer();
   }
 
-  win.webContents.on('did-fail-load', () => {
-    recordStartupEvent('did-fail-load');
+  win.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    const currentUrl = win.webContents.getURL();
+    if (typeof currentUrl === 'string' && currentUrl.startsWith('data:text/html')) {
+      return;
+    }
+    recordStartupEvent('did-fail-load', { url: validatedURL, error: `${errorCode}:${errorDescription}` });
     recoverRenderer().catch(() => {});
   });
 
   win.webContents.on('did-finish-load', () => {
-    recordStartupEvent('did-finish-load');
+    recordStartupEvent('did-finish-load', { url: win.webContents.getURL() });
     if (!win.isVisible()) {
       win.show();
       recordStartupEvent('window-shown');
@@ -643,6 +751,34 @@ ipcMain.handle('session:set', async (_event, payload) => {
     }
   });
   return true;
+});
+
+ipcMain.handle('http:request', async (_event, payload) => {
+  const url = typeof payload?.url === 'string' ? payload.url : '';
+  const method = String(payload?.method || 'GET').toUpperCase();
+  if (!isSafeExternalUrl(url)) {
+    throw new Error('Invalid URL');
+  }
+  if (!allowedHttpBridgeMethods.has(method)) {
+    throw new Error('Invalid method');
+  }
+  const body = typeof payload?.body === 'string' ? payload.body : undefined;
+  if (body && body.length > 1024 * 1024) {
+    throw new Error('Request body too large');
+  }
+  const headers = sanitizeHttpBridgeHeaders(payload?.headers);
+  const response = await fetch(url, {
+    method,
+    headers,
+    ...(body !== undefined ? { body } : {}),
+  });
+  const bodyText = await response.text();
+  return {
+    ok: response.ok,
+    status: response.status,
+    headers: Object.fromEntries(response.headers.entries()),
+    bodyText,
+  };
 });
 
 ipcMain.handle('perf:get-snapshot', async () => getElectronPerformanceSnapshot());

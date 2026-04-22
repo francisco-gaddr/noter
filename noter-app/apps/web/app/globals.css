@@ -29,6 +29,17 @@ html.electron-shell.platform-mac body {
   background: transparent;
 }
 
+html.electron-shell.platform-mac .electron-titlebar {
+  -webkit-app-region: drag;
+  padding-left: 84px;
+  user-select: none;
+}
+
+html.electron-shell.platform-mac .electron-no-drag,
+html.electron-shell.platform-mac .electron-no-drag * {
+  -webkit-app-region: no-drag;
+}
+
 html.electron-shell.platform-mac .bg-white,
 html.electron-shell.platform-mac .dark\:bg-gray-900,
 html.electron-shell.platform-mac .dark\:bg-gray-950,

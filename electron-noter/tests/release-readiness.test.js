@@ -23,6 +23,7 @@ describe('electron release readiness', () => {
   it('declares mac arm64 build targets and notarization hook', () => {
     expect(packageJson.build.afterSign).toBe('src/notarize.js');
     expect(JSON.stringify(packageJson.build.asarUnpack)).toContain('renderer-standalone');
+    expect(JSON.stringify(packageJson.build.files)).toContain('renderer-standalone');
     expect(packageJson.build.mac.hardenedRuntime).toBe(true);
     expect(String(packageJson.build.mac.entitlements)).toContain('build/entitlements.mac.plist');
     expect(JSON.stringify(packageJson.build.mac.target)).toContain('arm64');
@@ -54,7 +55,16 @@ describe('electron release readiness', () => {
     expect(mainJs).toContain("const getMlcModule = () => {");
     expect(mainJs).toContain("mlcModule = require('./src/mlc');");
     expect(mainJs).toContain("const startStandaloneRenderer = async () => {");
-    expect(mainJs).toContain("renderer-standalone', 'apps', 'web', 'server.js'");
+    expect(mainJs).toContain("const getStandaloneRendererServerPath = () => {");
+    expect(mainJs).toContain("path.join(process.resourcesPath || '', 'app.asar.unpacked', relativePath)");
+    expect(mainJs).toContain("const getRendererFallbackUrls = () => {");
+    expect(mainJs).toContain("const child = spawn(process.execPath, [serverJs], {");
+    expect(mainJs).toContain("ELECTRON_RUN_AS_NODE: '1'");
+    expect(mainJs).toContain("const loadUrlWithRetries = async (win, url, attempts = 20, delayMs = 250) => {");
+    expect(mainJs).toContain("const isInternalAppUrl = (url) => {");
+    expect(mainJs).toContain("if (isInternalAppUrl(url)) {");
+    expect(mainJs).toContain("currentUrl.startsWith('data:text/html')");
+    expect(mainJs).toContain("recordStartupEvent('renderer-missing')");
     expect(mainJs).toContain('show: isTest');
     expect(mainJs).toContain("if (!win.isVisible()) {");
     expect(buildWebJs).toContain("renderer-standalone");

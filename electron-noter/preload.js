@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld('mlc', {
   resetPerformanceSnapshot: () => ipcRenderer.invoke('perf:reset-snapshot'),
   getSession: () => ipcRenderer.invoke('session:get'),
   setSession: (payload) => ipcRenderer.invoke('session:set', payload),
+  httpRequest: (payload) => ipcRenderer.invoke('http:request', payload),
   getSetting: (key) => ipcRenderer.invoke('settings:get', key),
   getManySettings: (keys) => ipcRenderer.invoke('settings:get-many', keys),
   setSetting: (key, value) => ipcRenderer.invoke('settings:set', { key, value }),
