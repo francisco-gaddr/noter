@@ -27,7 +27,7 @@ import * as Clipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
-import { AI_PROMPT_PRESETS, AIModel, AiPromptPreset, AiToolAccessMode, MCP_INTEGRATIONS, McpUiSettings, buildAiSessionInsights, buildAiSyncNotice, createEmptyMcpUiSettings, decrypt, encrypt, isMutatingAiTool } from '@repo/shared';
+import { AI_PROMPT_PRESETS, AIModel, AiPromptPreset, AiToolAccessMode, MCP_INTEGRATIONS, McpUiSettings, buildAiSessionInsights, buildAiSyncNotice, createEmptyMcpUiSettings, decrypt, encrypt, isMutatingAiTool, parseGraphqlData, prepareGraphqlVariables } from '@repo/shared';
 import { recordAiGenerationSample, recordAiRowRender } from '@/services/perfMetrics';
 
 const provider = new MobileLlamaProvider();
@@ -713,7 +713,7 @@ export default function AIScreen() {
       try {
           const json = await fetchWithAuth('/graphql', {
               method: 'POST',
-              body: JSON.stringify({ query, variables })
+              body: JSON.stringify({ query, variables: prepareGraphqlVariables(query, variables) })
           });
           if (!json || typeof json !== 'object') {
               throw new Error('Ogiltigt GraphQL-svar');
@@ -724,7 +724,7 @@ export default function AIScreen() {
           if (!('data' in (json as any))) {
               throw new Error('GraphQL data saknas');
           }
-          return (json as any).data;
+          return parseGraphqlData((json as any).data);
       } catch (error: any) {
           const message = String(error?.message || '');
           if (error?.status === 401 || message.toLowerCase().includes('unauthorized') || message.toLowerCase().includes('token')) {

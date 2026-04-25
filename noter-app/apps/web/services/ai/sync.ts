@@ -1,5 +1,5 @@
 import { AIProject, ChatMessage, Conversation } from '@repo/ai';
-import { decrypt, encrypt } from '@repo/shared';
+import { decrypt, decryptV3, encryptV3 } from '@repo/shared';
 import { getApiBaseUrl } from '../api';
 import { getWebAuthTokenSync } from '../authStorage';
 
@@ -27,11 +27,16 @@ const getHeaders = () => {
 const baseUrl = () => `${getApiBaseUrl().replace(/\/+$/, '')}/ai/sync`;
 
 const looksEncrypted = (value: string) =>
+  value.startsWith('noter:v3:') ||
   value.startsWith('U2FsdGVkX1') ||
   /^[A-Za-z0-9+/=]{32,}$/.test(value);
 
-const safeDecrypt = (value: unknown) => {
+const safeDecrypt = async (value: unknown) => {
   if (typeof value !== 'string') return '';
+  if (value.startsWith('noter:v3:')) {
+    const decrypted = await decryptV3(value);
+    return decrypted || '';
+  }
   const decrypted = decrypt(value);
   if (decrypted) return decrypted;
   return looksEncrypted(value) ? '' : value;
@@ -65,37 +70,37 @@ const fetchJsonWithRetry = async (url: string, options: RequestInit, retries = 2
   throw lastError instanceof Error ? lastError : new Error('AI sync request failed');
 };
 
-const toEncryptedConversation = (conversation: LocalConversation) => ({
+const toEncryptedConversation = async (conversation: LocalConversation) => ({
   id: conversation.id,
-  titleEnc: encrypt(conversation.title || ''),
-  modelEnc: conversation.model ? encrypt(conversation.model) : '',
-  projectIdEnc: conversation.projectId ? encrypt(conversation.projectId) : '',
-  iconEnc: conversation.icon ? encrypt(conversation.icon) : '',
-  iconColorEnc: conversation.iconColor ? encrypt(conversation.iconColor) : '',
-  createdAtEnc: encrypt(conversation.createdAt),
-  updatedAtEnc: encrypt(conversation.updatedAt),
+  titleEnc: await encryptV3(conversation.title || ''),
+  modelEnc: conversation.model ? await encryptV3(conversation.model) : '',
+  projectIdEnc: conversation.projectId ? await encryptV3(conversation.projectId) : '',
+  iconEnc: conversation.icon ? await encryptV3(conversation.icon) : '',
+  iconColorEnc: conversation.iconColor ? await encryptV3(conversation.iconColor) : '',
+  createdAtEnc: await encryptV3(conversation.createdAt),
+  updatedAtEnc: await encryptV3(conversation.updatedAt),
   updatedAt: conversation.updatedAt,
 });
 
-const toEncryptedMessage = (conversationId: string, message: ChatMessage) => ({
+const toEncryptedMessage = async (conversationId: string, message: ChatMessage) => ({
   id: String(message.id || ''),
   conversationId,
-  roleEnc: encrypt(message.role),
-  contentEnc: encrypt(message.content || ''),
-  toolCallsEnc: message.toolCalls ? encrypt(JSON.stringify(message.toolCalls)) : '',
-  toolCallIdEnc: message.toolCallId ? encrypt(message.toolCallId) : '',
-  createdAtEnc: encrypt(message.createdAt || new Date().toISOString()),
+  roleEnc: await encryptV3(message.role),
+  contentEnc: await encryptV3(message.content || ''),
+  toolCallsEnc: message.toolCalls ? await encryptV3(JSON.stringify(message.toolCalls)) : '',
+  toolCallIdEnc: message.toolCallId ? await encryptV3(message.toolCallId) : '',
+  createdAtEnc: await encryptV3(message.createdAt || new Date().toISOString()),
   createdAt: message.createdAt || new Date().toISOString(),
 });
 
-const toEncryptedProject = (project: LocalAIProject) => ({
+const toEncryptedProject = async (project: LocalAIProject) => ({
   id: project.id,
-  nameEnc: encrypt(project.name || ''),
-  systemPromptEnc: project.systemPrompt ? encrypt(project.systemPrompt) : '',
-  iconEnc: project.icon ? encrypt(project.icon) : '',
-  iconColorEnc: project.iconColor ? encrypt(project.iconColor) : '',
-  createdAtEnc: encrypt(project.createdAt),
-  updatedAtEnc: encrypt(project.updatedAt),
+  nameEnc: await encryptV3(project.name || ''),
+  systemPromptEnc: project.systemPrompt ? await encryptV3(project.systemPrompt) : '',
+  iconEnc: project.icon ? await encryptV3(project.icon) : '',
+  iconColorEnc: project.iconColor ? await encryptV3(project.iconColor) : '',
+  createdAtEnc: await encryptV3(project.createdAt),
+  updatedAtEnc: await encryptV3(project.updatedAt),
   updatedAt: project.updatedAt,
 });
 
@@ -107,9 +112,9 @@ export const pushAiSync = async (payload: {
   deletedProjectIds?: string[];
 }) => {
   const body = {
-    conversations: (payload.conversations || []).filter((item) => !item.localOnly).map(toEncryptedConversation),
-    messages: (payload.messages || []).map((item) => toEncryptedMessage(item.conversationId, item.message)),
-    projects: (payload.projects || []).filter((item) => !item.localOnly).map(toEncryptedProject),
+    conversations: await Promise.all((payload.conversations || []).filter((item) => !item.localOnly).map(toEncryptedConversation)),
+    messages: await Promise.all((payload.messages || []).map((item) => toEncryptedMessage(item.conversationId, item.message))),
+    projects: await Promise.all((payload.projects || []).filter((item) => !item.localOnly).map(toEncryptedProject)),
     deletedConversationIds: payload.deletedConversationIds || [],
     deletedProjectIds: payload.deletedProjectIds || [],
   };
@@ -130,47 +135,47 @@ export const pullAiSync = async () => {
       headers: getHeaders(),
     });
     const result: PullAiSyncResult = {
-      conversations: (data?.conversations || []).map((item: any) => ({
+      conversations: await Promise.all((data?.conversations || []).map(async (item: any) => ({
         id: item.id,
-        title: safeDecrypt(item.titleEnc || ''),
-        model: item.modelEnc ? safeDecrypt(item.modelEnc) : undefined,
-        projectId: item.projectIdEnc ? safeDecrypt(item.projectIdEnc) : undefined,
-        icon: item.iconEnc ? safeDecrypt(item.iconEnc) : undefined,
-        iconColor: item.iconColorEnc ? safeDecrypt(item.iconColorEnc) : undefined,
-        createdAt: safeDecrypt(item.createdAtEnc || ''),
-        updatedAt: safeDecrypt(item.updatedAtEnc || ''),
+        title: await safeDecrypt(item.titleEnc || ''),
+        model: item.modelEnc ? await safeDecrypt(item.modelEnc) : undefined,
+        projectId: item.projectIdEnc ? await safeDecrypt(item.projectIdEnc) : undefined,
+        icon: item.iconEnc ? await safeDecrypt(item.iconEnc) : undefined,
+        iconColor: item.iconColorEnc ? await safeDecrypt(item.iconColorEnc) : undefined,
+        createdAt: await safeDecrypt(item.createdAtEnc || ''),
+        updatedAt: await safeDecrypt(item.updatedAtEnc || ''),
         messages: [],
         localOnly: false,
-      })) as Conversation[],
-      messages: (data?.messages || []).map((item: any) => {
+      }))) as Conversation[],
+      messages: await Promise.all((data?.messages || []).map(async (item: any) => {
         let toolCalls: any[] | undefined;
         if (item.toolCallsEnc) {
           try {
-            toolCalls = JSON.parse(safeDecrypt(item.toolCallsEnc));
+            toolCalls = JSON.parse(await safeDecrypt(item.toolCallsEnc));
           } catch {}
         }
         return {
           conversationId: item.conversationId,
           message: {
             id: item.id,
-            role: safeDecrypt(item.roleEnc || '') as any,
-            content: safeDecrypt(item.contentEnc || ''),
+            role: await safeDecrypt(item.roleEnc || '') as any,
+            content: await safeDecrypt(item.contentEnc || ''),
             toolCalls,
-            toolCallId: item.toolCallIdEnc ? safeDecrypt(item.toolCallIdEnc) : undefined,
-            createdAt: safeDecrypt(item.createdAtEnc || ''),
+            toolCallId: item.toolCallIdEnc ? await safeDecrypt(item.toolCallIdEnc) : undefined,
+            createdAt: await safeDecrypt(item.createdAtEnc || ''),
           } as ChatMessage,
         };
-      }),
-      projects: (data?.projects || []).map((item: any) => ({
+      })),
+      projects: await Promise.all((data?.projects || []).map(async (item: any) => ({
         id: item.id,
-        name: safeDecrypt(item.nameEnc || ''),
-        systemPrompt: item.systemPromptEnc ? safeDecrypt(item.systemPromptEnc) : '',
-        icon: item.iconEnc ? safeDecrypt(item.iconEnc) : undefined,
-        iconColor: item.iconColorEnc ? safeDecrypt(item.iconColorEnc) : undefined,
-        createdAt: safeDecrypt(item.createdAtEnc || ''),
-        updatedAt: safeDecrypt(item.updatedAtEnc || ''),
+        name: await safeDecrypt(item.nameEnc || ''),
+        systemPrompt: item.systemPromptEnc ? await safeDecrypt(item.systemPromptEnc) : '',
+        icon: item.iconEnc ? await safeDecrypt(item.iconEnc) : undefined,
+        iconColor: item.iconColorEnc ? await safeDecrypt(item.iconColorEnc) : undefined,
+        createdAt: await safeDecrypt(item.createdAtEnc || ''),
+        updatedAt: await safeDecrypt(item.updatedAtEnc || ''),
         localOnly: false,
-      })) as AIProject[],
+      }))) as AIProject[],
     };
     lastPullAt = Date.now();
     lastPullResult = result;

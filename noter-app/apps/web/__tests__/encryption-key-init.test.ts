@@ -1,36 +1,40 @@
-const mockSetEncryptionKey = jest.fn();
+const mockActivateDataKey = jest.fn((key: string) => key);
+const mockClearEncryptionKey = jest.fn();
 
 jest.mock('@repo/shared', () => ({
-  setEncryptionKey: (...args: any[]) => mockSetEncryptionKey(...args),
+  activateDataKey: (key: string) => mockActivateDataKey(key),
+  clearEncryptionKey: () => mockClearEncryptionKey(),
+  unwrapDataKeyWithPassword: jest.fn(),
 }));
 
 describe('initWebEncryptionKey', () => {
   beforeEach(() => {
+    jest.resetModules();
     localStorage.clear();
-    mockSetEncryptionKey.mockReset();
+    mockActivateDataKey.mockReset();
+    mockActivateDataKey.mockImplementation((key: string) => key);
+    mockClearEncryptionKey.mockReset();
     (window as any).mlc = undefined;
   });
 
-  it('creates key in localStorage for web mode', async () => {
+  it('does not invent a new key in plain web mode without cached key material', async () => {
     const { initWebEncryptionKey } = await import('../services/encryptionKey');
     const key = await initWebEncryptionKey();
-    expect(typeof key).toBe('string');
-    expect(key.length).toBeGreaterThanOrEqual(32);
-    expect(localStorage.getItem('local_encryption_key_v1')).toBe(key);
-    expect(mockSetEncryptionKey).toHaveBeenCalledWith(key);
+    expect(key).toBe('');
+    expect(localStorage.getItem('local_encryption_key_v1')).toBeNull();
+    expect(localStorage.getItem('local_data_key_v1')).toBeNull();
+    expect(mockActivateDataKey).not.toHaveBeenCalled();
   });
 
-  it('stores key via electron secure settings when available', async () => {
+  it('uses the cached electron data key when available', async () => {
     const secureKey = 'd'.repeat(64);
-    const getSetting = jest.fn().mockResolvedValue(secureKey);
+    const getSetting = jest.fn().mockImplementation(async (key: string) => (key === 'localDataKey' ? secureKey : ''));
     const setSetting = jest.fn().mockResolvedValue(true);
     (window as any).mlc = { isElectron: true, getSetting, setSetting };
     const { initWebEncryptionKey } = await import('../services/encryptionKey');
     const key = await initWebEncryptionKey();
     expect(key).toBe(secureKey);
-    expect(setSetting).toHaveBeenCalledWith('localEncryptionKey', secureKey);
     expect(localStorage.getItem('local_encryption_key_v1')).toBeNull();
-    expect(mockSetEncryptionKey).toHaveBeenCalledWith(secureKey);
   });
 
   it('migrates valid legacy localStorage key to electron secure storage', async () => {
@@ -38,11 +42,12 @@ describe('initWebEncryptionKey', () => {
     localStorage.setItem('local_encryption_key_v1', legacyKey);
     const getSetting = jest.fn().mockResolvedValue('');
     const setSetting = jest.fn().mockResolvedValue(true);
-    (window as any).mlc = { isElectron: true, getSetting, setSetting };
+    const setManySettings = jest.fn().mockResolvedValue(true);
+    (window as any).mlc = { isElectron: true, getSetting, setSetting, setManySettings };
     const { initWebEncryptionKey } = await import('../services/encryptionKey');
     const key = await initWebEncryptionKey();
     expect(key).toBe(legacyKey);
-    expect(setSetting).toHaveBeenCalledWith('localEncryptionKey', legacyKey);
+    expect(setManySettings).toHaveBeenCalledWith({ localDataKey: legacyKey, localEncryptionKey: null });
     expect(localStorage.getItem('local_encryption_key_v1')).toBeNull();
   });
 

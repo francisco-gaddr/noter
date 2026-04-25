@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { ChatMessage, HFModel, HFFile, Conversation, AIProject } from '@repo/ai';
-import { AI_PROMPT_PRESETS, AiPromptPreset, AiToolAccessMode, MCP_INTEGRATIONS, McpUiSettings, buildAiSessionInsights, buildAiSyncNotice, buildToolUseNotice, createEmptyMcpUiSettings, decrypt, encrypt, getAiPromptPresetPrompt, isMutatingAiTool, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings } from '@repo/shared';
+import { AI_PROMPT_PRESETS, AiPromptPreset, AiToolAccessMode, MCP_INTEGRATIONS, McpUiSettings, buildAiSessionInsights, buildAiSyncNotice, buildToolUseNotice, createEmptyMcpUiSettings, decrypt, encrypt, getAiPromptPresetPrompt, isMutatingAiTool, normalizeMcpUiSettings, parseGraphqlData, prepareGraphqlVariables, resolveMcpSettings, toEffectiveMcpUiSettings } from '@repo/shared';
 import { db } from '../services/db';
 import { v4 as uuidv4 } from 'uuid';
 import { useStore } from '../stores/useStore';
@@ -1830,14 +1830,14 @@ export const AISidebar = () => {
         'Content-Type': 'application/json',
         ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
       },
-      body: JSON.stringify({ query, variables })
+      body: JSON.stringify({ query, variables: prepareGraphqlVariables(query, variables) })
     });
     
     const json = await res.json();
     if (json.errors?.length) {
         throw new Error(json.errors[0]?.message || 'GraphQL error');
     }
-    return json.data;
+    return parseGraphqlData(json.data);
   };
 
   const resolveMcpUrl = () => {

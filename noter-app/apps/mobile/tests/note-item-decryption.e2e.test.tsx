@@ -1,7 +1,7 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react-native';
 import { NoteItem } from '../components/NoteItem';
-import { encrypt } from '@repo/shared';
+import { clearEncryptionKey, encrypt, setEncryptionKey } from '@repo/shared';
 import { Provider as PaperProvider, MD3LightTheme } from 'react-native-paper';
 
 jest.mock('expo-haptics', () => ({
@@ -27,6 +27,14 @@ jest.mock('react-native-paper', () => {
 });
 
 describe('NoteItem Decryption', () => {
+  beforeEach(() => {
+    setEncryptionKey('a'.repeat(64));
+  });
+
+  afterEach(() => {
+    clearEncryptionKey();
+  });
+
   it('should decrypt title if it is encrypted', () => {
     const encryptedTitle = encrypt('My Secret Note');
     const note: any = {

@@ -62,7 +62,7 @@ describe('mcp runtime stdio integration', () => {
       service: 'notion',
       toolName: 'notion.search',
       args: { query: 'roadmap' },
-      intentText: 'sök i notion',
+      intentText: 'använd notion och sök roadmap',
       mcpUiSettingsPayload: ui,
     });
     expect(callResult.content?.[0]?.text).toBe('ok');

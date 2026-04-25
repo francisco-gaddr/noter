@@ -14,13 +14,14 @@ export type ResolvedMlcCommand = {
 type Candidate = ResolvedMlcCommand;
 
 const isWindows = process.platform === 'win32';
+const pathApi = isWindows ? path.win32 : path.posix;
 
 const dedupe = <T,>(items: T[]) => Array.from(new Set(items));
 
 const listDirectories = async (root: string) => {
   try {
     const entries = await fs.readdir(root, { withFileTypes: true });
-    return entries.filter((entry) => entry.isDirectory()).map((entry) => path.join(root, entry.name));
+    return entries.filter((entry) => entry.isDirectory()).map((entry) => pathApi.join(root, entry.name));
   } catch {
     return [];
   }
@@ -33,14 +34,14 @@ const listPythonScriptDirs = async () => {
 
   const home = os.homedir();
   const candidates = [
-    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Programs', 'Python') : '',
-    process.env.APPDATA ? path.join(process.env.APPDATA, 'Python') : '',
-    home ? path.join(home, 'AppData', 'Local', 'Programs', 'Python') : '',
-    home ? path.join(home, 'AppData', 'Roaming', 'Python') : '',
+    process.env.LOCALAPPDATA ? pathApi.join(process.env.LOCALAPPDATA, 'Programs', 'Python') : '',
+    process.env.APPDATA ? pathApi.join(process.env.APPDATA, 'Python') : '',
+    home ? pathApi.join(home, 'AppData', 'Local', 'Programs', 'Python') : '',
+    home ? pathApi.join(home, 'AppData', 'Roaming', 'Python') : '',
   ].filter(Boolean);
 
   const discovered = await Promise.all(candidates.map((root) => listDirectories(root)));
-  return dedupe(discovered.flat().map((dir) => path.join(dir, 'Scripts')));
+  return dedupe(discovered.flat().map((dir) => pathApi.join(dir, 'Scripts')));
 };
 
 const executableExists = async (filePath: string) => {
@@ -53,16 +54,16 @@ const executableExists = async (filePath: string) => {
 };
 
 const getPythonRuntimeDirsFromScripts = (scriptsDir: string) => {
-  const pythonDir = path.resolve(scriptsDir, '..');
-  const sitePackagesDir = path.join(pythonDir, 'Lib', 'site-packages');
+  const pythonDir = pathApi.resolve(scriptsDir, '..');
+  const sitePackagesDir = pathApi.join(pythonDir, 'Lib', 'site-packages');
   return [
     scriptsDir,
     pythonDir,
-    path.join(pythonDir, 'DLLs'),
+    pathApi.join(pythonDir, 'DLLs'),
     sitePackagesDir,
-    path.join(sitePackagesDir, 'tvm'),
-    path.join(sitePackagesDir, 'tvm', 'lib'),
-    path.join(sitePackagesDir, 'torch', 'lib'),
+    pathApi.join(sitePackagesDir, 'tvm'),
+    pathApi.join(sitePackagesDir, 'tvm', 'lib'),
+    pathApi.join(sitePackagesDir, 'torch', 'lib'),
   ];
 };
 
@@ -73,16 +74,16 @@ const buildEnvPathEntries = async () => {
   const scriptDirs = await listPythonScriptDirs();
   const home = os.homedir();
   const extraLibraryRoots = [
-    process.env.CONDA_PREFIX ? path.join(process.env.CONDA_PREFIX, 'Library', 'bin') : '',
-    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'miniconda3', 'Library', 'bin') : '',
-    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'anaconda3', 'Library', 'bin') : '',
-    home ? path.join(home, 'miniconda3', 'Library', 'bin') : '',
-    home ? path.join(home, 'anaconda3', 'Library', 'bin') : '',
+    process.env.CONDA_PREFIX ? pathApi.join(process.env.CONDA_PREFIX, 'Library', 'bin') : '',
+    process.env.LOCALAPPDATA ? pathApi.join(process.env.LOCALAPPDATA, 'miniconda3', 'Library', 'bin') : '',
+    process.env.LOCALAPPDATA ? pathApi.join(process.env.LOCALAPPDATA, 'anaconda3', 'Library', 'bin') : '',
+    home ? pathApi.join(home, 'miniconda3', 'Library', 'bin') : '',
+    home ? pathApi.join(home, 'anaconda3', 'Library', 'bin') : '',
     'C:\\pinokio\\bin\\miniconda\\Library\\bin',
   ].filter(Boolean);
   const availableLibraryRoots = (
     await Promise.all(
-      extraLibraryRoots.map(async (dirPath) => ((await executableExists(path.join(dirPath, 'zstd.dll'))) ? dirPath : ''))
+      extraLibraryRoots.map(async (dirPath) => ((await executableExists(pathApi.join(dirPath, 'zstd.dll'))) ? dirPath : ''))
     )
   ).filter(Boolean);
   return dedupe([
@@ -96,7 +97,7 @@ const buildCandidateEnv = (candidate: Candidate) => {
   if (pathEntries.length === 0) {
     return process.env;
   }
-  const delimiter = path.delimiter;
+  const delimiter = isWindows ? path.win32.delimiter : path.delimiter;
   const currentPath = process.env.Path || process.env.PATH || '';
   const nextPath = dedupe([...pathEntries, ...currentPath.split(delimiter).filter(Boolean)]).join(delimiter);
   return {

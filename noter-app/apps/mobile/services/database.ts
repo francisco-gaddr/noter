@@ -1,6 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import CryptoJS from 'crypto-js';
-import { Note, Task, Conversation, Message, AIModel, AIProject, encrypt, decrypt, decryptWithSource } from '@repo/shared';
+import { Note, Task, Conversation, Message, AIModel, AIProject, encrypt, encryptV3, decrypt, decryptV3, decryptWithSource, isV3Ciphertext } from '@repo/shared';
 import { recordSyncQueueEnqueue, recordSyncQueueMergeIntoCreate, recordSyncQueueRemoveQueuedCreate } from './perfMetrics';
 
 type LocalConversation = Conversation & { localOnly?: boolean };
@@ -47,10 +47,21 @@ const decryptDisplayText = (value: unknown, fallback = ''): string => {
 const shouldReencrypt = (value: unknown) => {
   if (typeof value !== 'string' || value.length === 0) return null;
   const result = decryptWithSource(value);
-  if (result.source === 'legacy' || result.source === 'plaintext') {
+  if (result.source === 'plaintext') {
     return encrypt(result.value);
   }
   return null;
+};
+
+const decryptAiText = async (value: unknown, fallback: string | null = null): Promise<string | null> => {
+  if (value == null) return fallback;
+  const raw = typeof value === 'string' ? value : String(value);
+  if (isV3Ciphertext(raw)) {
+    const decrypted = await decryptV3(raw);
+    return decrypted || fallback;
+  }
+  const result = decryptWithSource(raw);
+  return result.source === 'failed' ? fallback : result.value;
 };
 
 const decryptNumber = (value: unknown): number | null => {
@@ -809,14 +820,14 @@ export const removeFromSyncQueue = async (id: number) => {
 // AI Conversations & Messages
 
 export const saveConversationLocal = async (conversation: LocalConversation) => {
-  const encryptedTitle = encrypt(conversation.title);
-  const encryptedModel = conversation.model ? encrypt(conversation.model) : null;
-  const encryptedProjectId = conversation.projectId ? encrypt(conversation.projectId) : null;
-  const encryptedIcon = conversation.icon ? encrypt(conversation.icon) : null;
-  const encryptedIconColor = conversation.iconColor ? encrypt(conversation.iconColor) : null;
-  const encryptedLocalOnly = encrypt(conversation.localOnly ? 'true' : 'false');
-  const encryptedCreatedAt = encrypt(conversation.createdAt);
-  const encryptedUpdatedAt = encrypt(conversation.updatedAt);
+  const encryptedTitle = await encryptV3(conversation.title);
+  const encryptedModel = conversation.model ? await encryptV3(conversation.model) : null;
+  const encryptedProjectId = conversation.projectId ? await encryptV3(conversation.projectId) : null;
+  const encryptedIcon = conversation.icon ? await encryptV3(conversation.icon) : null;
+  const encryptedIconColor = conversation.iconColor ? await encryptV3(conversation.iconColor) : null;
+  const encryptedLocalOnly = await encryptV3(conversation.localOnly ? 'true' : 'false');
+  const encryptedCreatedAt = await encryptV3(conversation.createdAt);
+  const encryptedUpdatedAt = await encryptV3(conversation.updatedAt);
 
   await db.runAsync(
     `INSERT OR REPLACE INTO conversations (id, title, model, projectId, icon, iconColor, localOnly, createdAt, updatedAt)
@@ -827,18 +838,19 @@ export const saveConversationLocal = async (conversation: LocalConversation) => 
 
 export const getConversationsLocal = async (): Promise<LocalConversation[]> => {
   const result = await db.getAllAsync<any>('SELECT * FROM conversations');
-  return result.map((row: any) => ({
+  const conversations = await Promise.all(result.map(async (row: any) => ({
     id: row.id,
-    title: decrypt(row.title),
-    model: row.model ? decrypt(row.model) : undefined,
-    projectId: row.projectId ? decrypt(row.projectId) : undefined,
-    icon: row.icon ? decrypt(row.icon) : undefined,
-    iconColor: row.iconColor ? decrypt(row.iconColor) : undefined,
-    localOnly: row.localOnly ? decrypt(row.localOnly) === 'true' : false,
-    createdAt: decrypt(row.createdAt),
-    updatedAt: decrypt(row.updatedAt),
+    title: (await decryptAiText(row.title, '')) || '',
+    model: row.model ? ((await decryptAiText(row.model, null)) || undefined) : undefined,
+    projectId: row.projectId ? ((await decryptAiText(row.projectId, null)) || undefined) : undefined,
+    icon: row.icon ? ((await decryptAiText(row.icon, null)) || undefined) : undefined,
+    iconColor: row.iconColor ? ((await decryptAiText(row.iconColor, null)) || undefined) : undefined,
+    localOnly: row.localOnly ? ((await decryptAiText(row.localOnly, 'false')) === 'true') : false,
+    createdAt: (await decryptAiText(row.createdAt, row.createdAt)) || row.createdAt,
+    updatedAt: (await decryptAiText(row.updatedAt, row.updatedAt)) || row.updatedAt,
     messages: []
-  })).sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+  })));
+  return conversations.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 };
 
 export const deleteConversationLocal = async (id: string) => {
@@ -847,12 +859,12 @@ export const deleteConversationLocal = async (id: string) => {
 
 export const saveMessageLocal = async (conversationId: string, message: Message) => {
   const messageId = message.id ?? `local_${Date.now()}`;
-  const encryptedRole = encrypt(message.role);
-  const encryptedContent = encrypt(message.content);
-  const encryptedToolCalls = message.toolCalls ? encrypt(JSON.stringify(message.toolCalls)) : null;
-  const encryptedToolCallId = message.toolCallId ? encrypt(message.toolCallId) : null;
+  const encryptedRole = await encryptV3(message.role);
+  const encryptedContent = await encryptV3(message.content);
+  const encryptedToolCalls = message.toolCalls ? await encryptV3(JSON.stringify(message.toolCalls)) : null;
+  const encryptedToolCallId = message.toolCallId ? await encryptV3(message.toolCallId) : null;
   const createdAt = message.createdAt ?? new Date().toISOString();
-  const encryptedCreatedAt = encrypt(createdAt);
+  const encryptedCreatedAt = await encryptV3(createdAt);
 
   await db.runAsync(
     `INSERT OR REPLACE INTO messages (id, conversationId, role, content, toolCalls, toolCallId, createdAt)
@@ -864,22 +876,23 @@ export const saveMessageLocal = async (conversationId: string, message: Message)
 
 export const getMessagesLocal = async (conversationId: string): Promise<Message[]> => {
   const result = await db.getAllAsync<any>('SELECT * FROM messages WHERE conversationId = ?', [conversationId]);
-  return result.map((row: any) => {
+  const messages = await Promise.all(result.map(async (row: any) => {
     let toolCalls = undefined;
     if (row.toolCalls) {
       try {
-        toolCalls = JSON.parse(decrypt(row.toolCalls));
+        toolCalls = JSON.parse((await decryptAiText(row.toolCalls, '')) || '');
       } catch {}
     }
     return {
       id: row.id,
-      role: decrypt(row.role) as any,
-      content: decrypt(row.content),
+      role: ((await decryptAiText(row.role, '')) || '') as any,
+      content: (await decryptAiText(row.content, '')) || '',
       toolCalls,
-      toolCallId: row.toolCallId ? decrypt(row.toolCallId) : undefined,
-      createdAt: decrypt(row.createdAt)
+      toolCallId: row.toolCallId ? ((await decryptAiText(row.toolCallId, null)) || undefined) : undefined,
+      createdAt: (await decryptAiText(row.createdAt, row.createdAt)) || row.createdAt
     };
-  }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  }));
+  return messages.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 };
 
 // AI Models
@@ -919,14 +932,14 @@ export const deleteModelLocal = async (id: string) => {
 // AI Projects
 
 export const saveProjectLocal = async (project: LocalAIProject, userId?: string) => {
-  const encryptedName = encrypt(project.name);
-  const encryptedPrompt = project.systemPrompt ? encrypt(project.systemPrompt) : null;
-  const encryptedIcon = project.icon ? encrypt(project.icon) : null;
-  const encryptedIconColor = project.iconColor ? encrypt(project.iconColor) : null;
-  const encryptedLocalOnly = encrypt(project.localOnly ? 'true' : 'false');
-  const encryptedCreatedAt = encrypt(project.createdAt);
-  const encryptedUpdatedAt = encrypt(project.updatedAt);
-  const encryptedUserId = userId ? encryptText(userId) : null;
+  const encryptedName = await encryptV3(project.name);
+  const encryptedPrompt = project.systemPrompt ? await encryptV3(project.systemPrompt) : null;
+  const encryptedIcon = project.icon ? await encryptV3(project.icon) : null;
+  const encryptedIconColor = project.iconColor ? await encryptV3(project.iconColor) : null;
+  const encryptedLocalOnly = await encryptV3(project.localOnly ? 'true' : 'false');
+  const encryptedCreatedAt = await encryptV3(project.createdAt);
+  const encryptedUpdatedAt = await encryptV3(project.updatedAt);
+  const encryptedUserId = userId ? await encryptV3(userId) : null;
   await db.runAsync(
     `INSERT OR REPLACE INTO ai_projects (id, userId, name, systemPrompt, icon, iconColor, localOnly, createdAt, updatedAt)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -936,25 +949,27 @@ export const saveProjectLocal = async (project: LocalAIProject, userId?: string)
 
 export const getProjectsLocal = async (userId?: string): Promise<LocalAIProject[]> => {
   const result = await db.getAllAsync<any>('SELECT * FROM ai_projects');
-  return result
-    .map((row: any) => ({
+  const projects = await Promise.all(result
+    .map(async (row: any) => ({
       id: row.id,
-      userId: row.userId ? decryptText(row.userId, row.userId) || row.userId : undefined,
-      name: decrypt(row.name),
-      systemPrompt: row.systemPrompt ? decrypt(row.systemPrompt) : undefined,
-      icon: row.icon ? decrypt(row.icon) : undefined,
-      iconColor: row.iconColor ? decrypt(row.iconColor) : undefined,
-      localOnly: row.localOnly ? decrypt(row.localOnly) === 'true' : false,
-      createdAt: decrypt(row.createdAt),
-      updatedAt: decrypt(row.updatedAt),
-    }))
+      userId: row.userId ? ((await decryptAiText(row.userId, null)) || undefined) : undefined,
+      name: (await decryptAiText(row.name, '')) || '',
+      systemPrompt: row.systemPrompt ? ((await decryptAiText(row.systemPrompt, null)) || undefined) : undefined,
+      icon: row.icon ? ((await decryptAiText(row.icon, null)) || undefined) : undefined,
+      iconColor: row.iconColor ? ((await decryptAiText(row.iconColor, null)) || undefined) : undefined,
+      localOnly: row.localOnly ? ((await decryptAiText(row.localOnly, 'false')) === 'true') : false,
+      createdAt: (await decryptAiText(row.createdAt, row.createdAt)) || row.createdAt,
+      updatedAt: (await decryptAiText(row.updatedAt, row.updatedAt)) || row.updatedAt,
+    })));
+  return projects
     .filter((project) => !userId || project.userId === userId)
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 };
 
 export const deleteProjectLocal = async (id: string) => {
   await db.runAsync('DELETE FROM ai_projects WHERE id = ?', [id]);
-  await db.runAsync('UPDATE conversations SET projectId = NULL WHERE projectId = ?', [encrypt(id)]);
+  const [legacyEncryptedId, v3EncryptedId] = await Promise.all([Promise.resolve(encrypt(id)), encryptV3(id)]);
+  await db.runAsync('UPDATE conversations SET projectId = NULL WHERE projectId = ? OR projectId = ?', [legacyEncryptedId, v3EncryptedId]);
 };
 
 export const clearNotesLocal = async () => {

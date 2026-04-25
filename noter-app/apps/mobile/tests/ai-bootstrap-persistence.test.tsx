@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import renderer, { act } from 'react-test-renderer';
+import { clearEncryptionKey, setEncryptionKey } from '@repo/shared';
 
 const mockGetItem = jest.fn(async (_key: string) => null);
 const mockSetItem = jest.fn(async (_key: string, _value: string) => undefined);
@@ -113,6 +114,11 @@ describe('AI bootstrap persistence', () => {
     mockRemoveItem.mockClear();
     mockSecureSetItemAsync.mockClear();
     mockRefreshRemoteSync.mockClear();
+    setEncryptionKey('a'.repeat(64));
+  });
+
+  afterEach(() => {
+    clearEncryptionKey();
   });
 
   it('autosparar systemprompt lokalt och rensar den när den töms', async () => {

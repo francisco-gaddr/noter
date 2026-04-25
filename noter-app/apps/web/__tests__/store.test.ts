@@ -1,5 +1,6 @@
 import { act } from '@testing-library/react';
 import { expect } from '@jest/globals';
+import { clearEncryptionKey, setEncryptionKey } from '@repo/shared';
 import { useStore } from '../stores/useStore';
 
 // Mocks
@@ -60,6 +61,7 @@ describe('Web Store', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     delete (window as any).mlc;
+    setEncryptionKey('a'.repeat(64));
     useStore.setState({
       notes: [],
       tasks: [],
@@ -71,6 +73,10 @@ describe('Web Store', () => {
       unlockedProtectedNoteIds: [],
       activeTab: 'notes',
     });
+  });
+
+  afterEach(() => {
+    clearEncryptionKey();
   });
 
   it('should have initial state', () => {

@@ -1,5 +1,5 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
-import { Note, Task, Conversation, Message, AIModel, encrypt, decrypt } from '@repo/shared';
+import { Note, Task, Conversation, Message, AIModel, encrypt, encryptV3, decrypt, decryptV3, decryptWithSource, isV3Ciphertext } from '@repo/shared';
 
 type LocalConversation = Conversation & { localOnly?: boolean; userId?: string };
 
@@ -124,6 +124,17 @@ const decryptText = (value: unknown, fallback: string | null = null): string | n
   } catch {
     return raw;
   }
+};
+
+const decryptAiText = async (value: unknown, fallback: string | null = null): Promise<string | null> => {
+  if (value == null) return fallback;
+  const raw = typeof value === 'string' ? value : String(value);
+  if (isV3Ciphertext(raw)) {
+    const decrypted = await decryptV3(raw);
+    return decrypted || fallback;
+  }
+  const result = decryptWithSource(raw);
+  return result.source === 'failed' ? fallback : result.value;
 };
 
 const parseEncryptedBool = (value: unknown): boolean => {
@@ -521,15 +532,15 @@ export const db = {
     const db = await initDB();
     const encrypted: LocalConversation = {
       ...conversation,
-      title: encrypt(conversation.title),
-      model: conversation.model ? encrypt(conversation.model) : undefined,
-      projectId: conversation.projectId ? encrypt(conversation.projectId) : undefined,
-      icon: conversation.icon ? encrypt(conversation.icon) : undefined,
-      iconColor: conversation.iconColor ? encrypt(conversation.iconColor) : undefined,
-      localOnly: encrypt(String(Boolean(conversation.localOnly))) as any,
-      userId: conversation.userId ? encrypt(conversation.userId) : undefined,
-      createdAt: encrypt(conversation.createdAt),
-      updatedAt: encrypt(conversation.updatedAt),
+      title: await encryptV3(conversation.title),
+      model: conversation.model ? await encryptV3(conversation.model) : undefined,
+      projectId: conversation.projectId ? await encryptV3(conversation.projectId) : undefined,
+      icon: conversation.icon ? await encryptV3(conversation.icon) : undefined,
+      iconColor: conversation.iconColor ? await encryptV3(conversation.iconColor) : undefined,
+      localOnly: await encryptV3(String(Boolean(conversation.localOnly))) as any,
+      userId: conversation.userId ? await encryptV3(conversation.userId) : undefined,
+      createdAt: await encryptV3(conversation.createdAt),
+      updatedAt: await encryptV3(conversation.updatedAt),
     };
     await db.put('conversations', encrypted);
   },
@@ -537,19 +548,20 @@ export const db = {
   async getConversations(userId?: string): Promise<LocalConversation[]> {
     const db = await initDB();
     const encrypted = await db.getAllFromIndex('conversations', 'by-updated');
-    return encrypted.map(conv => ({
+    const conversations = await Promise.all(encrypted.map(async (conv) => ({
       ...conv,
-      title: decrypt(conv.title),
-      model: conv.model ? decrypt(conv.model) : undefined,
-      projectId: conv.projectId ? decryptText(conv.projectId, conv.projectId) || conv.projectId : undefined,
-      icon: conv.icon ? decryptText(conv.icon, conv.icon) || conv.icon : undefined,
-      iconColor: conv.iconColor ? decryptText(conv.iconColor, conv.iconColor) || conv.iconColor : undefined,
-      localOnly: conv.localOnly ? (decryptText(conv.localOnly as any, String(conv.localOnly)) === 'true') : false,
-      userId: conv.userId ? decryptText(conv.userId, conv.userId) || conv.userId : undefined,
-      createdAt: decrypt(conv.createdAt),
-      updatedAt: decrypt(conv.updatedAt),
+      title: (await decryptAiText(conv.title, '')) || '',
+      model: conv.model ? ((await decryptAiText(conv.model, null)) || undefined) : undefined,
+      projectId: conv.projectId ? ((await decryptAiText(conv.projectId, null)) || undefined) : undefined,
+      icon: conv.icon ? ((await decryptAiText(conv.icon, null)) || undefined) : undefined,
+      iconColor: conv.iconColor ? ((await decryptAiText(conv.iconColor, null)) || undefined) : undefined,
+      localOnly: conv.localOnly ? ((await decryptAiText(conv.localOnly as any, 'false')) === 'true') : false,
+      userId: conv.userId ? ((await decryptAiText(conv.userId, null)) || undefined) : undefined,
+      createdAt: (await decryptAiText(conv.createdAt, conv.createdAt)) || conv.createdAt,
+      updatedAt: (await decryptAiText(conv.updatedAt, conv.updatedAt)) || conv.updatedAt,
       messages: []
-    })).reverse().filter(conv => !userId || conv.userId === userId || !conv.userId);
+    })));
+    return conversations.reverse().filter(conv => !userId || conv.userId === userId || !conv.userId);
   },
 
   async deleteConversation(id: string): Promise<void> {
@@ -564,11 +576,11 @@ export const db = {
     const encrypted: Message & { conversationId: string } = {
       ...message,
       conversationId,
-      role: encrypt(message.role) as any,
-      content: encrypt(message.content),
-      toolCalls: message.toolCalls ? encrypt(JSON.stringify(message.toolCalls)) as any : undefined,
-      toolCallId: message.toolCallId ? encrypt(message.toolCallId) : undefined,
-      createdAt: encrypt(message.createdAt)
+      role: await encryptV3(message.role) as any,
+      content: await encryptV3(message.content),
+      toolCalls: message.toolCalls ? await encryptV3(JSON.stringify(message.toolCalls)) as any : undefined,
+      toolCallId: message.toolCallId ? await encryptV3(message.toolCallId) : undefined,
+      createdAt: await encryptV3(message.createdAt)
     };
     await db.put('messages', encrypted);
   },
@@ -576,22 +588,23 @@ export const db = {
   async getMessages(conversationId: string): Promise<Message[]> {
     const db = await initDB();
     const encrypted = await db.getAllFromIndex('messages', 'by-conversation', conversationId);
-    return encrypted.map(msg => {
+    const messages = await Promise.all(encrypted.map(async (msg) => {
       let toolCalls = undefined;
       if (msg.toolCalls) {
         try {
-          toolCalls = JSON.parse(decrypt(msg.toolCalls as any));
+          toolCalls = JSON.parse((await decryptAiText(msg.toolCalls as any, '')) || '');
         } catch {}
       }
       return {
         id: msg.id,
-        role: decrypt(msg.role) as any,
-        content: decrypt(msg.content),
+        role: ((await decryptAiText(msg.role, '')) || '') as any,
+        content: (await decryptAiText(msg.content, '')) || '',
         toolCalls,
-        toolCallId: msg.toolCallId ? decrypt(msg.toolCallId) : undefined,
-        createdAt: decrypt(msg.createdAt)
+        toolCallId: msg.toolCallId ? ((await decryptAiText(msg.toolCallId, null)) || undefined) : undefined,
+        createdAt: (await decryptAiText(msg.createdAt, msg.createdAt)) || msg.createdAt
       };
-    }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+    }));
+    return messages.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   },
 
   // AI Models

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, safeStorage, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, safeStorage, shell, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const net = require('net');
@@ -24,6 +24,22 @@ const encryptedSettingsVersion = 1;
 const rendererRecoveryDelayMs = 2500;
 const allowedExternalProtocols = new Set(['https:', 'http:']);
 const allowedHttpBridgeMethods = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD']);
+const allowedHttpBridgeHosts = new Set([
+  'huggingface.co',
+  'api.openrouter.ai',
+  'generativelanguage.googleapis.com',
+  'localhost',
+  '127.0.0.1',
+]);
+const rendererCsp = [
+  "default-src 'self'",
+  "connect-src 'self' http://127.0.0.1:* http://localhost:* https://api.openrouter.ai https://huggingface.co https://generativelanguage.googleapis.com",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:",
+  "font-src 'self' data:",
+  "frame-ancestors 'none'",
+].join('; ');
 let mlcModule = null;
 let rendererServer = null;
 let rendererServerPort = 0;
@@ -297,6 +313,7 @@ const loadErrorFallback = async (win) => {
     <head>
       <meta charset="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
+      <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src 'none'; connect-src 'none'; script-src 'none'" />
       <title>Noter</title>
       <style>
         body { margin: 0; background: #0f172a; color: #e2e8f0; font-family: Arial, sans-serif; }
@@ -394,6 +411,56 @@ const sanitizeHttpBridgeHeaders = (headers) => (
       return acc;
     }, {})
 );
+
+const getConfiguredBackendOrigins = () => {
+  const candidates = [
+    settingsCache?.apiBaseUrl,
+    settingsCache?.apiUrl,
+    settingsCache?.backendUrl,
+    process.env.API_URL,
+    process.env.NEXT_PUBLIC_API_URL,
+  ].filter(Boolean);
+  const origins = new Set(['http://127.0.0.1:3001', 'http://localhost:3001']);
+  candidates.forEach((candidate) => {
+    try {
+      const parsed = new URL(String(candidate));
+      origins.add(parsed.origin);
+    } catch {}
+  });
+  return origins;
+};
+
+const isAllowedHttpBridgeUrl = (url) => {
+  if (!isSafeExternalUrl(url)) return false;
+  try {
+    const parsed = new URL(url);
+    if (allowedHttpBridgeHosts.has(parsed.hostname.toLowerCase())) return true;
+    return getConfiguredBackendOrigins().has(parsed.origin);
+  } catch {
+    return false;
+  }
+};
+
+const canSendSensitiveBridgeHeaders = (url) => {
+  try {
+    const parsed = new URL(url);
+    return getConfiguredBackendOrigins().has(parsed.origin);
+  } catch {
+    return false;
+  }
+};
+
+const sanitizeBridgeRequestHeaders = (url, headers) => {
+  const allowSensitiveHeaders = canSendSensitiveBridgeHeaders(url);
+  const blocked = new Set(['cookie', 'host', 'connection', 'content-length', 'transfer-encoding']);
+  return Object.entries(sanitizeHttpBridgeHeaders(headers)).reduce((acc, [key, value]) => {
+    const normalizedKey = String(key).toLowerCase();
+    if (blocked.has(normalizedKey)) return acc;
+    if (!allowSensitiveHeaders && normalizedKey === 'authorization') return acc;
+    acc[key] = value;
+    return acc;
+  }, {});
+};
 
 const isInternalAppUrl = (url) => {
   if (!url) return false;
@@ -561,6 +628,11 @@ const createWindow = () => {
 
 app.whenReady().then(() => {
   recordStartupEvent('app-ready');
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    const responseHeaders = { ...(details.responseHeaders || {}) };
+    responseHeaders['Content-Security-Policy'] = [rendererCsp];
+    callback({ responseHeaders });
+  });
   settingsCache = readSettings();
   createWindow();
   if (shouldRewriteSettingsOnStartup()) {
@@ -756,7 +828,7 @@ ipcMain.handle('session:set', async (_event, payload) => {
 ipcMain.handle('http:request', async (_event, payload) => {
   const url = typeof payload?.url === 'string' ? payload.url : '';
   const method = String(payload?.method || 'GET').toUpperCase();
-  if (!isSafeExternalUrl(url)) {
+  if (!isAllowedHttpBridgeUrl(url)) {
     throw new Error('Invalid URL');
   }
   if (!allowedHttpBridgeMethods.has(method)) {
@@ -766,10 +838,11 @@ ipcMain.handle('http:request', async (_event, payload) => {
   if (body && body.length > 1024 * 1024) {
     throw new Error('Request body too large');
   }
-  const headers = sanitizeHttpBridgeHeaders(payload?.headers);
+  const headers = sanitizeBridgeRequestHeaders(url, payload?.headers);
   const response = await fetch(url, {
     method,
     headers,
+    credentials: 'omit',
     ...(body !== undefined ? { body } : {}),
   });
   const bodyText = await response.text();

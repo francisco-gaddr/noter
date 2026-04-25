@@ -4,8 +4,10 @@ import path from 'path';
 import { pipeline } from 'stream/promises';
 // @ts-ignore
 import { Readable } from 'stream';
+import { authenticateAiRequest } from '../../_lib/security';
 
 const MODELS_DIR = path.join(process.cwd(), 'models');
+const allowedDownloadHosts = new Set(['huggingface.co', 'cdn-lfs.huggingface.co']);
 
 if (!fs.existsSync(MODELS_DIR)) {
   fs.mkdirSync(MODELS_DIR, { recursive: true });
@@ -13,13 +15,24 @@ if (!fs.existsSync(MODELS_DIR)) {
 
 export async function POST(req: NextRequest) {
   try {
+    authenticateAiRequest(req);
     const { url, filename } = await req.json();
 
     if (!url || !filename) {
       return new Response(JSON.stringify({ error: 'url and filename required' }), { status: 400 });
     }
 
-    const filePath = path.join(MODELS_DIR, filename);
+    const parsedUrl = new URL(String(url));
+    if (parsedUrl.protocol !== 'https:' || !allowedDownloadHosts.has(parsedUrl.hostname.toLowerCase())) {
+      return new Response(JSON.stringify({ error: 'Download URL not allowed' }), { status: 400 });
+    }
+
+    const safeFilename = path.basename(String(filename));
+    if (!safeFilename || safeFilename !== String(filename)) {
+      return new Response(JSON.stringify({ error: 'Invalid filename' }), { status: 400 });
+    }
+
+    const filePath = path.join(MODELS_DIR, safeFilename);
 
     if (fs.existsSync(filePath)) {
         return new Response(JSON.stringify({ message: 'File already exists', path: filePath }), { status: 200 });
@@ -52,8 +65,9 @@ export async function POST(req: NextRequest) {
   }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
     try {
+        authenticateAiRequest(req);
         const files = fs.readdirSync(MODELS_DIR).map(file => {
             const stats = fs.statSync(path.join(MODELS_DIR, file));
             return {
@@ -71,11 +85,16 @@ export async function GET() {
 
 export async function DELETE(req: NextRequest) {
     try {
+        authenticateAiRequest(req);
         const { filename } = await req.json();
         if (!filename) {
             return new Response(JSON.stringify({ error: 'Filename required' }), { status: 400 });
         }
-        const filePath = path.join(MODELS_DIR, filename);
+        const safeFilename = path.basename(String(filename));
+        if (!safeFilename || safeFilename !== String(filename)) {
+            return new Response(JSON.stringify({ error: 'Invalid filename' }), { status: 400 });
+        }
+        const filePath = path.join(MODELS_DIR, safeFilename);
         if (fs.existsSync(filePath)) {
             fs.unlinkSync(filePath);
             return new Response(JSON.stringify({ message: 'Deleted' }), { status: 200 });

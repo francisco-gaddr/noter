@@ -15,7 +15,7 @@ const getAppEnv = () => String(process.env.NODE_ENV || 'development').trim().toL
 
 const isProductionEnv = () => getAppEnv() === 'production';
 
-const readTrimmedEnv = (name: string): string | undefined => {
+export const readTrimmedEnv = (name: string): string | undefined => {
   const raw = process.env[name];
   if (typeof raw !== 'string') return undefined;
   const trimmed = raw.trim();
@@ -80,7 +80,22 @@ export const getJwtVerifyOptions = (): jwt.VerifyOptions => {
 };
 
 export const isDemoTokenEnabled = () => {
+  if (isProductionEnv()) return false;
   return readTrimmedEnv('ALLOW_DEMO_TOKEN') === 'true';
+};
+
+export const assertSecureStartupConfig = () => {
+  if (isProductionEnv() && readTrimmedEnv('ALLOW_DEMO_TOKEN') === 'true') {
+    throw new Error('ALLOW_DEMO_TOKEN must be disabled in production');
+  }
+};
+
+export const getTrustProxySetting = (): number | boolean => {
+  const raw = readTrimmedEnv('TRUST_PROXY_HOPS');
+  if (!raw) return 1;
+  if (raw === 'false' || raw === '0') return false;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : 1;
 };
 
 export const getAllowedOrigins = () => {

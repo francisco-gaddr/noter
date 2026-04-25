@@ -1,4 +1,4 @@
-import { encrypt, decrypt } from '@repo/shared';
+import { clearEncryptionKey, decrypt, encrypt, setEncryptionKey } from '@repo/shared';
 import { api } from '../services/api';
 
 // Mock fetch for API tests
@@ -10,6 +10,11 @@ describe('E2E Encryption Tests', () => {
   beforeEach(() => {
     mockFetch.mockClear();
     localStorage.clear();
+    setEncryptionKey('a'.repeat(64));
+  });
+
+  afterEach(() => {
+    clearEncryptionKey();
   });
 
   describe('Field Encryption', () => {

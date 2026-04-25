@@ -1,6 +1,5 @@
-import { encrypt } from '@repo/shared';
-
 const mockFetchWithAuth = jest.fn();
+let shared: typeof import('@repo/shared');
 
 jest.mock('../services/api', () => ({
   fetchWithAuth: (...args: any[]) => mockFetchWithAuth(...args),
@@ -10,6 +9,12 @@ describe('mobile ai sync service', () => {
   beforeEach(() => {
     jest.resetModules();
     mockFetchWithAuth.mockReset();
+    shared = require('@repo/shared');
+    shared.setEncryptionKey('a'.repeat(64));
+  });
+
+  afterEach(() => {
+    shared?.clearEncryptionKey();
   });
 
   it('deduplicates concurrent pull requests', async () => {
@@ -32,8 +37,8 @@ describe('mobile ai sync service', () => {
         projectIdEnc: '',
         iconEnc: '',
         iconColorEnc: '',
-        createdAtEnc: encrypt('2026-03-12T00:00:00.000Z'),
-        updatedAtEnc: encrypt('2026-03-12T00:00:00.000Z'),
+        createdAtEnc: shared.encrypt('2026-03-12T00:00:00.000Z'),
+        updatedAtEnc: shared.encrypt('2026-03-12T00:00:00.000Z'),
       }],
       messages: [],
       projects: [],
@@ -52,8 +57,8 @@ describe('mobile ai sync service', () => {
         projectIdEnc: '',
         iconEnc: '',
         iconColorEnc: '',
-        createdAtEnc: encrypt('2026-03-12T00:00:00.000Z'),
-        updatedAtEnc: encrypt('2026-03-12T00:00:00.000Z'),
+        createdAtEnc: shared.encrypt('2026-03-12T00:00:00.000Z'),
+        updatedAtEnc: shared.encrypt('2026-03-12T00:00:00.000Z'),
       }],
       messages: [],
       projects: [],
@@ -61,6 +66,26 @@ describe('mobile ai sync service', () => {
     const sync = require('../services/ai/sync');
     const result = await sync.pullAiSync();
     expect(result.conversations[0]?.title).toBe('');
+  });
+
+  it('decrypts v3 ai sync payloads on pull', async () => {
+    mockFetchWithAuth.mockResolvedValue({
+      conversations: [{
+        id: 'c3',
+        titleEnc: await shared.encryptV3('V3 titel'),
+        modelEnc: '',
+        projectIdEnc: '',
+        iconEnc: '',
+        iconColorEnc: '',
+        createdAtEnc: await shared.encryptV3('2026-03-12T00:00:00.000Z'),
+        updatedAtEnc: await shared.encryptV3('2026-03-12T00:00:00.000Z'),
+      }],
+      messages: [],
+      projects: [],
+    });
+    const sync = require('../services/ai/sync');
+    const result = await sync.pullAiSync();
+    expect(result.conversations[0]?.title).toBe('V3 titel');
   });
 
   it('pushes encrypted payload for conversations, messages and projects', async () => {
@@ -96,9 +121,9 @@ describe('mobile ai sync service', () => {
 
     const [, req] = mockFetchWithAuth.mock.calls[0];
     const body = JSON.parse(req.body);
-    expect(body.conversations[0].titleEnc).toMatch(/^U2FsdGVkX1/);
-    expect(body.messages[0].contentEnc).toMatch(/^U2FsdGVkX1/);
-    expect(body.projects[0].nameEnc).toMatch(/^U2FsdGVkX1/);
+    expect(body.conversations[0].titleEnc).toMatch(/^noter:v3:/);
+    expect(body.messages[0].contentEnc).toMatch(/^noter:v3:/);
+    expect(body.projects[0].nameEnc).toMatch(/^noter:v3:/);
     expect(body.conversations[0].titleEnc).not.toContain('Hemlig chatt');
     expect(body.messages[0].contentEnc).not.toContain('Hemligt meddelande');
     expect(body.projects[0].nameEnc).not.toContain('Hemligt projekt');

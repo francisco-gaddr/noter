@@ -80,6 +80,12 @@ export interface AuthResponse {
   user: User;
   token: string;
   refreshToken?: string;
+  encryption?: {
+    wrappedDataKey: string;
+    salt: string;
+    keyWrapVersion: number;
+    keyWrapKdf: string;
+  };
 }
 
 export interface CreateNoteDto {

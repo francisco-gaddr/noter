@@ -5,12 +5,16 @@ import fs from 'fs';
 // Singleton to hold the model in memory across API requests (serverless might kill it, but local dev persists)
 let modelInstance: LlamaModel | null = null;
 let contextInstance: LlamaContext | null = null;
+let loadedCacheKey = '';
 
 export class NodeLlamaProvider implements LLMProvider {
+  constructor(private cacheKey = 'global') {}
+
   async loadModel(modelPath: string, options?: { gpuLayers?: number }): Promise<void> {
     if (!fs.existsSync(modelPath)) {
         throw new Error(`Model file not found at ${modelPath}`);
     }
+    const nextCacheKey = `${this.cacheKey}:${modelPath}:${String(options?.gpuLayers ?? '')}`;
     
     // Only reload if model path changed or we don't have an instance
     // Or if gpuLayers changed significantly (simplification: just reuse if path matches)
@@ -18,13 +22,7 @@ export class NodeLlamaProvider implements LLMProvider {
     // but for now, let's just assume single model usage or reload if null.
     
     if (modelInstance) {
-        // If we want to support switching models, we need to track current path.
-        // For this fix, let's assume we reuse if instance exists to avoid overhead, 
-        // unless we implement full model switching logic.
-        // But the user might switch models in UI.
-        // Let's add a property to track loaded path.
-        // @ts-ignore
-        if (modelInstance._modelPath === modelPath) {
+        if (loadedCacheKey === nextCacheKey) {
             return;
         }
         
@@ -38,8 +36,7 @@ export class NodeLlamaProvider implements LLMProvider {
         modelPath: modelPath,
         gpuLayers: options?.gpuLayers
       });
-      // @ts-ignore
-      modelInstance._modelPath = modelPath;
+      loadedCacheKey = nextCacheKey;
       
       contextInstance = new LlamaContext({ model: modelInstance });
       console.log("Model loaded successfully from", modelPath);

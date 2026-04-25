@@ -1,7 +1,9 @@
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
+import { createPasswordWrappedEncryption } from '@repo/shared';
 import type { AuthResponse } from '@repo/shared';
+import { bootstrapLocalEncryptionFromPassword, cacheLocalDataKey, clearLocalDataKey } from './encryptionKey';
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -229,6 +231,7 @@ export async function login(username: string, password: string) {
     }
 
     const data: SessionAuthResponse = await response.json();
+    await bootstrapLocalEncryptionFromPassword(password, data.encryption);
     await persistSession(data);
     return data;
   } catch (error: any) {
@@ -240,10 +243,18 @@ export async function register(username: string, password: string) {
   const url = `${API_URL}/auth/register`;
   try {
     logDebug(`[API] Registering user: ${username} to ${url}`);
+    const encryption = createPasswordWrappedEncryption(password);
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({
+        username,
+        password,
+        wrappedDataKey: encryption.wrappedDataKey,
+        encryptionSalt: encryption.salt,
+        keyWrapVersion: encryption.keyWrapVersion,
+        keyWrapKdf: encryption.keyWrapKdf,
+      }),
     });
 
     if (!response.ok) {
@@ -259,6 +270,7 @@ export async function register(username: string, password: string) {
     }
 
     const data: SessionAuthResponse = await response.json();
+    await cacheLocalDataKey(encryption.dataKey);
     await persistSession(data);
     return data;
   } catch (error: any) {
@@ -278,6 +290,7 @@ export async function logout() {
     }
   } finally {
     await clearSession(false);
+    await clearLocalDataKey().catch(() => {});
   }
 }
 

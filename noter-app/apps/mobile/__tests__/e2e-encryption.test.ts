@@ -15,7 +15,7 @@ jest.mock('@react-native-community/netinfo', () => ({
   fetch: jest.fn(() => Promise.resolve({ isConnected: true })),
 }));
 
-import { encrypt, decrypt, setEncryptionKey } from '@repo/shared';
+import { clearEncryptionKey, decrypt, encrypt, setEncryptionKey } from '@repo/shared';
 import { fetchWithAuth } from '../services/api';
 
 // Mock fetch for API tests
@@ -26,6 +26,7 @@ const mockFetch = fetch as jest.MockedFunction<typeof fetch>;
 describe('Mobile E2E Encryption Tests', () => {
   beforeEach(() => {
     mockFetch.mockClear();
+    setEncryptionKey('a'.repeat(64));
     // Mock fetchWithAuth to use our mocked fetch
     jest.mock('../services/api', () => ({
       ...jest.requireActual('../services/api'),
@@ -33,11 +34,11 @@ describe('Mobile E2E Encryption Tests', () => {
     }));
   });
 
-  describe('Field Encryption', () => {
-    afterEach(() => {
-      setEncryptionKey('noter-default-key');
-    });
+  afterEach(() => {
+    clearEncryptionKey();
+  });
 
+  describe('Field Encryption', () => {
     it('should encrypt and decrypt locked field correctly', () => {
       const originalValue = 'true';
       const encrypted = encrypt(originalValue);
@@ -65,11 +66,11 @@ describe('Mobile E2E Encryption Tests', () => {
       expect(decrypted).toBe(originalValue);
     });
 
-    it('should decrypt legacy default-key data even when runtime key changes', () => {
-      setEncryptionKey('noter-default-key');
+    it('should fail closed when ciphertext is decrypted with the wrong runtime key', () => {
+      setEncryptionKey('e'.repeat(64));
       const encrypted = encrypt('Legacy innehåll');
       setEncryptionKey('f'.repeat(64));
-      expect(decrypt(encrypted)).toBe('Legacy innehåll');
+      expect(decrypt(encrypted)).toBe('');
     });
 
     it('should pass through plaintext values', () => {

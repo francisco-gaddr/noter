@@ -8,6 +8,11 @@ import AIProjectSync from '../models/AIProjectSync';
 import { isEncryptedPayload } from '../utils/encryption';
 
 const router = express.Router();
+const DEFAULT_MAX_SYNC_RECORDS_PER_USER = 20_000;
+const getMaxSyncRecordsPerUser = () => {
+  const parsed = Number.parseInt(process.env.AI_SYNC_MAX_RECORDS_PER_USER || '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MAX_SYNC_RECORDS_PER_USER;
+};
 
 const encryptedRequired = Joi.string().custom((value, helpers) => (
   isEncryptedPayload(value) ? value : helpers.error('any.invalid')
@@ -113,6 +118,23 @@ router.post('/push', validate(pushSchema), async (req: Request, res: Response, n
       deletedConversationIds = [],
       deletedProjectIds = [],
     } = req.body || {};
+
+    const incomingMessageIds = Array.from(new Set(
+      messages
+        .map((item: any) => String(item?.id || '').trim())
+        .filter(Boolean)
+    )) as string[];
+    if (incomingMessageIds.length > 0) {
+      const [existingCount, existingMessages] = await Promise.all([
+        AIMessageSync.countDocuments({ userId }),
+        AIMessageSync.find({ userId, messageId: { $in: incomingMessageIds } }).select('messageId').lean(),
+      ]);
+      const existingIdSet = new Set(existingMessages.map((item: any) => String(item.messageId)));
+      const newMessageCount = incomingMessageIds.filter((id) => !existingIdSet.has(id)).length;
+      if (newMessageCount > 0 && existingCount + newMessageCount > getMaxSyncRecordsPerUser()) {
+        return res.status(429).json({ message: 'AI sync quota exceeded for this account' });
+      }
+    }
 
     if (projects.length > 0) {
       await AIProjectSync.bulkWrite(projects.map((item: any) => ({

@@ -11,6 +11,7 @@ import Task from '../src/models/Task';
 import { encrypt } from '@repo/shared';
 
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-jwt-secret';
+process.env.ALLOW_DEMO_TOKEN = 'true';
 jest.setTimeout(30_000);
 
 const app = express();

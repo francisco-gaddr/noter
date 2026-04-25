@@ -7,18 +7,22 @@ import type { Response } from 'express';
 import User from '../models/User';
 import RefreshToken from '../models/RefreshToken';
 import logger from '../utils/logger';
-import { AuthResponse } from '@repo/shared';
 import { validate } from '../middleware/validate';
 import { getAccessTokenExpiresIn, getJwtSecret, getJwtSignOptions, getRefreshTokenExpiresIn } from '../utils/security';
 import { createOpaqueToken, createTokenFamilyId, durationToMs, getRequestFingerprint, hashToken } from '../utils/authSessions';
 import { getCookieValueFromRequestLike } from '../middleware/authMiddleware';
 import { authMiddleware, AuthRequest } from '../middleware/authMiddleware';
+import cache from '../services/cache';
 
 const router = express.Router();
 
 const registerSchema = Joi.object({
   username: Joi.string().trim().alphanum().min(3).max(30).required(),
-  password: Joi.string().min(8).max(128).required()
+  password: Joi.string().min(8).max(128).required(),
+  wrappedDataKey: Joi.string().trim().min(24).max(4096).required(),
+  encryptionSalt: Joi.string().trim().min(16).max(1024).required(),
+  keyWrapVersion: Joi.number().integer().min(1).max(10).default(1),
+  keyWrapKdf: Joi.string().trim().valid('pbkdf2-sha256').default('pbkdf2-sha256'),
 });
 
 const loginSchema = Joi.object({
@@ -38,27 +42,45 @@ const BCRYPT_ROUNDS = Math.max(10, Number.parseInt(process.env.BCRYPT_ROUNDS || 
 const DUMMY_HASH = bcrypt.hashSync(randomBytes(16).toString('hex'), BCRYPT_ROUNDS);
 const ACCESS_TOKEN_EXPIRES_IN = getAccessTokenExpiresIn();
 const REFRESH_TOKEN_EXPIRES_IN = getRefreshTokenExpiresIn();
-type SessionAuthResponse = AuthResponse & { refreshToken: string };
-const isProduction = process.env.NODE_ENV === 'production';
+type SessionAuthResponse = {
+  user: {
+    _id: string;
+    username: string;
+    createdAt: string;
+  };
+  token: string;
+  refreshToken: string;
+  encryption: {
+    wrappedDataKey: string;
+    salt: string;
+    keyWrapVersion: number;
+    keyWrapKdf: string;
+  };
+};
+const isSecureRequest = (req: Request) => {
+  if (req.secure) return true;
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0]?.trim().toLowerCase();
+  return forwardedProto === 'https';
+};
 
-const cookieOptions = (maxAge: number) => ({
+const cookieOptions = (req: Request, maxAge: number) => ({
   httpOnly: true,
   sameSite: 'lax' as const,
-  secure: isProduction,
+  secure: isSecureRequest(req),
   maxAge,
   path: '/',
 });
 
-const applySessionCookies = (res: Response, response: SessionAuthResponse) => {
-  res.cookie('noter_at', response.token, cookieOptions(durationToMs(ACCESS_TOKEN_EXPIRES_IN)));
-  res.cookie('noter_rt', response.refreshToken, cookieOptions(durationToMs(REFRESH_TOKEN_EXPIRES_IN)));
+const applySessionCookies = (req: Request, res: Response, response: SessionAuthResponse) => {
+  res.cookie('noter_at', response.token, cookieOptions(req, durationToMs(ACCESS_TOKEN_EXPIRES_IN)));
+  res.cookie('noter_rt', response.refreshToken, cookieOptions(req, durationToMs(REFRESH_TOKEN_EXPIRES_IN)));
 };
 
-const clearSessionCookies = (res: Response) => {
+const clearSessionCookies = (req: Request, res: Response) => {
   const options = {
     httpOnly: true,
     sameSite: 'lax' as const,
-    secure: isProduction,
+    secure: isSecureRequest(req),
     path: '/',
   };
   res.clearCookie('noter_at', options);
@@ -66,11 +88,12 @@ const clearSessionCookies = (res: Response) => {
 };
 
 const buildAuthResponse = async (
-  user: { _id: { toString(): string }; username: string; createdAt: Date },
+  user: { _id: { toString(): string }; username: string; createdAt: Date; tokenVersion?: number; encryptionSalt?: string; wrappedDataKey?: string; keyWrapVersion?: number; keyWrapKdf?: string },
   req: Request,
   familyId = createTokenFamilyId(),
 ): Promise<SessionAuthResponse> => {
-  const token = jwt.sign({ userId: user._id }, getJwtSecret(), getJwtSignOptions());
+  const tokenVersion = typeof user.tokenVersion === 'number' ? user.tokenVersion : 1;
+  const token = jwt.sign({ userId: user._id, tokenVersion }, getJwtSecret(), getJwtSignOptions());
   const refreshToken = createOpaqueToken();
   const fingerprint = getRequestFingerprint(req);
   await new RefreshToken({
@@ -90,6 +113,12 @@ const buildAuthResponse = async (
     },
     token,
     refreshToken,
+    encryption: {
+      wrappedDataKey: user.wrappedDataKey || '',
+      salt: user.encryptionSalt || '',
+      keyWrapVersion: typeof user.keyWrapVersion === 'number' ? user.keyWrapVersion : 1,
+      keyWrapKdf: user.keyWrapKdf || 'pbkdf2-sha256',
+    },
   };
 };
 
@@ -100,6 +129,17 @@ const revokeFamily = async (familyId: string) => {
   );
 };
 
+const bumpUserTokenVersion = async (userId: string) => {
+  const updated = await User.findOneAndUpdate(
+    { _id: userId },
+    { $inc: { tokenVersion: 1 } },
+    { new: true, select: 'tokenVersion' },
+  ).lean<{ tokenVersion?: number }>();
+  const nextVersion = typeof updated?.tokenVersion === 'number' ? updated.tokenVersion : 1;
+  await cache.set(`auth:token-version:${userId}`, nextVersion, 5);
+  return nextVersion;
+};
+
 // Register
 router.post('/register', validate(registerSchema), async (req, res) => {
   try {
@@ -107,18 +147,26 @@ router.post('/register', validate(registerSchema), async (req, res) => {
     const password = String(req.body.password || '');
     // Validation handled by middleware
 
-    const existingUser = await User.findOne({ username });
+    const existingUser = await User.findOne({ username }).select('_id').lean<{ _id: unknown }>();
     if (existingUser) {
       return res.status(400).json({ message: 'Username already exists' });
     }
 
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
-    const newUser = new User({ username, passwordHash });
+    const newUser = new User({
+      username,
+      passwordHash,
+      wrappedDataKey: String(req.body.wrappedDataKey || ''),
+      encryptionSalt: String(req.body.encryptionSalt || ''),
+      keyWrapVersion: Number(req.body.keyWrapVersion || 1),
+      keyWrapKdf: String(req.body.keyWrapKdf || 'pbkdf2-sha256'),
+      keyWrappedAt: new Date(),
+    });
     await newUser.save();
 
     const response = await buildAuthResponse(newUser, req);
 
-    applySessionCookies(res, response);
+    applySessionCookies(req, res, response);
     res.status(201).json(response);
   } catch (error: any) {
     logger.error('Auth register failed', { error: error?.message || String(error) });
@@ -132,7 +180,7 @@ router.post('/login', validate(loginSchema), async (req, res) => {
   try {
     const username = String(req.body.username || '').trim().toLowerCase();
     const password = String(req.body.password || '');
-    const user = await User.findOne({ username });
+    const user = await User.findOne({ username }).select('username createdAt tokenVersion +passwordHash +wrappedDataKey +encryptionSalt keyWrapVersion +keyWrapKdf');
     if (!user) {
       await bcrypt.compare(password, DUMMY_HASH);
       return res.status(401).json({ message: 'Invalid credentials' });
@@ -145,7 +193,7 @@ router.post('/login', validate(loginSchema), async (req, res) => {
 
     const response = await buildAuthResponse(user, req);
 
-    applySessionCookies(res, response);
+    applySessionCookies(req, res, response);
     res.json(response);
   } catch (error: any) {
     logger.error('Auth login failed', { error: error?.message || String(error) });
@@ -158,23 +206,25 @@ router.post('/refresh', validate(refreshSchema), async (req, res) => {
   try {
     const presentedToken = String(req.body.refreshToken || getCookieValueFromRequestLike(req, 'noter_rt') || '').trim();
     if (!presentedToken) {
-      clearSessionCookies(res);
+      clearSessionCookies(req, res);
       return res.status(401).json({ message: 'Invalid session' });
     }
     const tokenHash = hashToken(presentedToken);
     const existingToken = await RefreshToken.findOne({ tokenHash });
     if (!existingToken) {
-      clearSessionCookies(res);
+      clearSessionCookies(req, res);
       return res.status(401).json({ message: 'Invalid session' });
     }
     if (existingToken.revokedAt) {
+      await bumpUserTokenVersion(existingToken.userId);
       await revokeFamily(existingToken.familyId);
-      clearSessionCookies(res);
+      clearSessionCookies(req, res);
       return res.status(401).json({ message: 'Invalid session' });
     }
     if (existingToken.expiresAt.getTime() <= Date.now()) {
+      await bumpUserTokenVersion(existingToken.userId);
       await revokeFamily(existingToken.familyId);
-      clearSessionCookies(res);
+      clearSessionCookies(req, res);
       return res.status(401).json({ message: 'Session expired' });
     }
 
@@ -183,15 +233,16 @@ router.post('/refresh', validate(refreshSchema), async (req, res) => {
       (existingToken.userAgentHash && existingToken.userAgentHash !== fingerprint.userAgentHash)
       || (existingToken.ipHash && existingToken.ipHash !== fingerprint.ipHash)
     ) {
+      await bumpUserTokenVersion(existingToken.userId);
       await revokeFamily(existingToken.familyId);
-      clearSessionCookies(res);
+      clearSessionCookies(req, res);
       return res.status(401).json({ message: 'Invalid session' });
     }
 
-    const user = await User.findById(existingToken.userId);
+    const user = await User.findById(existingToken.userId).select('username createdAt tokenVersion +wrappedDataKey +encryptionSalt keyWrapVersion +keyWrapKdf');
     if (!user) {
       await revokeFamily(existingToken.familyId);
-      clearSessionCookies(res);
+      clearSessionCookies(req, res);
       return res.status(401).json({ message: 'Invalid session' });
     }
 
@@ -200,7 +251,7 @@ router.post('/refresh', validate(refreshSchema), async (req, res) => {
     existingToken.replacedByTokenHash = hashToken(String(response.refreshToken || ''));
     await existingToken.save();
 
-    applySessionCookies(res, response);
+    applySessionCookies(req, res, response);
     res.json(response);
   } catch (error: any) {
     logger.error('Auth refresh failed', { error: error?.message || String(error) });
@@ -212,15 +263,16 @@ router.post('/logout', validate(logoutSchema), async (req, res) => {
   try {
     const presentedToken = String(req.body.refreshToken || getCookieValueFromRequestLike(req, 'noter_rt') || '').trim();
     if (!presentedToken) {
-      clearSessionCookies(res);
+      clearSessionCookies(req, res);
       return res.status(204).send();
     }
     const tokenHash = hashToken(presentedToken);
     const existingToken = await RefreshToken.findOne({ tokenHash });
     if (existingToken) {
+      await bumpUserTokenVersion(existingToken.userId);
       await revokeFamily(existingToken.familyId);
     }
-    clearSessionCookies(res);
+    clearSessionCookies(req, res);
     res.status(204).send();
   } catch (error: any) {
     logger.error('Auth logout failed', { error: error?.message || String(error) });
@@ -230,15 +282,33 @@ router.post('/logout', validate(logoutSchema), async (req, res) => {
 
 router.get('/me', authMiddleware, async (req, res) => {
   const userId = (req as AuthRequest).user?.userId;
-  const user = await User.findById(userId).select('_id username createdAt').lean();
+  if (!userId) {
+    clearSessionCookies(req, res);
+    return res.status(401).json({ message: 'Invalid session' });
+  }
+  const user = await User.findById(userId).select('_id username createdAt +encryptionSalt +wrappedDataKey keyWrapVersion +keyWrapKdf').lean<{
+    _id: { toString(): string };
+    username: string;
+    createdAt: Date;
+    encryptionSalt?: string;
+    wrappedDataKey?: string;
+    keyWrapVersion?: number;
+    keyWrapKdf?: string;
+  }>();
   if (!user) {
-    clearSessionCookies(res);
+    clearSessionCookies(req, res);
     return res.status(404).json({ message: 'User not found' });
   }
   res.json({
     _id: String(user._id),
     username: user.username,
     createdAt: new Date(user.createdAt).toISOString(),
+    encryption: {
+      wrappedDataKey: user.wrappedDataKey || '',
+      salt: user.encryptionSalt || '',
+      keyWrapVersion: typeof user.keyWrapVersion === 'number' ? user.keyWrapVersion : 1,
+      keyWrapKdf: user.keyWrapKdf || 'pbkdf2-sha256',
+    },
   });
 });
 

@@ -1,7 +1,7 @@
 export interface MCPTool {
   name: string;
   description: string;
-  parameters: any;
+  inputSchema?: any;
 }
 
 export class MCPClient {
@@ -12,10 +12,10 @@ export class MCPClient {
       const response = await fetch(this.url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', method: 'listTools', id: 1 })
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'tools/list', id: 1, params: {} })
       });
       const data = await response.json();
-      return data.result || [];
+      return Array.isArray(data?.result?.tools) ? data.result.tools : [];
     } catch (error) {
       console.error('MCP ListTools Error:', error);
       return [];
@@ -27,7 +27,7 @@ export class MCPClient {
       const response = await fetch(this.url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', method: 'callTool', params: { name, args }, id: 2 })
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'tools/call', params: { name, arguments: args || {} }, id: 2 })
       });
       const data = await response.json();
       return data.result;

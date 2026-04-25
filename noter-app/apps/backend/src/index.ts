@@ -24,8 +24,10 @@ import { errorHandler } from './middleware/errorMiddleware';
 import { blockSuspiciousRequestPatterns, enforceJsonApiRequests } from './middleware/requestSecurity';
 import { createRequestContextMiddleware } from './middleware/requestContext';
 import { createHandler } from 'graphql-http/lib/use/express';
+import { NoSchemaIntrospectionCustomRule } from 'graphql';
 import { toolSchema } from './graphql/schema';
-import { getAllowedOrigins, getJwtSecret, getJwtVerifyOptions, isDemoTokenEnabled } from './utils/security';
+import { graphqlOperationLimitRule } from './graphql/validation';
+import { assertSecureStartupConfig, getAllowedOrigins, getJwtSecret, getJwtVerifyOptions, getTrustProxySetting, isDemoTokenEnabled } from './utils/security';
 import { buildHealthResponse, buildReadyResponse } from './services/runtimeHealth';
 
 const dotenvPath = process.env.DOTENV_PATH;
@@ -50,7 +52,9 @@ let isShuttingDown = false;
 let serverStarted = false;
 let shutdownPromise: Promise<void> | null = null;
 
-app.set('trust proxy', 1);
+assertSecureStartupConfig();
+
+app.set('trust proxy', getTrustProxySetting());
 app.disable('x-powered-by');
 
 app.use(createRequestContextMiddleware(logger));
@@ -260,21 +264,18 @@ app.get('/api/ready', async (_req, res) => {
 app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/notes', authMiddleware, noteRoutes);
 app.use('/api/tasks', authMiddleware, taskRoutes);
-app.use('/api/ai/models', aiModelRoutes);
+app.use('/api/ai/models', apiSensitiveLimiter, aiModelRoutes);
 app.use('/api/ai/sync', authMiddleware, aiSyncRoutes);
 app.use('/api/mcp', apiSensitiveLimiter, authMiddleware, mcpRoutes);
 app.use('/api/graphql', apiSensitiveLimiter);
-app.use('/api/graphql', (req, res, next) => {
-  if (!isProduction) return next();
-  if (process.env.ALLOW_GRAPHQL_INTROSPECTION === 'true') return next();
-  const query = typeof req.body?.query === 'string' ? req.body.query.toLowerCase() : '';
-  if (query.includes('__schema') || query.includes('__type')) {
-    return res.status(403).json({ message: 'GraphQL introspection is disabled' });
-  }
-  return next();
-});
-app.use('/api/graphql', authMiddleware, createHandler({
+const graphqlHandler = createHandler({
   schema: toolSchema,
+  validationRules: [
+    graphqlOperationLimitRule,
+    ...(isProduction && process.env.ALLOW_GRAPHQL_INTROSPECTION !== 'true'
+      ? [NoSchemaIntrospectionCustomRule]
+      : []),
+  ],
   context: (req: any) => {
     let userId: string | undefined = req?.user?.userId || req?.raw?.user?.userId;
     const token = getBearerTokenFromRequestLike(req);
@@ -287,7 +288,8 @@ app.use('/api/graphql', authMiddleware, createHandler({
     }
     return { userId, io: req?.app?.get('io') };
   }
-}));
+} as any);
+app.use('/api/graphql', authMiddleware, graphqlHandler);
 app.use('/api', (_req, res) => {
   res.status(404).json({ message: 'API endpoint not found' });
 });
@@ -347,7 +349,7 @@ const startServer = async () => {
       logger.warn('Running without database connection (some features may fail)');
     }
   } else {
-    logger.info('MONGO_URI not set, running without database connection');
+    logger.warn('MONGO_URI not set, running without database connection');
   }
 
   server.listen(Number(port), '0.0.0.0', () => {

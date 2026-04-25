@@ -1,28 +1,31 @@
 import { NextRequest } from 'next/server';
 import { ChatMessage } from '@repo/ai';
+import { authenticateAiRequest, resolveAllowedModelPath } from './_lib/security';
 
-let providerPromise: Promise<any> | null = null;
+const providerPromises = new Map<string, Promise<any>>();
 
-const getProvider = async () => {
-  if (!providerPromise) {
-    providerPromise = import('../../../lib/ai/provider').then((mod) => new mod.NodeLlamaProvider());
+const getProvider = async (cacheKey: string) => {
+  if (!providerPromises.has(cacheKey)) {
+    providerPromises.set(cacheKey, import('../../../lib/ai/provider').then((mod) => new mod.NodeLlamaProvider(cacheKey)));
   }
-  return providerPromise;
+  return providerPromises.get(cacheKey)!;
 };
 
 export async function POST(req: NextRequest) {
   try {
-    const provider = await getProvider();
+    const { userId } = authenticateAiRequest(req);
     const body = await req.json();
     const { messages, modelPath, gpuLayers } = body;
 
     if (!modelPath) {
       return new Response(JSON.stringify({ error: 'Model path required' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
+    const resolvedModelPath = resolveAllowedModelPath(modelPath);
+    const provider = await getProvider(`${userId}:${resolvedModelPath}`);
 
     // Ensure model is loaded before streaming
     try {
-        await provider.loadModel(modelPath, { gpuLayers: typeof gpuLayers === 'number' ? gpuLayers : undefined });
+        await provider.loadModel(resolvedModelPath, { gpuLayers: typeof gpuLayers === 'number' ? gpuLayers : undefined });
     } catch (e: any) {
         return new Response(JSON.stringify({ error: `Failed to load model: ${e.message}` }), { status: 500, headers: { 'Content-Type': 'application/json' } });
     }
@@ -31,7 +34,7 @@ export async function POST(req: NextRequest) {
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          await provider.streamResponse(messages as ChatMessage[], {}, (token) => {
+          await provider.streamResponse(messages as ChatMessage[], {}, (token: string) => {
             controller.enqueue(encoder.encode(token));
           });
           controller.close();

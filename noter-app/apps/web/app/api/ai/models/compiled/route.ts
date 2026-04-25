@@ -1,16 +1,9 @@
 import { NextRequest } from 'next/server';
-
-const resolveApiBaseUrl = (req: NextRequest) => {
-  const explicit = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL;
-  if (explicit) {
-    return explicit.replace(/\/$/, '');
-  }
-  const origin = new URL(req.url).origin;
-  return `${origin.replace(/\/$/, '')}/api`;
-};
+import { authenticateAiRequest, buildBackendProxyHeaders, resolveBackendApiBaseUrl } from '../../_lib/security';
 
 export async function GET(req: NextRequest) {
   try {
+    authenticateAiRequest(req);
     const { searchParams } = new URL(req.url);
     const modelId = searchParams.get('modelId');
 
@@ -18,12 +11,9 @@ export async function GET(req: NextRequest) {
       return new Response(JSON.stringify({ error: 'modelId required' }), { status: 400, headers: { 'Content-Type': 'application/json' } });
     }
 
-    const apiBaseUrl = resolveApiBaseUrl(req);
+    const apiBaseUrl = resolveBackendApiBaseUrl(req);
     const response = await fetch(`${apiBaseUrl}/ai/models/compiled?${searchParams.toString()}`, {
-      headers: {
-        Accept: 'application/json',
-        'Cache-Control': 'no-cache',
-      },
+      headers: buildBackendProxyHeaders(req),
       cache: 'no-store',
     });
     const bodyText = await response.text();

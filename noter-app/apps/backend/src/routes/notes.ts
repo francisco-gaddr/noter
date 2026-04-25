@@ -16,6 +16,10 @@ import { assertValidObjectId, findOwnedById } from '../utils/ownedQuery';
 const router = express.Router();
 const BCRYPT_ROUNDS = Math.max(10, Number.parseInt(process.env.BCRYPT_ROUNDS || '12', 10) || 12);
 const DUMMY_PASSWORD_HASH = bcrypt.hashSync(randomBytes(16).toString('hex'), BCRYPT_ROUNDS);
+const omitSensitiveNoteFields = <T extends Record<string, any>>(note: T) => {
+  const { password, ...rest } = note;
+  return rest;
+};
 
 const encryptedRequired = Joi.string().custom((value, helpers) => (
   isEncryptedPayload(value) ? value : helpers.error('any.invalid')
@@ -206,7 +210,7 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
       res.json(cachedNote);
       return;
     }
-    const note = await findOwnedById(Note, userId, noteId).select('+password').lean().exec();
+    const note = await findOwnedById(Note, userId, noteId).lean().exec();
     if (!note) {
       res.status(404);
       return next(new Error('Note not found'));
@@ -225,8 +229,9 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
     // To be consistent, we should use the same logic or just return it.
     // Let's just return it. The client handles decryption/locking view.
     // But wait, GET / hides content.
-    await cache.set(cacheKey, note, 300);
-    res.json(note);
+    const sanitizedNote = omitSensitiveNoteFields(note as any);
+    await cache.set(cacheKey, sanitizedNote, 300);
+    res.json(sanitizedNote);
   } catch (error) {
     next(error);
   }
@@ -260,8 +265,14 @@ router.post('/:id/verify-lock', verifyLockLimiter, async (req: Request, res: Res
       current = await findOwnedById(Note, userId, String(current.parentId)).select('+password');
     }
 
+    const toUnlockedResponse = (unlockedId: string | null) => ({
+      success: true,
+      unlockedId,
+      ...omitSensitiveNoteFields(targetNote.toObject()),
+    });
+
     if (!blockingNote) {
-      res.json({ success: true, content: targetNote.content, title: targetNote.title, unlockedId: null });
+      res.json(toUnlockedResponse(null));
       return;
     }
 
@@ -279,7 +290,7 @@ router.post('/:id/verify-lock', verifyLockLimiter, async (req: Request, res: Res
       return;
     }
 
-    res.json({ success: true, content: targetNote.content, title: targetNote.title, unlockedId: String(blockingNote._id) });
+    res.json(toUnlockedResponse(String(blockingNote._id)));
   } catch (error) {
     next(error);
   }
@@ -345,8 +356,14 @@ router.put('/reorder', validate(reorderSchema), async (req: Request, res: Respon
         };
       });
 
+    let reorderWarning: { attempted: number; matched: number } | null = null;
     if (updates.length > 0) {
-      await Note.bulkWrite(updates);
+      const result = await Note.bulkWrite(updates);
+      const attempted = updates.length;
+      const matched = Number(result.matchedCount || 0);
+      if (matched < attempted) {
+        reorderWarning = { attempted, matched };
+      }
     }
 
     await cache.del(`notes:list:${userId}`);
@@ -355,6 +372,12 @@ router.put('/reorder', validate(reorderSchema), async (req: Request, res: Respon
     const io = req.app.get('io');
     io.to(`user:${userId}`).emit('notes:reordered', notes);
 
+    if (reorderWarning) {
+      return res.status(207).json({
+        message: 'Notes reordered with partial ownership match',
+        ...reorderWarning,
+      });
+    }
     res.json({ message: 'Notes reordered' });
   } catch (error) {
     next(error);

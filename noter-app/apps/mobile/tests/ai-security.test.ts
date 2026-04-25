@@ -1,7 +1,15 @@
-import { encrypt } from '@repo/shared';
+import { clearEncryptionKey, encrypt, setEncryptionKey } from '@repo/shared';
 import { buildSecurityNoteMap, findBlockingLockedAncestor, isReadableWithLocks, maskLockedHierarchy } from '../services/ai/security';
 
 describe('mobile ai security lock hierarchy', () => {
+  beforeEach(() => {
+    setEncryptionKey('a'.repeat(64));
+  });
+
+  afterEach(() => {
+    clearEncryptionKey();
+  });
+
   const notes = [
     { _id: 'p1', type: 'project', parentId: null, locked: true, title: 'Proj', content: '' },
     { _id: 'n1', type: 'note', parentId: 'p1', locked: false, title: 'Barn', content: 'Hemlig text' },

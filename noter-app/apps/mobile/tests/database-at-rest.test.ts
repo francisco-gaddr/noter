@@ -1,8 +1,25 @@
-import { decrypt, encrypt, setEncryptionKey } from '@repo/shared';
+import { clearEncryptionKey, decrypt, encrypt, setEncryptionKey } from '@repo/shared';
+
+const TEST_KEY = 'a'.repeat(64);
+
+const loadDatabaseWithKey = () => {
+  let database: any;
+  jest.isolateModules(() => {
+    const shared = require('@repo/shared');
+    shared.setEncryptionKey(TEST_KEY);
+    database = require('../services/database');
+  });
+  return database;
+};
 
 describe('mobile database at-rest encryption', () => {
   beforeEach(() => {
     jest.resetModules();
+    setEncryptionKey(TEST_KEY);
+  });
+
+  afterEach(() => {
+    clearEncryptionKey();
   });
 
   it('stores note title/content encrypted in sqlite writes', async () => {
@@ -17,10 +34,7 @@ describe('mobile database at-rest encryption', () => {
       }),
     }));
 
-    let database: any;
-    jest.isolateModules(() => {
-      database = require('../services/database');
-    });
+    const database = loadDatabaseWithKey();
     await database.saveNoteLocal({
       _id: 'n1',
       userId: 'u1',
@@ -56,10 +70,7 @@ describe('mobile database at-rest encryption', () => {
       }),
     }));
 
-    let database: any;
-    jest.isolateModules(() => {
-      database = require('../services/database');
-    });
+    const database = loadDatabaseWithKey();
     await database.saveTaskLocal({
       _id: 't1',
       userId: 'u1',
@@ -89,8 +100,9 @@ describe('mobile database at-rest encryption', () => {
     expect(decrypt(params[2])).toBe('Uppgift hemlig beskrivning');
   });
 
-  it('migrates legacy encrypted rows to active key', async () => {
+  it('does not migrate legacy default-key rows without a matching runtime key', async () => {
     let legacyNoteTitle = '';
+    let legacyTaskTitle = '';
 
     const runAsync = jest.fn(async () => {});
     const execAsync = jest.fn(async () => {});
@@ -99,7 +111,7 @@ describe('mobile database at-rest encryption', () => {
         return [{ _id: 'n1', title: legacyNoteTitle }];
       }
       if (sql.includes('FROM tasks')) {
-        return [{ _id: 't1', title: 'Legacy uppgift' }];
+        return [{ _id: 't1', title: legacyTaskTitle }];
       }
       return [];
     });
@@ -118,22 +130,18 @@ describe('mobile database at-rest encryption', () => {
       const shared = require('@repo/shared');
       shared.setEncryptionKey('noter-default-key');
       legacyNoteTitle = shared.encrypt('Legacy anteckning');
+      legacyTaskTitle = shared.encrypt('Legacy uppgift');
       shared.setEncryptionKey('a'.repeat(64));
       database = require('../services/database');
     });
 
     const result = await database.migrateLocalEncryptedData();
-    expect(result.migratedNotes).toBe(1);
-    expect(result.migratedTasks).toBe(1);
+    expect(result.migratedNotes).toBe(0);
+    expect(result.migratedTasks).toBe(0);
     const noteUpdate = runAsync.mock.calls.find((call: any[]) => String(call?.[0] || '').includes('UPDATE notes SET'));
     const taskUpdate = runAsync.mock.calls.find((call: any[]) => String(call?.[0] || '').includes('UPDATE tasks SET'));
-    expect(noteUpdate).toBeTruthy();
-    expect(taskUpdate).toBeTruthy();
-    if (!noteUpdate || !taskUpdate) throw new Error('Migration update calls missing');
-    const noteParams = (noteUpdate as any)[1] as any[];
-    const taskParams = (taskUpdate as any)[1] as any[];
-    expect(String(noteParams[0])).toContain('U2FsdGVkX1');
-    expect(String(taskParams[0])).toContain('U2FsdGVkX1');
+    expect(noteUpdate).toBeUndefined();
+    expect(taskUpdate).toBeUndefined();
   });
 
   it('stores sync queue payloads encrypted to resist local sabotage', async () => {
@@ -148,10 +156,7 @@ describe('mobile database at-rest encryption', () => {
       }),
     }));
 
-    let database: any;
-    jest.isolateModules(() => {
-      database = require('../services/database');
-    });
+    const database = loadDatabaseWithKey();
 
     const payload = {
       id: 'note-1',
@@ -185,10 +190,7 @@ describe('mobile database at-rest encryption', () => {
       }),
     }));
 
-    let database: any;
-    jest.isolateModules(() => {
-      database = require('../services/database');
-    });
+    const database = loadDatabaseWithKey();
 
     await database.addToSyncQueue('UPDATE', 'TASK', { id: 'task-1', title: 'första' });
     await database.addToSyncQueue('UPDATE', 'TASK', { id: 'task-1', title: 'andra' });
@@ -216,10 +218,7 @@ describe('mobile database at-rest encryption', () => {
       }),
     }));
 
-    let database: any;
-    jest.isolateModules(() => {
-      database = require('../services/database');
-    });
+    const database = loadDatabaseWithKey();
 
     await database.addToSyncQueue('REORDER', 'TASK', { tasks: [{ _id: 'b' }, { _id: 'a' }] });
     await database.addToSyncQueue('REORDER', 'TASK', { tasks: [{ _id: 'a' }, { _id: 'b' }] });
@@ -247,10 +246,7 @@ describe('mobile database at-rest encryption', () => {
       }),
     }));
 
-    let database: any;
-    jest.isolateModules(() => {
-      database = require('../services/database');
-    });
+    const database = loadDatabaseWithKey();
 
     const merged = await database.mergeIntoQueuedCreate('NOTE', 'temp-note-1', { content: encrypt('Ny text') });
 
@@ -279,10 +275,7 @@ describe('mobile database at-rest encryption', () => {
       }),
     }));
 
-    let database: any;
-    jest.isolateModules(() => {
-      database = require('../services/database');
-    });
+    const database = loadDatabaseWithKey();
 
     const removed = await database.removeQueuedCreate('TASK', 'temp-task-1');
 

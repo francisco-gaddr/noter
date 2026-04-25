@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document } from 'mongoose';
+import { getAiSyncRetentionSeconds } from '../utils/aiSyncRetention';
 
 export interface IAIMessageSync extends Document {
   userId: string;
@@ -21,11 +22,12 @@ const AIMessageSyncSchema: Schema = new Schema({
   toolCallsEnc: { type: String, default: '' },
   toolCallIdEnc: { type: String, default: '' },
   createdAtEnc: { type: String, required: true },
-  createdAt: { type: Date, required: true, index: true },
+  createdAt: { type: Date, required: true },
 }, {
   timestamps: false,
 });
 
 AIMessageSyncSchema.index({ userId: 1, messageId: 1 }, { unique: true });
+AIMessageSyncSchema.index({ createdAt: 1 }, { expireAfterSeconds: getAiSyncRetentionSeconds() });
 
 export default mongoose.model<IAIMessageSync>('AIMessageSync', AIMessageSyncSchema);

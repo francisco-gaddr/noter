@@ -1,4 +1,4 @@
-const ENCRYPTED_PREFIXES = ['U2FsdGVkX1', 'noter:v1:', 'noter:v2:'];
+const ENCRYPTED_PREFIXES = ['U2FsdGVkX1', 'noter:v1:', 'noter:v2:', 'noter:v3:'];
 
 export const isEncryptedPayload = (value: unknown): boolean => {
   if (typeof value !== 'string') return false;

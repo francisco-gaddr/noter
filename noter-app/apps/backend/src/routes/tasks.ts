@@ -192,14 +192,26 @@ router.put('/reorder', validate(reorderSchema), async (req: Request, res: Respon
       }
     }));
 
+    let reorderWarning: { attempted: number; matched: number } | null = null;
     if (updates.length > 0) {
-        await Task.bulkWrite(updates);
+        const result = await Task.bulkWrite(updates);
+        const attempted = updates.length;
+        const matched = Number(result.matchedCount || 0);
+        if (matched < attempted) {
+          reorderWarning = { attempted, matched };
+        }
     }
     await cache.delMany(getTaskCacheKeys(userId, affectedTasks.map((task: any) => task.parentNoteId?.toString())));
     
     const io = req.app.get('io');
     io.to(`user:${userId}`).emit('tasks:reordered', validTasks);
 
+    if (reorderWarning) {
+      return res.status(207).json({
+        message: 'Tasks reordered with partial ownership match',
+        ...reorderWarning,
+      });
+    }
     res.json({ message: 'Tasks reordered' });
   } catch (error) {
     next(error);

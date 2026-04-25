@@ -1,18 +1,19 @@
 const mockGet = jest.fn();
 const mockSet = jest.fn();
-const mockSetEncryptionKey = jest.fn();
-const mockGetRandomBytesAsync = jest.fn();
+const mockDelete = jest.fn();
+const mockActivateDataKey = jest.fn((key: string) => key);
+const mockClearEncryptionKey = jest.fn();
 
 jest.mock('expo-secure-store', () => ({
   getItemAsync: (...args: any[]) => mockGet(...args),
   setItemAsync: (...args: any[]) => mockSet(...args),
-}));
-jest.mock('expo-crypto', () => ({
-  getRandomBytesAsync: (...args: any[]) => mockGetRandomBytesAsync(...args),
+  deleteItemAsync: (...args: any[]) => mockDelete(...args),
 }));
 
 jest.mock('@repo/shared', () => ({
-  setEncryptionKey: (...args: any[]) => mockSetEncryptionKey(...args),
+  activateDataKey: (key: string) => mockActivateDataKey(key),
+  clearEncryptionKey: () => mockClearEncryptionKey(),
+  unwrapDataKeyWithPassword: jest.fn(),
 }));
 
 describe('initLocalEncryptionKey', () => {
@@ -20,28 +21,29 @@ describe('initLocalEncryptionKey', () => {
     jest.resetModules();
     mockGet.mockReset();
     mockSet.mockReset();
-    mockSetEncryptionKey.mockReset();
-    mockGetRandomBytesAsync.mockReset();
-    mockGetRandomBytesAsync.mockResolvedValue(new Uint8Array(32).fill(1));
+    mockDelete.mockReset();
+    mockActivateDataKey.mockReset();
+    mockActivateDataKey.mockImplementation((key: string) => key);
+    mockClearEncryptionKey.mockReset();
   });
 
-  it('creates and stores key when missing', async () => {
+  it('returns empty string when no cached data key exists', async () => {
     mockGet.mockResolvedValue(null);
     const { initLocalEncryptionKey } = require('../services/encryptionKey');
     const key = await initLocalEncryptionKey();
-    expect(typeof key).toBe('string');
-    expect(key.length).toBe(64);
-    expect(mockSet).toHaveBeenCalled();
-    expect(mockSetEncryptionKey).toHaveBeenCalledWith(key);
+    expect(key).toBe('');
+    expect(mockSet).not.toHaveBeenCalled();
+    expect(mockActivateDataKey).not.toHaveBeenCalled();
+    expect(mockClearEncryptionKey).toHaveBeenCalled();
   });
 
-  it('reuses legacy stored key without rotating', async () => {
+  it('ignores invalid legacy values', async () => {
     mockGet.mockResolvedValue('stored-key');
     const { initLocalEncryptionKey } = require('../services/encryptionKey');
     const key = await initLocalEncryptionKey();
-    expect(key).toBe('stored-key');
+    expect(key).toBe('');
     expect(mockSet).not.toHaveBeenCalled();
-    expect(mockSetEncryptionKey).toHaveBeenCalledWith('stored-key');
+    expect(mockActivateDataKey).not.toHaveBeenCalled();
   });
 
   it('reuses stored key when present', async () => {
@@ -50,6 +52,7 @@ describe('initLocalEncryptionKey', () => {
     const { initLocalEncryptionKey } = require('../services/encryptionKey');
     const key = await initLocalEncryptionKey();
     expect(key).toBe(storedKey);
-    expect(mockSetEncryptionKey).toHaveBeenCalledWith(storedKey);
+    expect(mockActivateDataKey).toHaveBeenCalledWith(storedKey);
+    expect(mockSet).toHaveBeenCalledWith('local_data_key_v1', storedKey, expect.any(Object));
   });
 });

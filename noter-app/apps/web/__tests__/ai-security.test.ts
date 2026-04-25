@@ -1,4 +1,4 @@
-import { encrypt } from '@repo/shared';
+import { clearEncryptionKey, encrypt, setEncryptionKey } from '@repo/shared';
 import { buildSecurityNoteMap, findBlockingLockedAncestor, isReadableWithLocks, maskLockedHierarchy } from '../services/ai/security';
 
 describe('ai security lock hierarchy', () => {
@@ -7,6 +7,14 @@ describe('ai security lock hierarchy', () => {
     { _id: 'n1', type: 'note', parentId: 'p1', locked: false, title: 'Barn', content: 'Hemlig text' },
     { _id: 'n2', type: 'note', parentId: null, locked: false, title: 'Fri', content: 'Synlig' },
   ] as any[];
+
+  beforeEach(() => {
+    setEncryptionKey('a'.repeat(64));
+  });
+
+  afterEach(() => {
+    clearEncryptionKey();
+  });
 
   it('masks descendants of locked project', () => {
     const secured = maskLockedHierarchy(notes);

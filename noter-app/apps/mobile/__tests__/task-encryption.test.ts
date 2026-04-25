@@ -1,4 +1,4 @@
-import { encrypt, decrypt } from '@repo/shared';
+import { clearEncryptionKey, decrypt, encrypt, setEncryptionKey } from '@repo/shared';
 
 // Mock fetch for API tests
 global.fetch = jest.fn();
@@ -8,6 +8,11 @@ const mockFetch = fetch as jest.MockedFunction<typeof fetch>;
 describe('Task E2E Encryption Tests - Mobile', () => {
   beforeEach(() => {
     mockFetch.mockClear();
+    setEncryptionKey('a'.repeat(64));
+  });
+
+  afterEach(() => {
+    clearEncryptionKey();
   });
 
   describe('Task Field Encryption - Mobile', () => {

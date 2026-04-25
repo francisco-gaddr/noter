@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import winston from 'winston';
+import User from '../models/User';
+import cache from '../services/cache';
 import { getJwtSecret, getJwtVerifyOptions, isDemoTokenEnabled } from '../utils/security';
 
 export interface AuthRequest extends Request {
@@ -14,9 +16,35 @@ type DecodedToken = jwt.JwtPayload & {
   id?: string;
   _id?: string;
   sub?: string;
+  tokenVersion?: number;
+};
+
+const getCachedTokenVersion = async (userId: string): Promise<number | null> => {
+  const cacheKey = `auth:token-version:${userId}`;
+  const cached = await cache.get<number>(cacheKey);
+  if (typeof cached === 'number' && Number.isFinite(cached)) return cached;
+  const user = await User.findById(userId).select('tokenVersion').lean<{ tokenVersion?: number }>();
+  const tokenVersion = typeof user?.tokenVersion === 'number' ? user.tokenVersion : 1;
+  await cache.set(cacheKey, tokenVersion, 5);
+  return tokenVersion;
 };
 
 export const getBearerTokenFromRequestLike = (reqLike: any): string | undefined => {
+  const unwrapWrappedToken = (value: string) => {
+    let current = value.trim();
+    while (current.length >= 2) {
+      const first = current[0];
+      const last = current[current.length - 1];
+      const isWrapped =
+        (first === '"' && last === '"')
+        || (first === "'" && last === "'")
+        || (first === '`' && last === '`');
+      if (!isWrapped) break;
+      current = current.slice(1, -1).trim();
+    }
+    return current;
+  };
+
   const pick = (value: unknown): string | undefined => {
     if (typeof value === 'string') return value;
     if (Array.isArray(value)) {
@@ -39,7 +67,7 @@ export const getBearerTokenFromRequestLike = (reqLike: any): string | undefined 
     pick(reqLike?.request?.headers?.Authorization);
 
   if (!rawHeader) return undefined;
-  const normalized = rawHeader.trim().replace(/^Bearer\s+/i, '').trim().replace(/^[`'"]+|[`'"]+$/g, '').trim();
+  const normalized = unwrapWrappedToken(rawHeader.trim().replace(/^Bearer\s+/i, '').trim());
   return normalized || undefined;
 };
 
@@ -89,7 +117,7 @@ export const getUserIdFromDecodedToken = (decoded: string | jwt.JwtPayload): str
   return trimmed.length > 0 ? trimmed : undefined;
 };
 
-export const authMiddleware = (req: AuthRequest, res: Response, next: NextFunction) => {
+export const authMiddleware = async (req: AuthRequest, res: Response, next: NextFunction) => {
   if (req.method === 'OPTIONS') {
     return next();
   }
@@ -112,6 +140,12 @@ export const authMiddleware = (req: AuthRequest, res: Response, next: NextFuncti
     const decoded = jwt.verify(token, getJwtSecret(), getJwtVerifyOptions());
     const userId = getUserIdFromDecodedToken(decoded);
     if (!userId) {
+      return res.status(401).json({ message: 'Token is not valid' });
+    }
+    const payload = decoded as DecodedToken;
+    const tokenVersion = typeof payload.tokenVersion === 'number' ? payload.tokenVersion : 1;
+    const currentTokenVersion = await getCachedTokenVersion(userId);
+    if (currentTokenVersion !== null && tokenVersion !== currentTokenVersion) {
       return res.status(401).json({ message: 'Token is not valid' });
     }
     req.user = { userId };

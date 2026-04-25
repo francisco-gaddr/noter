@@ -38,6 +38,7 @@ type McpAuditEvent = {
   toolName?: string;
   ok: boolean;
   message?: string;
+  intentText?: string;
 };
 
 type McpJsonRpcRequest = {
@@ -60,6 +61,7 @@ const MAX_ARGS_DEPTH = 8;
 const MAX_ARRAY_ITEMS = 300;
 const MAX_OBJECT_KEYS = 300;
 const MAX_CALLS_PER_MINUTE = 120;
+const MAX_BUFFER_LENGTH = 512 * 1024;
 
 const sessions = new Map<string, McpRuntimeSession>();
 const failureState = new Map<string, McpFailureState>();
@@ -108,6 +110,13 @@ const parseSessionKey = (key: string) => {
     service: key.slice(first + 1, second) as McpIntegrationId,
     configHash: key.slice(second + 1),
   };
+};
+
+const maskConfigHash = (configHash: string) => {
+  const trimmed = toTrimmed(configHash);
+  if (!trimmed) return '';
+  if (trimmed.length <= 12) return `${trimmed.slice(0, 4)}***`;
+  return `${trimmed.slice(0, 6)}***${trimmed.slice(-4)}`;
 };
 
 const listSessionsByUser = (userId: string) => [...sessions.values()].filter((session) => parseSessionKey(session.key).userId === userId);
@@ -179,7 +188,22 @@ const sanitizeArgs = (value: unknown, depth = 0): unknown => {
 };
 
 const wildcardMatch = (value: string, pattern: string) => {
-  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+  const normalizedPattern = pattern
+    .replace(/read\*/gi, 'read[_.:].*')
+    .replace(/write\*/gi, 'write[_.:].*')
+    .replace(/list\*/gi, 'list[_.:].*')
+    .replace(/search\*/gi, 'search[_.:].*')
+    .replace(/glob\*/gi, 'glob[_.:].*')
+    .replace(/stat\*/gi, 'stat[_.:].*')
+    .replace(/move\*/gi, 'move[_.:].*')
+    .replace(/copy\*/gi, 'copy[_.:].*')
+    .replace(/delete\*/gi, 'delete[_.:].*')
+    .replace(/navigate\*/gi, 'navigate[_.:].*')
+    .replace(/click\*/gi, 'click[_.:].*')
+    .replace(/fill\*/gi, 'fill[_.:].*')
+    .replace(/evaluate\*/gi, 'evaluate[_.:].*')
+    .replace(/screenshot\*/gi, 'screenshot[_.:].*');
+  const escaped = normalizedPattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
   return new RegExp(`^${escaped}$`, 'i').test(value);
 };
 
@@ -382,6 +406,11 @@ const closeSession = (session: McpRuntimeSession) => {
 
 const onData = (session: McpRuntimeSession, chunk: Buffer) => {
   session.buffer += chunk.toString('utf8');
+  if (session.buffer.length > MAX_BUFFER_LENGTH) {
+    rejectPending(session, new Error('MCP output exceeded buffer limit'));
+    closeSession(session);
+    return;
+  }
   const lines = session.buffer.split(/\r?\n/);
   session.buffer = lines.pop() || '';
   for (const line of lines) {
@@ -433,10 +462,21 @@ const initSession = async (session: McpRuntimeSession) => {
   notify(session, 'notifications/initialized');
 };
 
+const createScopedEnv = (env: Record<string, string>) => {
+  const scoped: Record<string, string> = {};
+  ['PATH', 'HOME', 'TMPDIR', 'TEMP', 'LANG', 'LC_ALL', 'SystemRoot', 'ComSpec'].forEach((key) => {
+    const value = process.env[key];
+    if (typeof value === 'string' && value.length > 0) {
+      scoped[key] = value;
+    }
+  });
+  return { ...scoped, ...env };
+};
+
 const createSession = (key: string, config: McpRuntimeServiceConfig): McpRuntimeSession => {
   const child = spawn(config.command, config.args, {
     stdio: 'pipe',
-    env: { ...process.env, ...config.env },
+    env: createScopedEnv(config.env),
     windowsHide: true,
     shell: false,
   });
@@ -473,7 +513,10 @@ export const isExplicitServiceIntent = (service: McpIntegrationId, intentText?: 
     filesystem: ['filesystem', 'filsystem', 'lokal fil', 'lokala filer', 'mapp', 'katalog'],
     playwright: ['playwright', 'browser', 'webbläsare'],
   };
-  return keywords[service].some((keyword) => text.includes(keyword));
+  const verbs = ['öppna', 'använd', 'kör', 'lista', 'hämta', 'skapa', 'uppdatera', 'ta bort', 'lägg till', 'skicka', 'use', 'call', 'run'];
+  const hasKeyword = keywords[service].some((keyword) => text.includes(keyword));
+  const hasVerb = verbs.some((verb) => text.includes(verb));
+  return hasKeyword && hasVerb;
 };
 
 const extractToolNames = (result: any) => {
@@ -658,6 +701,7 @@ export const mcpRuntime = {
         ok: false,
         toolName: params.toolName,
         message: 'explicit tjänsteintention saknas',
+        intentText: params.intentText,
       });
       throw new Error(`Explicit nämnning av ${params.service} krävs innan MCP-anrop`);
     }
@@ -687,6 +731,7 @@ export const mcpRuntime = {
           action: 'call_tool',
           toolName: params.toolName,
           ok: true,
+          intentText: params.intentText,
         });
         return result;
       } catch (error) {
@@ -700,6 +745,7 @@ export const mcpRuntime = {
           toolName: params.toolName,
           ok: false,
           message: maskError(error),
+          intentText: params.intentText,
         });
         const existingSessions = [...sessions.values()].filter((session) => session.key.startsWith(`${params.userId}:${params.service}:`));
         for (const item of existingSessions) closeSession(item);
@@ -717,7 +763,7 @@ export const mcpRuntime = {
         return {
           userId: parts.userId,
           service: parts.service,
-          configHash: parts.configHash,
+          configHash: includeAudit ? parts.configHash : maskConfigHash(parts.configHash),
           lastUsedAt: session.lastUsedAt,
           pendingRequests: session.pending.size,
         };

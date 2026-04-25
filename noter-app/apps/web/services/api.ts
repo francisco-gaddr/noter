@@ -1,5 +1,17 @@
-import { Note, CreateNoteDto, UpdateNoteDto, Task, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, AuthResponse } from '@repo/shared';
+import {
+  Note,
+  CreateNoteDto,
+  UpdateNoteDto,
+  Task,
+  CreateTaskDto,
+  UpdateTaskDto,
+  encrypt,
+  decrypt,
+  AuthResponse,
+  createPasswordWrappedEncryption,
+} from '@repo/shared';
 import { getWebAuthTokenSync, getWebRefreshTokenSync, setWebAuthToken, setWebRefreshToken } from './authStorage';
+import { bootstrapWebEncryptionFromPassword, cacheWebDataKey, clearWebDataKey } from './encryptionKey';
 
 type SessionAuthResponse = AuthResponse & { refreshToken?: string };
 type ResponseLike = Pick<Response, 'ok' | 'status' | 'json' | 'text'>;
@@ -414,13 +426,22 @@ const parseNoteLocked = (value: unknown): boolean => {
 export const api = {
   // Auth
   async register(username: string, password: string): Promise<AuthResponse> {
+    const encryption = createPasswordWrappedEncryption(password);
     const res = await fetchWithBridge(`${getBaseUrl()}/auth/register`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({
+        username,
+        password,
+        wrappedDataKey: encryption.wrappedDataKey,
+        encryptionSalt: encryption.salt,
+        keyWrapVersion: encryption.keyWrapVersion,
+        keyWrapKdf: encryption.keyWrapKdf,
+      }),
     });
     const data = await handleResponse(res);
+    await cacheWebDataKey(encryption.dataKey);
     applyAuthResponse(data);
     return data;
   },
@@ -433,6 +454,7 @@ export const api = {
       body: JSON.stringify({ username, password }),
     });
     const data = await handleResponse(res);
+    await bootstrapWebEncryptionFromPassword(password, data.encryption);
     applyAuthResponse(data);
     return data;
   },
@@ -448,6 +470,7 @@ export const api = {
       });
     } finally {
       clearSession();
+      await clearWebDataKey().catch(() => {});
     }
   },
 

@@ -5,8 +5,11 @@ import mongoose from 'mongoose';
 import jwt from 'jsonwebtoken';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { createHandler } from 'graphql-http/lib/use/express';
+import { encrypt, setEncryptionKey } from '@repo/shared';
 import { toolSchema } from '../src/graphql/schema';
+import { graphqlOperationLimitRule } from '../src/graphql/validation';
 import { authMiddleware, getBearerTokenFromRequestLike, getUserIdFromDecodedToken } from '../src/middleware/authMiddleware';
+import User from '../src/models/User';
 import Note from '../src/models/Note';
 import Task from '../src/models/Task';
 
@@ -23,6 +26,7 @@ const app = express();
 app.use(bodyParser.json());
 app.use('/api/graphql', authMiddleware, createHandler({
   schema: toolSchema,
+  validationRules: [graphqlOperationLimitRule],
   context: (req: any) => {
     let userId = req?.user?.userId || req?.raw?.user?.userId;
     const token = getBearerTokenFromRequestLike(req);
@@ -39,8 +43,17 @@ app.use('/api/graphql', authMiddleware, createHandler({
 
 describe('GraphQL Tool Calls', () => {
   let mongoServer: MongoMemoryServer;
-  const signToken = (payload: Record<string, string>) =>
+  const signToken = (payload: Record<string, string | number>) =>
     jwt.sign(payload, process.env.JWT_SECRET as string, { expiresIn: '1h' });
+  const createUserWithClaim = async (claimKey: 'userId' | 'id' | '_id', value: string) => {
+    await User.create({
+      _id: new mongoose.Types.ObjectId(value),
+      username: `${claimKey}-${value.slice(0, 6)}`,
+      passwordHash: 'hash',
+      tokenVersion: 1,
+    });
+    return signToken({ [claimKey]: value, tokenVersion: 1 });
+  };
 
   beforeAll(async () => {
     mongoServer = await MongoMemoryServer.create();
@@ -53,17 +66,24 @@ describe('GraphQL Tool Calls', () => {
   });
 
   beforeEach(async () => {
+    setEncryptionKey('a'.repeat(64));
+    await User.deleteMany({});
     await Note.deleteMany({});
     await Task.deleteMany({});
   });
 
   it('creates, reads, updates and deletes notes', async () => {
+    const encryptedTitle = encrypt('Test');
+    const encryptedContent = encrypt('Body');
+    const encryptedTagA = encrypt('a');
+    const encryptedTagB = encrypt('b');
+    const updatedTitle = encrypt('Updated');
     const createRes = await request(app)
       .post('/api/graphql')
       .set('Authorization', 'Bearer demo-token')
       .send({
         query: 'mutation($input:NoteInput!){createNote(input:$input){_id title content tags}}',
-        variables: { input: { title: 'Test', content: 'Body', tags: ['a', 'b'] } }
+        variables: { input: { title: encryptedTitle, content: encryptedContent, tags: [encryptedTagA, encryptedTagB] } }
       });
 
     expect(createRes.status).toBe(200);
@@ -71,7 +91,7 @@ describe('GraphQL Tool Calls', () => {
       throw new Error(JSON.stringify(createRes.body.errors));
     }
     const noteId = createRes.body.data.createNote._id;
-    expect(createRes.body.data.createNote.title).toBe('Test');
+    expect(createRes.body.data.createNote.title).toBe(encryptedTitle);
 
     const listRes = await request(app)
       .post('/api/graphql')
@@ -88,13 +108,13 @@ describe('GraphQL Tool Calls', () => {
       .set('Authorization', 'Bearer demo-token')
       .send({
         query: 'mutation($id:String!,$input:NoteInput!){updateNote(id:$id,input:$input){_id title}}',
-        variables: { id: noteId, input: { title: 'Updated' } }
+        variables: { id: noteId, input: { title: updatedTitle } }
       });
 
     if (updateRes.body.errors?.length) {
       throw new Error(JSON.stringify(updateRes.body.errors));
     }
-    expect(updateRes.body.data.updateNote.title).toBe('Updated');
+    expect(updateRes.body.data.updateNote.title).toBe(updatedTitle);
 
     const deleteRes = await request(app)
       .post('/api/graphql')
@@ -111,12 +131,16 @@ describe('GraphQL Tool Calls', () => {
   });
 
   it('supports project folders and task lists via note type', async () => {
+    const projectTitle = encrypt('Project A');
+    const projectType = encrypt('project');
+    const taskListTitle = encrypt('Tasks A');
+    const taskListType = encrypt('task_list');
     const projectRes = await request(app)
       .post('/api/graphql')
       .set('Authorization', 'Bearer demo-token')
       .send({
         query: 'mutation($input:NoteInput!){createNote(input:$input){_id title type}}',
-        variables: { input: { title: 'Project A', type: 'project' } }
+        variables: { input: { title: projectTitle, type: projectType } }
       });
     if (projectRes.body.errors?.length) {
       throw new Error(JSON.stringify(projectRes.body.errors));
@@ -127,7 +151,7 @@ describe('GraphQL Tool Calls', () => {
       .set('Authorization', 'Bearer demo-token')
       .send({
         query: 'mutation($input:NoteInput!){createNote(input:$input){_id title type}}',
-        variables: { input: { title: 'Tasks A', type: 'task_list' } }
+        variables: { input: { title: taskListTitle, type: taskListType } }
       });
     if (taskListRes.body.errors?.length) {
       throw new Error(JSON.stringify(taskListRes.body.errors));
@@ -138,7 +162,7 @@ describe('GraphQL Tool Calls', () => {
       .set('Authorization', 'Bearer demo-token')
       .send({
         query: 'query($type:String){notes(type:$type){_id title type}}',
-        variables: { type: 'project' }
+        variables: { type: projectType }
       });
 
     if (listProjects.body.errors?.length) {
@@ -151,7 +175,7 @@ describe('GraphQL Tool Calls', () => {
       .set('Authorization', 'Bearer demo-token')
       .send({
         query: 'query($type:String){notes(type:$type){_id title type}}',
-        variables: { type: 'task_list' }
+        variables: { type: taskListType }
       });
 
     if (listTaskLists.body.errors?.length) {
@@ -161,12 +185,16 @@ describe('GraphQL Tool Calls', () => {
   });
 
   it('creates, reads, updates and deletes tasks', async () => {
+    const encryptedTaskTitle = encrypt('Task');
+    const encryptedCompletedFalse = encrypt('false');
+    const encryptedCompletedTrue = encrypt('true');
+    const encryptedPriorityHigh = encrypt('high');
     const createRes = await request(app)
       .post('/api/graphql')
       .set('Authorization', 'Bearer demo-token')
       .send({
         query: 'mutation($input:TaskInput!){createTask(input:$input){_id title completed priority}}',
-        variables: { input: { title: 'Task', completed: false, priority: 'high' } }
+        variables: { input: { title: encryptedTaskTitle, completed: encryptedCompletedFalse, priority: encryptedPriorityHigh } }
       });
 
     expect(createRes.status).toBe(200);
@@ -174,7 +202,7 @@ describe('GraphQL Tool Calls', () => {
       throw new Error(JSON.stringify(createRes.body.errors));
     }
     const taskId = createRes.body.data.createTask._id;
-    expect(createRes.body.data.createTask.title).toBe('Task');
+    expect(createRes.body.data.createTask.title).toBe(encryptedTaskTitle);
 
     const listRes = await request(app)
       .post('/api/graphql')
@@ -191,13 +219,13 @@ describe('GraphQL Tool Calls', () => {
       .set('Authorization', 'Bearer demo-token')
       .send({
         query: 'mutation($id:String!,$input:TaskInput!){updateTask(id:$id,input:$input){_id completed}}',
-        variables: { id: taskId, input: { completed: true } }
+        variables: { id: taskId, input: { completed: encryptedCompletedTrue } }
       });
 
     if (updateRes.body.errors?.length) {
       throw new Error(JSON.stringify(updateRes.body.errors));
     }
-    expect(updateRes.body.data.updateTask.completed).toBe(true);
+    expect(updateRes.body.data.updateTask.completed).toBe(encryptedCompletedTrue);
 
     const deleteRes = await request(app)
       .post('/api/graphql')
@@ -214,7 +242,8 @@ describe('GraphQL Tool Calls', () => {
   });
 
   it('authenticates GraphQL tasks query with token claim userId', async () => {
-    const token = signToken({ userId: 'claim-user-id' });
+    const userId = new mongoose.Types.ObjectId().toString();
+    const token = await createUserWithClaim('userId', userId);
     const res = await request(app)
       .post('/api/graphql')
       .set('Authorization', `Bearer ${token}`)
@@ -226,7 +255,8 @@ describe('GraphQL Tool Calls', () => {
   });
 
   it('authenticates GraphQL tasks query with token claim id', async () => {
-    const token = signToken({ id: 'claim-id' });
+    const userId = new mongoose.Types.ObjectId().toString();
+    const token = await createUserWithClaim('id', userId);
     const res = await request(app)
       .post('/api/graphql')
       .set('Authorization', `Bearer ${token}`)
@@ -238,7 +268,8 @@ describe('GraphQL Tool Calls', () => {
   });
 
   it('authenticates GraphQL tasks query with token claim _id', async () => {
-    const token = signToken({ _id: 'claim-underscore-id' });
+    const userId = new mongoose.Types.ObjectId().toString();
+    const token = await createUserWithClaim('_id', userId);
     const res = await request(app)
       .post('/api/graphql')
       .set('Authorization', `Bearer ${token}`)
@@ -261,7 +292,8 @@ describe('GraphQL Tool Calls', () => {
   });
 
   it('authenticates with lowercase bearer token prefix', async () => {
-    const token = signToken({ userId: 'lower-bearer-user' });
+    const userId = new mongoose.Types.ObjectId().toString();
+    const token = await createUserWithClaim('userId', userId);
     const res = await request(app)
       .post('/api/graphql')
       .set('Authorization', `bearer ${token}`)
@@ -273,7 +305,8 @@ describe('GraphQL Tool Calls', () => {
   });
 
   it('authenticates when token is wrapped in quotes/backticks', async () => {
-    const token = signToken({ userId: 'quoted-token-user' });
+    const userId = new mongoose.Types.ObjectId().toString();
+    const token = await createUserWithClaim('userId', userId);
     const res = await request(app)
       .post('/api/graphql')
       .set('Authorization', `Bearer "\`${token}\`"`)
@@ -282,5 +315,35 @@ describe('GraphQL Tool Calls', () => {
     expect(res.status).toBe(200);
     expect(res.body.errors).toBeUndefined();
     expect(Array.isArray(res.body.data.tasks)).toBe(true);
+  });
+
+  it('rejects overly expensive GraphQL documents with too many aliased fields', async () => {
+    const userId = new mongoose.Types.ObjectId().toString();
+    const token = await createUserWithClaim('userId', userId);
+    const query = `{ ${Array.from({ length: 81 }, (_, index) => `t${index}: tasks { _id }`).join(' ')} }`;
+
+    const res = await request(app)
+      .post('/api/graphql')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ query });
+
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.errors)).toBe(true);
+    expect(String(res.body.errors[0]?.message || '')).toMatch(/field count/i);
+  });
+
+  it('rejects weighted-complexity spikes even when field count stays modest', async () => {
+    const userId = new mongoose.Types.ObjectId().toString();
+    const token = await createUserWithClaim('userId', userId);
+    const query = `{ ${Array.from({ length: 6 }, (_, index) => `t${index}: tasks { _id title }`).join(' ')} }`;
+
+    const res = await request(app)
+      .post('/api/graphql')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ query });
+
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.errors)).toBe(true);
+    expect(String(res.body.errors[0]?.message || '')).toMatch(/complexity/i);
   });
 });

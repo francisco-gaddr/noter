@@ -103,16 +103,29 @@ export class AIAgent {
   }
 
   private parseToolCall(text: string): { tool: string, arguments: any } | null {
-    try {
-        const match = text.match(/\{[\s\S]*\}/);
-        if (match) {
-            const data = JSON.parse(match[0]);
-            if (data.tool && data.arguments) {
-                return data;
-            }
+    const candidates: string[] = [];
+    const fencedBlocks: string[] = Array.from(text.match(/```json\s*([\s\S]*?)```/gi) || []);
+    fencedBlocks.forEach((block) => {
+      candidates.push(block.replace(/```json\s*/i, '').replace(/```$/i, '').trim());
+    });
+    const jsonLines = text.split('\n').map((line) => line.trim()).filter((line) => line.startsWith('{') && line.endsWith('}'));
+    candidates.push(...jsonLines);
+    if (text.trim().startsWith('{') && text.trim().endsWith('}')) {
+      candidates.push(text.trim());
+    }
+
+    for (const candidate of candidates) {
+      try {
+        const data = JSON.parse(candidate);
+        if (data?.tool && typeof data.tool === 'string') {
+          return {
+            tool: data.tool,
+            arguments: data.arguments && typeof data.arguments === 'object' ? data.arguments : {},
+          };
         }
-    } catch {
-        // Ignore
+      } catch {
+        // Ignore malformed candidate and continue.
+      }
     }
     return null;
   }

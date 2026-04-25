@@ -2,7 +2,7 @@ import React from 'react';
 import { render, waitFor, screen } from '@testing-library/react-native';
 import NoteEditorScreen from '../app/note/[id]';
 import { useStore } from '../stores/useStore';
-import { encrypt } from '@repo/shared';
+import { clearEncryptionKey, encrypt, setEncryptionKey } from '@repo/shared';
 import { ThemeProvider } from '@react-navigation/native';
 import { MD3LightTheme, Provider as PaperProvider } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -96,12 +96,17 @@ jest.mock('react-native-pell-rich-editor', () => {
 describe('NoteEditorScreen Decryption', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    setEncryptionKey('a'.repeat(64));
     useStore.setState({
       notes: [],
       unlockedProtectedNoteIds: [],
       updateNote: jest.fn().mockResolvedValue(undefined),
       createNote: jest.fn().mockResolvedValue(undefined),
     });
+  });
+
+  afterEach(() => {
+    clearEncryptionKey();
   });
 
   it('should decrypt raw encrypted content and title correctly', async () => {
