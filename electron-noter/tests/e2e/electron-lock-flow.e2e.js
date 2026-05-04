@@ -149,7 +149,7 @@ const run = async () => {
       debugState.notesRequests = notesRequests;
       debugState.tasksRequests = tasksRequests;
       debugState.verifyRequests = verifyRequests;
-      debugState.lastVerifyPassword = lastVerifyPassword;
+      debugState.hasVerifyPassword = Boolean(lastVerifyPassword);
       console.error(JSON.stringify(debugState, null, 2));
       throw error;
     }

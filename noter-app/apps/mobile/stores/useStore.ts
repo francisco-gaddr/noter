@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import 'react-native-get-random-values';
 import * as Crypto from 'expo-crypto';
-import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, decryptWithSource, normalizeId } from '@repo/shared';
+import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, decryptWithSource, hasEncryptionKey, isV3Ciphertext, normalizeId } from '@repo/shared';
 import { fetchWithAuth, login as apiLogin, register as apiRegister, logout as apiLogout, setAuthToken, initApiUrl, setUnauthorizedHandler, setTokenUpdateHandler } from '../services/api';
 import * as Database from '../services/database';
 import { initSocket, disconnectSocket, getSocket } from '../services/socket';
@@ -94,23 +94,34 @@ const processLocalNote = (note: Note): Note => ({
   ...note,
 });
 
-const tryDecryptString = (value: unknown): any => {
-  if (typeof value !== 'string') return value;
-  try {
-    const decrypted = decrypt(value);
-    if (typeof decrypted === 'string' && decrypted.length === 0 && value.trim().length > 0) {
-      return value;
-    }
-    return decrypted;
-  } catch {
-    return value;
-  }
+const decryptStringOrFallback = (value: unknown, fallback: string): string => {
+  if (typeof value !== 'string') return fallback;
+  if (isV3Ciphertext(value)) return fallback;
+  const result = decryptWithSource(value);
+  if (result.source === 'failed') return fallback;
+  if (result.source === 'plaintext') return value;
+  return result.value;
+};
+
+const decryptOptionalString = (value: unknown): string | undefined => {
+  const decrypted = decryptStringOrFallback(value, '');
+  const trimmed = decrypted.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+};
+
+const decryptIdOrNull = (value: unknown): string | null => {
+  const decrypted = decryptStringOrFallback(value, '');
+  const normalized = normalizeId(decrypted);
+  return normalized || null;
 };
 
 const decryptOrFallback = (value: unknown, fallback = ''): string => {
   if (typeof value !== 'string') return fallback;
+  if (isV3Ciphertext(value)) return fallback;
   const result = decryptWithSource(value);
-  return result.source === 'failed' ? fallback : result.value;
+  if (result.source === 'failed') return fallback;
+  if (result.source === 'plaintext') return value;
+  return result.value;
 };
 
 const toStoredString = (value: unknown): string => {
@@ -195,8 +206,8 @@ const normalizeEncryptedNote = (note: Note): any => {
   content: toStoredString(rawContent),
   tags: Array.isArray(rawTags) ? rawTags : (typeof rawTags === 'string' ? [rawTags] : []),
   icon: typeof rawIcon === 'string' ? rawIcon : undefined,
-  type: normalizeNoteType((note as any).type ? tryDecryptString((note as any).type) : (note as any).type),
-  parentId: note.parentId ? tryDecryptString(note.parentId) : null,
+  type: normalizeNoteType(typeof (note as any).type === 'string' ? decryptStringOrFallback((note as any).type, '') : (note as any).type),
+  parentId: decryptIdOrNull(note.parentId),
   locked: locked,
   order: (() => {
     const raw = (note as any).order;
@@ -231,7 +242,7 @@ const materializeNotesFromEncrypted = (notes: Note[], unlockedIds: Set<string>):
       const isDirectlyLockedProject = blocking._id === note._id && note.type === 'project';
       let projectIcon: string | undefined = undefined;
       if (isDirectlyLockedProject) {
-        projectIcon = note.__rawEncryptedIcon ? tryDecryptString(note.__rawEncryptedIcon) : undefined;
+        projectIcon = decryptOptionalString(note.__rawEncryptedIcon);
       }
       return {
         ...note,
@@ -248,18 +259,24 @@ const materializeNotesFromEncrypted = (notes: Note[], unlockedIds: Set<string>):
       title: decryptOrFallback(note.__rawEncryptedTitle || note.title, ''),
       content: decryptOrFallback(note.__rawEncryptedContent || note.content, ''),
       tags: Array.isArray(note.__rawEncryptedTags)
-        ? note.__rawEncryptedTags.map((t: any) => tryDecryptString(t))
+        ? note.__rawEncryptedTags
+            .map((t: any) => decryptStringOrFallback(t, ''))
+            .filter((t: any) => typeof t === 'string' && t.trim().length > 0)
         : (() => {
             if (typeof note.__rawEncryptedTags !== 'string') return [];
             try {
               const decoded = decrypt(note.__rawEncryptedTags);
               const parsed = JSON.parse(decoded);
-              return Array.isArray(parsed) ? parsed.map((t: any) => tryDecryptString(t)) : [];
+              return Array.isArray(parsed)
+                ? parsed
+                    .map((t: any) => decryptStringOrFallback(t, ''))
+                    .filter((t: any) => typeof t === 'string' && t.trim().length > 0)
+                : [];
             } catch {
               return [];
             }
           })(),
-      icon: note.__rawEncryptedIcon ? tryDecryptString(note.__rawEncryptedIcon) : undefined,
+      icon: decryptOptionalString(note.__rawEncryptedIcon),
       locked: parseNoteLocked(note.locked),
     };
   });
@@ -527,6 +544,7 @@ export const useStore = create<AppState>((set, get) => ({
     initPromise = (async () => {
       let storedToken: string | null = null;
       let databaseReady = false;
+      let encryptionReady = true;
         const measureStartupStage = async <T,>(name: string, action: () => Promise<T>) => {
           const startedAt = Date.now();
           try {
@@ -536,7 +554,8 @@ export const useStore = create<AppState>((set, get) => ({
           }
         };
       try {
-          await measureStartupStage('localEncryptionKey', () => initLocalEncryptionKey());
+          const localKey = await measureStartupStage('localEncryptionKey', () => initLocalEncryptionKey());
+          encryptionReady = Boolean(localKey) && hasEncryptionKey();
           await measureStartupStage('apiUrl', () => initApiUrl());
           await measureStartupStage('databaseInit', () => Database.initDatabase());
           await measureStartupStage('databaseMigration', () => Database.migrateLocalEncryptedData());
@@ -567,6 +586,23 @@ export const useStore = create<AppState>((set, get) => ({
           setAuthToken(storedToken);
           set({ token: storedToken });
         }
+        if (storedToken && !encryptionReady) {
+          await Promise.resolve(apiLogout()).catch(() => {});
+          setAuthToken(null);
+          storedToken = null;
+          set({
+            token: null,
+            notes: [],
+            tasks: [],
+            activeProjectId: null,
+            unlockedProtectedNoteIds: [],
+            error: i18n.t('common.reloginToUnlock'),
+            isLoading: false,
+            isAuthenticating: false,
+            isRefreshingNotes: false,
+            isRefreshingTasks: false,
+          });
+        }
 
         setUnauthorizedHandler(async () => {
           await get().logout();
@@ -580,7 +616,7 @@ export const useStore = create<AppState>((set, get) => ({
           }
         });
 
-        if (!get().securityLocked) {
+        if (!get().securityLocked && encryptionReady) {
           const [localNotes, localTasks] = await Promise.all([
             measureStartupStage('loadLocalNotes', () => Database.getNotesLocal()),
             measureStartupStage('loadLocalTasks', () => Database.getTasksLocal()),
@@ -1028,26 +1064,78 @@ export const useStore = create<AppState>((set, get) => ({
   updateNote: async (id, data) => {
     // Optimistic Update
     set({ isLoading: true, error: null });
+    const { unlockPassword, ...updateData } = (data as any) ?? {};
     
     // 1. Get current note
     const state = get();
     const currentNote = state.notes.find(n => n._id === id);
     if (!currentNote) throw new Error('Note not found');
 
+    const isSensitivePasswordChange = typeof unlockPassword === 'string'
+      || (typeof updateData.password === 'string' && updateData.password.length > 0);
+    if (isSensitivePasswordChange) {
+      const netState = await NetInfo.fetch();
+      if (!netState.isConnected) {
+        set({ isLoading: false });
+        throw new Error('Cannot change note password while offline');
+      }
+    }
+
+    if (isSensitivePasswordChange) {
+      try {
+        const encryptedData: any = { ...updateData };
+        if (updateData.title !== undefined) encryptedData.title = encrypt(updateData.title);
+        if (updateData.content !== undefined) encryptedData.content = encrypt(updateData.content);
+        if (updateData.tags !== undefined) encryptedData.tags = updateData.tags.map((t: string) => encrypt(t));
+        if (updateData.icon !== undefined) encryptedData.icon = updateData.icon ? encrypt(updateData.icon) : '';
+        if (updateData.type !== undefined) encryptedData.type = encrypt(updateData.type);
+        if (updateData.locked !== undefined) encryptedData.locked = encrypt(String(updateData.locked));
+        if (updateData.order !== undefined) encryptedData.order = encrypt(String(updateData.order));
+        if (updateData.password !== undefined) encryptedData.password = updateData.password;
+        encryptedData.updatedAt = encrypt(new Date().toISOString());
+        if (typeof unlockPassword === 'string') {
+          encryptedData.unlockPassword = unlockPassword;
+        }
+
+        const updated = await fetchWithAuth(`/notes/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify(encryptedData),
+        });
+        const realNote = materializeNotesFromEncrypted([updated as any], new Set(get().unlockedProtectedNoteIds))[0] as Note;
+
+        set((state) => {
+          const nextUnlocked = state.unlockedProtectedNoteIds.filter((item) => item !== id);
+          return {
+            notes: materializeNotesFromEncrypted(
+              state.notes.map((n) => n._id === id ? realNote : n) as any,
+              new Set(nextUnlocked),
+            ),
+            unlockedProtectedNoteIds: nextUnlocked,
+            isLoading: false,
+          };
+        });
+
+        await Database.saveNoteLocal(realNote, true);
+        return realNote;
+      } catch (error: any) {
+        set({ error: error?.message || String(error), isLoading: false });
+        throw error;
+      }
+    }
+
     const optimisticNote: Note = {
         ...currentNote,
-        ...(data.title !== undefined ? { title: data.title } : {}),
-        ...(data.content !== undefined ? { content: data.content } : {}),
-        ...(data.tags !== undefined ? { tags: data.tags } : {}),
-        ...(data.parentId !== undefined ? { parentId: data.parentId } : {}),
-        ...(data.locked !== undefined ? { locked: typeof data.locked === 'string' ? data.locked === 'true' : data.locked } : {}),
-        ...(data.password !== undefined ? { password: data.password } : {}),
-        ...(data.icon !== undefined ? { icon: data.icon } : {}),
-        ...(data.order !== undefined ? { order: data.order } : {}),
-        ...(data.type !== undefined ? { type: data.type } : {}),
+        ...(updateData.title !== undefined ? { title: updateData.title } : {}),
+        ...(updateData.content !== undefined ? { content: updateData.content } : {}),
+        ...(updateData.tags !== undefined ? { tags: updateData.tags } : {}),
+        ...(updateData.parentId !== undefined ? { parentId: updateData.parentId } : {}),
+        ...(updateData.locked !== undefined ? { locked: typeof updateData.locked === 'string' ? updateData.locked === 'true' : updateData.locked } : {}),
+        ...(updateData.icon !== undefined ? { icon: updateData.icon } : {}),
+        ...(updateData.order !== undefined ? { order: updateData.order } : {}),
+        ...(updateData.type !== undefined ? { type: updateData.type } : {}),
         updatedAt: new Date().toISOString()
     };
-    if (data.locked === true) {
+    if (updateData.locked === true) {
         const existingRawTitle = (currentNote as any).__rawEncryptedTitle;
         const existingRawContent = (currentNote as any).__rawEncryptedContent;
         const existingRawTags = (currentNote as any).__rawEncryptedTags;
@@ -1072,15 +1160,15 @@ export const useStore = create<AppState>((set, get) => ({
       await Database.saveNoteLocal(optimisticNote, false);
 
       // 4. Encrypt
-      const encryptedData: any = { ...data };
-      if (data.title !== undefined) encryptedData.title = encrypt(data.title);
-      if (data.content !== undefined) encryptedData.content = encrypt(data.content);
-      if (data.tags !== undefined) encryptedData.tags = data.tags.map((t: string) => encrypt(t));
-      if (data.icon !== undefined) encryptedData.icon = data.icon ? encrypt(data.icon) : '';
-      if (data.type !== undefined) encryptedData.type = encrypt(data.type);
-      if (data.locked !== undefined) encryptedData.locked = encrypt(String(data.locked));
-      if (data.order !== undefined) encryptedData.order = encrypt(String(data.order));
-      if (data.password !== undefined) encryptedData.password = data.password;
+      const encryptedData: any = { ...updateData };
+      if (updateData.title !== undefined) encryptedData.title = encrypt(updateData.title);
+      if (updateData.content !== undefined) encryptedData.content = encrypt(updateData.content);
+      if (updateData.tags !== undefined) encryptedData.tags = updateData.tags.map((t: string) => encrypt(t));
+      if (updateData.icon !== undefined) encryptedData.icon = updateData.icon ? encrypt(updateData.icon) : '';
+      if (updateData.type !== undefined) encryptedData.type = encrypt(updateData.type);
+      if (updateData.locked !== undefined) encryptedData.locked = encrypt(String(updateData.locked));
+      if (updateData.order !== undefined) encryptedData.order = encrypt(String(updateData.order));
+      if (updateData.password !== undefined) encryptedData.password = updateData.password;
       // Always update updatedAt
       encryptedData.updatedAt = encrypt(new Date().toISOString());
 
@@ -1088,6 +1176,9 @@ export const useStore = create<AppState>((set, get) => ({
       const netState = await NetInfo.fetch();
       if (netState.isConnected) {
         try {
+          if (typeof unlockPassword === 'string') {
+            encryptedData.unlockPassword = unlockPassword;
+          }
           const updated = await fetchWithAuth(`/notes/${id}`, {
             method: 'PUT',
             body: JSON.stringify(encryptedData),
@@ -1102,6 +1193,8 @@ export const useStore = create<AppState>((set, get) => ({
 
           return realNote;
         } catch (error) {
+          const isSettingPassword = typeof updateData.password === 'string' && updateData.password.length > 0;
+          if (typeof unlockPassword === 'string' || isSettingPassword) throw error;
           if (!shouldFallbackToOffline(error)) throw error;
           const mergedIntoCreate = await Database.mergeIntoQueuedCreate('NOTE', id, encryptedData);
           if (!mergedIntoCreate) {
@@ -1110,6 +1203,9 @@ export const useStore = create<AppState>((set, get) => ({
           return optimisticNote;
         }
       } else {
+         if (typeof unlockPassword === 'string') {
+           throw new Error('Cannot remove lock while offline');
+         }
          const mergedIntoCreate = await Database.mergeIntoQueuedCreate('NOTE', id, encryptedData);
          if (!mergedIntoCreate) {
            await Database.addToSyncQueue('UPDATE', 'NOTE', { id, ...encryptedData });

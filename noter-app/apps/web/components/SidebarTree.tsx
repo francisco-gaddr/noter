@@ -23,6 +23,7 @@ interface TreeNodeProps {
     level: number;
     selectedNoteId: string | null;
     sortOrder: string;
+    defaultExpanded: boolean;
     onSelect: (id: string | null) => void;
     onDelete: (e: React.MouseEvent, id: string) => void;
     onCreateChild: (e: React.MouseEvent, parentId: string) => void;
@@ -55,9 +56,9 @@ const sortNotes = (nodes: Note[], order: string) => {
     }
 };
 
-const TreeNode = React.memo(({ note, allNotes, noteById, childrenMap, level, selectedNoteId, sortOrder, onSelect, onDelete, onCreateChild, onEdit, onIconClick, onMove, ancestors }: TreeNodeProps) => {
+const TreeNode = React.memo(({ note, allNotes, noteById, childrenMap, level, selectedNoteId, sortOrder, defaultExpanded, onSelect, onDelete, onCreateChild, onEdit, onIconClick, onMove, ancestors }: TreeNodeProps) => {
     const { t } = useTranslation();
-    const [isExpanded, setIsExpanded] = useState(true);
+    const [isExpanded, setIsExpanded] = useState(defaultExpanded);
     const children = (childrenMap.get(note._id) || []).filter((child) => {
       const childType = normalizeNoteType((child as any).type);
       const childIsTaskList = childType === 'task_list';
@@ -72,6 +73,9 @@ const TreeNode = React.memo(({ note, allNotes, noteById, childrenMap, level, sel
     useEffect(() => {
         if (!isExpanded) setVisibleChildrenCount(50);
     }, [isExpanded, note._id]);
+    useEffect(() => {
+        setIsExpanded(defaultExpanded);
+    }, [defaultExpanded, note._id]);
 
     const displayedChildren = children.slice(0, visibleChildrenCount);
     const remainingChildren = children.length - visibleChildrenCount;
@@ -245,6 +249,7 @@ const TreeNode = React.memo(({ note, allNotes, noteById, childrenMap, level, sel
                                 level={level + 1} 
                                 selectedNoteId={selectedNoteId}
                                 sortOrder={sortOrder}
+                                defaultExpanded={true}
                                 onSelect={onSelect}
                                 onDelete={onDelete}
                                 onCreateChild={onCreateChild}
@@ -602,9 +607,7 @@ export default function SidebarTree() {
     const roots = safeNotes.filter(n => {
         const parent = n.parentId ? noteById.get(n.parentId) : null;
         const noteType = normalizeNoteType((n as any).type);
-        const isProject = noteType === 'project' || inferredProjectIds.has(n._id);
-        
-        const isRoot = (!n.parentId || !parent || (parent && normalizeNoteType((parent as any).type) === 'project'));
+        const isRoot = (!n.parentId || !parent);
         const isTaskList = noteType === 'task_list' || inferredTaskListIds.has(n._id);
         
         if (activeTab === 'tasks') return isTaskList && isReadable(n);
@@ -1081,6 +1084,7 @@ export default function SidebarTree() {
                                 level={0} 
                                 selectedNoteId={effectiveSelectedId}
                                 sortOrder={sortOrder}
+                                defaultExpanded={Boolean(activeProjectId) || !isProjectType((note as any).type)}
                                 onSelect={handleNoteSelect}
                                 onDelete={handleDelete}
                                 onCreateChild={handleCreateChild}

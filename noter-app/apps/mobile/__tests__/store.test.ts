@@ -170,7 +170,11 @@ describe('Mobile Store', () => {
       if (key === 'notificationsEnabled') return 'true';
       return null;
     });
-    SecureStore.getItemAsync.mockResolvedValue(null);
+    const dataKey = 'a'.repeat(64);
+    SecureStore.getItemAsync.mockImplementation(async (key: string) => {
+      if (key === 'local_data_key_v1') return dataKey;
+      return null;
+    });
     Database.getTasksLocal.mockResolvedValue([
       {
         _id: 'task-reminder-1',
@@ -391,6 +395,62 @@ describe('Mobile Store', () => {
     const state = useStore.getState();
     expect(state.notes[0]?.title).toBe('Krypterad titel');
     expect(state.notes[0]?.content).toBe('Plaintext innehåll');
+  });
+
+  it('should never surface ciphertext in tags', async () => {
+    const NetInfo = require('@react-native-community/netinfo');
+    NetInfo.fetch.mockResolvedValueOnce({ isConnected: false });
+    const Database = require('../services/database');
+    const brokenV1 = 'U2FsdGVkX1BROKEN_PAYLOAD';
+    const fakeV3 = 'noter:v3:iv:payload';
+
+    Database.getNotesLocal.mockResolvedValueOnce([
+      {
+        _id: 'n-tags',
+        title: encrypt('Titel'),
+        content: encrypt('Innehåll'),
+        locked: encrypt('false'),
+        type: encrypt('note'),
+        createdAt: encrypt(new Date().toISOString()),
+        updatedAt: encrypt(new Date().toISOString()),
+        __rawEncryptedTitle: encrypt('Titel'),
+        __rawEncryptedContent: encrypt('Innehåll'),
+        __rawEncryptedTags: [brokenV1, fakeV3, encrypt('Ok tag')],
+      },
+    ]);
+
+    await useStore.getState().fetchNotes();
+    const state = useStore.getState();
+    expect(state.notes[0]?.tags).toEqual(['Ok tag']);
+    expect(state.notes[0]?.tags).not.toContain(brokenV1);
+    expect(state.notes[0]?.tags).not.toContain(fakeV3);
+  });
+
+  it('should never surface ciphertext in icon fields', async () => {
+    const NetInfo = require('@react-native-community/netinfo');
+    NetInfo.fetch.mockResolvedValueOnce({ isConnected: false });
+    const Database = require('../services/database');
+    const fakeV3 = 'noter:v3:iv:payload';
+
+    Database.getNotesLocal.mockResolvedValueOnce([
+      {
+        _id: 'n-icon',
+        title: encrypt('Titel'),
+        content: encrypt('Innehåll'),
+        locked: encrypt('false'),
+        type: encrypt('note'),
+        createdAt: encrypt(new Date().toISOString()),
+        updatedAt: encrypt(new Date().toISOString()),
+        __rawEncryptedTitle: encrypt('Titel'),
+        __rawEncryptedContent: encrypt('Innehåll'),
+        __rawEncryptedTags: encrypt('[]'),
+        __rawEncryptedIcon: fakeV3,
+      },
+    ]);
+
+    await useStore.getState().fetchNotes();
+    const state = useStore.getState();
+    expect((state.notes[0] as any)?.icon).toBeUndefined();
   });
 
   it('should keep task title and description visible for mixed encrypted payload', async () => {

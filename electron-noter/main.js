@@ -28,13 +28,20 @@ const allowedHttpBridgeHosts = new Set([
   'huggingface.co',
   'api.openrouter.ai',
   'generativelanguage.googleapis.com',
-  'localhost',
-  '127.0.0.1',
 ]);
 const rendererCsp = [
   "default-src 'self'",
   "connect-src 'self' http://127.0.0.1:* http://localhost:* https://api.openrouter.ai https://huggingface.co https://generativelanguage.googleapis.com",
   "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:",
+  "font-src 'self' data:",
+  "frame-ancestors 'none'",
+].join('; ');
+const rendererCspDev = [
+  "default-src 'self'",
+  "connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:* https://api.openrouter.ai https://huggingface.co https://generativelanguage.googleapis.com",
+  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
@@ -237,6 +244,7 @@ let settingsWriteQueue = Promise.resolve();
 let pendingSettingsSnapshot = null;
 let pendingSettingsResolvers = [];
 let settingsFlushTimer = null;
+const getEffectiveSettingsSnapshot = () => pendingSettingsSnapshot || settingsCache || readSettings();
 const isSafeSettingKey = (key) => (
   typeof key === 'string'
   && key.length > 0
@@ -476,6 +484,60 @@ const isInternalAppUrl = (url) => {
   }
 };
 
+const getTrustedRendererOrigins = () => {
+  const origins = new Set();
+  if (isDev) {
+    getRendererFallbackUrls().forEach((candidate) => {
+      try {
+        origins.add(new URL(String(candidate)).origin);
+      } catch {}
+    });
+    try {
+      origins.add(new URL(String(devUrl)).origin);
+    } catch {}
+  }
+  if (!isDev) {
+    if (rendererServerPort) {
+      origins.add(`http://127.0.0.1:${rendererServerPort}`);
+    }
+  }
+  return origins;
+};
+
+const isTrustedRendererUrl = (url) => {
+  if (!url) return false;
+  if (url.startsWith('data:text/html')) {
+    return isTest || isShowingRendererFallback;
+  }
+  if (url.startsWith('file://')) {
+    try {
+      const parsed = new URL(url);
+      const filePath = decodeURIComponent(parsed.pathname || '');
+      const rendererDir = path.join(__dirname, 'renderer') + path.sep;
+      return filePath.startsWith(rendererDir);
+    } catch {
+      return false;
+    }
+  }
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
+    const origin = parsed.origin;
+    const trustedOrigins = getTrustedRendererOrigins();
+    if (trustedOrigins.has(origin)) return true;
+    return false;
+  } catch {
+    return false;
+  }
+};
+
+const assertTrustedIpcSender = (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) throw new Error('Untrusted IPC sender');
+  const url = event.senderFrame?.url || event.sender.getURL();
+  if (!isTrustedRendererUrl(url)) throw new Error('Untrusted IPC sender');
+};
+
 const createWindow = () => {
   recordStartupEvent('window-created');
   const isMac = process.platform === 'darwin';
@@ -630,7 +692,7 @@ app.whenReady().then(() => {
   recordStartupEvent('app-ready');
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     const responseHeaders = { ...(details.responseHeaders || {}) };
-    responseHeaders['Content-Security-Policy'] = [rendererCsp];
+    responseHeaders['Content-Security-Policy'] = [isDev ? rendererCspDev : rendererCsp];
     callback({ responseHeaders });
   });
   settingsCache = readSettings();
@@ -670,23 +732,27 @@ const broadcast = (channel, payload) => {
   });
 };
 
-ipcMain.handle('mlc:get-models', async () => {
+ipcMain.handle('mlc:get-models', async (event) => {
+  assertTrustedIpcSender(event);
   const baseDir = app.getPath('userData');
   const { getModels } = getMlcModule();
   return getModels(baseDir);
 });
 
-ipcMain.handle('mlc:search-models', async (_event, payload) => {
+ipcMain.handle('mlc:search-models', async (event, payload) => {
+  assertTrustedIpcSender(event);
   const { searchModels } = getMlcModule();
   return searchModels(payload?.query || '');
 });
 
-ipcMain.handle('mlc:get-model-files', async (_event, payload) => {
+ipcMain.handle('mlc:get-model-files', async (event, payload) => {
+  assertTrustedIpcSender(event);
   const { getModelFiles } = getMlcModule();
   return getModelFiles(payload?.modelId || '');
 });
 
-ipcMain.handle('mlc:download', async (_event, payload) => {
+ipcMain.handle('mlc:download', async (event, payload) => {
+  assertTrustedIpcSender(event);
   const baseDir = app.getPath('userData');
   const { downloadAndConvert } = getMlcModule();
   const startedAt = Date.now();
@@ -714,13 +780,15 @@ ipcMain.handle('mlc:download', async (_event, payload) => {
   }
 });
 
-ipcMain.handle('mlc:delete', async (_event, payload) => {
+ipcMain.handle('mlc:delete', async (event, payload) => {
+  assertTrustedIpcSender(event);
   const baseDir = app.getPath('userData');
   const { deleteModel } = getMlcModule();
   return deleteModel(baseDir, payload?.id);
 });
 
-ipcMain.handle('mlc:chat', async (_event, payload) => {
+ipcMain.handle('mlc:chat', async (event, payload) => {
+  assertTrustedIpcSender(event);
   const baseDir = app.getPath('userData');
   const { runChat } = getMlcModule();
   const startedAt = Date.now();
@@ -748,19 +816,22 @@ ipcMain.handle('mlc:chat', async (_event, payload) => {
   }
 });
 
-ipcMain.handle('mlc:cancel-chat', async (_event, payload) => {
+ipcMain.handle('mlc:cancel-chat', async (event, payload) => {
+  assertTrustedIpcSender(event);
   const { cancelChat } = getMlcModule();
   return cancelChat(payload?.chatId);
 });
 
-ipcMain.handle('settings:get', async (_event, key) => {
+ipcMain.handle('settings:get', async (event, key) => {
+  assertTrustedIpcSender(event);
   if (!isSafeSettingKey(key)) return null;
   if (isSensitiveSessionKey(key)) return null;
-  const settings = settingsCache || readSettings();
+  const settings = getEffectiveSettingsSnapshot();
   return settings[key];
 });
 
-ipcMain.handle('settings:set', async (_event, payload) => {
+ipcMain.handle('settings:set', async (event, payload) => {
+  assertTrustedIpcSender(event);
   const key = payload?.key;
   if (!isSafeSettingKey(key)) return false;
   if (isSensitiveSessionKey(key)) return false;
@@ -775,16 +846,18 @@ ipcMain.handle('settings:set', async (_event, payload) => {
   return true;
 });
 
-ipcMain.handle('settings:get-many', async (_event, keys) => {
+ipcMain.handle('settings:get-many', async (event, keys) => {
+  assertTrustedIpcSender(event);
   const safeKeys = filterSafeSettingKeys(keys);
-  const settings = settingsCache || readSettings();
+  const settings = getEffectiveSettingsSnapshot();
   return safeKeys.reduce((acc, key) => {
     acc[key] = settings[key];
     return acc;
   }, {});
 });
 
-ipcMain.handle('settings:set-many', async (_event, entries) => {
+ipcMain.handle('settings:set-many', async (event, entries) => {
+  assertTrustedIpcSender(event);
   const safeEntries = filterSafeSettingEntries(entries);
   if (safeEntries.length === 0) return false;
   await enqueueSettingsWrite((settings) => {
@@ -799,15 +872,17 @@ ipcMain.handle('settings:set-many', async (_event, entries) => {
   return true;
 });
 
-ipcMain.handle('session:get', async () => {
-  const settings = settingsCache || readSettings();
+ipcMain.handle('session:get', async (event) => {
+  assertTrustedIpcSender(event);
+  const settings = getEffectiveSettingsSnapshot();
   return {
     token: typeof settings.token === 'string' ? settings.token : null,
     user: settings.user ?? null,
   };
 });
 
-ipcMain.handle('session:set', async (_event, payload) => {
+ipcMain.handle('session:set', async (event, payload) => {
+  assertTrustedIpcSender(event);
   const nextToken = typeof payload?.token === 'string' ? payload.token : null;
   const nextUser = payload?.user ?? null;
   await enqueueSettingsWrite((settings) => {
@@ -825,7 +900,8 @@ ipcMain.handle('session:set', async (_event, payload) => {
   return true;
 });
 
-ipcMain.handle('http:request', async (_event, payload) => {
+ipcMain.handle('http:request', async (event, payload) => {
+  assertTrustedIpcSender(event);
   const url = typeof payload?.url === 'string' ? payload.url : '';
   const method = String(payload?.method || 'GET').toUpperCase();
   if (!isAllowedHttpBridgeUrl(url)) {
@@ -839,13 +915,41 @@ ipcMain.handle('http:request', async (_event, payload) => {
     throw new Error('Request body too large');
   }
   const headers = sanitizeBridgeRequestHeaders(url, payload?.headers);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
   const response = await fetch(url, {
     method,
     headers,
     credentials: 'omit',
+    redirect: 'manual',
+    signal: controller.signal,
     ...(body !== undefined ? { body } : {}),
-  });
-  const bodyText = await response.text();
+  }).finally(() => clearTimeout(timeout));
+  if (response.status >= 300 && response.status < 400) {
+    throw new Error('Redirects are not allowed');
+  }
+  const readLimitedText = async (res) => {
+    const maxBytes = 2 * 1024 * 1024;
+    const reader = res.body?.getReader?.();
+    if (!reader) return '';
+    const chunks = [];
+    let received = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = Buffer.from(value);
+      received += chunk.length;
+      if (received > maxBytes) {
+        try {
+          await reader.cancel();
+        } catch {}
+        throw new Error('Response too large');
+      }
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks).toString('utf8');
+  };
+  const bodyText = await readLimitedText(response);
   return {
     ok: response.ok,
     status: response.status,
@@ -854,8 +958,12 @@ ipcMain.handle('http:request', async (_event, payload) => {
   };
 });
 
-ipcMain.handle('perf:get-snapshot', async () => getElectronPerformanceSnapshot());
-ipcMain.handle('perf:reset-snapshot', async () => {
+ipcMain.handle('perf:get-snapshot', async (event) => {
+  assertTrustedIpcSender(event);
+  return getElectronPerformanceSnapshot();
+});
+ipcMain.handle('perf:reset-snapshot', async (event) => {
+  assertTrustedIpcSender(event);
   resetElectronPerformanceSnapshot();
   return true;
 });

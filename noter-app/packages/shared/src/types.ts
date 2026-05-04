@@ -108,6 +108,7 @@ export interface UpdateNoteDto {
     parentId?: string | null;
     locked?: boolean;
     password?: string;
+    unlockPassword?: string;
     icon?: string;
     iconColor?: string;
     type?: 'note' | 'task_list' | 'project';

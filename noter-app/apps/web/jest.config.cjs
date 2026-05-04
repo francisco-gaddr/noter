@@ -15,6 +15,10 @@ const customJestConfig = {
     '^react/jsx-dev-runtime$': '<rootDir>/../../node_modules/react/jsx-dev-runtime',
     '^react-dom$': '<rootDir>/../../node_modules/react-dom',
     '^react-dom/client$': '<rootDir>/../../node_modules/react-dom/client',
+    '^@repo/shared$': '<rootDir>/../../packages/shared/src',
+    '^@repo/shared/(.*)$': '<rootDir>/../../packages/shared/src/$1',
+    '^@repo/ai$': '<rootDir>/../../packages/ai/src',
+    '^@repo/ai/(.*)$': '<rootDir>/../../packages/ai/src/$1',
   },
   transformIgnorePatterns: [
     '/node_modules/(?!(react-dnd|dnd-core|@react-dnd|react-dnd-html5-backend)/)',

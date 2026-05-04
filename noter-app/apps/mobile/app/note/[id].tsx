@@ -60,7 +60,7 @@ export default function NoteEditorScreen() {
   const [isLocked, setIsLocked] = useState(false);
   const isLockedRef = useRef(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [passwordMode, setPasswordMode] = useState<'unlock' | 'lock'>('unlock');
+  const [passwordMode, setPasswordMode] = useState<'unlock' | 'lock' | 'remove'>('unlock');
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const [unlocking, setUnlocking] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
@@ -357,12 +357,17 @@ export default function NoteEditorScreen() {
         setEditorKey(`editor-${String(id)}-${Date.now()}`);
         setIsLocked(false);
         setShowPasswordModal(false);
-      } else {
+      } else if (passwordMode === 'lock') {
         // Locking the note
         await updateNote(id!, { locked: true, password });
         Alert.alert(t('common.success'), t('note.lockedSuccess'));
         setShowPasswordModal(false);
         router.back(); // Go back after locking, or stay and require unlock? Let's go back.
+      } else {
+        await updateNote(id!, { locked: false, password: '', unlockPassword: password } as any);
+        Alert.alert(t('common.success'), t('note.lockRemoved'));
+        setShowPasswordModal(false);
+        setShowMenu(false);
       }
     } catch (error: any) {
       setUnlockError(passwordMode === 'unlock' ? t('note.incorrectPassword') : error.message);
@@ -372,13 +377,9 @@ export default function NoteEditorScreen() {
   };
 
   const handleRemoveLock = async () => {
-    try {
-      await updateNote(id!, { locked: false, password: '' });
-      Alert.alert(t('common.success'), t('note.lockRemoved'));
-      setShowMenu(false);
-    } catch (error: any) {
-      Alert.alert(t('common.error'), error.message);
-    }
+    setPasswordMode('remove');
+    setShowMenu(false);
+    setShowPasswordModal(true);
   };
 
   const handleInsertImage = async () => {
@@ -711,7 +712,7 @@ export default function NoteEditorScreen() {
         error={unlockError}
         loading={unlocking}
         title={passwordMode === 'lock' ? t('note.setPassword') : t('note.enterPassword')}
-        submitLabel={passwordMode === 'lock' ? t('note.lock') : t('note.unlock')}
+        submitLabel={passwordMode === 'lock' ? t('note.lock') : (passwordMode === 'remove' ? t('note.removeLock') : t('note.unlock'))}
       />
 
       <ProjectSelector

@@ -1214,6 +1214,7 @@ function NoteEditorContent() {
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [showIconPicker, setShowIconPicker] = useState(false);
   const [isLocking, setIsLocking] = useState(false);
+  const [isRemovingLock, setIsRemovingLock] = useState(false);
   const [isUnlockedLocally, setIsUnlockedLocally] = useState(false);
   const [showVideoModal, setShowVideoModal] = useState(false);
   const [videoUrl, setVideoUrl] = useState('');
@@ -1441,6 +1442,13 @@ function NoteEditorContent() {
     setIsLocking(false);
   };
 
+  const handleRemoveLock = async (password: string) => {
+    if (!selectedNote) return;
+    await updateNote(selectedNote._id, { locked: false, password: '', unlockPassword: password } as any);
+    setIsRemovingLock(false);
+    setIsUnlockedLocally(true);
+  };
+
   const handleExportPDF = async () => {
     const element = document.querySelector('[data-slate-editor="true"]') as HTMLElement;
     if (!element) return;
@@ -1633,12 +1641,9 @@ function NoteEditorContent() {
           <button
             onClick={() => {
               if (selectedNote.locked) {
-                // If already locked (and we are viewing it, so we must have unlocked it), allow re-locking?
-                // Actually, if it's locked in DB, we just want to allow "Locking" if it's NOT locked.
-                // To remove lock, we might need another flow. For now, let's just support Adding Lock.
-                // If it's already locked, we can maybe Remove Lock?
                 if (confirm(t('noteEditor.removeLockConfirm'))) {
-                   updateNote(selectedNote._id, currentTitleRef.current, lastSavedContentRef.current, false, '');
+                  setIsRemovingLock(true);
+                  setIsPasswordModalOpen(true);
                 }
               } else {
                 setIsLocking(true);
@@ -1822,9 +1827,9 @@ function NoteEditorContent() {
 
       <PasswordModal
         isOpen={isPasswordModalOpen}
-        onClose={() => { setIsPasswordModalOpen(false); setIsLocking(false); }}
-        onSubmit={isLocking ? handleLock : handleUnlock}
-        title={isLocking ? t('noteEditor.setLockPasswordTitle') : t('noteEditor.unlockNoteTitle')}
+        onClose={() => { setIsPasswordModalOpen(false); setIsLocking(false); setIsRemovingLock(false); }}
+        onSubmit={isLocking ? handleLock : (isRemovingLock ? handleRemoveLock : handleUnlock)}
+        title={isLocking ? t('noteEditor.setLockPasswordTitle') : (isRemovingLock ? t('noteEditor.unlockRemovePassword') : t('noteEditor.unlockNoteTitle'))}
         isCreatingLock={isLocking}
       />
     </div>

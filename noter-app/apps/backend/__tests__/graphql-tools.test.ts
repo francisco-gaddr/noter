@@ -49,7 +49,7 @@ describe('GraphQL Tool Calls', () => {
     await User.create({
       _id: new mongoose.Types.ObjectId(value),
       username: `${claimKey}-${value.slice(0, 6)}`,
-      passwordHash: 'hash',
+      passwordHash: `$2b$10$${'a'.repeat(53)}`,
       tokenVersion: 1,
     });
     return signToken({ [claimKey]: value, tokenVersion: 1 });

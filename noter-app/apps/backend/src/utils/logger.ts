@@ -1,6 +1,7 @@
 import winston from 'winston';
 import path from 'path';
 import fs from 'fs';
+import { sanitizeLogInfo } from './logRedaction';
 
 const isProduction = process.env.NODE_ENV === 'production';
 const logDir = path.join(process.cwd(), 'logs');
@@ -14,6 +15,7 @@ const fileTransportOptions = {
 const logger = winston.createLogger({
   level: 'info',
   format: winston.format.combine(
+    winston.format((info) => sanitizeLogInfo(info as any) as any)(),
     winston.format.timestamp(),
     winston.format.json()
   ),
@@ -27,10 +29,12 @@ const logger = winston.createLogger({
 logger.add(new winston.transports.Console({
   format: isProduction
     ? winston.format.combine(
+        winston.format((info) => sanitizeLogInfo(info as any) as any)(),
         winston.format.timestamp(),
         winston.format.json(),
       )
     : winston.format.combine(
+        winston.format((info) => sanitizeLogInfo(info as any) as any)(),
         winston.format.colorize(),
         winston.format.simple(),
       ),

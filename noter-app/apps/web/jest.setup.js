@@ -1,4 +1,5 @@
-import '@testing-library/jest-dom';
+require('@testing-library/jest-dom');
+const { setEncryptionKey } = require('@repo/shared');
 
 const { TextDecoder, TextEncoder } = require('util');
 const { webcrypto } = require('node:crypto');
@@ -17,6 +18,8 @@ if (!global.crypto?.subtle) {
     configurable: true,
   });
 }
+
+setEncryptionKey('a'.repeat(64));
 
 // Mock matchMedia
 Object.defineProperty(window, 'matchMedia', {

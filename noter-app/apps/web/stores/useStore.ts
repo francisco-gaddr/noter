@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Note, Task, UpdateTaskDto, User, decrypt, encrypt, normalizeId, normalizeNoteType } from '@repo/shared';
+import { Note, Task, UpdateTaskDto, User, decrypt, encrypt, hasEncryptionKey, normalizeId, normalizeNoteType } from '@repo/shared';
 import { api, getApiBaseUrl, getUUID, setApiAuthTokenListener, setApiBaseUrl, setApiRefreshToken, setApiToken } from '../services/api';
 import { socket, connectSocket, disconnectSocket, setSocketToken } from '../services/socket';
 import { db } from '../services/db';
@@ -77,9 +77,40 @@ const shouldLogElectronDataDebug = (): boolean => {
   }
 };
 
+const redactDebugValue = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(redactDebugValue);
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      const key = String(k).toLowerCase();
+      if (
+        key === 'authorization' ||
+        key === 'password' ||
+        key === 'unlockpassword' ||
+        key === 'token' ||
+        key === 'refreshtoken' ||
+        key === 'secret' ||
+        key === 'wrappeddatakey' ||
+        key === 'encryptionsalt' ||
+        key === 'localdatakey'
+      ) {
+        out[k] = '[REDACTED]';
+        continue;
+      }
+      out[k] = redactDebugValue(v);
+    }
+    return out;
+  }
+  if (typeof value === 'string') {
+    const bearer = value.match(/^\s*bearer\s+(.+)$/i);
+    if (bearer) return 'Bearer [REDACTED]';
+  }
+  return value;
+};
+
 const logElectronDataDebug = (stage: string, payload: Record<string, unknown>) => {
   if (!shouldLogElectronDataDebug()) return;
-  console.info('[ElectronDataDebug]', stage, payload);
+  console.info('[ElectronDataDebug]', stage, redactDebugValue(payload));
 };
 
 const setElectronToken = (value: string | null) => {
@@ -647,6 +678,36 @@ export const useStore = create<StoreState>((set, get) => ({
 
         const shouldLockOnLaunch = Boolean(token && appLockPasswordHash && isElectron);
         const nextLocked = appLockPasswordHash ? (shouldLockOnLaunch ? true : isAppLocked) : false;
+
+        if (token && !hasEncryptionKey()) {
+          setWebAuthToken(null);
+          setWebRefreshToken(null);
+          setApiToken(null);
+          setApiRefreshToken(null);
+          setSocketToken(null);
+          disconnectSocket();
+          if (isElectron) {
+            setElectronLockState(false);
+            setElectronToken(null);
+            setElectronUser(null);
+          }
+          set({
+            user: null,
+            token: null,
+            language,
+            activeTab,
+            sortOrder: savedSortOrder,
+            selectedNoteId,
+            selectedTaskListId,
+            activeProjectId,
+            isAppLocked: false,
+            appLockPasswordHash,
+            autoLockTimeout,
+            isHydrated: true,
+            error: i18n.t('common.reloginToUnlock'),
+          });
+          return;
+        }
 
         set({ user, token, language, activeTab, sortOrder: savedSortOrder, selectedNoteId, selectedTaskListId, activeProjectId, isAppLocked: nextLocked, appLockPasswordHash, autoLockTimeout, isHydrated: true });
         setElectronLockState(nextLocked);
@@ -1560,9 +1621,50 @@ export const useStore = create<StoreState>((set, get) => ({
         if (iconColor !== undefined) updates.iconColor = iconColor;
     }
 
-    const stateUpdates = { ...updates };
+    const { unlockPassword, password: notePassword, ...safeUpdates } = updates as any;
+    if (typeof unlockPassword === 'string') {
+      if (id.startsWith('temp-')) return;
+      try {
+        const payload: any = { ...safeUpdates, password: notePassword, unlockPassword };
+        payload.updatedAt = encrypt(new Date().toISOString());
+        const updatedNote = await api.updateNote(id, payload);
+        set((state) => deriveProtectedVisibilityState(state, {
+          notes: state.notes.map((n) => (n._id === id ? updatedNote : n)) as any,
+        }));
+        await db.saveNote(updatedNote, false);
+      } catch (error: any) {
+        set({ error: error.message });
+        try {
+          await get().fetchNotes();
+        } catch {
+        }
+      }
+      return;
+    }
+
+    if (typeof notePassword === 'string' && notePassword.length > 0) {
+      if (id.startsWith('temp-')) return;
+      try {
+        const payload: any = { ...safeUpdates, password: notePassword };
+        payload.updatedAt = encrypt(new Date().toISOString());
+        const updatedNote = await api.updateNote(id, payload);
+        set((state) => deriveProtectedVisibilityState(state, {
+          notes: state.notes.map((n) => (n._id === id ? updatedNote : n)) as any,
+        }));
+        await db.saveNote(updatedNote, false);
+      } catch (error: any) {
+        set({ error: error.message });
+        try {
+          await get().fetchNotes();
+        } catch {
+        }
+      }
+      return;
+    }
+
+    const stateUpdates = { ...safeUpdates };
     const currentBeforeLock = get().notes.find(n => n._id === id) as any;
-    if (updates.locked === true) {
+    if (safeUpdates.locked === true) {
         if (currentBeforeLock) {
             stateUpdates.__rawEncryptedTitle = currentBeforeLock.__rawEncryptedTitle || encrypt(currentBeforeLock.title || '');
             stateUpdates.__rawEncryptedContent = currentBeforeLock.__rawEncryptedContent || encrypt(currentBeforeLock.content || '');
@@ -1586,7 +1688,7 @@ export const useStore = create<StoreState>((set, get) => ({
         }
         return n;
       });
-      const nextUnlocked = updates.locked === true
+      const nextUnlocked = safeUpdates.locked === true
         ? state.unlockedProtectedNoteIds.filter((item) => normalizeId(item) !== normalizeId(id))
         : state.unlockedProtectedNoteIds;
       return deriveProtectedVisibilityState(state, {
@@ -1606,7 +1708,7 @@ export const useStore = create<StoreState>((set, get) => ({
     }
 
     try {
-      const payload: any = { ...updates };
+      const payload: any = { ...safeUpdates };
       payload.updatedAt = encrypt(new Date().toISOString());
 
       const updatedNote = await api.updateNote(id, payload);

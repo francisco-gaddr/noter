@@ -152,4 +152,35 @@ describe('Note Lock Verification', () => {
     expect(res.body.content).toBe('Child Content');
     expect(res.body.unlockedId).toBe(String(project._id));
   });
+
+  it('should require unlockPassword when removing a lock via update', async () => {
+    const password = 'remove-lock-password';
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const note = await Note.create({
+      userId: 'test-user-id',
+      title: encrypt('Locked Note'),
+      content: encrypt('Secret Content'),
+      password: hashedPassword,
+      locked: encrypt('true'),
+      type: encrypt('note'),
+      createdAt: encrypt(new Date().toISOString()),
+      updatedAt: encrypt(new Date().toISOString()),
+    });
+
+    const updatedAt = encrypt(new Date().toISOString());
+
+    const missingPasswordRes = await request(app)
+      .put(`/api/notes/${note._id}`)
+      .send({ password: '', locked: encrypt('false'), updatedAt });
+
+    expect(missingPasswordRes.status).toBe(403);
+
+    const okRes = await request(app)
+      .put(`/api/notes/${note._id}`)
+      .send({ password: '', locked: encrypt('false'), updatedAt, unlockPassword: password });
+
+    expect(okRes.status).toBe(200);
+    expect(okRes.body.locked).toBe('false');
+  });
 });

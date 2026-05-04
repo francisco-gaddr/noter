@@ -4,6 +4,7 @@ import * as SecureStore from 'expo-secure-store';
 import { createPasswordWrappedEncryption } from '@repo/shared';
 import type { AuthResponse } from '@repo/shared';
 import { bootstrapLocalEncryptionFromPassword, cacheLocalDataKey, clearLocalDataKey } from './encryptionKey';
+import { redactLogValue, sanitizeErrorForLog } from './logRedaction';
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -12,7 +13,7 @@ const runtimeDevMode =
   (typeof __DEV__ !== 'undefined' ? Boolean(__DEV__) : true) && process.env.NODE_ENV !== 'production';
 
 const logDebug = (...args: unknown[]) => {
-  if (runtimeDevMode) console.log(...args);
+  if (runtimeDevMode) console.log(...args.map(redactLogValue));
 };
 
 const normalizeApiUrl = (input: string) => {
@@ -200,7 +201,7 @@ const getRequestTimeoutMs = (endpoint: string, method: string) => {
 };
 
 const handleApiError = (error: any, url: string) => {
-    console.error(`[API Error] Request to ${url} failed:`, error);
+    console.error(`[API Error] Request to ${url} failed:`, sanitizeErrorForLog(error));
     
     let message = error.message || 'Unknown error';
     

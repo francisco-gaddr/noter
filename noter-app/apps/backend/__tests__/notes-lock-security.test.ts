@@ -57,6 +57,7 @@ describe('notes lock security', () => {
       .set('Authorization', 'Bearer demo-token')
       .send({
         locked: encrypt('false'),
+        password: '',
       });
 
     expect(unlockWithoutPassword.status).toBe(403);
@@ -66,9 +67,10 @@ describe('notes lock security', () => {
       .set('Authorization', 'Bearer demo-token')
       .send({
         locked: encrypt('false'),
-        password: encrypt('my-secret'),
+        password: '',
+        unlockPassword: 'my-secret',
       });
 
-    expect(unlockWithPassword.status).toBe(403);
+    expect(unlockWithPassword.status).toBe(200);
   });
 });

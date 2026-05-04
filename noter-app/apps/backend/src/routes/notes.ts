@@ -26,15 +26,6 @@ const encryptedRequired = Joi.string().custom((value, helpers) => (
 ));
 const encryptedOptional = Joi.alternatives().try(Joi.string().valid(''), encryptedRequired);
 
-const parseEncryptedBoolean = (value: string): boolean => {
-  if (value === 'true') return true;
-  if (value === 'false') return false;
-  const decrypted = decrypt(value);
-  if (decrypted === 'true') return true;
-  if (decrypted === 'false') return false;
-  return false;
-};
-
 const normalizePasswordInput = (value: unknown): string | null => {
   if (typeof value !== 'string') return null;
   if (value === '') return '';
@@ -137,6 +128,7 @@ const updateSchema = Joi.object({
   parentId: Joi.string().allow(null),
   locked: encryptedOptional.optional(),
   password: encryptedOptional.optional(),
+  unlockPassword: Joi.string().optional(),
   icon: Joi.alternatives().try(Joi.valid(null), encryptedOptional).optional(),
   order: encryptedOptional.optional(),
   type: Joi.alternatives().try(Joi.valid(null), encryptedOptional).optional(),
@@ -255,9 +247,7 @@ router.post('/:id/verify-lock', verifyLockLimiter, async (req: Request, res: Res
     while (current) {
       if (seen.has(String(current._id))) break;
       seen.add(String(current._id));
-      const lockedRaw = String(current.locked ?? '');
-      const isLocked = parseEncryptedBoolean(lockedRaw);
-      if (isLocked) {
+      if (typeof current.password === 'string' && current.password.length > 0) {
         blockingNote = current;
         break;
       }
@@ -319,17 +309,19 @@ router.post('/', validate(noteSchema), async (req: Request, res: Response, next:
         return next(new Error('Invalid encrypted password payload'));
       }
       noteData.password = await bcrypt.hash(rawPassword, BCRYPT_ROUNDS);
+      noteData.locked = 'true';
     }
 
     const note = new Note(noteData);
     const createdNote = await note.save();
+    const createdObj = omitSensitiveNoteFields(createdNote.toObject());
     
     await cache.del(`notes:list:${userId}`);
 
     const io = req.app.get('io');
-    io.to(`user:${userId}`).emit('note:created', createdNote);
+    io.to(`user:${userId}`).emit('note:created', createdObj);
 
-    res.status(201).json(createdNote);
+    res.status(201).json(createdObj);
   } catch (error) {
     next(error);
   }
@@ -390,34 +382,40 @@ router.put('/:id', validate(updateSchema), async (req: Request, res: Response, n
     const value = req.body;
     const userId = (req as AuthRequest).user!.userId;
     const noteId = assertValidObjectId(req.params.id, 'ID');
-    const note = await findOwnedById(Note, userId, noteId);
+    const note = await findOwnedById(Note, userId, noteId).select('+password');
 
     if (note) {
       if (value.title !== undefined) note.title = value.title;
       if (value.content !== undefined) note.content = value.content;
       if (value.tags !== undefined) note.tags = value.tags;
       if (value.parentId !== undefined) note.parentId = value.parentId;
-      if (value.locked !== undefined) {
-        const nextLockedEncrypted = String(value.locked);
-        const nextLocked = parseEncryptedBoolean(nextLockedEncrypted);
-        const currentLocked = parseEncryptedBoolean(String(note.locked || ''));
-        if (currentLocked && !nextLocked) {
-          res.status(403);
-          return next(new Error('Unlock is not allowed through update endpoint'));
-        }
-        note.locked = nextLockedEncrypted;
-      }
       if (value.type !== undefined) note.type = value.type;
       if (value.password !== undefined) {
-        if (value.password) {
-            const rawPassword = normalizePasswordInput(value.password);
-            if (rawPassword === null || rawPassword.length === 0) {
-              res.status(400);
-              return next(new Error('Invalid encrypted password payload'));
-            }
-            note.password = await bcrypt.hash(rawPassword, BCRYPT_ROUNDS);
+        if (typeof value.password === 'string' && value.password.length > 0) {
+          const rawPassword = normalizePasswordInput(value.password);
+          if (rawPassword === null || rawPassword.length === 0) {
+            res.status(400);
+            return next(new Error('Invalid encrypted password payload'));
+          }
+          note.password = await bcrypt.hash(rawPassword, BCRYPT_ROUNDS);
+          note.locked = 'true';
         } else {
-            note.password = '';
+          const currentlyProtected = typeof note.password === 'string' && note.password.length > 0;
+          if (currentlyProtected) {
+            const unlockPassword = normalizePasswordInput((req.body as any).unlockPassword);
+            if (unlockPassword === null || unlockPassword.length === 0) {
+              await bcrypt.compare(typeof req.body?.unlockPassword === 'string' ? req.body.unlockPassword : '', DUMMY_PASSWORD_HASH);
+              res.status(403);
+              return next(new Error('Invalid password'));
+            }
+            const isMatch = await bcrypt.compare(unlockPassword, note.password);
+            if (!isMatch) {
+              res.status(403);
+              return next(new Error('Invalid password'));
+            }
+          }
+          note.password = '';
+          note.locked = 'false';
         }
       }
       if (value.icon !== undefined) note.icon = value.icon;
@@ -430,7 +428,7 @@ router.put('/:id', validate(updateSchema), async (req: Request, res: Response, n
       await cache.del(`notes:list:${userId}`);
       await cache.del(`notes:item:${userId}:${noteId}`);
 
-      const noteObj = updatedNote.toObject();
+      const noteObj = omitSensitiveNoteFields(updatedNote.toObject());
       
       const io = req.app.get('io');
       io.to(`user:${userId}`).emit('note:updated', noteObj);

@@ -56,10 +56,15 @@ jest.mock('react-native-paper', () => ({
   useTheme: () => ({ colors: { background: '#fff' } }),
 }));
 
+let appStateListener: ((nextState: string) => void) | null = null;
+
 jest.mock('react-native', () => ({
   AppState: {
     currentState: 'active',
-    addEventListener: jest.fn(() => ({ remove: jest.fn() })),
+    addEventListener: jest.fn((_event: any, listener: any) => {
+      appStateListener = listener;
+      return { remove: jest.fn() };
+    }),
   },
   View: 'View',
   StyleSheet: { create: (value: any) => value },
@@ -73,6 +78,7 @@ describe('AppLock biometrisk direktupplåsning', () => {
     mockAuthenticate.mockClear();
     mockHasHardwareAsync.mockClear();
     mockIsEnrolledAsync.mockClear();
+    appStateListener = null;
   });
 
   it('försöker biometrisk upplåsning direkt utan knapptryck', async () => {
@@ -85,11 +91,32 @@ describe('AppLock biometrisk direktupplåsning', () => {
     });
 
     await act(async () => {
-      jest.advanceTimersByTime(600);
       await Promise.resolve();
     });
 
     expect(mockAuthenticate).toHaveBeenCalledWith('passwordModal.unlock');
     expect(mockSetSecurityLocked).toHaveBeenCalledWith(false);
+  });
+
+  it('triggar inte biometrisk prompt två gånger vid background→active under auth', async () => {
+    mockAuthenticate.mockImplementationOnce(async () => {
+      appStateListener?.('background');
+      appStateListener?.('active');
+      return { success: true };
+    });
+
+    await act(async () => {
+      renderer.create(
+        <AppLock>
+          <></>
+        </AppLock>
+      );
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(mockAuthenticate).toHaveBeenCalledTimes(1);
   });
 });

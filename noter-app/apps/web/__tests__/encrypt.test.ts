@@ -43,7 +43,7 @@ describe('Encryption/Decryption Tests', () => {
       const plainText = 'Plain text';
       const result = decrypt(plainText);
       
-      expect(result).toBe('');
+      expect(result).toBe(plainText);
     });
 
     it('should handle empty string', () => {

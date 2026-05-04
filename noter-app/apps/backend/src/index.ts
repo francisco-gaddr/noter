@@ -29,6 +29,8 @@ import { toolSchema } from './graphql/schema';
 import { graphqlOperationLimitRule } from './graphql/validation';
 import { assertSecureStartupConfig, getAllowedOrigins, getJwtSecret, getJwtVerifyOptions, getTrustProxySetting, isDemoTokenEnabled } from './utils/security';
 import { buildHealthResponse, buildReadyResponse } from './services/runtimeHealth';
+import { createRedisRateLimitStore } from './services/rateLimitStore';
+import { createSocketConnectionAttemptLimiter } from './services/socketConnectionAttempts';
 
 const dotenvPath = process.env.DOTENV_PATH;
 if (dotenvPath) {
@@ -94,34 +96,53 @@ app.use(mongoSanitize({ replaceWith: '_' }));
 app.use(blockSuspiciousRequestPatterns);
 
 // Rate Limiting
+const globalRateLimitStore = createRedisRateLimitStore('rl:global');
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // Limit each IP to 100 requests per windowMs
   standardHeaders: true,
   legacyHeaders: false,
-  message: 'Too many requests from this IP, please try again later.'
+  message: 'Too many requests from this IP, please try again later.',
+  ...(globalRateLimitStore ? { store: globalRateLimitStore } : {}),
+  passOnStoreError: true,
 });
 
 // Apply rate limiting to all requests
 app.use(limiter);
 
+const authRateLimitStore = createRedisRateLimitStore('rl:auth');
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
   standardHeaders: true,
   legacyHeaders: false,
-  message: 'Too many authentication attempts, please try again later.'
+  message: 'Too many authentication attempts, please try again later.',
+  ...(authRateLimitStore ? { store: authRateLimitStore } : {}),
+  passOnStoreError: false,
 });
 
+const sensitiveRateLimitStore = createRedisRateLimitStore('rl:sensitive');
 const apiSensitiveLimiter = rateLimit({
   windowMs: 10 * 60 * 1000,
   max: 40,
   standardHeaders: true,
   legacyHeaders: false,
-  message: 'Too many security-sensitive requests from this IP, please try again later.'
+  message: 'Too many security-sensitive requests from this IP, please try again later.',
+  ...(sensitiveRateLimitStore ? { store: sensitiveRateLimitStore } : {}),
+  passOnStoreError: false,
 });
 
-const socketConnectionAttempts = new Map<string, { count: number; startedAt: number }>();
+const socketConnectRateLimitStore = createRedisRateLimitStore('rl:socket-connect');
+if (socketConnectRateLimitStore?.init) {
+  socketConnectRateLimitStore.init({ windowMs: 60_000 } as any);
+}
+const socketAttemptLimiter = createSocketConnectionAttemptLimiter({
+  windowMs: 60_000,
+  max: 45,
+  increment: socketConnectRateLimitStore
+    ? async (key) => socketConnectRateLimitStore.increment(key)
+    : undefined,
+});
 
 const io = new Server(server, {
   cors: {
@@ -139,19 +160,20 @@ const io = new Server(server, {
 // socketId -> User info
 const socketUsers = new Map<string, any>();
 
-io.use((socket, next) => {
-  const now = Date.now();
-  const ip = String(socket.handshake.address || 'unknown');
-  const entry = socketConnectionAttempts.get(ip);
-  if (!entry || now - entry.startedAt > 60_000) {
-    socketConnectionAttempts.set(ip, { count: 1, startedAt: now });
-  } else {
-    entry.count += 1;
-    if (entry.count > 45) {
-      next(new Error('Too many connection attempts'));
-      return;
-    }
-    socketConnectionAttempts.set(ip, entry);
+const getSocketIp = (socket: any) => {
+  const forwarded = socket?.handshake?.headers?.['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded.trim().length > 0) {
+    return forwarded.split(',')[0]?.trim() || '';
+  }
+  return String(socket?.handshake?.address || '');
+};
+
+io.use(async (socket, next) => {
+  const ip = getSocketIp(socket) || 'unknown';
+  const attempt = await socketAttemptLimiter.check(ip);
+  if (!attempt.allowed) {
+    next(new Error('Too many connection attempts'));
+    return;
   }
 
   const token = (socket.handshake.auth as any)?.token as string | undefined;

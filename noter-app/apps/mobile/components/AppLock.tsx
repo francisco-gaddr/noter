@@ -37,6 +37,7 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
   const { authenticate, getBiometryLabel } = useBiometrics();
   const theme = useTheme();
   const [checking, setChecking] = useState(!expoGo);
+  const [bootstrapped, setBootstrapped] = useState(expoGo);
   const [lockTiming, setLockTiming] = useState<LockTiming>('immediate');
   const lastBackgroundAtRef = useRef<number | null>(null);
   const isMounted = useRef(false);
@@ -50,6 +51,7 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
         setIsLocked(false);
         await setSecurityLocked(false);
         setChecking(false);
+        setBootstrapped(true);
         return;
       }
       try {
@@ -73,42 +75,20 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
             setIsLocked(false);
             await setSecurityLocked(false);
             setChecking(false);
+            setBootstrapped(true);
             return;
           }
         }
       } catch {}
-      
-      // If we didn't unlock above, trigger biometrics check
+      await setSecurityLocked(true);
       if (isMounted.current) {
-        checkBiometrics();
+        setChecking(false);
+        setBootstrapped(true);
       }
     };
     load();
     return () => { isMounted.current = false; };
   }, [expoGo, setSecurityLocked]);
-
-  const checkBiometrics = async () => {
-    setTimeout(async () => {
-        if (!isMounted.current) return;
-
-        if (!isLocked) {
-             setChecking(false);
-             return;
-        }
-
-        const hasHardware = await LocalAuthentication.hasHardwareAsync();
-        const enrolled = await LocalAuthentication.isEnrolledAsync();
-        
-        if (!hasHardware || !enrolled) {
-            setIsLocked(false);
-            await setSecurityLocked(false);
-            setChecking(false);
-            return;
-        }
-
-        await unlockApp();
-    }, 500);
-  };
 
   const unlockApp = async () => {
     if (authInFlightRef.current) {
@@ -117,6 +97,13 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
     authInFlightRef.current = true;
     setChecking(true);
     try {
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
+      const enrolled = hasHardware ? await LocalAuthentication.isEnrolledAsync() : false;
+      if (!hasHardware || !enrolled) {
+        setIsLocked(false);
+        await setSecurityLocked(false);
+        return;
+      }
       const result = await authenticate(t('passwordModal.unlock'));
       if (result.success) {
         setIsLocked(false);
@@ -133,9 +120,13 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
     if (expoGo) return;
     const subscription = AppState.addEventListener('change', nextAppState => {
       if (
-        appState.current.match(/inactive|background/) &&
+        appState.current === 'background' &&
         nextAppState === 'active'
       ) {
+        if (authInFlightRef.current) {
+          appState.current = nextAppState;
+          return;
+        }
         LocalAuthentication.hasHardwareAsync().then(async (hasHardware) => {
           if (!hasHardware) return;
           const isEnrolledNow = await LocalAuthentication.isEnrolledAsync();
@@ -166,7 +157,11 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
         });
       }
 
-      if (nextAppState.match(/inactive|background/)) {
+      if (nextAppState === 'background') {
+        if (authInFlightRef.current) {
+          appState.current = nextAppState;
+          return;
+        }
         const now = Date.now();
         lastBackgroundAtRef.current = now;
         AsyncStorage.setItem(LAST_BACKGROUND_KEY, now.toString()).catch(() => {});
@@ -182,10 +177,12 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
 
   // Effect to trigger auth when locked becomes true
   useEffect(() => {
+    if (!bootstrapped) return;
+    if (expoGo) return;
     if (isLocked && isMounted.current) {
-        void unlockApp();
+      void unlockApp();
     }
-  }, [isLocked]);
+  }, [isLocked, bootstrapped, expoGo]);
 
 
   if (!isLocked) {

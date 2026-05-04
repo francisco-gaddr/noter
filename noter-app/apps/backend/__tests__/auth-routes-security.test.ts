@@ -31,4 +31,17 @@ describe('Auth route security', () => {
     const res = await request(app).post('/api/auth/login').send({ username: 'user' });
     expect(res.status).toBe(400);
   });
+
+  it('rejects non-alphanumeric username on login', async () => {
+    const res = await request(app).post('/api/auth/login').send({ username: 'user!', password: 'password123' });
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects overly long username and password on login', async () => {
+    const res = await request(app).post('/api/auth/login').send({
+      username: 'a'.repeat(31),
+      password: 'a'.repeat(129),
+    });
+    expect(res.status).toBe(400);
+  });
 });

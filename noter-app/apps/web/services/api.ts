@@ -7,6 +7,8 @@ import {
   UpdateTaskDto,
   encrypt,
   decrypt,
+  decryptWithSource,
+  isV3Ciphertext,
   AuthResponse,
   createPasswordWrappedEncryption,
 } from '@repo/shared';
@@ -313,15 +315,10 @@ const ensureArrayPayload = (value: unknown): any[] => {
 
 const decryptOrRawString = (value: unknown): unknown => {
   if (typeof value !== 'string') return value;
-  try {
-    const decrypted = decrypt(value);
-    if (typeof decrypted === 'string' && decrypted.length === 0 && value.trim().length > 0) {
-      return value;
-    }
-    return decrypted;
-  } catch {
-    return value;
-  }
+  const raw: string = value;
+  if (isV3Ciphertext(raw)) return '';
+  const result = decryptWithSource(raw);
+  return result.source === 'failed' ? '' : result.value;
 };
 
 const decryptStringValue = (value: unknown, fallback = ''): string => {

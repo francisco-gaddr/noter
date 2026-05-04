@@ -96,6 +96,7 @@ const resources = {
       list: { noNotes: 'No notes yet. Click + to add one.', allTasks: 'All tasks' },
       common: {
         untitled: 'Untitled',
+        reloginToUnlock: 'Log in again to unlock your encrypted content.',
         language: 'Language',
         languageSv: 'Swedish',
         languageEn: 'English',
@@ -349,6 +350,7 @@ const resources = {
       list: { noNotes: 'Inga anteckningar ännu. Klicka + för att lägga till.', allTasks: 'Alla uppgifter' },
       common: {
         untitled: 'Namnlös',
+        reloginToUnlock: 'Du behöver logga in igen för att låsa upp ditt krypterade innehåll.',
         language: 'Språk',
         languageSv: 'Svenska',
         languageEn: 'Engelska',
