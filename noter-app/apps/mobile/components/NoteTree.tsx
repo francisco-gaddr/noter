@@ -96,15 +96,17 @@ export default function NoteTree({
     return map;
   }, [sortBy, sortOrder, visibleNoteById, visibleNotes]);
 
-  const toggleExpand = (id: string) => {
-    const newExpanded = new Set(expandedIds);
-    if (newExpanded.has(id)) {
-      newExpanded.delete(id);
-    } else {
-      newExpanded.add(id);
-    }
-    setExpandedIds(newExpanded);
-  };
+  const toggleExpand = useCallback((id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
 
   const treeData = useMemo(() => {
     const buildTree = (parentKey = '__root__', level = 0): TreeItem[] => {

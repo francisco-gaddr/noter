@@ -2,6 +2,7 @@ import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Text, Button, Surface } from 'react-native-paper';
 import i18n from '@/services/i18n';
+import { log } from '@/services/logger';
 
 interface Props {
   children: ReactNode;
@@ -23,7 +24,7 @@ export class CustomErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('Uncaught error:', error, errorInfo);
+    log.error(error, { errorInfo });
   }
 
   private handleRetry = () => {

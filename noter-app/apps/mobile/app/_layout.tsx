@@ -14,6 +14,7 @@ import { Provider as PaperProvider, Snackbar, Text, useTheme } from 'react-nativ
 import { useColorScheme } from '@/components/useColorScheme';
 
 import { ThemeContextProvider, useThemeContext } from '@/context/ThemeContext';
+import { installGlobalErrorHandlers, log } from '@/services/logger';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -38,7 +39,7 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (!error) return;
-    console.warn('Font loading failed, continuing without custom fonts', error);
+    log.warn('Font loading failed, continuing without custom fonts', error);
   }, [error]);
 
   useEffect(() => {
@@ -86,9 +87,10 @@ export function RootLayoutNav() {
   const { init } = require('@/stores/useStore').useStore.getState();
   require('react').useEffect(() => {
     let active = true;
+    installGlobalErrorHandlers();
     void runStartupBootstrap(init, (message, startupError) => {
       if (!active) return;
-      console.error('RootLayoutNav bootstrap failed', startupError);
+      log.error(startupError, { area: 'startup.bootstrap', message });
       useStore.setState({
         error: `Startfel: ${message}`,
         isInitialized: true,

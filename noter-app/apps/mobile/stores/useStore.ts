@@ -14,6 +14,7 @@ import i18n from '../services/i18n';
 import { initLocalEncryptionKey } from '../services/encryptionKey';
 import { getReadableProtectedText } from '../utils/protectedNote';
 import { recordStartupStage, recordSyncQueueDrain } from '../services/perfMetrics';
+import { log } from '../services/logger';
 
 let wasOffline = false;
 let initPromise: Promise<void> | null = null;
@@ -440,14 +441,14 @@ const syncTaskReminderDeferred = (task: Task, notificationsEnabled: boolean, pre
       }
       await syncTaskReminder(task, notificationsEnabled);
     } catch (error) {
-      console.warn('Task reminder sync failed', error);
+      log.warn('Task reminder sync failed', error);
     }
   })();
 };
 
 const cancelTaskReminderDeferred = (taskId: string) => {
   void cancelTaskReminder(taskId).catch((error) => {
-    console.warn('Task reminder cancel failed', error);
+    log.warn('Task reminder cancel failed', error);
   });
 };
 
@@ -632,7 +633,7 @@ export const useStore = create<AppState>((set, get) => ({
           }
         }
       } catch (error: any) {
-        console.error('[Store] Init failed:', error);
+        log.error(error, { area: 'store.init' });
         set({
           error: error?.message || 'Appstart misslyckades',
           notes: [],
@@ -683,12 +684,12 @@ export const useStore = create<AppState>((set, get) => ({
     if (get().securityLocked) return;
     if (hasRecentRemoteCollectionsSync()) return;
     try {
-      console.log('Attempting HTTP sync fallback due to WebSocket issues');
+      log.debug('Attempting HTTP sync fallback due to WebSocket issues');
       await get().fetchNotes();
       await get().fetchTasks();
-      console.log('HTTP sync fallback completed successfully');
+      log.debug('HTTP sync fallback completed successfully');
     } catch (error) {
-      console.error('HTTP sync fallback failed:', error);
+      log.error(error, { area: 'store.httpSyncFallback' });
     }
   },
 
@@ -705,17 +706,17 @@ export const useStore = create<AppState>((set, get) => ({
     const socket = initSocket(token);
 
     if (!socket) {
-      console.log('Socket initialization failed');
+      log.warn('Socket initialization failed');
       return;
     }
 
     // Add connection state monitoring
     const checkConnection = () => {
       const status = (socket as any).connected ? 'connected' : 'disconnected';
-      console.log(`Socket status: ${status}`);
+      log.debug('Socket status', { status });
       
       if (!(socket as any).connected) {
-        console.log('Socket not connected, will retry sync operations');
+        log.debug('Socket not connected, will retry sync operations');
       }
     };
 
@@ -956,7 +957,7 @@ export const useStore = create<AppState>((set, get) => ({
           set({ notes: securedNotes, isRefreshingNotes: false });
         }
       } catch (error: any) {
-        console.error('[Store] Fetch notes error:', error);
+        log.error(error, { area: 'store.fetchNotes' });
         const localNotes = await Database.getNotesLocal();
         const securedNotes = materializeNotesFromEncrypted(localNotes.map(processLocalNote) as any, new Set(get().unlockedProtectedNoteIds));
         set({
@@ -1292,7 +1293,7 @@ export const useStore = create<AppState>((set, get) => ({
         }
       }
     } catch (error) {
-      console.error('Reorder notes failed', error);
+      log.error(error, { area: 'store.reorderNotes' });
     }
   },
 
@@ -1405,7 +1406,7 @@ export const useStore = create<AppState>((set, get) => ({
         await syncAllTaskReminders(mergedTasks, true, { cancelMissing: true });
       }
     } catch (error) {
-      console.error('Background refresh failed', error);
+      log.error(error, { area: 'store.backgroundRefresh' });
     }
   },
 
@@ -1549,7 +1550,7 @@ export const useStore = create<AppState>((set, get) => ({
           reminderEnabled: optimisticTask.reminderEnabled,
           reminderOffsetMinutes: optimisticTask.reminderOffsetMinutes,
         }).catch((error) => {
-          console.error('Failed to create recurring task', error);
+          log.error(error, { area: 'store.createRecurringTask' });
         });
       }
     }
@@ -1674,12 +1675,12 @@ export const useStore = create<AppState>((set, get) => ({
       const state = get();
       const orphans = state.tasks.filter(t => !t.parentNoteId);
       if (orphans.length === 0) return;
-      console.log(`[Store] Deleting ${orphans.length} orphan tasks`);
+      log.debug('Deleting orphan tasks', { count: orphans.length });
       for (const t of orphans) {
         await get().deleteTask(t._id);
       }
     } catch (e) {
-      console.log('[Store] Failed to delete orphan tasks', e);
+      log.error(e, { area: 'store.deleteOrphanTasks' });
     }
   },
 
@@ -1778,7 +1779,7 @@ export const useStore = create<AppState>((set, get) => ({
         }
       }
     } catch (error: any) {
-      console.error('Reorder failed', error);
+      log.error(error, { area: 'store.reorder' });
       // set({ error: error.message });
     }
   },
@@ -1947,14 +1948,14 @@ export const useStore = create<AppState>((set, get) => ({
           if (typeof status === 'number' && status >= 400 && status < 500 && status !== 429) {
             await Database.removeFromSyncQueue(item.id);
           }
-          console.error('Sync item failed', item, error);
+          log.error(error, { area: 'store.syncItem', item: { id: (item as any)?.id, type: (item as any)?.type } });
         }
       }
       
       await get().fetchNotes();
       await get().fetchTasks();
     } catch (error) {
-      console.error('Sync offline changes failed', error);
+      log.error(error, { area: 'store.syncOfflineChanges' });
     } finally {
       if (initialQueueSize > 0) {
         recordSyncQueueDrain({

@@ -51,6 +51,74 @@ let mlcModule = null;
 let rendererServer = null;
 let rendererServerPort = 0;
 let isShowingRendererFallback = false;
+let mainLogStream = null;
+let mainLogBytesSinceCheck = 0;
+
+const getMainLogDir = () => path.join(app.getPath('userData'), 'logs');
+const getMainLogPath = () => path.join(getMainLogDir(), 'main.log');
+const rotateMainLogIfNeeded = () => {
+  const filePath = getMainLogPath();
+  const maxBytes = 1024 * 1024;
+  const maxFiles = 3;
+  try {
+    if (!fs.existsSync(filePath)) return;
+    const stat = fs.statSync(filePath);
+    if (!stat.isFile() || stat.size < maxBytes) return;
+    if (mainLogStream) {
+      try {
+        mainLogStream.end();
+      } catch {}
+      mainLogStream = null;
+    }
+    for (let i = maxFiles; i >= 1; i -= 1) {
+      const src = i === 1 ? filePath : `${filePath}.${i - 1}`;
+      const dst = `${filePath}.${i}`;
+      if (fs.existsSync(dst)) {
+        try {
+          fs.unlinkSync(dst);
+        } catch {}
+      }
+      if (fs.existsSync(src)) {
+        try {
+          fs.renameSync(src, dst);
+        } catch {}
+      }
+    }
+  } catch {}
+};
+const ensureMainLogStream = () => {
+  if (mainLogStream) return;
+  try {
+    fs.mkdirSync(getMainLogDir(), { recursive: true });
+    rotateMainLogIfNeeded();
+    mainLogStream = fs.createWriteStream(getMainLogPath(), { flags: 'a' });
+    mainLogBytesSinceCheck = 0;
+  } catch {
+    mainLogStream = null;
+  }
+};
+const writeMainLog = (event, payload) => {
+  try {
+    ensureMainLogStream();
+    const line = JSON.stringify({ ts: new Date().toISOString(), event, ...payload });
+    if (mainLogStream) {
+      mainLogStream.write(line + '\n');
+      mainLogBytesSinceCheck += line.length + 1;
+      if (mainLogBytesSinceCheck > 64 * 1024) {
+        mainLogBytesSinceCheck = 0;
+        rotateMainLogIfNeeded();
+      }
+    }
+  } catch {}
+};
+const installMainProcessErrorHandlers = () => {
+  process.on('uncaughtException', (err) => {
+    writeMainLog('uncaughtException', { error: String(err?.stack || err?.message || err) });
+  });
+  process.on('unhandledRejection', (reason) => {
+    writeMainLog('unhandledRejection', { error: String(reason?.stack || reason?.message || reason) });
+  });
+};
 
 const getStandaloneRendererServerPath = () => {
   const relativePath = path.join('renderer-standalone', 'apps', 'web', 'server.js');
@@ -101,17 +169,28 @@ const startStandaloneRenderer = async () => {
   };
   const child = spawn(process.execPath, [serverJs], {
     cwd: path.dirname(serverJs),
-    stdio: 'ignore',
+    stdio: ['ignore', 'pipe', 'pipe'],
     env: childEnv,
   });
   recordStartupEvent('renderer-server-started', { source: 'spawn', url: serverJs });
+  writeMainLog('renderer-server-started', { url: serverJs, port });
   rendererServer = child;
   rendererServerPort = port;
+  child.stdout?.on('data', (chunk) => {
+    const text = String(chunk || '').slice(0, 4000);
+    if (text) writeMainLog('renderer-stdout', { text });
+  });
+  child.stderr?.on('data', (chunk) => {
+    const text = String(chunk || '').slice(0, 4000);
+    if (text) writeMainLog('renderer-stderr', { text });
+  });
   child.on('spawn', () => {
     recordStartupEvent('renderer-server-spawned', { url: `http://127.0.0.1:${port}/` });
+    writeMainLog('renderer-server-spawned', { url: `http://127.0.0.1:${port}/` });
   });
   child.on('exit', (code) => {
     recordStartupEvent('renderer-server-exit', { error: String(code ?? 'unknown') });
+    writeMainLog('renderer-server-exit', { code: code ?? null });
     rendererServer = null;
     rendererServerPort = 0;
   });
@@ -558,6 +637,16 @@ const createWindow = () => {
     },
   });
 
+  win.webContents.on('render-process-gone', (_event, details) => {
+    writeMainLog('render-process-gone', { reason: details?.reason, exitCode: details?.exitCode });
+  });
+  win.on('unresponsive', () => {
+    writeMainLog('window-unresponsive', {});
+  });
+  win.on('responsive', () => {
+    writeMainLog('window-responsive', {});
+  });
+
   if (isMac) {
     try {
       win.setWindowButtonVisibility(true);
@@ -690,9 +779,14 @@ const createWindow = () => {
 
 app.whenReady().then(() => {
   recordStartupEvent('app-ready');
+  installMainProcessErrorHandlers();
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     const responseHeaders = { ...(details.responseHeaders || {}) };
-    responseHeaders['Content-Security-Policy'] = [isDev ? rendererCspDev : rendererCsp];
+    const url = details.url;
+    const isMainFrame = details.resourceType === 'mainFrame';
+    if (isMainFrame && isInternalAppUrl(url)) {
+      responseHeaders['Content-Security-Policy'] = [isDev ? rendererCspDev : rendererCsp];
+    }
     callback({ responseHeaders });
   });
   settingsCache = readSettings();
