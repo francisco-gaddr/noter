@@ -6,10 +6,12 @@ export const errorHandler = (err: any, req: Request, res: Response, _next: NextF
   const isServerError = statusCode >= 500;
   const safeMessage = isServerError ? 'Internal server error' : (err?.message || 'Request failed');
   if (isServerError) {
-    logger.error('Unhandled request error', {
+    const requestLogger = (req as any)?.log ?? logger;
+    requestLogger.error('Unhandled request error', {
       method: req.method,
-      path: req.path,
+      path: (req as any)?.originalUrl ?? req.path,
       status: statusCode,
+      errorName: err?.name,
       error: err?.message || String(err),
     });
   }

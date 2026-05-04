@@ -19,6 +19,15 @@ type DecodedToken = jwt.JwtPayload & {
   tokenVersion?: number;
 };
 
+const pickFirstString = (value: unknown): string | undefined => {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) {
+    const first = value.find((item) => typeof item === 'string');
+    return typeof first === 'string' ? first : undefined;
+  }
+  return undefined;
+};
+
 const getCachedTokenVersion = async (userId: string): Promise<number | null> => {
   const cacheKey = `auth:token-version:${userId}`;
   const cached = await cache.get<number>(cacheKey);
@@ -45,26 +54,17 @@ export const getBearerTokenFromRequestLike = (reqLike: any): string | undefined 
     return current;
   };
 
-  const pick = (value: unknown): string | undefined => {
-    if (typeof value === 'string') return value;
-    if (Array.isArray(value)) {
-      const first = value.find((item) => typeof item === 'string');
-      return typeof first === 'string' ? first : undefined;
-    }
-    return undefined;
-  };
-
   const rawHeader =
-    pick(reqLike?.header?.('Authorization')) ??
-    pick(reqLike?.header?.('authorization')) ??
-    pick(reqLike?.headers?.authorization) ??
-    pick(reqLike?.headers?.Authorization) ??
-    pick(reqLike?.raw?.headers?.authorization) ??
-    pick(reqLike?.raw?.headers?.Authorization) ??
-    pick(reqLike?.req?.headers?.authorization) ??
-    pick(reqLike?.req?.headers?.Authorization) ??
-    pick(reqLike?.request?.headers?.authorization) ??
-    pick(reqLike?.request?.headers?.Authorization);
+    pickFirstString(reqLike?.header?.('Authorization')) ??
+    pickFirstString(reqLike?.header?.('authorization')) ??
+    pickFirstString(reqLike?.headers?.authorization) ??
+    pickFirstString(reqLike?.headers?.Authorization) ??
+    pickFirstString(reqLike?.raw?.headers?.authorization) ??
+    pickFirstString(reqLike?.raw?.headers?.Authorization) ??
+    pickFirstString(reqLike?.req?.headers?.authorization) ??
+    pickFirstString(reqLike?.req?.headers?.Authorization) ??
+    pickFirstString(reqLike?.request?.headers?.authorization) ??
+    pickFirstString(reqLike?.request?.headers?.Authorization);
 
   if (!rawHeader) return undefined;
   const normalized = unwrapWrappedToken(rawHeader.trim().replace(/^Bearer\s+/i, '').trim());
@@ -72,21 +72,12 @@ export const getBearerTokenFromRequestLike = (reqLike: any): string | undefined 
 };
 
 const getCookieHeaderFromRequestLike = (reqLike: any): string | undefined => {
-  const pick = (value: unknown): string | undefined => {
-    if (typeof value === 'string') return value;
-    if (Array.isArray(value)) {
-      const first = value.find((item) => typeof item === 'string');
-      return typeof first === 'string' ? first : undefined;
-    }
-    return undefined;
-  };
-
   return (
-    pick(reqLike?.headers?.cookie) ??
-    pick(reqLike?.headers?.Cookie) ??
-    pick(reqLike?.raw?.headers?.cookie) ??
-    pick(reqLike?.req?.headers?.cookie) ??
-    pick(reqLike?.request?.headers?.cookie)
+    pickFirstString(reqLike?.headers?.cookie) ??
+    pickFirstString(reqLike?.headers?.Cookie) ??
+    pickFirstString(reqLike?.raw?.headers?.cookie) ??
+    pickFirstString(reqLike?.req?.headers?.cookie) ??
+    pickFirstString(reqLike?.request?.headers?.cookie)
   );
 };
 
