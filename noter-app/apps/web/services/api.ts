@@ -46,6 +46,21 @@ let refreshTokenCache: string | null = null;
 let refreshPromise: Promise<string | null> | null = null;
 let authTokenListener: null | ((token: string | null) => void) = null;
 
+const syncElectronSession = (payload: Partial<{ token: string | null; refreshToken: string | null }>) => {
+  if (typeof window === 'undefined') return;
+  const bridge = (window as any).mlc;
+  if (!bridge?.isElectron || typeof bridge.setSession !== 'function') return;
+  const nextPayload: Record<string, string | null> = {};
+  if (Object.prototype.hasOwnProperty.call(payload, 'token')) {
+    nextPayload.token = payload.token ?? null;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'refreshToken')) {
+    nextPayload.refreshToken = payload.refreshToken ?? null;
+  }
+  if (Object.keys(nextPayload).length === 0) return;
+  Promise.resolve(bridge.setSession(nextPayload)).catch(() => {});
+};
+
 const shouldUseCookieSession = () => {
   if (typeof window === 'undefined') return false;
   return !(window as any)?.mlc?.isElectron;
@@ -160,10 +175,12 @@ const applyAuthResponse = (data: Partial<SessionAuthResponse>) => {
     apiTokenCache = data.token;
     setWebAuthToken(data.token);
     authTokenListener?.(data.token);
+    syncElectronSession({ token: data.token });
   }
   if (typeof data.refreshToken === 'string') {
     refreshTokenCache = data.refreshToken;
     setWebRefreshToken(data.refreshToken);
+    syncElectronSession({ refreshToken: data.refreshToken });
   }
 };
 
@@ -173,6 +190,7 @@ const clearSession = () => {
   setWebAuthToken(null);
   setWebRefreshToken(null);
   authTokenListener?.(null);
+  syncElectronSession({ token: null, refreshToken: null });
 };
 
 const getHeaders = () => {
@@ -473,7 +491,8 @@ export const api = {
 
   async restoreSession(): Promise<AuthResponse | null> {
     const token = apiTokenCache || getWebAuthTokenSync();
-    if (!token && !shouldUseCookieSession()) {
+    const refreshToken = refreshTokenCache || getWebRefreshTokenSync();
+    if (!token && !shouldUseCookieSession() && !refreshToken) {
       return null;
     }
     const refreshedToken = token || await refreshSession();

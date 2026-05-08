@@ -205,7 +205,7 @@ const normalizeNoteType = (value: unknown): string => {
   return normalized || 'note';
 };
 
-const taskFetchKey = (parentNoteId?: string) => parentNoteId || '__all__';
+const taskFetchKey = () => '__all__';
 
 const markRemoteCollectionsSynced = () => {
   lastRemoteCollectionsSyncAt = Date.now();
@@ -344,6 +344,36 @@ const parseTaskPriority = (value: unknown): 'low' | 'medium' | 'high' => {
   return 'medium';
 };
 
+const parseTaskDateOrNull = (value: unknown): string | null => {
+  const decrypted = decryptOrFallback(value, '');
+  if (!decrypted) return null;
+  const parsed = new Date(decrypted);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+};
+
+const parseTaskIsoDate = (value: unknown): string => {
+  const decrypted = decryptOrFallback(value, '');
+  if (!decrypted) return new Date().toISOString();
+  const parsed = new Date(decrypted);
+  return Number.isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
+};
+
+const parseTaskPosition = (value: unknown): number => {
+  const decrypted = decryptOrFallback(value, '');
+  const parsed = Number(decrypted);
+  return Number.isNaN(parsed) ? 0 : parsed;
+};
+
+const normalizeTaskRelationId = (value: unknown): string | undefined => {
+  const normalized = normalizeId(decryptOrFallback(value, ''));
+  return normalized || undefined;
+};
+
+const normalizeTaskClientId = (value: unknown): string | undefined => {
+  const decrypted = decryptOptionalString(value);
+  return decrypted || undefined;
+};
+
 const getNextRecurringDueDate = (task: Task): string | null => {
   const recurrenceType = task.recurrenceType ?? 'none';
   if (recurrenceType === 'none') return null;
@@ -395,37 +425,31 @@ const processApiTask = (task: any): Task => ({
   description: task.description ? decryptOrFallback(task.description, '') : '',
   completed: parseTaskCompleted(task.completed),
   priority: parseTaskPriority(task.priority),
-  dueDate: task.dueDate ? (typeof task.dueDate === 'string' ? decrypt(task.dueDate) : task.dueDate) : null,
+  dueDate: parseTaskDateOrNull(task.dueDate),
   recurrenceType: task.recurrenceType ? (() => { try { return decrypt(task.recurrenceType) as any } catch { return 'none' as any } })() : 'none',
   recurrenceDays: task.recurrenceDays ? (() => { try { return JSON.parse(decrypt(task.recurrenceDays)) } catch { return [] } })() : [],
   reminderEnabled: task.reminderEnabled ? (() => { try { return decrypt(task.reminderEnabled) === 'true' } catch { return false } })() : false,
   reminderOffsetMinutes: task.reminderOffsetMinutes ? (() => { try { return parseReminderOffsets(decrypt(task.reminderOffsetMinutes)); } catch { return []; } })() : [],
-  createdAt: decrypt(task.createdAt),
-  updatedAt: decrypt(task.updatedAt),
-  position: task.position ? (() => {
-    try {
-      const decryptedPosition = decrypt(String(task.position));
-      return decryptedPosition === 'invalid-encrypted-data' ? 0 : Number(decryptedPosition);
-    } catch {
-      return 0;
-    }
-  })() : 0,
+  createdAt: parseTaskIsoDate(task.createdAt),
+  updatedAt: parseTaskIsoDate(task.updatedAt),
+  parentNoteId: normalizeTaskRelationId(task.parentNoteId),
+  parentId: normalizeTaskRelationId(task.parentId),
+  clientId: normalizeTaskClientId(task.clientId),
+  position: parseTaskPosition(task.position),
 });
 
 const processLocalTask = (task: Task): Task => ({
   ...task,
   title: getNonEmptyText(task.title, getTaskTitleFallback()),
-  dueDate: task.dueDate ?? null,
+  dueDate: parseTaskDateOrNull(task.dueDate),
+  parentNoteId: normalizeTaskRelationId(task.parentNoteId),
+  parentId: normalizeTaskRelationId(task.parentId),
+  clientId: normalizeTaskClientId(task.clientId),
+  createdAt: parseTaskIsoDate(task.createdAt),
+  updatedAt: parseTaskIsoDate(task.updatedAt),
+  position: parseTaskPosition(task.position),
   reminderOffsetMinutes: Array.isArray(task.reminderOffsetMinutes) ? task.reminderOffsetMinutes : [],
 });
-
-const mergeTasksForScope = (existingTasks: Task[], scopedTasks: Task[], parentNoteId?: string) => {
-  if (!parentNoteId) {
-    return scopedTasks;
-  }
-  const remaining = existingTasks.filter((task) => task.parentNoteId !== parentNoteId);
-  return [...remaining, ...scopedTasks];
-};
 
 const shouldFallbackToOffline = (error: unknown) => {
   const err = error as any;
@@ -1331,7 +1355,7 @@ export const useStore = create<AppState>((set, get) => ({
       set({ isRefreshingTasks: false });
       return;
     }
-    const fetchKey = taskFetchKey(parentNoteId);
+    const fetchKey = taskFetchKey();
     const inFlight = taskFetchPromises.get(fetchKey);
     if (inFlight) return inFlight;
     const fetchPromise = (async () => {
@@ -1339,53 +1363,44 @@ export const useStore = create<AppState>((set, get) => ({
       try {
         const netState = await NetInfo.fetch();
         if (netState.isConnected) {
-          const url = parentNoteId ? `/tasks?parentNoteId=${encodeURIComponent(parentNoteId)}` : '/tasks';
-          const tasks = await fetchWithAuth(url, { timeoutMs: 30000 });
-          const decryptedTasks = tasks.map(processApiTask);
+          const tasks = await fetchWithAuth('/tasks', { timeoutMs: 30000 });
+          const safeTasks = Array.isArray(tasks) ? tasks : [];
+          const decryptedTasks = safeTasks.map(processApiTask);
           const localTaskIndex = typeof Database.getLocalTaskSyncIndex === 'function'
             ? await Database.getLocalTaskSyncIndex()
             : new Map<string, string>();
           const tasksToPersist = (decryptedTasks as Task[]).filter((task: Task) => localTaskIndex.get(task._id) !== String(task.updatedAt || ''));
           await persistInBatches(tasksToPersist, 25, (task: Task) => Database.saveTaskLocal(task, true));
-          
           const state = get();
           const serverClientIds = new Set(decryptedTasks.map((t: any) => t.clientId).filter(Boolean));
-          const localOnlyTasks = state.tasks.filter(t => t._id.startsWith('local_task_') && !serverClientIds.has(t.clientId));
-
-          const mergedTasks = mergeTasksForScope(
-            state.tasks,
-            [...decryptedTasks, ...localOnlyTasks],
-            parentNoteId
-          );
+          const localOnlyTasks = state.tasks.filter((task) => (
+            task._id.startsWith('local_task_')
+            && (!task.clientId || !serverClientIds.has(task.clientId))
+          ));
+          const mergedTasks = [...decryptedTasks, ...localOnlyTasks].map(processLocalTask);
           set({ tasks: mergedTasks, isRefreshingTasks: false });
-          if (!parentNoteId) {
-            markRemoteCollectionsSynced();
-          }
+          markRemoteCollectionsSynced();
           if (get().notificationsEnabled) {
-            await syncAllTaskReminders(mergedTasks, true, { cancelMissing: !parentNoteId });
+            await syncAllTaskReminders(mergedTasks, true, { cancelMissing: true });
           }
         } else {
           const localTasks = await Database.getTasksLocal();
-          const filtered = parentNoteId ? localTasks.filter(t => t.parentNoteId === parentNoteId) : localTasks;
-          const mapped = filtered.map(processLocalTask);
-          const mergedTasks = mergeTasksForScope(get().tasks, mapped, parentNoteId);
-          set({ tasks: mergedTasks, isRefreshingTasks: false });
+          const mapped = localTasks.map(processLocalTask);
+          set({ tasks: mapped, isRefreshingTasks: false });
           if (get().notificationsEnabled) {
-            await syncAllTaskReminders(mergedTasks, true, { cancelMissing: !parentNoteId });
+            await syncAllTaskReminders(mapped, true, { cancelMissing: true });
           }
         }
       } catch (error: any) {
         const localTasks = await Database.getTasksLocal();
-        const filtered = parentNoteId ? localTasks.filter(t => t.parentNoteId === parentNoteId) : localTasks;
-        const mapped = filtered.map(processLocalTask);
-        const mergedTasks = mergeTasksForScope(get().tasks, mapped, parentNoteId);
+        const mapped = localTasks.map(processLocalTask);
         set({
-          tasks: mergedTasks,
+          tasks: mapped,
           isRefreshingTasks: false,
-          error: shouldSuppressCollectionError(error, filtered.length) ? null : error.message,
+          error: shouldSuppressCollectionError(error, mapped.length) ? null : error.message,
         });
         if (get().notificationsEnabled) {
-          await syncAllTaskReminders(mergedTasks, true, { cancelMissing: !parentNoteId });
+          await syncAllTaskReminders(mapped, true, { cancelMissing: true });
         }
       }
     })();

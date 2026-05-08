@@ -501,6 +501,52 @@ describe('Mobile Store', () => {
     expect(state.error).toBeNull();
   });
 
+  it('should refresh the canonical task collection even when a specific list is requested', async () => {
+    const { fetchWithAuth } = require('../services/api');
+    const Database = require('../services/database');
+    const now = encrypt(new Date().toISOString());
+
+    fetchWithAuth.mockResolvedValueOnce([
+      {
+        _id: 'task-a',
+        title: encrypt('Task A'),
+        description: encrypt('Beskrivning A'),
+        completed: encrypt('false'),
+        priority: encrypt('medium'),
+        dueDate: null,
+        recurrenceType: encrypt('none'),
+        recurrenceDays: encrypt('[]'),
+        reminderEnabled: encrypt('false'),
+        reminderOffsetMinutes: encrypt('[]'),
+        createdAt: now,
+        updatedAt: now,
+        parentNoteId: 'list-a',
+      },
+      {
+        _id: 'task-b',
+        title: encrypt('Task B'),
+        description: encrypt('Beskrivning B'),
+        completed: encrypt('false'),
+        priority: encrypt('low'),
+        dueDate: null,
+        recurrenceType: encrypt('none'),
+        recurrenceDays: encrypt('[]'),
+        reminderEnabled: encrypt('false'),
+        reminderOffsetMinutes: encrypt('[]'),
+        createdAt: now,
+        updatedAt: now,
+        parentNoteId: 'list-b',
+      },
+    ]);
+    Database.getLocalTaskSyncIndex.mockResolvedValueOnce(new Map());
+
+    await useStore.getState().fetchTasks('list-a');
+
+    const state = useStore.getState();
+    expect(fetchWithAuth).toHaveBeenCalledWith('/tasks', { timeoutMs: 30000 });
+    expect(state.tasks.map((task: any) => task._id)).toEqual(['task-a', 'task-b']);
+  });
+
   it('should skip unchanged local writes during background refresh', async () => {
     const { fetchWithAuth } = require('../services/api');
     const Database = require('../services/database');

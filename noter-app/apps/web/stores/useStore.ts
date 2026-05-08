@@ -51,19 +51,20 @@ const readElectronSettings = async (keys: string[]) => {
 };
 
 const readElectronSession = async () => {
-  if (typeof window === 'undefined') return { token: null, user: null };
+  if (typeof window === 'undefined') return { token: null, refreshToken: null, user: null };
   const mlc = (window as any).mlc;
   if (!mlc?.isElectron || typeof mlc.getSession !== 'function') {
-    return { token: null, user: null };
+    return { token: null, refreshToken: null, user: null };
   }
   try {
     const session = await mlc.getSession();
     return {
       token: typeof session?.token === 'string' ? session.token : null,
+      refreshToken: typeof session?.refreshToken === 'string' ? session.refreshToken : null,
       user: session?.user ?? null,
     };
   } catch {
-    return { token: null, user: null };
+    return { token: null, refreshToken: null, user: null };
   }
 };
 
@@ -113,18 +114,11 @@ const logElectronDataDebug = (stage: string, payload: Record<string, unknown>) =
   console.info('[ElectronDataDebug]', stage, redactDebugValue(payload));
 };
 
-const setElectronToken = (value: string | null) => {
+const setElectronSession = (value: Partial<{ token: string | null; refreshToken: string | null; user: User | null }>) => {
   if (typeof window === 'undefined') return;
   const mlc = (window as any).mlc;
   if (!mlc?.setSession) return;
-  mlc.setSession({ token: value, user: undefined });
-};
-
-const setElectronUser = (value: User | null) => {
-  if (typeof window === 'undefined') return;
-  const mlc = (window as any).mlc;
-  if (!mlc?.setSession) return;
-  mlc.setSession({ token: undefined, user: value });
+  mlc.setSession(value);
 };
 
 const setElectronLockState = (locked: boolean) => {
@@ -688,8 +682,7 @@ export const useStore = create<StoreState>((set, get) => ({
           disconnectSocket();
           if (isElectron) {
             setElectronLockState(false);
-            setElectronToken(null);
-            setElectronUser(null);
+            setElectronSession({ token: null, refreshToken: null, user: null });
           }
           set({
             user: null,
@@ -716,29 +709,35 @@ export const useStore = create<StoreState>((set, get) => ({
         setApiAuthTokenListener((nextToken) => {
             set({ token: nextToken });
             setSocketToken(nextToken);
-            setElectronToken(nextToken);
+            setElectronSession({ token: nextToken });
         });
         setSocketToken(token || null);
-        if (token) setElectronToken(token);
-        if (user) setElectronUser(user);
+        if (token) setElectronSession({ token });
+        if (user) setElectronSession({ user });
         if (hasElectronSettingsBridge) {
             Promise.all([
                 readElectronSettings(['apiBaseUrl', 'apiUrl', 'backendUrl']),
                 readElectronSession(),
             ]).then(([settings, session]) => {
                 const storedToken = session.token;
+                const storedRefreshToken = session.refreshToken;
                 const storedUser = session.user;
                 const storedApiBaseUrl = settings.apiBaseUrl;
                 const storedApiUrl = settings.apiUrl;
                 const storedBackendUrl = settings.backendUrl;
                 logElectronDataDebug('bootstrap-settings', {
                     hasStoredToken: Boolean(storedToken),
+                    hasStoredRefreshToken: Boolean(storedRefreshToken),
                     hasStoredUser: Boolean(storedUser),
                     hasStoredApiBaseUrl: Boolean(storedApiBaseUrl),
                     hasStoredApiUrl: Boolean(storedApiUrl),
                     hasStoredBackendUrl: Boolean(storedBackendUrl),
                 });
                 if (storedToken && !token) setWebAuthToken(String(storedToken));
+                if (storedRefreshToken) {
+                    setWebRefreshToken(String(storedRefreshToken));
+                    setApiRefreshToken(String(storedRefreshToken));
+                }
                 if (storedUser && !user) {
                     const normalizedUser = typeof storedUser === 'string' ? JSON.parse(storedUser) : storedUser;
                     localStorage.setItem('user', JSON.stringify(normalizedUser));
@@ -761,10 +760,36 @@ export const useStore = create<StoreState>((set, get) => ({
                     set({ user: typeof storedUser === 'string' ? JSON.parse(storedUser) : storedUser });
                 }
                 const effectiveToken = String(storedToken || token || '');
+                const effectiveRefreshToken = String(storedRefreshToken || getWebRefreshTokenSync() || '');
                 if (effectiveToken && !nextLocked) {
                     get().fetchNotes();
                     get().fetchTasks();
                     get().initSocket();
+                } else if (effectiveRefreshToken && !nextLocked) {
+                    Promise.resolve(api.restoreSession()).then((session) => {
+                        if (!session?.token) {
+                            setWebAuthToken(null);
+                            setWebRefreshToken(null);
+                            setApiToken(null);
+                            setApiRefreshToken(null);
+                            setElectronSession({ token: null, refreshToken: null, user: null });
+                            set({ user: null, token: null });
+                            return;
+                        }
+                        localStorage.setItem('user', JSON.stringify(session.user));
+                        set({ user: session.user, token: session.token, isAppLocked: false });
+                        setApiToken(session.token);
+                        setApiRefreshToken((session as any).refreshToken || effectiveRefreshToken);
+                        setSocketToken(session.token);
+                        setElectronSession({
+                            token: session.token,
+                            refreshToken: (session as any).refreshToken || effectiveRefreshToken,
+                            user: session.user,
+                        });
+                        get().fetchNotes();
+                        get().fetchTasks();
+                        get().initSocket();
+                    }).catch(() => {});
                 }
             }).catch(() => {});
         }
@@ -827,8 +852,7 @@ export const useStore = create<StoreState>((set, get) => ({
         setApiToken(token);
         setApiRefreshToken(refreshToken || null);
         setSocketToken(token);
-        setElectronToken(token);
-        setElectronUser(user);
+        setElectronSession({ token, refreshToken: refreshToken || null, user });
         await get().fetchNotes();
         await get().fetchTasks();
         get().initSocket();
@@ -850,8 +874,7 @@ export const useStore = create<StoreState>((set, get) => ({
         setApiToken(token);
         setApiRefreshToken(refreshToken || null);
         setSocketToken(token);
-        setElectronToken(token);
-        setElectronUser(user);
+        setElectronSession({ token, refreshToken: refreshToken || null, user });
         await get().fetchNotes();
         await get().fetchTasks();
         get().initSocket();
@@ -869,8 +892,7 @@ export const useStore = create<StoreState>((set, get) => ({
     setApiToken(null);
     setApiRefreshToken(null);
     setSocketToken(null);
-    setElectronToken(null);
-    setElectronUser(null);
+    setElectronSession({ token: null, refreshToken: null, user: null });
     disconnectSocket();
     set({ user: null, token: null, notes: [], tasks: [], selectedNoteId: null, selectedTaskListId: null, isAppLocked: false, unlockedProtectedNoteIds: [], transientUnlockedProtectedNoteIds: [] });
   },
@@ -1440,7 +1462,7 @@ export const useStore = create<StoreState>((set, get) => ({
     return notesFetchPromise;
   },
 
-  fetchTasks: async (parentNoteId) => {
+  fetchTasks: async (_parentNoteId) => {
     if (get().isAppLocked) {
       set({ isLoading: false });
       return;
@@ -1450,7 +1472,7 @@ export const useStore = create<StoreState>((set, get) => ({
     } else if (get().notes.length === 0 && get().token) {
       await get().fetchNotes();
     }
-    const currentFetchKey = taskFetchKey(parentNoteId);
+    const currentFetchKey = taskFetchKey();
     const inFlight = taskFetchPromises.get(currentFetchKey);
     if (inFlight) return inFlight;
     const fetchPromise = (async () => {
@@ -1471,7 +1493,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
       try {
         // Always try to fetch, regardless of navigator.onLine status
-        const encryptedTasks = await api.fetchTasks(parentNoteId);
+        const encryptedTasks = await api.fetchTasks();
         const readableEncryptedTasks = filterEncryptedTasksByLockState(
           Array.isArray(encryptedTasks) ? encryptedTasks : [],
           get().notes,
@@ -1481,17 +1503,7 @@ export const useStore = create<StoreState>((set, get) => ({
         
         const pendingTasks = await db.getPendingSyncTasks();
         
-        const currentTasks = get().tasks;
-        
-        // Keep tasks that are NOT in the scope of the new data
-        // If fetching specific list, keep others.
-        // If fetching all, keep none (replace all).
-        const keptTasks = parentNoteId 
-            ? currentTasks.filter(t => t.parentNoteId !== parentNoteId)
-            : [];
-            
-        // Merge: Fresh first, then kept. uniqBy will keep the first occurrence (Fresh)
-        const mergedTasks = uniqBy([...tasks, ...keptTasks], '_id');
+        const mergedTasks = uniqBy(tasks, '_id');
         const serverTaskMap = new Map(tasks.map(t => [t._id, t]));
         
         for (const pTask of pendingTasks) {
@@ -1507,10 +1519,7 @@ export const useStore = create<StoreState>((set, get) => ({
                  if (idx !== -1) {
                      mergedTasks[idx] = pTask;
                  } else {
-                     const belongs = !parentNoteId || pTask.parentNoteId === parentNoteId;
-                     if (belongs) {
-                         mergedTasks.push(pTask);
-                     }
+                    mergedTasks.push(pTask);
                  }
             }
         }

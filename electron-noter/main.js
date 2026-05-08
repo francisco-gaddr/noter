@@ -335,7 +335,7 @@ const isSafeSettingKey = (key) => (
 );
 const sanitizeSettingKeys = (keys) => Array.isArray(keys) ? keys.filter(isSafeSettingKey).slice(0, 32) : [];
 const sanitizeSettingEntries = (entries) => Object.entries(entries || {}).filter(([key]) => isSafeSettingKey(key)).slice(0, 32);
-const sensitiveSessionKeys = new Set(['token', 'user']);
+const sensitiveSessionKeys = new Set(['token', 'refreshToken', 'user']);
 const isSensitiveSessionKey = (key) => sensitiveSessionKeys.has(String(key || ''));
 const filterSafeSettingKeys = (keys) => sanitizeSettingKeys(keys).filter((key) => !isSensitiveSessionKey(key));
 const filterSafeSettingEntries = (entries) => sanitizeSettingEntries(entries).filter(([key]) => !isSensitiveSessionKey(key));
@@ -793,8 +793,8 @@ app.whenReady().then(() => {
     }
     callback({ responseHeaders });
   });
-  settingsCache = readSettings();
   createWindow();
+  settingsCache = readSettings();
   if (shouldRewriteSettingsOnStartup()) {
     enqueueSettingsWrite((settings) => {
       Object.assign(settings, settingsCache);
@@ -975,6 +975,7 @@ ipcMain.handle('session:get', async (event) => {
   const settings = getEffectiveSettingsSnapshot();
   return {
     token: typeof settings.token === 'string' ? settings.token : null,
+    refreshToken: typeof settings.refreshToken === 'string' ? settings.refreshToken : null,
     user: settings.user ?? null,
   };
 });
@@ -982,6 +983,7 @@ ipcMain.handle('session:get', async (event) => {
 ipcMain.handle('session:set', async (event, payload) => {
   assertTrustedIpcSender(event);
   const hasToken = Object.prototype.hasOwnProperty.call(payload || {}, 'token');
+  const hasRefreshToken = Object.prototype.hasOwnProperty.call(payload || {}, 'refreshToken');
   const hasUser = Object.prototype.hasOwnProperty.call(payload || {}, 'user');
   await enqueueSettingsWrite((settings) => {
     if (hasToken) {
@@ -990,6 +992,14 @@ ipcMain.handle('session:set', async (event, payload) => {
         settings.token = nextToken;
       } else {
         delete settings.token;
+      }
+    }
+    if (hasRefreshToken) {
+      const nextRefreshToken = typeof payload?.refreshToken === 'string' ? payload.refreshToken : null;
+      if (nextRefreshToken) {
+        settings.refreshToken = nextRefreshToken;
+      } else {
+        delete settings.refreshToken;
       }
     }
     if (hasUser) {
