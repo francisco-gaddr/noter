@@ -2,6 +2,8 @@ export interface Note {
   _id: string;
   userId: string;
   clientId?: string;
+  clientMutationId?: string;
+  baseUpdatedAt?: string;
   title: string;
   content: string;
   tags: string[];
@@ -21,6 +23,8 @@ export interface Task {
   _id: string;
   userId: string;
   clientId?: string;
+  clientMutationId?: string;
+  baseUpdatedAt?: string;
   parentNoteId?: string;
   parentId?: string;
   title: string;
@@ -38,6 +42,55 @@ export interface Task {
   position?: number;
 }
 
+export type SyncConflictEntity = 'note' | 'task';
+export type SyncOperationAction = 'CREATE' | 'UPDATE' | 'DELETE';
+
+export interface BulkSyncOperation<TData = unknown> {
+  clientOperationId: string;
+  action: SyncOperationAction;
+  id?: string;
+  tempId?: string;
+  data?: TData;
+}
+
+export interface BulkSyncResult<TItem = unknown> {
+  clientOperationId: string;
+  action: SyncOperationAction;
+  entity: 'NOTE' | 'TASK';
+  status: 'applied' | 'conflict' | 'not_found';
+  id?: string;
+  tempId?: string;
+  itemId?: string;
+  item?: TItem;
+  deletedIds?: string[];
+  deletedTaskIds?: string[];
+  serverUpdatedAt?: string;
+  localBaseUpdatedAt?: string;
+  message?: string;
+}
+
+export interface SyncConflictItem {
+  key: string;
+  entity: SyncConflictEntity;
+  itemId: string;
+  title: string;
+  message: string;
+  occurredAt: number;
+  serverUpdatedAt?: string;
+  localBaseUpdatedAt?: string;
+}
+
+export interface SyncHealthSnapshot {
+  lastSuccessfulNotesSyncAt?: string | null;
+  lastSuccessfulTasksSyncAt?: string | null;
+  lastCollectionsRefreshAt?: string | null;
+  lastHydrationSource?: string | null;
+  lastReachabilityCheckAt?: string | null;
+  lastReachabilityResult?: 'reachable' | 'offline' | 'unknown';
+  lastResumeAt?: string | null;
+  lastConflictAt?: string | null;
+}
+
 export interface User {
   _id: string;
   id?: string;
@@ -48,6 +101,8 @@ export interface User {
 }
 
 export interface UpdateTaskDto {
+  clientMutationId?: string;
+  baseUpdatedAt?: string;
   title?: string;
   completed?: boolean;
   description?: string;
@@ -63,6 +118,7 @@ export interface UpdateTaskDto {
 
 export interface CreateTaskDto {
   title: string;
+  clientMutationId?: string;
   completed?: boolean;
   parentNoteId?: string;
   description?: string;
@@ -91,6 +147,7 @@ export interface AuthResponse {
 export interface CreateNoteDto {
     title: string;
     content: string;
+    clientMutationId?: string;
     tags?: string[];
     parentId?: string | null;
     type?: 'note' | 'task_list' | 'project';
@@ -102,6 +159,8 @@ export interface CreateNoteDto {
 }
 
 export interface UpdateNoteDto {
+    clientMutationId?: string;
+    baseUpdatedAt?: string;
     title?: string;
     content?: string;
     tags?: string[];

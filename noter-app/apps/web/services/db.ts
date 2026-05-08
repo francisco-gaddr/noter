@@ -202,6 +202,8 @@ export const db = {
           })(),
           userId: decryptText((n as any).userId, (n as any).userId) || (n as any).userId,
           clientId: (n as any).clientId ? (decryptText((n as any).clientId, (n as any).clientId) || (n as any).clientId) : undefined,
+          clientMutationId: (n as any).clientMutationId ? (decryptText((n as any).clientMutationId, (n as any).clientMutationId) || (n as any).clientMutationId) : undefined,
+          baseUpdatedAt: (n as any).baseUpdatedAt ? (decryptText((n as any).baseUpdatedAt, (n as any).baseUpdatedAt) || (n as any).baseUpdatedAt) : undefined,
           locked: locked,
           __rawEncryptedTitle: n.title,
           __rawEncryptedContent: n.content,
@@ -275,6 +277,8 @@ export const db = {
         })(),
         userId: decryptText((note as any).userId, (note as any).userId) || (note as any).userId,
         clientId: (note as any).clientId ? (decryptText((note as any).clientId, (note as any).clientId) || (note as any).clientId) : undefined,
+        clientMutationId: (note as any).clientMutationId ? (decryptText((note as any).clientMutationId, (note as any).clientMutationId) || (note as any).clientMutationId) : undefined,
+        baseUpdatedAt: (note as any).baseUpdatedAt ? (decryptText((note as any).baseUpdatedAt, (note as any).baseUpdatedAt) || (note as any).baseUpdatedAt) : undefined,
         locked: locked,
         __rawEncryptedTitle: note.title,
         __rawEncryptedContent: note.content,
@@ -318,6 +322,8 @@ export const db = {
         _id: note._id,
         userId: note.userId ? encrypt(toEncryptedString(note.userId)) : note.userId,
         clientId: note.clientId ? encrypt(toEncryptedString(note.clientId)) : note.clientId,
+        clientMutationId: note.clientMutationId ? encrypt(toEncryptedString(note.clientMutationId)) : undefined,
+        baseUpdatedAt: note.baseUpdatedAt ? encrypt(toEncryptedString(note.baseUpdatedAt)) : undefined,
         title: rawTitle && note.locked ? rawTitle : encrypt(toEncryptedString(note.title)),
         content: rawContent && note.locked ? rawContent : encrypt(toEncryptedString(note.content)),
         tags: Array.isArray(rawTags) && note.locked ? rawTags : (note.tags?.map(t => encrypt(toEncryptedString(t))) ?? []),
@@ -384,6 +390,8 @@ export const db = {
         })(),
         userId: decryptText((n as any).userId, (n as any).userId) || (n as any).userId,
         clientId: (n as any).clientId ? (decryptText((n as any).clientId, (n as any).clientId) || (n as any).clientId) : undefined,
+        clientMutationId: (n as any).clientMutationId ? (decryptText((n as any).clientMutationId, (n as any).clientMutationId) || (n as any).clientMutationId) : undefined,
+        baseUpdatedAt: (n as any).baseUpdatedAt ? (decryptText((n as any).baseUpdatedAt, (n as any).baseUpdatedAt) || (n as any).baseUpdatedAt) : undefined,
         locked: (() => {
             const value: any = (n as any).locked;
             if (typeof value === 'boolean') return value;
@@ -441,6 +449,8 @@ export const db = {
       userId: decryptText((t as any).userId, (t as any).userId) || (t as any).userId,
       parentNoteId: (t as any).parentNoteId ? (decryptText((t as any).parentNoteId, (t as any).parentNoteId) || (t as any).parentNoteId) : null,
       parentId: (t as any).parentId ? (decryptText((t as any).parentId, (t as any).parentId) || (t as any).parentId) : null,
+      clientMutationId: (t as any).clientMutationId ? (decryptText((t as any).clientMutationId, (t as any).clientMutationId) || (t as any).clientMutationId) : undefined,
+      baseUpdatedAt: (t as any).baseUpdatedAt ? (decryptText((t as any).baseUpdatedAt, (t as any).baseUpdatedAt) || (t as any).baseUpdatedAt) : undefined,
       position: (() => {
         const parsed = decryptNumber((t as any).position);
         if (parsed !== null) return parsed;
@@ -459,6 +469,8 @@ export const db = {
         _id: task._id,
         userId: task.userId ? encrypt(toEncryptedString(task.userId)) : task.userId,
         clientId: task.clientId ? encrypt(toEncryptedString(task.clientId)) : task.clientId,
+        clientMutationId: task.clientMutationId ? encrypt(toEncryptedString(task.clientMutationId)) : undefined,
+        baseUpdatedAt: task.baseUpdatedAt ? encrypt(toEncryptedString(task.baseUpdatedAt)) : undefined,
         title: encrypt(toEncryptedString(task.title)),
         description: encrypt(toEncryptedString(task.description || '')),
         completed: encrypt(String(task.completed)),
@@ -514,6 +526,8 @@ export const db = {
       userId: decryptText((t as any).userId, (t as any).userId) || (t as any).userId,
       parentNoteId: (t as any).parentNoteId ? (decryptText((t as any).parentNoteId, (t as any).parentNoteId) || (t as any).parentNoteId) : null,
       parentId: (t as any).parentId ? (decryptText((t as any).parentId, (t as any).parentId) || (t as any).parentId) : null,
+      clientMutationId: (t as any).clientMutationId ? (decryptText((t as any).clientMutationId, (t as any).clientMutationId) || (t as any).clientMutationId) : undefined,
+      baseUpdatedAt: (t as any).baseUpdatedAt ? (decryptText((t as any).baseUpdatedAt, (t as any).baseUpdatedAt) || (t as any).baseUpdatedAt) : undefined,
       position: (() => {
         const parsed = decryptNumber((t as any).position);
         if (parsed !== null) return parsed;

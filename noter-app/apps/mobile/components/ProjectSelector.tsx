@@ -139,7 +139,14 @@ const RenameProjectInput = React.memo(({
 });
 
 export default function ProjectSelector({ visible, onDismiss, onSelect, selectedProjectId }: ProjectSelectorProps) {
-  const { notes, activeProjectId, setActiveProject, createNote, updateNote, deleteNote, verifyNoteLock, reorderNotes } = useStore();
+  const notes = useStore((state) => state.notes);
+  const activeProjectId = useStore((state) => state.activeProjectId);
+  const setActiveProject = useStore((state) => state.setActiveProject);
+  const createNote = useStore((state) => state.createNote);
+  const updateNote = useStore((state) => state.updateNote);
+  const deleteNote = useStore((state) => state.deleteNote);
+  const verifyNoteLock = useStore((state) => state.verifyNoteLock);
+  const reorderNotes = useStore((state) => state.reorderNotes);
   const theme = useTheme();
   const { t } = useTranslation();
   

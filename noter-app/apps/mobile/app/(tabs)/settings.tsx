@@ -23,6 +23,9 @@ export default function SettingsScreen() {
   const setActiveProject = useStore((s) => s.setActiveProject);
   const notificationsEnabled = useStore((s) => s.notificationsEnabled);
   const setNotificationsEnabled = useStore((s) => s.setNotificationsEnabled);
+  const syncConflicts = useStore((s) => s.syncConflicts);
+  const syncHealth = useStore((s) => s.syncHealth);
+  const isOffline = useStore((s) => s.isOffline);
   const paperTheme = useTheme();
   const touchRippleColor = 'rgba(33, 150, 243, 0.22)';
   const router = useRouter();
@@ -233,6 +236,12 @@ export default function SettingsScreen() {
     }, 0);
   };
 
+  const formatSyncTime = (value?: string | null) => {
+    if (!value) return t('common.never', 'Aldrig');
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? t('common.unknown', 'Okänt') : parsed.toLocaleString(i18n.language === 'sv' ? 'sv-SE' : 'en-US');
+  };
+
   const pressedStyle = (key: string) => (
     pressedItem === key
       ? { backgroundColor: paperTheme.colors.secondaryContainer }
@@ -340,6 +349,45 @@ export default function SettingsScreen() {
              {t('settings.notificationsHint', 'Slå på för att få påminnelser om uppgifter')}
            </Text>
         </View>
+      </List.Section>
+
+      <Divider />
+
+      <List.Section title={t('settings.syncHealthTitle', 'Synkhälsa')}>
+        <List.Item
+          title={t('settings.syncConflictsLabel', 'Aktiva konflikter')}
+          description={
+            syncConflicts.length > 0
+              ? `${syncConflicts.length} • ${syncConflicts[0]?.title || t('common.unknown', 'Okänt')}`
+              : t('settings.syncConflictsEmpty', 'Inga aktiva konflikter')
+          }
+          left={props => <List.Icon {...props} icon={syncConflicts.length > 0 ? 'alert-circle-outline' : 'check-circle-outline'} />}
+        />
+        <List.Item
+          title={t('settings.syncLastNotes', 'Senaste anteckningssynk')}
+          description={formatSyncTime(syncHealth.lastSuccessfulNotesSyncAt)}
+          left={props => <List.Icon {...props} icon="note-sync-outline" />}
+        />
+        <List.Item
+          title={t('settings.syncLastTasks', 'Senaste uppgiftssynk')}
+          description={formatSyncTime(syncHealth.lastSuccessfulTasksSyncAt)}
+          left={props => <List.Icon {...props} icon="format-list-checks" />}
+        />
+        <List.Item
+          title={t('settings.syncReachability', 'Backendstatus')}
+          description={`${isOffline ? t('sync.offlineBanner') : t('common.online', 'Online')} • ${formatSyncTime(syncHealth.lastReachabilityCheckAt)}`}
+          left={props => <List.Icon {...props} icon={isOffline ? 'cloud-off-outline' : 'cloud-check-outline'} />}
+        />
+        <List.Item
+          style={pressedStyle('sync-health-resync')}
+          title={t('settings.syncNow', 'Synka nu')}
+          description={t('settings.syncHealthHint', 'Visa senaste synkstatus och tvinga en ny bakgrundshämtning vid behov')}
+          left={props => <List.Icon {...props} icon="sync" />}
+          onPress={handleResync}
+          onPressIn={() => setPressedItem('sync-health-resync')}
+          onPressOut={() => setPressedItem(null)}
+          rippleColor={touchRippleColor}
+        />
       </List.Section>
 
       <Divider />

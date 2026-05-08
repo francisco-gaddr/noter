@@ -14,7 +14,7 @@ export default function LoginScreen() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [errorVisible, setErrorVisible] = useState(false);
   const router = useRouter();
-  const { login } = useStore();
+  const login = useStore((state) => state.login);
   const theme = useTheme();
   const { t } = useTranslation();
 

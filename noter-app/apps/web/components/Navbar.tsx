@@ -16,10 +16,16 @@ export default function Navbar({ onToggleSidebar, isSidebarCollapsed }: { onTogg
   const user = useStore((state) => state.user);
   const activeTab = useStore((state) => state.activeTab);
   const isOffline = useStore((state) => state.isOffline);
+  const syncConflicts = useStore((state) => state.syncConflicts);
+  const syncHealth = useStore((state) => state.syncHealth);
+  const dismissSyncConflict = useStore((state) => state.dismissSyncConflict);
+  const clearSyncConflicts = useStore((state) => state.clearSyncConflicts);
+  const refreshCollections = useStore((state) => state.refreshCollections);
   const setActiveTab = useStore((state) => state.setActiveTab);
   const selectNote = useStore((state) => state.selectNote);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [hideOfflineIndicator, setHideOfflineIndicator] = useState(false);
+  const [showConflictPanel, setShowConflictPanel] = useState(false);
   const { t } = useTranslation();
 
   useEffect(() => {
@@ -36,6 +42,12 @@ export default function Navbar({ onToggleSidebar, isSidebarCollapsed }: { onTogg
       setHideOfflineIndicator(false);
     }
   }, [isOffline]);
+
+  const formatSyncTime = (value?: string | null) => {
+    if (!value) return 'Never';
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? 'Unknown' : parsed.toLocaleString();
+  };
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -125,6 +137,72 @@ export default function Navbar({ onToggleSidebar, isSidebarCollapsed }: { onTogg
             </button>
           </div>
         )}
+        <div className="relative">
+          {syncConflicts.length > 0 && (
+            <button
+              onClick={() => setShowConflictPanel((value) => !value)}
+              className="px-2 py-1 rounded-full bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200 text-xs font-medium"
+              aria-label={t('navbar.conflictIndicator', { count: syncConflicts.length })}
+              title={t('navbar.conflictIndicator', { count: syncConflicts.length })}
+            >
+              {t('navbar.conflictIndicator', { count: syncConflicts.length })}
+            </button>
+          )}
+          {showConflictPanel && (
+            <div className="absolute right-0 top-10 w-80 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-xl p-3 z-50">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <div className="text-sm font-semibold">{t('navbar.conflictTitle')}</div>
+                <button
+                  onClick={() => {
+                    clearSyncConflicts();
+                    setShowConflictPanel(false);
+                  }}
+                  className="text-xs text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100"
+                >
+                  {t('navbar.conflictDismissAll')}
+                </button>
+              </div>
+              {syncConflicts.length === 0 ? (
+                <div className="text-xs text-gray-500 dark:text-gray-400">{t('navbar.conflictEmpty')}</div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="rounded-lg bg-gray-50 dark:bg-gray-800 px-3 py-2 text-xs text-gray-600 dark:text-gray-300">
+                    <div>{t('navbar.conflictIndicator', { count: syncConflicts.length })}</div>
+                    <div className="mt-1">
+                      {t('settings.syncLastNotes')}: {formatSyncTime(syncHealth.lastSuccessfulNotesSyncAt)}
+                    </div>
+                    <div>
+                      {t('settings.syncLastTasks')}: {formatSyncTime(syncHealth.lastSuccessfulTasksSyncAt)}
+                    </div>
+                  </div>
+                  {syncConflicts.slice(0, 4).map((conflict) => (
+                    <div key={conflict.key} className="rounded-lg bg-gray-50 dark:bg-gray-800 px-3 py-2">
+                      <div className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">{conflict.title}</div>
+                      <div className="text-xs text-gray-600 dark:text-gray-300 mt-1">{conflict.message}</div>
+                      <div className="mt-2 flex justify-end">
+                        <button
+                          onClick={() => dismissSyncConflict(conflict.key)}
+                          className="text-xs text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100"
+                        >
+                          {t('navbar.conflictDismiss')}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void refreshCollections({ force: true });
+                    }}
+                    className="w-full rounded-lg bg-blue-600 text-white text-xs font-medium px-3 py-2 hover:bg-blue-500"
+                  >
+                    {t('settings.syncNow')}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
         {user && (
             <div className="text-sm mr-2 hidden md:block font-medium">
                 {user.username}

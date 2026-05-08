@@ -15,16 +15,20 @@ jest.mock('../services/api', () => ({
     register: jest.fn(),
     restoreSession: jest.fn().mockResolvedValue(null),
     fetchNotes: jest.fn(),
+    fetchNoteChanges: jest.fn().mockResolvedValue({ items: [], serverTime: new Date('2026-01-01T00:00:00.000Z').toISOString() }),
     decryptTasks: jest.fn((tasks: any[]) => Promise.resolve(tasks)),
     getNote: jest.fn(),
     verifyLock: jest.fn(),
     createNote: jest.fn(),
     updateNote: jest.fn(),
     deleteNote: jest.fn(),
+    syncNotes: jest.fn().mockResolvedValue({ results: [], serverTime: new Date('2026-01-01T00:00:00.000Z').toISOString() }),
     fetchTasks: jest.fn(),
+    fetchTaskChanges: jest.fn().mockResolvedValue({ items: [], serverTime: new Date('2026-01-01T00:00:00.000Z').toISOString() }),
     createTask: jest.fn(),
     updateTask: jest.fn(),
     deleteTask: jest.fn(),
+    syncTasks: jest.fn().mockResolvedValue({ results: [], serverTime: new Date('2026-01-01T00:00:00.000Z').toISOString() }),
   },
 }));
 
@@ -237,8 +241,9 @@ describe('Web Store', () => {
 
   it('should keep plain project type when decryption returns empty', async () => {
     const { api } = require('../services/api');
-    api.fetchNotes.mockResolvedValueOnce([
-      {
+    api.fetchNoteChanges.mockResolvedValueOnce({
+      items: [
+        {
         _id: 'p1',
         title: 'Projekt',
         content: '',
@@ -247,8 +252,10 @@ describe('Web Store', () => {
         locked: 'false',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-      },
-    ]);
+        },
+      ],
+      serverTime: new Date().toISOString(),
+    });
 
     await act(async () => {
       await useStore.getState().fetchNotes();
@@ -260,8 +267,8 @@ describe('Web Store', () => {
 
   it('should dedupe concurrent fetchNotes calls', async () => {
     const { api } = require('../services/api');
-    let resolveFetch: ((value: any[]) => void) | null = null;
-    api.fetchNotes.mockImplementationOnce(
+    let resolveFetch: ((value: { items: any[]; serverTime: string }) => void) | null = null;
+    api.fetchNoteChanges.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
           resolveFetch = resolve;
@@ -272,9 +279,9 @@ describe('Web Store', () => {
     const second = useStore.getState().fetchNotes();
 
     await Promise.resolve();
-    expect(api.fetchNotes).toHaveBeenCalledTimes(1);
+    expect(api.fetchNoteChanges).toHaveBeenCalledTimes(1);
 
-    resolveFetch?.([]);
+    resolveFetch?.({ items: [], serverTime: new Date().toISOString() });
     await act(async () => {
       await Promise.all([first, second]);
     });
@@ -282,8 +289,8 @@ describe('Web Store', () => {
 
   it('should dedupe concurrent refreshCollections calls', async () => {
     const { api } = require('../services/api');
-    api.fetchNotes.mockResolvedValueOnce([]);
-    api.fetchTasks.mockResolvedValueOnce([]);
+    api.fetchNoteChanges.mockResolvedValueOnce({ items: [], serverTime: new Date().toISOString() });
+    api.fetchTaskChanges.mockResolvedValueOnce({ items: [], serverTime: new Date().toISOString() });
 
     await act(async () => {
       await Promise.all([
@@ -292,18 +299,124 @@ describe('Web Store', () => {
       ]);
     });
 
-    expect(api.fetchNotes).toHaveBeenCalledTimes(1);
-    expect(api.fetchTasks).toHaveBeenCalledTimes(1);
+    expect(api.fetchNoteChanges).toHaveBeenCalledTimes(1);
+    expect(api.fetchTaskChanges).toHaveBeenCalledTimes(1);
+  });
+
+  it('should replace optimistic note state with server state on sync conflict', async () => {
+    const { api } = require('../services/api');
+    const { db } = require('../services/db');
+    const now = new Date().toISOString();
+    const serverUpdatedAt = new Date(Date.now() + 1_000).toISOString();
+    useStore.setState({
+      notes: [
+        { _id: 'note-1', title: 'Lokal', content: 'Innehall', type: 'note', locked: false, tags: [], createdAt: now, updatedAt: now } as any,
+      ],
+      unlockedProtectedNoteIds: [],
+    } as any);
+    api.updateNote.mockRejectedValueOnce({
+      status: 409,
+      code: 'SYNC_CONFLICT',
+      details: {
+        code: 'SYNC_CONFLICT',
+        item: {
+          _id: 'note-1',
+          title: 'Serverversion',
+          content: 'Fjarrversion',
+          type: 'note',
+          locked: false,
+          tags: [],
+          createdAt: now,
+          updatedAt: serverUpdatedAt,
+        },
+      },
+    });
+
+    await act(async () => {
+      await useStore.getState().updateNote('note-1', { title: 'Min andring' } as any);
+    });
+
+    const note = useStore.getState().notes.find((item) => item._id === 'note-1');
+    expect(note?.title).toBe('Serverversion');
+    expect(note?.content).toBe('Fjarrversion');
+    expect(useStore.getState().error).toBe('Anteckningen har ändrats på en annan enhet. Synka och granska innan du skriver över.');
+    expect(useStore.getState().syncConflicts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ itemId: 'note-1', entity: 'note', title: 'Serverversion' }),
+    ]));
+    expect(db.saveNote).toHaveBeenLastCalledWith(
+      expect.objectContaining({ _id: 'note-1', title: 'Serverversion', content: 'Fjarrversion' }),
+      false,
+    );
+  });
+
+  it('should replace optimistic task state with server state on sync conflict', async () => {
+    const { api } = require('../services/api');
+    const { db } = require('../services/db');
+    const now = new Date().toISOString();
+    const serverUpdatedAt = new Date(Date.now() + 1_000).toISOString();
+    useStore.setState({
+      tasks: [
+        {
+          _id: 'task-1',
+          title: 'Lokal uppgift',
+          description: 'Lokal beskrivning',
+          completed: false,
+          priority: 'medium',
+          createdAt: now,
+          updatedAt: now,
+          parentNoteId: null,
+        } as any,
+      ],
+      notes: [],
+      unlockedProtectedNoteIds: [],
+    } as any);
+    api.updateTask.mockRejectedValueOnce({
+      status: 409,
+      code: 'SYNC_CONFLICT',
+      details: {
+        code: 'SYNC_CONFLICT',
+        item: {
+          _id: 'task-1',
+          title: 'Serveruppgift',
+          description: 'Fjarrbeskrivning',
+          completed: true,
+          priority: 'high',
+          createdAt: now,
+          updatedAt: serverUpdatedAt,
+          parentNoteId: null,
+        },
+      },
+    });
+
+    await act(async () => {
+      await useStore.getState().updateTask('task-1', { title: 'Min lokala andring', completed: true } as any);
+    });
+
+    const task = useStore.getState().tasks.find((item) => item._id === 'task-1');
+    expect(task?.title).toBe('Serveruppgift');
+    expect(task?.description).toBe('Fjarrbeskrivning');
+    expect(task?.completed).toBe(true);
+    expect(useStore.getState().error).toBe('Uppgiften har ändrats på en annan enhet. Synka och granska innan du skriver över.');
+    expect(useStore.getState().syncConflicts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ itemId: 'task-1', entity: 'task', title: 'Serveruppgift' }),
+    ]));
+    expect(db.saveTask).toHaveBeenLastCalledWith(
+      expect.objectContaining({ _id: 'task-1', title: 'Serveruppgift', description: 'Fjarrbeskrivning', completed: true }),
+      false,
+    );
   });
 
   it('should skip unchanged note writes during fetchNotes', async () => {
     const { api } = require('../services/api');
     const { db } = require('../services/db');
     const now = new Date().toISOString();
-    api.fetchNotes.mockResolvedValueOnce([
-      { _id: 'note-unchanged', title: 'A', content: '', type: 'note', locked: false, createdAt: now, updatedAt: now },
-      { _id: 'note-changed', title: 'B', content: '', type: 'note', locked: false, createdAt: now, updatedAt: new Date(Date.now() + 1000).toISOString() },
-    ]);
+    api.fetchNoteChanges.mockResolvedValueOnce({
+      items: [
+        { _id: 'note-unchanged', title: 'A', content: '', type: 'note', locked: false, createdAt: now, updatedAt: now },
+        { _id: 'note-changed', title: 'B', content: '', type: 'note', locked: false, createdAt: now, updatedAt: new Date(Date.now() + 1000).toISOString() },
+      ],
+      serverTime: new Date().toISOString(),
+    });
     db.getNoteSyncIndex.mockResolvedValueOnce(new Map([['note-unchanged', now]]));
 
     await act(async () => {
@@ -323,7 +436,7 @@ describe('Web Store', () => {
         { _id: 'n1', title: 'Anteckning', content: 'Innehåll', type: 'note', locked: false, createdAt: now, updatedAt: now } as any,
       ],
     } as any);
-    api.fetchNotes.mockResolvedValueOnce([]);
+    api.fetchNoteChanges.mockResolvedValueOnce({ items: [], serverTime: new Date().toISOString() });
 
     await act(async () => {
       await useStore.getState().fetchNotes();
@@ -332,14 +445,107 @@ describe('Web Store', () => {
     expect(useStore.getState().selectedNoteId).toBe('n1');
   });
 
+  it('should remove deleted note ids from delta sync results', async () => {
+    const { api } = require('../services/api');
+    const { db } = require('../services/db');
+    const now = new Date().toISOString();
+    useStore.setState({
+      notes: [
+        { _id: 'note-delete', title: 'Ta bort', content: '', type: 'note', locked: false, createdAt: now, updatedAt: now } as any,
+      ],
+      tasks: [
+        { _id: 'task-under-note', title: 'Uppgift', description: '', completed: false, priority: 'medium', parentNoteId: 'note-delete', createdAt: now, updatedAt: now } as any,
+      ],
+      syncConflicts: [
+        { key: 'note:note-delete', entity: 'note', itemId: 'note-delete', title: 'Ta bort', message: 'Konflikt', occurredAt: Date.now() },
+      ],
+    } as any);
+    api.fetchNoteChanges.mockResolvedValueOnce({
+      items: [],
+      deletedIds: ['note-delete'],
+      serverTime: new Date().toISOString(),
+    });
+
+    await act(async () => {
+      await useStore.getState().fetchNotes();
+    });
+
+    expect(useStore.getState().notes).toEqual([]);
+    expect(useStore.getState().tasks).toEqual([]);
+    expect(useStore.getState().syncConflicts).toEqual([]);
+    expect(db.deleteNote).toHaveBeenCalledWith('note-delete');
+  });
+
+  it('should bulk sync pending notes and tasks with temp id remapping', async () => {
+    const { api } = require('../services/api');
+    const { db } = require('../services/db');
+    const now = new Date().toISOString();
+    db.getPendingSyncNotes.mockResolvedValueOnce([
+      { _id: 'temp-note', title: 'Ny anteckning', content: 'Lokalt', type: 'note', order: 0, pendingSync: true },
+    ]);
+    db.getPendingSyncTasks.mockResolvedValueOnce([
+      { _id: 'temp-task', title: 'Ny task', description: '', completed: false, priority: 'medium', parentNoteId: 'temp-note', pendingSync: true },
+    ]);
+    api.syncNotes.mockResolvedValueOnce({
+      results: [
+        {
+          clientOperationId: 'NOTE:temp-note',
+          action: 'CREATE',
+          entity: 'NOTE',
+          status: 'applied',
+          tempId: 'temp-note',
+          itemId: 'note-real',
+          item: { _id: 'note-real', title: 'Ny anteckning', content: 'Lokalt', type: 'note', order: 0, locked: false, createdAt: now, updatedAt: now },
+        },
+      ],
+      serverTime: now,
+    });
+    api.syncTasks.mockResolvedValueOnce({
+      results: [
+        {
+          clientOperationId: 'TASK:temp-task',
+          action: 'CREATE',
+          entity: 'TASK',
+          status: 'applied',
+          tempId: 'temp-task',
+          itemId: 'task-real',
+          item: { _id: 'task-real', title: 'Ny task', description: '', completed: false, priority: 'medium', parentNoteId: 'note-real', createdAt: now, updatedAt: now, position: 0 },
+        },
+      ],
+      serverTime: now,
+    });
+    useStore.setState({
+      notes: [{ _id: 'temp-note', title: 'Ny anteckning', content: 'Lokalt', type: 'note', order: 0, locked: false, createdAt: now, updatedAt: now } as any],
+      tasks: [{ _id: 'temp-task', title: 'Ny task', description: '', completed: false, priority: 'medium', parentNoteId: 'temp-note', createdAt: now, updatedAt: now, position: 0 } as any],
+    } as any);
+
+    await act(async () => {
+      await useStore.getState().syncOfflineChanges();
+    });
+
+    expect(api.syncNotes).toHaveBeenCalledWith([
+      expect.objectContaining({ action: 'CREATE', tempId: 'temp-note' }),
+    ]);
+    expect(api.syncTasks).toHaveBeenCalledWith([
+      expect.objectContaining({ action: 'CREATE', tempId: 'temp-task', data: expect.objectContaining({ parentNoteId: 'note-real' }) }),
+    ]);
+    expect(useStore.getState().notes).toEqual(expect.arrayContaining([expect.objectContaining({ _id: 'note-real' })]));
+    expect(useStore.getState().tasks).toEqual(expect.arrayContaining([expect.objectContaining({ _id: 'task-real', parentNoteId: 'note-real' })]));
+    expect(db.deleteNote).toHaveBeenCalledWith('temp-note');
+    expect(db.deleteTask).toHaveBeenCalledWith('temp-task');
+  });
+
   it('should skip unchanged task writes during fetchTasks', async () => {
     const { api } = require('../services/api');
     const { db } = require('../services/db');
     const now = new Date().toISOString();
-    api.fetchTasks.mockResolvedValueOnce([
-      { _id: 'task-unchanged', title: 'A', description: '', completed: false, priority: 'medium', createdAt: now, updatedAt: now, parentNoteId: null },
-      { _id: 'task-changed', title: 'B', description: '', completed: false, priority: 'medium', createdAt: now, updatedAt: new Date(Date.now() + 1000).toISOString(), parentNoteId: null },
-    ]);
+    api.fetchTaskChanges.mockResolvedValueOnce({
+      items: [
+        { _id: 'task-unchanged', title: 'A', description: '', completed: false, priority: 'medium', createdAt: now, updatedAt: now, parentNoteId: null },
+        { _id: 'task-changed', title: 'B', description: '', completed: false, priority: 'medium', createdAt: now, updatedAt: new Date(Date.now() + 1000).toISOString(), parentNoteId: null },
+      ],
+      serverTime: new Date().toISOString(),
+    });
     db.getTaskSyncIndex.mockResolvedValueOnce(new Map([['task-unchanged', now]]));
 
     await act(async () => {
@@ -415,10 +621,13 @@ describe('Web Store', () => {
       ],
       unlockedProtectedNoteIds: [],
     } as any);
-    api.fetchTasks.mockResolvedValueOnce([
-      { _id: 'task-locked', title: 'A', description: '', completed: false, priority: 'medium', createdAt: now, updatedAt: now, parentNoteId: 'n1' },
-      { _id: 'task-open', title: 'B', description: '', completed: false, priority: 'medium', createdAt: now, updatedAt: now, parentNoteId: 'n2' },
-    ]);
+    api.fetchTaskChanges.mockResolvedValueOnce({
+      items: [
+        { _id: 'task-locked', title: 'A', description: '', completed: false, priority: 'medium', createdAt: now, updatedAt: now, parentNoteId: 'n1' },
+        { _id: 'task-open', title: 'B', description: '', completed: false, priority: 'medium', createdAt: now, updatedAt: now, parentNoteId: 'n2' },
+      ],
+      serverTime: new Date().toISOString(),
+    });
 
     await act(async () => {
       await useStore.getState().fetchTasks();
@@ -448,11 +657,14 @@ describe('Web Store', () => {
       title: 'Barn',
       content: 'Hemlig text',
     });
-    api.fetchNotes.mockResolvedValueOnce([
-      { _id: 'p1', title: 'Projekt', content: '', type: 'project', parentId: null, locked: true, tags: [], createdAt: now, updatedAt: now },
-      { _id: 'n1', title: 'Barn', content: 'Hemlig text', type: 'note', parentId: 'p1', locked: true, tags: [], createdAt: now, updatedAt: now },
-    ]);
-    api.fetchTasks.mockResolvedValueOnce([]);
+    api.fetchNoteChanges.mockResolvedValueOnce({
+      items: [
+        { _id: 'p1', title: 'Projekt', content: '', type: 'project', parentId: null, locked: true, tags: [], createdAt: now, updatedAt: now },
+        { _id: 'n1', title: 'Barn', content: 'Hemlig text', type: 'note', parentId: 'p1', locked: true, tags: [], createdAt: now, updatedAt: now },
+      ],
+      serverTime: new Date().toISOString(),
+    });
+    api.fetchTaskChanges.mockResolvedValueOnce({ items: [], serverTime: new Date().toISOString() });
 
     await act(async () => {
       const success = await useStore.getState().unlockNote('n1', 'secret');

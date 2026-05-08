@@ -523,7 +523,6 @@ export default function TasksScreen() {
           showViewToggle={false}
           onCreateTask={handleCreateTaskWithDate}
           onDelete={handleDeleteTask}
-          preSorted={true}
         />
       ) : viewMode === 'board' ? (
         <TaskBoard

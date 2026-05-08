@@ -17,12 +17,10 @@ import { buildSecurityNoteMap, findBlockingLockedAncestor } from '../services/ai
 
 interface TreeNodeProps {
     note: Note;
-    allNotes: Note[];
     noteById: Map<string, Note>;
     childrenMap: Map<string, Note[]>;
     level: number;
     selectedNoteId: string | null;
-    sortOrder: string;
     defaultExpanded: boolean;
     onSelect: (id: string | null) => void;
     onDelete: (e: React.MouseEvent, id: string) => void;
@@ -34,7 +32,6 @@ interface TreeNodeProps {
 }
 
 type DragItem = { id: string; type: string };
-type NodeDropCollected = { isOver: boolean; canDrop: boolean };
 
 const isProjectType = (value: unknown): boolean => {
     const type = normalizeNoteType(value);
@@ -56,7 +53,7 @@ const sortNotes = (nodes: Note[], order: string) => {
     }
 };
 
-const TreeNode = React.memo(({ note, allNotes, noteById, childrenMap, level, selectedNoteId, sortOrder, defaultExpanded, onSelect, onDelete, onCreateChild, onEdit, onIconClick, onMove, ancestors }: TreeNodeProps) => {
+const TreeNode = React.memo(({ note, noteById, childrenMap, level, selectedNoteId, defaultExpanded, onSelect, onDelete, onCreateChild, onEdit, onIconClick, onMove, ancestors }: TreeNodeProps) => {
     const { t } = useTranslation();
     const [isExpanded, setIsExpanded] = useState(defaultExpanded);
     const children = (childrenMap.get(note._id) || []).filter((child) => {
@@ -145,13 +142,13 @@ const TreeNode = React.memo(({ note, allNotes, noteById, childrenMap, level, sel
         if (note.locked) return true;
         let parentId = note.parentId;
         while (parentId) {
-            const p = allNotes.find(n => n._id === parentId);
+            const p = noteById.get(parentId);
             if (!p) break;
             if (p.locked) return true;
             parentId = p.parentId;
         }
         return false;
-    }, [note, allNotes]);
+    }, [note, noteById]);
 
     const Icon = note.icon && (FaIcons as any)[note.icon] 
         ? (FaIcons as any)[note.icon] 
@@ -243,12 +240,10 @@ const TreeNode = React.memo(({ note, allNotes, noteById, childrenMap, level, sel
                             <TreeNode 
                                 key={child._id} 
                                 note={child} 
-                                allNotes={allNotes} 
                                 noteById={noteById}
                                 childrenMap={childrenMap}
                                 level={level + 1} 
                                 selectedNoteId={selectedNoteId}
-                                sortOrder={sortOrder}
                                 defaultExpanded={true}
                                 onSelect={onSelect}
                                 onDelete={onDelete}
@@ -293,8 +288,6 @@ export default function SidebarTree() {
   const updateNote = useStore((state) => state.updateNote);
   const moveNote = useStore((state) => state.moveNote);
   const unlockNote = useStore((state) => state.unlockNote);
-  const language = useStore((state) => state.language);
-  const setLanguage = useStore((state) => state.setLanguage);
   const activeTab = useStore((state) => state.activeTab);
   const setActiveTab = useStore((state) => state.setActiveTab);
   const activeProjectId = useStore((state) => state.activeProjectId);
@@ -622,7 +615,7 @@ export default function SidebarTree() {
     });
     return { rootNotes: sortNotes(roots, sortOrder), flatFilteredNotes: [], sortedFlatNotes: [] };
 
-  }, [safeNotes, searchIndex, searchQuery, sortOrder, viewMode, activeTab, activeProjectId, projects, noteById, securityMap, unlockedSet, activeProjectBlocked, inferredTaskListIds, inferredProjectIds]);
+  }, [safeNotes, searchIndex, searchQuery, sortOrder, viewMode, activeTab, activeProjectId, noteById, securityMap, unlockedSet, inferredTaskListIds, inferredProjectIds]);
   const listModeTotal = searchQuery ? flatFilteredNotes.length : sortedFlatNotes.length;
   const listModeNotes = useMemo(() => (searchQuery ? flatFilteredNotes : sortedFlatNotes).slice(0, 500), [flatFilteredNotes, searchQuery, sortedFlatNotes]);
   const virtualListRange = useMemo(() => {
@@ -705,7 +698,7 @@ export default function SidebarTree() {
   };
 
   const handleEditProject = () => {
-      const project = notes.find(n => n._id === activeProjectId);
+      const project = activeProjectId ? noteById.get(activeProjectId) : null;
       if (project) {
           setEditModal({ isOpen: true, note: project });
       }
@@ -802,7 +795,7 @@ export default function SidebarTree() {
 
   const handleDelete = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    const noteType = (notes.find(n => n._id === id) as any)?.type;
+    const noteType = (noteById.get(id) as any)?.type;
     const isTaskList = isTaskListType(noteType) || activeTab === 'tasks';
     
     setDeleteModal({
@@ -1078,12 +1071,10 @@ export default function SidebarTree() {
                             <TreeNode 
                                 key={note._id} 
                                 note={note} 
-                                allNotes={safeNotes} 
                                 noteById={noteById}
                                 childrenMap={childrenMap}
                                 level={0} 
                                 selectedNoteId={effectiveSelectedId}
-                                sortOrder={sortOrder}
                                 defaultExpanded={Boolean(activeProjectId) || !isProjectType((note as any).type)}
                                 onSelect={handleNoteSelect}
                                 onDelete={handleDelete}

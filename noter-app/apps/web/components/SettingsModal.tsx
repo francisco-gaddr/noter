@@ -21,8 +21,12 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const setAutoLockTimeout = useStore((state) => state.setAutoLockTimeout);
   const fetchNotes = useStore((s) => s.fetchNotes);
   const fetchTasks = useStore((s) => s.fetchTasks);
+  const refreshCollections = useStore((s) => s.refreshCollections);
   const setActiveTab = useStore((s) => s.setActiveTab);
   const selectNote = useStore((s) => s.selectNote);
+  const syncConflicts = useStore((s) => s.syncConflicts);
+  const syncHealth = useStore((s) => s.syncHealth);
+  const isOffline = useStore((s) => s.isOffline);
   const { t } = useTranslation();
   const [showClearConfirm, setShowClearConfirm] = React.useState(false);
   const [clearing, setClearing] = React.useState(false);
@@ -38,6 +42,12 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     }
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
+
+  const formatSyncTime = (value?: string | null) => {
+    if (!value) return t('common.never', 'Never');
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? t('common.unknown', 'Unknown') : parsed.toLocaleString();
+  };
 
   if (!isOpen) return null;
 
@@ -82,6 +92,35 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                 <span className="font-semibold">{value}</span>
               </div>
             ))}
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">{t('settings.syncHealthTitle')}</h3>
+          <div className="space-y-2 text-xs text-gray-600 dark:text-gray-300">
+            <div className="border border-gray-200 dark:border-gray-700 rounded px-3 py-2">
+              <div className="font-semibold">{t('settings.syncConflictsLabel')}</div>
+              <div className="mt-1">
+                {syncConflicts.length > 0
+                  ? `${syncConflicts.length} • ${syncConflicts[0]?.title || t('common.unknown', 'Unknown')}`
+                  : t('settings.syncConflictsEmpty')}
+              </div>
+            </div>
+            <div className="border border-gray-200 dark:border-gray-700 rounded px-3 py-2">
+              <div>{t('settings.syncLastNotes')}: {formatSyncTime(syncHealth.lastSuccessfulNotesSyncAt)}</div>
+              <div>{t('settings.syncLastTasks')}: {formatSyncTime(syncHealth.lastSuccessfulTasksSyncAt)}</div>
+              <div>{t('settings.syncReachability')}: {isOffline ? t('navbar.offlineIndicator') : t('common.online', 'Online')}</div>
+              <div>{t('settings.syncLastReachability')}: {formatSyncTime(syncHealth.lastReachabilityCheckAt)}</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                void refreshCollections({ force: true });
+              }}
+              className="w-full px-3 py-2 rounded bg-blue-600 text-white hover:bg-blue-500 text-sm"
+            >
+              {t('settings.syncNow')}
+            </button>
           </div>
         </div>
 

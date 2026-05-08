@@ -14,7 +14,7 @@ export default function RegisterScreen() {
   const [errorMessage, setErrorMessage] = useState('');
   
   const router = useRouter();
-  const { register } = useStore();
+  const register = useStore((state) => state.register);
   const theme = useTheme();
   const { t } = useTranslation();
 

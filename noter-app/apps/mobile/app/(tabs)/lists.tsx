@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { View, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { List, IconButton, TextInput, FAB, useTheme, Divider, Text } from 'react-native-paper';
 import { useStore } from '@/stores/useStore';
@@ -20,7 +20,11 @@ const normalizeNoteType = (value: unknown): string => {
 export default function ListsScreen() {
   const { t } = useTranslation();
   const theme = useTheme();
-  const { notes, refreshCollections, createNote, updateNote, deleteNote } = useStore();
+  const notes = useStore((state) => state.notes);
+  const refreshCollections = useStore((state) => state.refreshCollections);
+  const createNote = useStore((state) => state.createNote);
+  const updateNote = useStore((state) => state.updateNote);
+  const deleteNote = useStore((state) => state.deleteNote);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
@@ -37,7 +41,10 @@ export default function ListsScreen() {
     }, [notes.length, refreshCollections])
   );
 
-  const lists = orderBy(notes.filter((n) => normalizeNoteType((n as any).type) === 'task_list'), ['updatedAt'], ['desc']);
+  const lists = useMemo(
+    () => orderBy(notes.filter((n) => normalizeNoteType((n as any).type) === 'task_list'), ['updatedAt'], ['desc']),
+    [notes],
+  );
 
   const getListLabel = useCallback((note: Note) => (
     getReadableProtectedLabel(

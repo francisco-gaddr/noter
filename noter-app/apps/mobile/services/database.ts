@@ -730,6 +730,15 @@ export const deleteTaskLocal = async (id: string) => {
 };
 
 export const addToSyncQueue = async (action: string, entity: string, data: any) => {
+  const targetId = typeof data?.id === 'string'
+    ? data.id
+    : typeof data?.tempId === 'string'
+      ? data.tempId
+      : null;
+  if (action === 'DELETE' && targetId) {
+    const updateKey = hashText(`UPDATE:${entity}:id:${targetId}`);
+    await db.runAsync('DELETE FROM sync_queue WHERE dedupeKeyHash = ?', [updateKey]);
+  }
   const dedupeKey = computeSyncDedupeKey(action, entity, data);
   const encryptedData = encrypt(JSON.stringify(data));
   const encryptedAction = encryptText(action);
@@ -811,6 +820,56 @@ export const getSyncQueue = async () => {
     return { id: row.id, action, entity, data, timestamp };
   });
   return queue.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+};
+
+export const getCompressedSyncQueue = async () => {
+  const queue = await getSyncQueue();
+  const lastReorderByEntity = new Map<string, typeof queue[number]>();
+  const operationByKey = new Map<string, typeof queue[number]>();
+  const order: string[] = [];
+
+  const getOperationKey = (item: typeof queue[number]) => {
+    if (item.action === 'REORDER') return null;
+    const itemId = typeof item.data?.id === 'string'
+      ? item.data.id
+      : typeof item.data?.tempId === 'string'
+        ? item.data.tempId
+        : null;
+    return itemId ? `${item.entity}:${itemId}` : null;
+  };
+
+  for (const item of queue) {
+    if (item.action === 'REORDER') {
+      lastReorderByEntity.set(item.entity, item);
+      continue;
+    }
+    const key = getOperationKey(item);
+    if (!key) {
+      order.push(`row:${item.id}`);
+      operationByKey.set(`row:${item.id}`, item);
+      continue;
+    }
+    const previous = operationByKey.get(key);
+    if (item.action === 'DELETE') {
+      if (previous?.action === 'CREATE' && String(previous.data?.tempId || previous.data?.id || '').startsWith('temp-')) {
+        operationByKey.delete(key);
+        continue;
+      }
+      operationByKey.set(key, item);
+      if (!order.includes(key)) order.push(key);
+      continue;
+    }
+    operationByKey.set(key, item);
+    if (!order.includes(key)) order.push(key);
+  }
+
+  const compressed = order
+    .map((key) => operationByKey.get(key))
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+
+  return compressed
+    .concat(Array.from(lastReorderByEntity.values()))
+    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 };
 
 export const removeFromSyncQueue = async (id: number) => {

@@ -24,6 +24,7 @@ jest.mock('../services/api', () => ({
   login: jest.fn(),
   register: jest.fn(),
   setAuthToken: jest.fn(),
+  probeBackendReachability: jest.fn().mockResolvedValue(true),
   initApiUrl: jest.fn(),
   setUnauthorizedHandler: jest.fn(),
   setTokenUpdateHandler: jest.fn(),
@@ -44,6 +45,9 @@ jest.mock('../services/database', () => ({
   deleteTaskLocal: jest.fn(),
   mergeIntoQueuedCreate: jest.fn().mockResolvedValue(false),
   removeQueuedCreate: jest.fn().mockResolvedValue(false),
+  getSyncQueue: jest.fn().mockResolvedValue([]),
+  getCompressedSyncQueue: jest.fn().mockResolvedValue([]),
+  removeFromSyncQueue: jest.fn(),
   syncPendingChanges: jest.fn(),
 }));
 
@@ -156,8 +160,8 @@ describe('Mobile Store', () => {
     const state = useStore.getState();
     expect(state.securityLocked).toBe(false);
     expect(state.token).toBe('abc');
-    expect(fetchWithAuth).toHaveBeenCalledWith('/notes', { timeoutMs: 45000 });
-    expect(fetchWithAuth).toHaveBeenCalledWith('/tasks', { timeoutMs: 30000 });
+    expect(fetchWithAuth).toHaveBeenCalledWith('/notes/changes', { timeoutMs: 45000 });
+    expect(fetchWithAuth).toHaveBeenCalledWith('/tasks/changes', { timeoutMs: 30000 });
   });
 
   it('should resync local task reminders immediately during init', async () => {
@@ -221,7 +225,7 @@ describe('Mobile Store', () => {
 
     await useStore.getState().fetchNotes();
 
-    expect(fetchWithAuth).toHaveBeenCalledWith('/notes', { timeoutMs: 45000 });
+    expect(fetchWithAuth).toHaveBeenCalledWith('/notes/changes', { timeoutMs: 45000 });
     const state = useStore.getState();
     expect(state.notes.length).toBe(1);
     expect(state.notes[0]._id).toBe('1');
@@ -543,7 +547,7 @@ describe('Mobile Store', () => {
     await useStore.getState().fetchTasks('list-a');
 
     const state = useStore.getState();
-    expect(fetchWithAuth).toHaveBeenCalledWith('/tasks', { timeoutMs: 30000 });
+    expect(fetchWithAuth).toHaveBeenCalledWith(expect.stringMatching(/^\/tasks\/changes(?:\?|$)/), { timeoutMs: 30000 });
     expect(state.tasks.map((task: any) => task._id)).toEqual(['task-a', 'task-b']);
   });
 
@@ -557,10 +561,10 @@ describe('Mobile Store', () => {
     Database.getLocalNoteSyncIndex.mockResolvedValueOnce(new Map());
     Database.getLocalTaskSyncIndex.mockResolvedValueOnce(new Map());
     fetchWithAuth.mockImplementation((url: string) => {
-      if (url === '/notes') {
+      if (url.startsWith('/notes/changes')) {
         return Promise.resolve([]);
       }
-      if (url === '/tasks') {
+      if (url.startsWith('/tasks/changes')) {
         return Promise.resolve([
           {
             _id: 'task-a',
@@ -587,8 +591,8 @@ describe('Mobile Store', () => {
       useStore.getState().refreshCollections({ force: true }),
     ]);
 
-    expect(fetchWithAuth.mock.calls.filter(([url]: [string]) => url === '/notes')).toHaveLength(1);
-    expect(fetchWithAuth.mock.calls.filter(([url]: [string]) => url === '/tasks')).toHaveLength(1);
+    expect(fetchWithAuth.mock.calls.filter(([url]: [string]) => url.startsWith('/notes/changes'))).toHaveLength(1);
+    expect(fetchWithAuth.mock.calls.filter(([url]: [string]) => url.startsWith('/tasks/changes'))).toHaveLength(1);
   });
 
   it('should skip unchanged local writes during background refresh', async () => {
@@ -762,6 +766,66 @@ describe('Mobile Store', () => {
     expect(decrypt(optimisticSaved.__rawEncryptedContent)).toBe('Test Content');
   });
 
+  it('should replace optimistic note state with server state on sync conflict', async () => {
+    const { fetchWithAuth } = require('../services/api');
+    const Database = require('../services/database');
+    const noteId = 'note-conflict-1';
+    const now = new Date().toISOString();
+    const serverNow = new Date(Date.now() + 1000).toISOString();
+
+    useStore.setState({
+      notes: [
+        {
+          _id: noteId,
+          title: 'Lokal titel',
+          content: 'Lokalt innehåll',
+          type: 'note',
+          locked: false,
+          tags: [],
+          createdAt: now,
+          updatedAt: now,
+        } as any,
+      ],
+    });
+
+    fetchWithAuth.mockRejectedValueOnce({
+      status: 409,
+      details: {
+        code: 'SYNC_CONFLICT',
+        item: {
+          _id: noteId,
+          title: encrypt('Servertitel'),
+          content: encrypt('Serverinnehåll'),
+          locked: encrypt('false'),
+          type: encrypt('note'),
+          tags: [],
+          createdAt: encrypt(now),
+          updatedAt: encrypt(serverNow),
+        },
+      },
+    });
+
+    await expect(
+      useStore.getState().updateNote(noteId, { title: 'Min ändring' })
+    ).rejects.toThrow('Anteckningen har ändrats på en annan enhet. Synka och granska innan du skriver över.');
+
+    const note = useStore.getState().notes.find((item) => item._id === noteId);
+    expect(note?.title).toBe('Servertitel');
+    expect(note?.content).toBe('Serverinnehåll');
+    expect(useStore.getState().error).toBe('Anteckningen har ändrats på en annan enhet. Synka och granska innan du skriver över.');
+    expect(useStore.getState().syncConflicts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ itemId: noteId, entity: 'note', title: 'Servertitel' }),
+    ]));
+    expect(Database.saveNoteLocal).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        _id: noteId,
+        title: 'Servertitel',
+        content: 'Serverinnehåll',
+      }),
+      true,
+    );
+  });
+
   it('should keep task creation responsive while server confirmation is pending', async () => {
     const { fetchWithAuth } = require('../services/api');
     const Database = require('../services/database');
@@ -857,5 +921,244 @@ describe('Mobile Store', () => {
 
     await updatePromise;
     expect(useStore.getState().tasks[0]?.completed).toBe(true);
+  });
+
+  it('should replace optimistic task state with server state on sync conflict', async () => {
+    const { fetchWithAuth } = require('../services/api');
+    const Database = require('../services/database');
+    const taskId = 'task-conflict-1';
+    const now = new Date().toISOString();
+    const serverNow = new Date(Date.now() + 1000).toISOString();
+
+    useStore.setState({
+      tasks: [
+        {
+          _id: taskId,
+          title: 'Lokal uppgift',
+          description: 'Lokal beskrivning',
+          completed: false,
+          priority: 'medium',
+          dueDate: null,
+          reminderEnabled: false,
+          reminderOffsetMinutes: [],
+          createdAt: now,
+          updatedAt: now,
+        } as any,
+      ],
+    });
+
+    fetchWithAuth.mockRejectedValueOnce({
+      status: 409,
+      details: {
+        code: 'SYNC_CONFLICT',
+        item: {
+          _id: taskId,
+          title: encrypt('Serveruppgift'),
+          description: encrypt('Serverbeskrivning'),
+          completed: encrypt('true'),
+          priority: encrypt('high'),
+          dueDate: '',
+          recurrenceType: encrypt('none'),
+          recurrenceDays: encrypt('[]'),
+          reminderEnabled: encrypt('false'),
+          reminderOffsetMinutes: encrypt('[]'),
+          position: encrypt('0'),
+          createdAt: encrypt(now),
+          updatedAt: encrypt(serverNow),
+        },
+      },
+    });
+
+    await expect(
+      useStore.getState().updateTask(taskId, { title: 'Min lokala ändring', completed: true })
+    ).rejects.toThrow('Uppgiften har ändrats på en annan enhet. Synka och granska innan du skriver över.');
+
+    const task = useStore.getState().tasks.find((item) => item._id === taskId);
+    expect(task?.title).toBe('Serveruppgift');
+    expect(task?.description).toBe('Serverbeskrivning');
+    expect(task?.completed).toBe(true);
+    expect(task?.priority).toBe('high');
+    expect(useStore.getState().error).toBe('Uppgiften har ändrats på en annan enhet. Synka och granska innan du skriver över.');
+    expect(useStore.getState().syncConflicts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ itemId: taskId, entity: 'task', title: 'Serveruppgift' }),
+    ]));
+    expect(Database.saveTaskLocal).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        _id: taskId,
+        title: 'Serveruppgift',
+        description: 'Serverbeskrivning',
+        completed: true,
+        priority: 'high',
+      }),
+      true,
+    );
+  });
+
+  it('should remove deleted note ids from note delta sync results', async () => {
+    const { fetchWithAuth } = require('../services/api');
+    const Database = require('../services/database');
+    const now = new Date().toISOString();
+    useStore.setState({
+      notes: [
+        { _id: 'note-delete', title: 'Ta bort', content: '', type: 'note', locked: false, createdAt: now, updatedAt: now } as any,
+      ],
+      tasks: [
+        { _id: 'task-delete', title: 'Under', description: '', completed: false, priority: 'medium', parentNoteId: 'note-delete', createdAt: now, updatedAt: now } as any,
+      ],
+      activeProjectId: 'note-delete',
+      unlockedProtectedNoteIds: ['note-delete'],
+      syncConflicts: [
+        { key: 'note:note-delete', entity: 'note', itemId: 'note-delete', title: 'Ta bort', message: 'Konflikt', occurredAt: Date.now() },
+      ],
+    } as any);
+    fetchWithAuth.mockResolvedValueOnce({
+      items: [],
+      deletedIds: ['note-delete'],
+      serverTime: new Date().toISOString(),
+    });
+
+    await useStore.getState().fetchNotes();
+
+    const state = useStore.getState();
+    expect(state.notes).toEqual([]);
+    expect(state.tasks).toEqual([]);
+    expect(state.activeProjectId).toBeNull();
+    expect(state.unlockedProtectedNoteIds).toEqual([]);
+    expect(state.syncConflicts).toEqual([]);
+    expect(Database.deleteNoteLocal).toHaveBeenCalledWith('note-delete');
+    expect(Database.deleteTaskLocal).toHaveBeenCalledWith('task-delete');
+  });
+
+  it('should bulk sync queued notes and tasks with temp note remapping', async () => {
+    const { fetchWithAuth } = require('../services/api');
+    const Database = require('../services/database');
+    const now = new Date().toISOString();
+    const encryptedNow = encrypt(now);
+    Database.getSyncQueue.mockResolvedValueOnce([
+      {
+        id: 1,
+        action: 'CREATE',
+        entity: 'NOTE',
+        data: {
+          tempId: 'temp-note',
+          title: encrypt('Ny anteckning'),
+          content: encrypt('Lokalt'),
+          type: encrypt('note'),
+          createdAt: encryptedNow,
+          updatedAt: encryptedNow,
+        },
+        timestamp: now,
+      },
+      {
+        id: 2,
+        action: 'CREATE',
+        entity: 'TASK',
+        data: {
+          tempId: 'temp-task',
+          title: encrypt('Ny task'),
+          description: encrypt(''),
+          completed: encrypt('false'),
+          priority: encrypt('medium'),
+          parentNoteId: 'temp-note',
+          createdAt: encryptedNow,
+          updatedAt: encryptedNow,
+        },
+        timestamp: now,
+      },
+    ]);
+    Database.getCompressedSyncQueue.mockResolvedValueOnce([
+      {
+        id: 1,
+        action: 'CREATE',
+        entity: 'NOTE',
+        data: {
+          tempId: 'temp-note',
+          title: encrypt('Ny anteckning'),
+          content: encrypt('Lokalt'),
+          type: encrypt('note'),
+          createdAt: encryptedNow,
+          updatedAt: encryptedNow,
+        },
+        timestamp: now,
+      },
+      {
+        id: 2,
+        action: 'CREATE',
+        entity: 'TASK',
+        data: {
+          tempId: 'temp-task',
+          title: encrypt('Ny task'),
+          description: encrypt(''),
+          completed: encrypt('false'),
+          priority: encrypt('medium'),
+          parentNoteId: 'temp-note',
+          createdAt: encryptedNow,
+          updatedAt: encryptedNow,
+        },
+        timestamp: now,
+      },
+    ]);
+    fetchWithAuth.mockImplementation(async (url: string, options?: any) => {
+      if (url === '/notes/sync') {
+        return {
+          results: [
+            {
+              clientOperationId: '1',
+              action: 'CREATE',
+              status: 'applied',
+              item: {
+                _id: 'note-real',
+                title: encrypt('Ny anteckning'),
+                content: encrypt('Lokalt'),
+                type: encrypt('note'),
+                locked: encrypt('false'),
+                createdAt: encryptedNow,
+                updatedAt: encryptedNow,
+              },
+            },
+          ],
+          serverTime: now,
+        };
+      }
+      if (url === '/tasks/sync') {
+        const parsed = JSON.parse(options.body);
+        expect(parsed.operations[0].data.parentNoteId).toBe('note-real');
+        return {
+          results: [
+            {
+              clientOperationId: '2',
+              action: 'CREATE',
+              status: 'applied',
+              item: {
+                _id: 'task-real',
+                title: encrypt('Ny task'),
+                description: encrypt(''),
+                completed: encrypt('false'),
+                priority: encrypt('medium'),
+                parentNoteId: 'note-real',
+                position: encrypt('0'),
+                createdAt: encryptedNow,
+                updatedAt: encryptedNow,
+              },
+            },
+          ],
+          serverTime: now,
+        };
+      }
+      if (String(url).startsWith('/notes/changes')) {
+        return { items: [], deletedIds: [], serverTime: now };
+      }
+      if (String(url).startsWith('/tasks/changes')) {
+        return { items: [], deletedIds: [], serverTime: now };
+      }
+      return [];
+    });
+
+    await useStore.getState().syncOfflineChanges();
+
+    expect(fetchWithAuth).toHaveBeenCalledWith('/notes/sync', expect.objectContaining({ method: 'POST' }));
+    expect(fetchWithAuth).toHaveBeenCalledWith('/tasks/sync', expect.objectContaining({ method: 'POST' }));
+    expect(Database.removeFromSyncQueue).toHaveBeenCalledWith(1);
+    expect(Database.removeFromSyncQueue).toHaveBeenCalledWith(2);
   });
 });

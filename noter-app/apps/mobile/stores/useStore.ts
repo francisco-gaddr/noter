@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import 'react-native-get-random-values';
 import * as Crypto from 'expo-crypto';
-import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, decryptWithSource, hasEncryptionKey, isV3Ciphertext, normalizeId } from '@repo/shared';
+import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, SyncConflictEntity, SyncConflictItem, SyncHealthSnapshot, encrypt, decrypt, decryptWithSource, hasEncryptionKey, isV3Ciphertext, normalizeId } from '@repo/shared';
 import { fetchWithAuth, login as apiLogin, register as apiRegister, logout as apiLogout, probeBackendReachability, setAuthToken, initApiUrl, setUnauthorizedHandler, setTokenUpdateHandler } from '../services/api';
 import * as Database from '../services/database';
 import { initSocket, disconnectSocket, getSocket } from '../services/socket';
@@ -24,6 +24,13 @@ const taskFetchPromises = new Map<string, Promise<void>>();
 let collectionsRefreshPromise: Promise<void> | null = null;
 let lastRemoteCollectionsSyncAt = 0;
 let reconnectSyncTimer: ReturnType<typeof setTimeout> | null = null;
+let lastNotesDeltaCursor: string | null = null;
+let lastTasksDeltaCursor: string | null = null;
+let lastNotesFullSyncAt = 0;
+let lastTasksFullSyncAt = 0;
+let offlineSyncRetryTimer: ReturnType<typeof setTimeout> | null = null;
+const offlineSyncRetryState = new Map<string, { attempt: number; nextRetryAt: number }>();
+const DELTA_SYNC_WINDOW_MS = 5 * 60 * 1000;
 const yieldToEventLoop = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 const persistInBatches = async <T,>(items: T[], batchSize: number, persist: (item: T) => Promise<void>) => {
   for (let index = 0; index < items.length; index += batchSize) {
@@ -46,6 +53,8 @@ interface AppState {
   viewMode: 'list' | 'tree';
   isOffline: boolean;
   isSyncingOffline: boolean;
+  syncConflicts: SyncConflictItem[];
+  syncHealth: SyncHealthSnapshot;
   activeProjectId: string | null;
   token: string | null;
   isInitialized: boolean;
@@ -55,6 +64,8 @@ interface AppState {
   
   // UI Actions
   setActiveProject: (id: string | null) => void;
+  dismissSyncConflict: (key: string) => void;
+  clearSyncConflicts: () => void;
   setViewMode: (mode: 'list' | 'tree') => void;
   setNotificationsEnabled: (enabled: boolean) => Promise<void>;
   setSecurityLocked: (locked: boolean) => Promise<void>;
@@ -494,6 +505,162 @@ const getSyncConflictMessage = (entity: 'note' | 'task') => (
     : 'Uppgiften har ändrats på en annan enhet. Synka och granska innan du skriver över.'
 );
 
+const getSyncConflictItem = <T,>(error: unknown): T | null => {
+  const err = error as any;
+  const item = err?.details?.item ?? err?.item;
+  return item && typeof item === 'object' ? item as T : null;
+};
+
+const shouldUseDeltaSync = (cursor: string | null, lastFullSyncAt: number) => (
+  Boolean(cursor) && (Date.now() - lastFullSyncAt) < DELTA_SYNC_WINDOW_MS
+);
+
+const toChangeSetPayload = <T,>(payload: unknown): { items: T[]; deletedIds: string[]; serverTime: string } => {
+  if (Array.isArray(payload)) {
+    return {
+      items: payload as T[],
+      deletedIds: [],
+      serverTime: new Date().toISOString(),
+    };
+  }
+  const objectPayload = (payload && typeof payload === 'object') ? payload as Record<string, unknown> : {};
+  return {
+    items: Array.isArray(objectPayload.items) ? objectPayload.items as T[] : [],
+    deletedIds: Array.isArray(objectPayload.deletedIds) ? objectPayload.deletedIds.map((item) => String(item)) : [],
+    serverTime: typeof objectPayload.serverTime === 'string' ? objectPayload.serverTime : new Date().toISOString(),
+  };
+};
+const SYNC_CONFLICTS_STORAGE_KEY = 'syncConflicts';
+const SYNC_HEALTH_STORAGE_KEY = 'syncHealthSnapshot';
+const createDefaultSyncHealth = (): SyncHealthSnapshot => ({
+  lastSuccessfulNotesSyncAt: null,
+  lastSuccessfulTasksSyncAt: null,
+  lastCollectionsRefreshAt: null,
+  lastHydrationSource: null,
+  lastReachabilityCheckAt: null,
+  lastReachabilityResult: 'unknown',
+  lastResumeAt: null,
+  lastConflictAt: null,
+});
+const sanitizeSyncHealth = (value: unknown): SyncHealthSnapshot => {
+  const next = createDefaultSyncHealth();
+  if (!value || typeof value !== 'object') return next;
+  const source = value as Record<string, unknown>;
+  return {
+    lastSuccessfulNotesSyncAt: typeof source.lastSuccessfulNotesSyncAt === 'string' ? source.lastSuccessfulNotesSyncAt : null,
+    lastSuccessfulTasksSyncAt: typeof source.lastSuccessfulTasksSyncAt === 'string' ? source.lastSuccessfulTasksSyncAt : null,
+    lastCollectionsRefreshAt: typeof source.lastCollectionsRefreshAt === 'string' ? source.lastCollectionsRefreshAt : null,
+    lastHydrationSource: typeof source.lastHydrationSource === 'string' ? source.lastHydrationSource : null,
+    lastReachabilityCheckAt: typeof source.lastReachabilityCheckAt === 'string' ? source.lastReachabilityCheckAt : null,
+    lastReachabilityResult: source.lastReachabilityResult === 'reachable' || source.lastReachabilityResult === 'offline' || source.lastReachabilityResult === 'unknown'
+      ? source.lastReachabilityResult
+      : 'unknown',
+    lastResumeAt: typeof source.lastResumeAt === 'string' ? source.lastResumeAt : null,
+    lastConflictAt: typeof source.lastConflictAt === 'string' ? source.lastConflictAt : null,
+  };
+};
+const mergeSyncHealth = (current: SyncHealthSnapshot, patch: Partial<SyncHealthSnapshot>) => (
+  sanitizeSyncHealth({
+    ...current,
+    ...patch,
+  })
+);
+const sanitizeSyncConflicts = (value: unknown): SyncConflictItem[] => {
+  if (!Array.isArray(value)) return [];
+  return value.reduce<SyncConflictItem[]>((acc, item) => {
+    if (!item || typeof item !== 'object') return acc;
+    const candidate = item as Record<string, unknown>;
+    const key = typeof candidate.key === 'string' ? candidate.key : null;
+    const entity = candidate.entity === 'note' || candidate.entity === 'task' ? candidate.entity : null;
+    const itemId = typeof candidate.itemId === 'string' ? candidate.itemId : null;
+    if (!key || !entity || !itemId) return acc;
+    acc.push({
+      key,
+      entity,
+      itemId,
+      title: typeof candidate.title === 'string' ? candidate.title : itemId,
+      message: typeof candidate.message === 'string' ? candidate.message : '',
+      occurredAt: typeof candidate.occurredAt === 'number' ? candidate.occurredAt : Date.now(),
+      ...(typeof candidate.serverUpdatedAt === 'string' ? { serverUpdatedAt: candidate.serverUpdatedAt } : {}),
+      ...(typeof candidate.localBaseUpdatedAt === 'string' ? { localBaseUpdatedAt: candidate.localBaseUpdatedAt } : {}),
+    });
+    return acc;
+  }, []).slice(0, 8);
+};
+const loadPersistedSyncMetadata = async (): Promise<{ syncConflicts: SyncConflictItem[]; syncHealth: SyncHealthSnapshot }> => {
+  const [storedConflicts, storedHealth] = await Promise.all([
+    AsyncStorage.getItem(SYNC_CONFLICTS_STORAGE_KEY).catch(() => null),
+    AsyncStorage.getItem(SYNC_HEALTH_STORAGE_KEY).catch(() => null),
+  ]);
+  try {
+    return {
+      syncConflicts: sanitizeSyncConflicts(storedConflicts ? JSON.parse(storedConflicts) : null),
+      syncHealth: sanitizeSyncHealth(storedHealth ? JSON.parse(storedHealth) : null),
+    };
+  } catch {
+    return {
+      syncConflicts: [],
+      syncHealth: createDefaultSyncHealth(),
+    };
+  }
+};
+const persistSyncMetadata = async (syncConflicts: SyncConflictItem[], syncHealth: SyncHealthSnapshot) => {
+  await Promise.all([
+    AsyncStorage.setItem(SYNC_CONFLICTS_STORAGE_KEY, JSON.stringify(syncConflicts)).catch(() => {}),
+    AsyncStorage.setItem(SYNC_HEALTH_STORAGE_KEY, JSON.stringify(syncHealth)).catch(() => {}),
+  ]);
+};
+const reachabilityResult = (reachable: boolean): SyncHealthSnapshot['lastReachabilityResult'] => (
+  reachable ? 'reachable' : 'offline'
+);
+
+const makeSyncConflictKey = (entity: SyncConflictEntity, itemId: string) => `${entity}:${itemId}`;
+const upsertSyncConflict = (conflicts: SyncConflictItem[], conflict: SyncConflictItem) => (
+  [conflict, ...conflicts.filter((item) => item.key !== conflict.key)].slice(0, 8)
+);
+const clearSyncConflictForItem = (
+  conflicts: SyncConflictItem[],
+  entity: SyncConflictEntity,
+  itemId: string,
+) => conflicts.filter((item) => item.key !== makeSyncConflictKey(entity, itemId));
+const clearSyncConflictsForItems = (
+  conflicts: SyncConflictItem[],
+  entity: SyncConflictEntity,
+  itemIds: string[],
+) => {
+  if (itemIds.length === 0) return conflicts;
+  const keys = new Set(itemIds.map((itemId) => makeSyncConflictKey(entity, itemId)));
+  return conflicts.filter((item) => !keys.has(item.key));
+};
+
+const getOfflineSyncRetryDelayMs = (attempt: number) => {
+  const baseDelay = Math.min(60_000, 1_000 * (2 ** Math.max(0, attempt - 1)));
+  return baseDelay + Math.floor(Math.random() * 400);
+};
+
+const getOfflineSyncRetryWaitMs = (key: string) => {
+  const nextRetryAt = offlineSyncRetryState.get(key)?.nextRetryAt ?? 0;
+  return Math.max(0, nextRetryAt - Date.now());
+};
+
+const scheduleOfflineSyncRetryForKey = (key: string) => {
+  const attempt = (offlineSyncRetryState.get(key)?.attempt ?? 0) + 1;
+  const delay = getOfflineSyncRetryDelayMs(attempt);
+  offlineSyncRetryState.set(key, { attempt, nextRetryAt: Date.now() + delay });
+  return delay;
+};
+
+const clearOfflineSyncRetryForKey = (key: string) => {
+  offlineSyncRetryState.delete(key);
+};
+
+const isRetryableSyncError = (error: unknown) => {
+  const err = error as any;
+  const status = typeof err?.status === 'number' ? err.status : undefined;
+  if (status === 401 || status === 403 || status === 404 || status === 409) return false;
+  return status === undefined || status === 408 || status === 429 || status >= 500 || shouldFallbackToOffline(error);
+};
+
 const syncTaskReminder = async (task: Task, notificationsEnabled: boolean) => {
   if (!notificationsEnabled || !task.reminderEnabled) {
     await cancelTaskReminder(task._id);
@@ -532,12 +699,16 @@ export const useStore = create<AppState>((set, get) => ({
   viewMode: 'list',
   isOffline: false,
   isSyncingOffline: false,
+  syncConflicts: [],
+  syncHealth: createDefaultSyncHealth(),
   activeProjectId: null,
   token: null,
   isInitialized: false,
   notificationsEnabled: false,
   securityLocked: false,
   unlockedProtectedNoteIds: [],
+  dismissSyncConflict: (key) => set((state) => ({ syncConflicts: state.syncConflicts.filter((item) => item.key !== key) })),
+  clearSyncConflicts: () => set({ syncConflicts: [] }),
 
   setActiveProject: (id) => {
     const normalized = id ? normalizeId(id) : null;
@@ -587,6 +758,8 @@ export const useStore = create<AppState>((set, get) => ({
         isRefreshingTasks: false,
         error: null,
         unlockedProtectedNoteIds: [],
+        syncConflicts: [],
+        syncHealth: createDefaultSyncHealth(),
       });
       return;
     }
@@ -635,11 +808,13 @@ export const useStore = create<AppState>((set, get) => ({
             storedNotifications,
             storedActiveProjectId,
             storedViewMode,
+            persistedSyncMetadata,
           ] = await Promise.all([
             measureStartupStage('secureTokenRead', () => readStoredAuthToken()),
             measureStartupStage('notificationsPreferenceRead', () => AsyncStorage.getItem('notificationsEnabled')),
             measureStartupStage('activeProjectRead', () => AsyncStorage.getItem('activeProjectId')),
             measureStartupStage('viewModeRead', () => AsyncStorage.getItem('viewMode')),
+            measureStartupStage('syncMetadataRead', () => loadPersistedSyncMetadata()),
           ]);
           storedToken = nextStoredToken;
         if (storedNotifications !== null) {
@@ -651,6 +826,12 @@ export const useStore = create<AppState>((set, get) => ({
         if (storedViewMode) {
           set({ viewMode: storedViewMode as any });
         }
+        set({
+          syncConflicts: persistedSyncMetadata.syncConflicts,
+          syncHealth: mergeSyncHealth(persistedSyncMetadata.syncHealth, {
+            lastHydrationSource: 'bootstrap',
+          }),
+        });
         if (storedToken) {
           setAuthToken(storedToken);
           set({ token: storedToken });
@@ -670,6 +851,8 @@ export const useStore = create<AppState>((set, get) => ({
             isAuthenticating: false,
             isRefreshingNotes: false,
             isRefreshingTasks: false,
+            syncConflicts: [],
+            syncHealth: createDefaultSyncHealth(),
           });
         }
 
@@ -694,7 +877,10 @@ export const useStore = create<AppState>((set, get) => ({
           const unlocked = new Set(get().unlockedProtectedNoteIds || []);
           set({
             notes: materializeNotesFromEncrypted(localNotes.map(processLocalNote), unlocked),
-            tasks: processedLocalTasks
+            tasks: processedLocalTasks,
+            syncHealth: mergeSyncHealth(get().syncHealth, {
+              lastHydrationSource: 'local-cache',
+            }),
           });
           if (get().notificationsEnabled) {
             await syncAllTaskReminders(processedLocalTasks, true, { cancelMissing: true });
@@ -710,13 +896,22 @@ export const useStore = create<AppState>((set, get) => ({
           isAuthenticating: false,
           isRefreshingNotes: false,
           isRefreshingTasks: false,
+          syncHealth: mergeSyncHealth(get().syncHealth, {
+            lastHydrationSource: 'init-error',
+          }),
         });
       }
 
       if (!netInfoUnsubscribe) {
         netInfoUnsubscribe = NetInfo.addEventListener(state => {
           const isOffline = !(state.isConnected && state.isInternetReachable !== false);
-          set({ isOffline });
+          set((currentState) => ({
+            isOffline,
+            syncHealth: mergeSyncHealth(currentState.syncHealth, {
+              lastReachabilityCheckAt: new Date().toISOString(),
+              lastReachabilityResult: reachabilityResult(!isOffline),
+            }),
+          }));
           if (!databaseReady) return;
           if (!isOffline) {
             const refreshAfterSync = wasOffline;
@@ -726,10 +921,25 @@ export const useStore = create<AppState>((set, get) => ({
               void (async () => {
                 const reachable = await probeBackendReachability();
                 if (!reachable) {
-                  set({ isOffline: true });
+                  set((currentState) => ({
+                    isOffline: true,
+                    syncHealth: mergeSyncHealth(currentState.syncHealth, {
+                      lastReachabilityCheckAt: new Date().toISOString(),
+                      lastReachabilityResult: 'offline',
+                      lastResumeAt: new Date().toISOString(),
+                    }),
+                  }));
                   return;
                 }
-                set({ isOffline: false, error: null });
+                set((currentState) => ({
+                  isOffline: false,
+                  error: null,
+                  syncHealth: mergeSyncHealth(currentState.syncHealth, {
+                    lastReachabilityCheckAt: new Date().toISOString(),
+                    lastReachabilityResult: 'reachable',
+                    lastResumeAt: new Date().toISOString(),
+                  }),
+                }));
                 await get().syncOfflineChanges({ refreshAfterSync });
               })();
             }, 800);
@@ -744,7 +954,13 @@ export const useStore = create<AppState>((set, get) => ({
         get().connectSocket();
         recordStartupStage('socketConnect', Date.now() - socketStartedAt);
         const backendReachable = await probeBackendReachability().catch(() => false);
-        set({ isOffline: !backendReachable });
+        set((currentState) => ({
+          isOffline: !backendReachable,
+          syncHealth: mergeSyncHealth(currentState.syncHealth, {
+            lastReachabilityCheckAt: new Date().toISOString(),
+            lastReachabilityResult: reachabilityResult(backendReachable),
+          }),
+        }));
         if (backendReachable) {
           await measureStartupStage('remoteCollectionsRefresh', () => get().refreshCollections({ force: true }));
         }
@@ -784,6 +1000,11 @@ export const useStore = create<AppState>((set, get) => ({
       get().fetchTasks(),
     ]).then(() => {
       markRemoteCollectionsSynced();
+      set((state) => ({
+        syncHealth: mergeSyncHealth(state.syncHealth, {
+          lastCollectionsRefreshAt: new Date().toISOString(),
+        }),
+      }));
     });
     collectionsRefreshPromise = refreshPromise;
     try {
@@ -978,6 +1199,10 @@ export const useStore = create<AppState>((set, get) => ({
   login: async (username, password) => {
     try {
       set({ isLoading: true, isAuthenticating: true, error: null });
+      lastNotesDeltaCursor = null;
+      lastTasksDeltaCursor = null;
+      lastNotesFullSyncAt = 0;
+      lastTasksFullSyncAt = 0;
       const response = await apiLogin(username, password);
       if (!response?.token) {
         throw new Error('Login failed');
@@ -1020,9 +1245,22 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       await apiLogout();
     } catch {}
+    lastNotesDeltaCursor = null;
+    lastTasksDeltaCursor = null;
+    lastNotesFullSyncAt = 0;
+    lastTasksFullSyncAt = 0;
     setAuthToken(null);
     disconnectSocket();
-    set({ token: null, notes: [], tasks: [], activeProjectId: null, error: null, unlockedProtectedNoteIds: [] });
+    set({
+      token: null,
+      notes: [],
+      tasks: [],
+      activeProjectId: null,
+      error: null,
+      unlockedProtectedNoteIds: [],
+      syncConflicts: [],
+      syncHealth: createDefaultSyncHealth(),
+    });
   },
 
   fetchNotes: async () => {
@@ -1037,8 +1275,16 @@ export const useStore = create<AppState>((set, get) => ({
         const netState = await NetInfo.fetch();
         
         if (netState.isConnected) {
-          const notes = await fetchWithAuth('/notes', { timeoutMs: 45000 });
-          const safeNotes = Array.isArray(notes) ? notes : [];
+          const useDelta = shouldUseDeltaSync(lastNotesDeltaCursor, lastNotesFullSyncAt) && get().notes.length > 0;
+          const notesResponse = await fetchWithAuth(
+            useDelta && lastNotesDeltaCursor
+              ? `/notes/changes?since=${encodeURIComponent(lastNotesDeltaCursor)}`
+              : '/notes/changes',
+            { timeoutMs: 45000 },
+          );
+          const noteChangeSet = toChangeSetPayload<any>(notesResponse);
+          const safeNotes = Array.isArray(noteChangeSet.items) ? noteChangeSet.items : [];
+          const deletedNoteIds = noteChangeSet.deletedIds;
           const securedNotes = materializeNotesFromEncrypted(safeNotes as any, new Set(get().unlockedProtectedNoteIds));
           const persistableNotes = (safeNotes as any[]).map((note) => normalizeEncryptedNote(note as Note));
           const localNoteIndex = typeof Database.getLocalNoteSyncIndex === 'function'
@@ -1051,12 +1297,89 @@ export const useStore = create<AppState>((set, get) => ({
             return localNoteIndex.get(note._id) !== remoteUpdatedAt;
           });
           await persistInBatches(notesToPersist, 25, (note) => Database.saveNoteLocal(note, true));
-          set({ notes: securedNotes, isRefreshingNotes: false });
+          const pendingQueue = typeof Database.getSyncQueue === 'function'
+            ? await Database.getSyncQueue()
+            : [];
+          const pendingNoteIds = new Set<string>();
+          const pendingNoteClientIds = new Set<string>();
+          for (const item of pendingQueue) {
+            if (item.entity !== 'NOTE') continue;
+            const pendingId = typeof item.data?.id === 'string'
+              ? item.data.id
+              : typeof item.data?._id === 'string'
+                ? item.data._id
+                : typeof item.data?.tempId === 'string'
+                  ? item.data.tempId
+                  : null;
+            const pendingClientId = typeof item.data?.clientId === 'string' ? item.data.clientId : null;
+            if (pendingId) pendingNoteIds.add(pendingId);
+            if (pendingClientId) pendingNoteClientIds.add(pendingClientId);
+          }
+          const baseNotes = useDelta ? [...get().notes] : [...securedNotes];
+          const mergedNotes = [...baseNotes];
+          for (const remoteNote of securedNotes) {
+            const idx = mergedNotes.findIndex((note) => note._id === remoteNote._id);
+            if (idx !== -1) {
+              mergedNotes[idx] = remoteNote;
+            } else {
+              mergedNotes.push(remoteNote);
+            }
+          }
+          const remoteIds = new Set(securedNotes.map((note) => note._id));
+          const remoteClientIds = new Set(securedNotes.map((note) => String(note.clientId || '')).filter(Boolean));
+          const deletedNoteIdSet = new Set(deletedNoteIds);
+          const deletedTaskIdsFromNotes = get().tasks
+            .filter((task) => {
+              const parentId = normalizeId(task.parentNoteId ?? task.parentId);
+              return Boolean(parentId && deletedNoteIdSet.has(parentId));
+            })
+            .map((task) => task._id);
+          const finalNotes = (useDelta
+            ? mergedNotes
+            : mergedNotes.filter((note) => (
+              remoteIds.has(note._id)
+              || note._id.startsWith('local_')
+              || pendingNoteIds.has(note._id)
+              || (typeof note.clientId === 'string' && note.clientId.length > 0 && (pendingNoteClientIds.has(note.clientId) || remoteClientIds.has(note.clientId)))
+            )))
+            .filter((note) => !deletedNoteIdSet.has(note._id));
+          set((state) => ({
+            notes: finalNotes,
+            tasks: state.tasks.filter((task) => !deletedTaskIdsFromNotes.includes(task._id)),
+            activeProjectId: state.activeProjectId && deletedNoteIdSet.has(state.activeProjectId) ? null : state.activeProjectId,
+            unlockedProtectedNoteIds: state.unlockedProtectedNoteIds.filter((item) => !deletedNoteIdSet.has(item)),
+            isRefreshingNotes: false,
+            syncHealth: mergeSyncHealth(state.syncHealth, {
+              lastSuccessfulNotesSyncAt: noteChangeSet.serverTime,
+              lastHydrationSource: useDelta ? 'remote-delta' : 'remote-full',
+            }),
+            syncConflicts: clearSyncConflictsForItems(
+              clearSyncConflictsForItems(state.syncConflicts, 'note', deletedNoteIds),
+              'task',
+              deletedTaskIdsFromNotes,
+            ),
+          }));
+          if (deletedNoteIds.length > 0) {
+            await Promise.all(deletedNoteIds.map((noteId) => Database.deleteNoteLocal(noteId)));
+          }
+          if (deletedTaskIdsFromNotes.length > 0) {
+            await Promise.all(deletedTaskIdsFromNotes.map((taskId) => Database.deleteTaskLocal(taskId)));
+          }
+          lastNotesDeltaCursor = noteChangeSet.serverTime;
+          if (!useDelta) {
+            lastNotesFullSyncAt = Date.now();
+          }
           markRemoteCollectionsSynced();
         } else {
           const localNotes = await Database.getNotesLocal();
           const securedNotes = materializeNotesFromEncrypted(localNotes.map(processLocalNote) as any, new Set(get().unlockedProtectedNoteIds));
-          set({ notes: securedNotes, isRefreshingNotes: false });
+          set((state) => ({
+            notes: securedNotes,
+            isRefreshingNotes: false,
+            syncHealth: mergeSyncHealth(state.syncHealth, {
+              lastHydrationSource: 'local-cache',
+            }),
+          }));
         }
       } catch (error: any) {
         log.error(error, { area: 'store.fetchNotes' });
@@ -1223,13 +1546,55 @@ export const useStore = create<AppState>((set, get) => ({
             ),
             unlockedProtectedNoteIds: nextUnlocked,
             isLoading: false,
+            syncConflicts: clearSyncConflictForItem(state.syncConflicts, 'note', id),
           };
         });
 
         await Database.saveNoteLocal(realNote, true);
         return realNote;
       } catch (error: any) {
-        set({ error: error?.message || String(error), isLoading: false });
+        if (isSyncConflictError(error)) {
+          const conflictItem = getSyncConflictItem<Note>(error);
+          if (conflictItem) {
+            const serverNote = materializeNotesFromEncrypted([conflictItem as any], new Set(get().unlockedProtectedNoteIds))[0] as Note;
+            set((state) => {
+              const nextUnlocked = state.unlockedProtectedNoteIds.filter((item) => item !== id);
+              return {
+                notes: materializeNotesFromEncrypted(
+                  state.notes.map((note) => (note._id === id ? serverNote : note)) as any,
+                  new Set(nextUnlocked),
+                ),
+                unlockedProtectedNoteIds: nextUnlocked,
+                error: getSyncConflictMessage('note'),
+                isLoading: false,
+                syncConflicts: upsertSyncConflict(state.syncConflicts, {
+                  key: makeSyncConflictKey('note', id),
+                  entity: 'note',
+                  itemId: id,
+                  title: serverNote.title || id,
+                  message: getSyncConflictMessage('note'),
+                  occurredAt: Date.now(),
+                }),
+              };
+            });
+            await Database.saveNoteLocal(serverNote, true);
+          } else {
+            set((state) => ({
+              error: getSyncConflictMessage('note'),
+              isLoading: false,
+              syncConflicts: upsertSyncConflict(state.syncConflicts, {
+                key: makeSyncConflictKey('note', id),
+                entity: 'note',
+                itemId: id,
+                title: currentNote.title || id,
+                message: getSyncConflictMessage('note'),
+                occurredAt: Date.now(),
+              }),
+            }));
+          }
+        } else {
+          set({ error: error?.message || String(error), isLoading: false });
+        }
         throw error;
       }
     }
@@ -1300,7 +1665,8 @@ export const useStore = create<AppState>((set, get) => ({
           
           // Update State & DB
           set(state => ({
-              notes: materializeNotesFromEncrypted(state.notes.map(n => n._id === id ? realNote : n) as any, new Set(state.unlockedProtectedNoteIds))
+              notes: materializeNotesFromEncrypted(state.notes.map(n => n._id === id ? realNote : n) as any, new Set(state.unlockedProtectedNoteIds)),
+              syncConflicts: clearSyncConflictForItem(state.syncConflicts, 'note', id),
           }));
           await Database.saveNoteLocal(realNote, true);
 
@@ -1308,13 +1674,44 @@ export const useStore = create<AppState>((set, get) => ({
         } catch (error) {
           const isSettingPassword = typeof updateData.password === 'string' && updateData.password.length > 0;
           if (typeof unlockPassword === 'string' || isSettingPassword) throw error;
+          if (isSyncConflictError(error)) {
+            const conflictItem = getSyncConflictItem<Note>(error);
+            if (conflictItem) {
+              const serverNote = materializeNotesFromEncrypted([conflictItem as any], new Set(get().unlockedProtectedNoteIds))[0] as Note;
+              set((state) => ({
+                notes: materializeNotesFromEncrypted(
+                  state.notes.map((note) => (note._id === id ? serverNote : note)) as any,
+                  new Set(state.unlockedProtectedNoteIds),
+                ),
+                error: getSyncConflictMessage('note'),
+                syncConflicts: upsertSyncConflict(state.syncConflicts, {
+                  key: makeSyncConflictKey('note', id),
+                  entity: 'note',
+                  itemId: id,
+                  title: serverNote.title || id,
+                  message: getSyncConflictMessage('note'),
+                  occurredAt: Date.now(),
+                }),
+              }));
+              await Database.saveNoteLocal(serverNote, true);
+            } else {
+              set((state) => ({
+                error: getSyncConflictMessage('note'),
+                syncConflicts: upsertSyncConflict(state.syncConflicts, {
+                  key: makeSyncConflictKey('note', id),
+                  entity: 'note',
+                  itemId: id,
+                  title: currentNote.title || id,
+                  message: getSyncConflictMessage('note'),
+                  occurredAt: Date.now(),
+                }),
+              }));
+            }
+            throw new Error(getSyncConflictMessage('note'));
+          }
           const mergedIntoCreate = await Database.mergeIntoQueuedCreate('NOTE', id, encryptedData);
           if (!mergedIntoCreate) {
             await Database.addToSyncQueue('UPDATE', 'NOTE', { id, ...encryptedData });
-          }
-          if (isSyncConflictError(error)) {
-            set({ error: getSyncConflictMessage('note') });
-            throw new Error(getSyncConflictMessage('note'));
           }
           if (!shouldFallbackToOffline(error)) throw error;
           return optimisticNote;
@@ -1363,7 +1760,10 @@ export const useStore = create<AppState>((set, get) => ({
 
       set((state) => ({
         notes: state.notes.filter((n) => n._id !== id),
+        activeProjectId: state.activeProjectId === id ? null : state.activeProjectId,
+        unlockedProtectedNoteIds: state.unlockedProtectedNoteIds.filter((item) => item !== id),
         isLoading: false,
+        syncConflicts: clearSyncConflictForItem(state.syncConflicts, 'note', id),
       }));
     } catch (error: any) {
       set({ error: error.message, isLoading: false });
@@ -1426,8 +1826,16 @@ export const useStore = create<AppState>((set, get) => ({
       try {
         const netState = await NetInfo.fetch();
         if (netState.isConnected) {
-          const tasks = await fetchWithAuth('/tasks', { timeoutMs: 30000 });
-          const safeTasks = Array.isArray(tasks) ? tasks : [];
+          const useDelta = shouldUseDeltaSync(lastTasksDeltaCursor, lastTasksFullSyncAt) && get().tasks.length > 0;
+          const tasksResponse = await fetchWithAuth(
+            useDelta && lastTasksDeltaCursor
+              ? `/tasks/changes?since=${encodeURIComponent(lastTasksDeltaCursor)}`
+              : '/tasks/changes',
+            { timeoutMs: 30000 },
+          );
+          const taskChangeSet = toChangeSetPayload<any>(tasksResponse);
+          const safeTasks = Array.isArray(taskChangeSet.items) ? taskChangeSet.items : [];
+          const deletedTaskIds = taskChangeSet.deletedIds;
           const decryptedTasks = safeTasks.map(processApiTask);
           const localTaskIndex = typeof Database.getLocalTaskSyncIndex === 'function'
             ? await Database.getLocalTaskSyncIndex()
@@ -1435,13 +1843,41 @@ export const useStore = create<AppState>((set, get) => ({
           const tasksToPersist = (decryptedTasks as Task[]).filter((task: Task) => localTaskIndex.get(task._id) !== String(task.updatedAt || ''));
           await persistInBatches(tasksToPersist, 25, (task: Task) => Database.saveTaskLocal(task, true));
           const state = get();
+          const baseTasks = useDelta ? [...state.tasks] : [...decryptedTasks];
+          const mergedRemoteTasks = [...baseTasks];
+          for (const remoteTask of decryptedTasks) {
+            const idx = mergedRemoteTasks.findIndex((task) => task._id === remoteTask._id);
+            if (idx !== -1) {
+              mergedRemoteTasks[idx] = remoteTask;
+            } else {
+              mergedRemoteTasks.push(remoteTask);
+            }
+          }
           const serverClientIds = new Set(decryptedTasks.map((t: any) => t.clientId).filter(Boolean));
           const localOnlyTasks = state.tasks.filter((task) => (
             task._id.startsWith('local_task_')
             && (!task.clientId || !serverClientIds.has(task.clientId))
           ));
-          const mergedTasks = [...decryptedTasks, ...localOnlyTasks].map(processLocalTask);
-          set({ tasks: mergedTasks, isRefreshingTasks: false });
+          const deletedTaskIdSet = new Set(deletedTaskIds);
+          const mergedTasks = [...mergedRemoteTasks, ...localOnlyTasks]
+            .map(processLocalTask)
+            .filter((task) => !deletedTaskIdSet.has(task._id));
+          set((state) => ({
+            tasks: mergedTasks,
+            isRefreshingTasks: false,
+            syncHealth: mergeSyncHealth(state.syncHealth, {
+              lastSuccessfulTasksSyncAt: taskChangeSet.serverTime,
+              lastHydrationSource: useDelta ? 'remote-delta' : 'remote-full',
+            }),
+            syncConflicts: clearSyncConflictsForItems(state.syncConflicts, 'task', deletedTaskIds),
+          }));
+          if (deletedTaskIds.length > 0) {
+            await Promise.all(deletedTaskIds.map((taskId) => Database.deleteTaskLocal(taskId)));
+          }
+          lastTasksDeltaCursor = taskChangeSet.serverTime;
+          if (!useDelta) {
+            lastTasksFullSyncAt = Date.now();
+          }
           markRemoteCollectionsSynced();
           if (get().notificationsEnabled) {
             await syncAllTaskReminders(mergedTasks, true, { cancelMissing: true });
@@ -1449,7 +1885,13 @@ export const useStore = create<AppState>((set, get) => ({
         } else {
           const localTasks = await Database.getTasksLocal();
           const mapped = localTasks.map(processLocalTask);
-          set({ tasks: mapped, isRefreshingTasks: false });
+          set((state) => ({
+            tasks: mapped,
+            isRefreshingTasks: false,
+            syncHealth: mergeSyncHealth(state.syncHealth, {
+              lastHydrationSource: 'local-cache',
+            }),
+          }));
           if (get().notificationsEnabled) {
             await syncAllTaskReminders(mapped, true, { cancelMissing: true });
           }
@@ -1722,19 +2164,49 @@ export const useStore = create<AppState>((set, get) => ({
           // Update State & DB with confirmed data
           set((state) => ({
             tasks: state.tasks.map((t) => (t._id === id ? realTask : t)),
+            syncConflicts: clearSyncConflictForItem(state.syncConflicts, 'task', id),
           }));
           await Database.saveTaskLocal(realTask, true);
           syncTaskReminderDeferred(realTask, get().notificationsEnabled);
 
           return realTask;
         } catch (error) {
+          if (isSyncConflictError(error)) {
+            const conflictItem = getSyncConflictItem<Task>(error);
+            if (conflictItem) {
+              const serverTask = processApiTask(conflictItem as any);
+              set((state) => ({
+                tasks: state.tasks.map((task) => (task._id === id ? serverTask : task)),
+                error: getSyncConflictMessage('task'),
+                syncConflicts: upsertSyncConflict(state.syncConflicts, {
+                  key: makeSyncConflictKey('task', id),
+                  entity: 'task',
+                  itemId: id,
+                  title: serverTask.title || id,
+                  message: getSyncConflictMessage('task'),
+                  occurredAt: Date.now(),
+                }),
+              }));
+              await Database.saveTaskLocal(serverTask, true);
+              syncTaskReminderDeferred(serverTask, get().notificationsEnabled);
+            } else {
+              set((state) => ({
+                error: getSyncConflictMessage('task'),
+                syncConflicts: upsertSyncConflict(state.syncConflicts, {
+                  key: makeSyncConflictKey('task', id),
+                  entity: 'task',
+                  itemId: id,
+                  title: currentTask.title || id,
+                  message: getSyncConflictMessage('task'),
+                  occurredAt: Date.now(),
+                }),
+              }));
+            }
+            throw new Error(getSyncConflictMessage('task'));
+          }
           const mergedIntoCreate = await Database.mergeIntoQueuedCreate('TASK', id, encryptedData);
           if (!mergedIntoCreate) {
             await Database.addToSyncQueue('UPDATE', 'TASK', { id, ...encryptedData });
-          }
-          if (isSyncConflictError(error)) {
-            set({ error: getSyncConflictMessage('task') });
-            throw new Error(getSyncConflictMessage('task'));
           }
           if (!shouldFallbackToOffline(error)) throw error;
           return optimisticTask;
@@ -1780,6 +2252,7 @@ export const useStore = create<AppState>((set, get) => ({
 
       set((state) => ({
         tasks: state.tasks.filter((t) => t._id !== id),
+        syncConflicts: clearSyncConflictForItem(state.syncConflicts, 'task', id),
       }));
     } catch (error: any) {
       set({ error: error.message });
@@ -1906,11 +2379,16 @@ export const useStore = create<AppState>((set, get) => ({
   syncOfflineChanges: async (options) => {
     if (get().securityLocked) return;
     if (get().isSyncingOffline) return;
+    if (offlineSyncRetryTimer) {
+      clearTimeout(offlineSyncRetryTimer);
+      offlineSyncRetryTimer = null;
+    }
     set({ isSyncingOffline: true });
     const syncStartedAt = Date.now();
     let initialQueueSize = 0;
     let failedItems = 0;
     let oldestItemAgeMs: number | null = null;
+    let nextRetryDelayMs: number | null = null;
     try {
       const backendReachable = await probeBackendReachability().catch(() => false);
       if (!backendReachable) {
@@ -1918,10 +2396,13 @@ export const useStore = create<AppState>((set, get) => ({
         return;
       }
       set({ isOffline: false, error: null });
-      const queue = await Database.getSyncQueue();
-      initialQueueSize = queue.length;
-      oldestItemAgeMs = queue.length
-        ? Math.max(0, ...queue.map((item) => Date.now() - new Date(item.timestamp).getTime()))
+      const fullQueue = await Database.getSyncQueue();
+      const queue = typeof Database.getCompressedSyncQueue === 'function'
+        ? await Database.getCompressedSyncQueue()
+        : fullQueue;
+      initialQueueSize = fullQueue.length;
+      oldestItemAgeMs = fullQueue.length
+        ? Math.max(0, ...fullQueue.map((item) => Date.now() - new Date(item.timestamp).getTime()))
         : null;
       if (queue.length === 0) {
         if (options?.refreshAfterSync) {
@@ -1931,151 +2412,256 @@ export const useStore = create<AppState>((set, get) => ({
       }
 
       const tempIdMap = new Map<string, string>();
+      const noteBulkItems: Array<{ item: any; retryKey: string; operation: any }> = [];
+      const taskBulkItems: Array<{ item: any; retryKey: string; operation: any }> = [];
+      const reorderItems: any[] = [];
 
       for (const item of queue) {
-        // Apply ID mapping from previous creations in this batch
-        if (item.data.id && tempIdMap.has(item.data.id)) {
-            item.data.id = tempIdMap.get(item.data.id);
+        const retryKey = `${item.entity}:${item.action}:${item.id}`;
+        const retryWaitMs = getOfflineSyncRetryWaitMs(retryKey);
+        if (retryWaitMs > 0) {
+          nextRetryDelayMs = nextRetryDelayMs == null ? retryWaitMs : Math.min(nextRetryDelayMs, retryWaitMs);
+          continue;
         }
-        if (item.data._id && tempIdMap.has(item.data._id)) {
-            item.data._id = tempIdMap.get(item.data._id);
-        }
-        if (item.data.parentNoteId && tempIdMap.has(item.data.parentNoteId)) {
-            item.data.parentNoteId = tempIdMap.get(item.data.parentNoteId);
-        }
-        if (item.data.parentId && tempIdMap.has(item.data.parentId)) {
-            item.data.parentId = tempIdMap.get(item.data.parentId);
-        }
-        
-        // Handle REORDER arrays
         if (item.action === 'REORDER') {
-            if (item.data.notes && Array.isArray(item.data.notes)) {
-                item.data.notes = item.data.notes.map((n: any) => ({
-                    ...n,
-                    _id: tempIdMap.get(n._id) || n._id,
-                    parentId: (n.parentId && tempIdMap.get(n.parentId)) || n.parentId
-                }));
-            }
-            if (item.data.tasks && Array.isArray(item.data.tasks)) {
-                item.data.tasks = item.data.tasks.map((t: any) => ({
-                    ...t,
-                    _id: tempIdMap.get(t._id) || t._id
-                }));
-            }
+          reorderItems.push({ item, retryKey });
+          continue;
         }
+        if (item.entity === 'NOTE') {
+          noteBulkItems.push({
+            item,
+            retryKey,
+            operation: item.action === 'CREATE'
+              ? { clientOperationId: String(item.id), action: 'CREATE', tempId: item.data.tempId, data: (() => { const { tempId, ...data } = item.data; return data; })() }
+              : item.action === 'UPDATE'
+                ? { clientOperationId: String(item.id), action: 'UPDATE', id: item.data.id, data: item.data }
+                : { clientOperationId: String(item.id), action: 'DELETE', id: item.data.id },
+          });
+        } else if (item.entity === 'TASK') {
+          const mappedData = {
+            ...item.data,
+            ...(item.data?.id && tempIdMap.has(item.data.id) ? { id: tempIdMap.get(item.data.id) } : {}),
+            ...(item.data?.parentNoteId && tempIdMap.has(item.data.parentNoteId) ? { parentNoteId: tempIdMap.get(item.data.parentNoteId) } : {}),
+            ...(item.data?.parentId && tempIdMap.has(item.data.parentId) ? { parentId: tempIdMap.get(item.data.parentId) } : {}),
+          };
+          taskBulkItems.push({
+            item: { ...item, data: mappedData },
+            retryKey,
+            operation: item.action === 'CREATE'
+              ? { clientOperationId: String(item.id), action: 'CREATE', tempId: mappedData.tempId, data: (() => { const { tempId, ...data } = mappedData; return data; })() }
+              : item.action === 'UPDATE'
+                ? { clientOperationId: String(item.id), action: 'UPDATE', id: mappedData.id, data: mappedData }
+                : { clientOperationId: String(item.id), action: 'DELETE', id: mappedData.id },
+          });
+        }
+      }
 
+      if (noteBulkItems.length > 0) {
         try {
-          if (item.entity === 'NOTE') {
-            if (item.action === 'CREATE') {
-              const { tempId, ...createData } = item.data;
-              const created = await fetchWithAuth('/notes', {
-                method: 'POST',
-                body: JSON.stringify(createData),
-              });
-              if (tempId) {
-                  const decryptedCreated = materializeNotesFromEncrypted([created as any], new Set(get().unlockedProtectedNoteIds))[0] as Note;
-                  
-                  // Update map
+          const noteResponse = await fetchWithAuth('/notes/sync', {
+            method: 'POST',
+            body: JSON.stringify({ operations: noteBulkItems.map((entry) => entry.operation) }),
+          });
+          const noteResultMap = new Map(noteBulkItems.map((entry) => [String(entry.item.id), entry]));
+          for (const result of Array.isArray(noteResponse?.results) ? noteResponse.results : []) {
+            const source = noteResultMap.get(String(result.clientOperationId));
+            if (!source) continue;
+            const queueItem = source.item;
+            if (result.status === 'applied') {
+              if (result.action === 'CREATE' && result.item) {
+                const decryptedCreated = materializeNotesFromEncrypted([result.item as any], new Set(get().unlockedProtectedNoteIds))[0] as Note;
+                const tempId = queueItem.data?.tempId;
+                if (tempId) {
                   tempIdMap.set(tempId, decryptedCreated._id);
-
                   await Database.deleteNoteLocal(tempId);
-                  await Database.saveNoteLocal(decryptedCreated, true);
-                  set(state => {
-                    const idx = state.notes.findIndex(n => n._id === tempId);
-                    if (idx !== -1) {
-                      const updated = [...state.notes];
-                      updated[idx] = decryptedCreated;
-                      return { notes: updated };
-                    }
-                    if (state.notes.find(n => n._id === decryptedCreated._id)) {
-                      return state;
-                    }
-                    return { notes: [decryptedCreated, ...state.notes] };
-                  });
+                }
+                await Database.saveNoteLocal(decryptedCreated, true);
+                set((state) => {
+                  const idx = state.notes.findIndex((note) => note._id === tempId);
+                  if (idx !== -1) {
+                    const updated = [...state.notes];
+                    updated[idx] = decryptedCreated;
+                    return { notes: updated };
+                  }
+                  if (state.notes.some((note) => note._id === decryptedCreated._id)) return state;
+                  return { notes: [decryptedCreated, ...state.notes] };
+                });
+              } else if (result.action === 'UPDATE' && result.item) {
+                const decryptedUpdated = materializeNotesFromEncrypted([result.item as any], new Set(get().unlockedProtectedNoteIds))[0] as Note;
+                set((state) => ({
+                  notes: state.notes.map((note) => note._id === queueItem.data.id ? decryptedUpdated : note),
+                  syncConflicts: clearSyncConflictForItem(state.syncConflicts, 'note', queueItem.data.id),
+                }));
+                await Database.saveNoteLocal(decryptedUpdated, true);
+              } else {
+                const deletedIds = Array.isArray(result.deletedIds) ? result.deletedIds : [queueItem.data.id];
+                const deletedTaskIds = Array.isArray(result.deletedTaskIds) ? result.deletedTaskIds : [];
+                set((state) => ({
+                  notes: state.notes.filter((note) => !deletedIds.includes(note._id)),
+                  tasks: state.tasks.filter((task) => !deletedTaskIds.includes(task._id)),
+                  activeProjectId: state.activeProjectId && deletedIds.includes(state.activeProjectId) ? null : state.activeProjectId,
+                  unlockedProtectedNoteIds: state.unlockedProtectedNoteIds.filter((itemId) => !deletedIds.includes(itemId)),
+                  syncConflicts: clearSyncConflictsForItems(
+                    clearSyncConflictsForItems(state.syncConflicts, 'note', deletedIds),
+                    'task',
+                    deletedTaskIds,
+                  ),
+                }));
+                await Promise.all(deletedIds.map((id: string) => Database.deleteNoteLocal(id)));
+                await Promise.all(deletedTaskIds.map((id: string) => Database.deleteTaskLocal(id)));
               }
-            } else if (item.action === 'UPDATE') {
-              await fetchWithAuth(`/notes/${item.data.id}`, {
-                method: 'PUT',
-                body: JSON.stringify(item.data),
-              });
-            } else if (item.action === 'DELETE') {
-              await fetchWithAuth(`/notes/${item.data.id}`, {
-                method: 'DELETE',
-              });
-            } else if (item.action === 'REORDER') {
-              await fetchWithAuth('/notes/reorder', {
-                method: 'PUT',
-                body: JSON.stringify(item.data),
-              });
+              await Database.removeFromSyncQueue(queueItem.id);
+              clearOfflineSyncRetryForKey(source.retryKey);
+              continue;
             }
-          } else if (item.entity === 'TASK') {
-            if (item.action === 'CREATE') {
-              const { tempId, ...createData } = item.data;
-              const created = await fetchWithAuth('/tasks', {
-                method: 'POST',
-                body: JSON.stringify(createData),
-              });
-              if (tempId) {
-                  const decryptedCreated = processApiTask(created);
-                  
-                  // Update map
-                  tempIdMap.set(tempId, decryptedCreated._id);
-
-                  await Database.deleteTaskLocal(tempId);
-                  await Database.saveTaskLocal(decryptedCreated, true);
-                  set(state => {
-                    // Check if the real task is already in state (e.g. via socket)
-                    const alreadyExists = state.tasks.some(t => t._id === decryptedCreated._id);
-                    const tempIdx = state.tasks.findIndex(t => t._id === tempId);
-                    
-                    if (alreadyExists) {
-                        // If real task exists, just remove temp task if present
-                        if (tempIdx !== -1) {
-                            return { tasks: state.tasks.filter(t => t._id !== tempId) };
-                        }
-                        return state;
-                    }
-                    
-                    // If temp task exists, replace it
-                    if (tempIdx !== -1) {
-                      const updated = [...state.tasks];
-                      updated[tempIdx] = decryptedCreated;
-                      return { tasks: updated };
-                    }
-                    
-                    // Otherwise add new task
-                    return { tasks: [...state.tasks, decryptedCreated] };
-                  });
-              }
-            } else if (item.action === 'UPDATE') {
-              await fetchWithAuth(`/tasks/${item.data.id}`, {
-                method: 'PUT',
-                body: JSON.stringify(item.data),
-              });
-            } else if (item.action === 'DELETE') {
-              await fetchWithAuth(`/tasks/${item.data.id}`, {
-                method: 'DELETE',
-              });
-            } else if (item.action === 'REORDER') {
-              await fetchWithAuth('/tasks/reorder', {
-                method: 'PUT',
-                body: JSON.stringify(item.data),
-              });
+            failedItems += 1;
+            const noteId = typeof queueItem.data?.id === 'string' ? queueItem.data.id : String(queueItem.data?.tempId || queueItem.id);
+            if (result.status === 'conflict') {
+              set((state) => ({
+                error: getSyncConflictMessage('note'),
+                syncConflicts: upsertSyncConflict(state.syncConflicts, {
+                  key: makeSyncConflictKey('note', noteId),
+                  entity: 'note',
+                  itemId: noteId,
+                  title: typeof queueItem.data?.title === 'string' ? queueItem.data.title : noteId,
+                  message: getSyncConflictMessage('note'),
+                  occurredAt: Date.now(),
+                }),
+              }));
+            }
+            await Database.removeFromSyncQueue(queueItem.id);
+            clearOfflineSyncRetryForKey(source.retryKey);
+          }
+        } catch (error) {
+          failedItems += noteBulkItems.length;
+          if ((error as any)?.status === 401) return;
+          for (const entry of noteBulkItems) {
+            if (isRetryableSyncError(error)) {
+              const delay = scheduleOfflineSyncRetryForKey(entry.retryKey);
+              nextRetryDelayMs = nextRetryDelayMs == null ? delay : Math.min(nextRetryDelayMs, delay);
+            } else {
+              await Database.removeFromSyncQueue(entry.item.id);
+              clearOfflineSyncRetryForKey(entry.retryKey);
             }
           }
+          log.error(error, { area: 'store.syncBulkNotes' });
+        }
+      }
+
+      if (taskBulkItems.length > 0) {
+        try {
+          const taskResponse = await fetchWithAuth('/tasks/sync', {
+            method: 'POST',
+            body: JSON.stringify({ operations: taskBulkItems.map((entry) => entry.operation) }),
+          });
+          const taskResultMap = new Map(taskBulkItems.map((entry) => [String(entry.item.id), entry]));
+          for (const result of Array.isArray(taskResponse?.results) ? taskResponse.results : []) {
+            const source = taskResultMap.get(String(result.clientOperationId));
+            if (!source) continue;
+            const queueItem = source.item;
+            if (result.status === 'applied') {
+              if ((result.action === 'CREATE' || result.action === 'UPDATE') && result.item) {
+                const decryptedTask = processApiTask(result.item);
+                if (result.action === 'CREATE' && queueItem.data?.tempId) {
+                  tempIdMap.set(queueItem.data.tempId, decryptedTask._id);
+                  await Database.deleteTaskLocal(queueItem.data.tempId);
+                }
+                await Database.saveTaskLocal(decryptedTask, true);
+                set((state) => {
+                  const idx = state.tasks.findIndex((task) => task._id === (queueItem.data?.tempId || queueItem.data?.id));
+                  if (idx !== -1) {
+                    const updated = [...state.tasks];
+                    updated[idx] = decryptedTask;
+                    return {
+                      tasks: updated,
+                      syncConflicts: clearSyncConflictForItem(state.syncConflicts, 'task', queueItem.data?.id || queueItem.data?.tempId),
+                    };
+                  }
+                  if (state.tasks.some((task) => task._id === decryptedTask._id)) return state;
+                  return { tasks: [...state.tasks, decryptedTask] };
+                });
+              } else {
+                const deletedIds = Array.isArray(result.deletedIds) ? result.deletedIds : [queueItem.data.id];
+                set((state) => ({
+                  tasks: state.tasks.filter((task) => !deletedIds.includes(task._id)),
+                  syncConflicts: clearSyncConflictsForItems(state.syncConflicts, 'task', deletedIds),
+                }));
+                await Promise.all(deletedIds.map((id: string) => Database.deleteTaskLocal(id)));
+              }
+              await Database.removeFromSyncQueue(queueItem.id);
+              clearOfflineSyncRetryForKey(source.retryKey);
+              continue;
+            }
+            failedItems += 1;
+            const taskId = typeof queueItem.data?.id === 'string' ? queueItem.data.id : String(queueItem.data?.tempId || queueItem.id);
+            if (result.status === 'conflict') {
+              set((state) => ({
+                error: getSyncConflictMessage('task'),
+                syncConflicts: upsertSyncConflict(state.syncConflicts, {
+                  key: makeSyncConflictKey('task', taskId),
+                  entity: 'task',
+                  itemId: taskId,
+                  title: typeof queueItem.data?.title === 'string' ? queueItem.data.title : taskId,
+                  message: getSyncConflictMessage('task'),
+                  occurredAt: Date.now(),
+                }),
+              }));
+            }
+            await Database.removeFromSyncQueue(queueItem.id);
+            clearOfflineSyncRetryForKey(source.retryKey);
+          }
+        } catch (error) {
+          failedItems += taskBulkItems.length;
+          if ((error as any)?.status === 401) return;
+          for (const entry of taskBulkItems) {
+            if (isRetryableSyncError(error)) {
+              const delay = scheduleOfflineSyncRetryForKey(entry.retryKey);
+              nextRetryDelayMs = nextRetryDelayMs == null ? delay : Math.min(nextRetryDelayMs, delay);
+            } else {
+              await Database.removeFromSyncQueue(entry.item.id);
+              clearOfflineSyncRetryForKey(entry.retryKey);
+            }
+          }
+          log.error(error, { area: 'store.syncBulkTasks' });
+        }
+      }
+
+      for (const { item, retryKey } of reorderItems) {
+        if (item.data.id && tempIdMap.has(item.data.id)) item.data.id = tempIdMap.get(item.data.id);
+        if (item.data._id && tempIdMap.has(item.data._id)) item.data._id = tempIdMap.get(item.data._id);
+        if (item.data.parentNoteId && tempIdMap.has(item.data.parentNoteId)) item.data.parentNoteId = tempIdMap.get(item.data.parentNoteId);
+        if (item.data.parentId && tempIdMap.has(item.data.parentId)) item.data.parentId = tempIdMap.get(item.data.parentId);
+        if (item.data.notes && Array.isArray(item.data.notes)) {
+          item.data.notes = item.data.notes.map((n: any) => ({
+            ...n,
+            _id: tempIdMap.get(n._id) || n._id,
+            parentId: (n.parentId && tempIdMap.get(n.parentId)) || n.parentId,
+          }));
+        }
+        if (item.data.tasks && Array.isArray(item.data.tasks)) {
+          item.data.tasks = item.data.tasks.map((t: any) => ({
+            ...t,
+            _id: tempIdMap.get(t._id) || t._id,
+          }));
+        }
+        try {
+          await fetchWithAuth(item.entity === 'NOTE' ? '/notes/reorder' : '/tasks/reorder', {
+            method: 'PUT',
+            body: JSON.stringify(item.data),
+          });
           await Database.removeFromSyncQueue(item.id);
+          clearOfflineSyncRetryForKey(retryKey);
         } catch (error) {
           failedItems += 1;
-          const err: any = error;
-          const status = typeof err?.status === 'number' ? err.status : undefined;
-          if (status === 401) return;
-          if (status === 409) {
-            set({ error: item.entity === 'NOTE' ? getSyncConflictMessage('note') : getSyncConflictMessage('task') });
-          }
-          if (typeof status === 'number' && status >= 400 && status < 500 && status !== 429) {
+          if ((error as any)?.status === 401) return;
+          if (isRetryableSyncError(error)) {
+            const delay = scheduleOfflineSyncRetryForKey(retryKey);
+            nextRetryDelayMs = nextRetryDelayMs == null ? delay : Math.min(nextRetryDelayMs, delay);
+          } else {
             await Database.removeFromSyncQueue(item.id);
+            clearOfflineSyncRetryForKey(retryKey);
           }
-          log.error(error, { area: 'store.syncItem', item: { id: (item as any)?.id, type: (item as any)?.type } });
+          log.error(error, { area: 'store.syncReorder', item: { id: item.id, entity: item.entity } });
         }
       }
       
@@ -2092,6 +2678,11 @@ export const useStore = create<AppState>((set, get) => ({
         });
       }
       set({ isSyncingOffline: false });
+      if (nextRetryDelayMs != null) {
+        offlineSyncRetryTimer = setTimeout(() => {
+          void get().syncOfflineChanges();
+        }, nextRetryDelayMs + 50);
+      }
     }
   },
 
@@ -2159,3 +2750,10 @@ export const useStore = create<AppState>((set, get) => ({
     await Database.saveNoteLocal(masked, true);
   },
 }));
+
+useStore.subscribe((state, prevState) => {
+  if (state.syncConflicts === prevState.syncConflicts && state.syncHealth === prevState.syncHealth) {
+    return;
+  }
+  void persistSyncMetadata(state.syncConflicts, state.syncHealth);
+});

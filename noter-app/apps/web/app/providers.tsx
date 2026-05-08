@@ -24,7 +24,8 @@ if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'production') {
 }
 
 export function Providers({ children }: { children: React.ReactNode }) {
-  const { language, isAppLocked } = useStore()
+  const language = useStore((state) => state.language)
+  const isAppLocked = useStore((state) => state.isAppLocked)
 
   useEffect(() => {
     i18n.changeLanguage(language)

@@ -1,11 +1,10 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { StyleSheet, View, RefreshControl } from 'react-native';
 import DraggableFlatList, { ScaleDecorator, RenderItemParams, ShadowDecorator, OpacityDecorator } from 'react-native-draggable-flatlist';
 import { FlashList } from '@shopify/flash-list';
 import { SegmentedButtons } from 'react-native-paper';
 import { Task } from '@repo/shared';
 import { useRouter } from 'expo-router';
-import { orderBy } from 'lodash';
 import * as Haptics from 'expo-haptics';
 import { TaskBoard } from './TaskBoard';
 import { TaskTimeline } from './TaskTimeline';
@@ -20,42 +19,15 @@ interface TaskListProps {
   onCreateTask?: (date: Date) => void;
   onDelete?: (task: Task) => void;
   scrollEnabled?: boolean;
-  preSorted?: boolean;
 }
 
 import { TaskItem } from './TaskItem';
 
-export default function TaskList({ tasks, onRefresh, refreshing, onToggleComplete, onReorder, showViewToggle = true, onCreateTask, onDelete, scrollEnabled = true, preSorted = false }: TaskListProps) {
+export default function TaskList({ tasks, onRefresh, refreshing, onToggleComplete, onReorder, showViewToggle = true, onCreateTask, onDelete, scrollEnabled = true }: TaskListProps) {
   const router = useRouter();
   const [viewMode, setViewMode] = useState<string>('list');
-  const [sortBy, setSortBy] = useState<'custom' | 'createdAt' | 'dueDate' | 'priority'>('custom');
-
-  const getSortedTasks = useCallback(() => {
-    if (preSorted) {
-      return tasks;
-    }
-    let sorted = [...tasks];
-    
-    if (sortBy === 'priority') {
-      const priorityRank = (t: Task) => {
-        if (t.priority === 'high') return 0;
-        if (t.priority === 'medium') return 1;
-        if (t.priority === 'low') return 2;
-        return 1;
-      };
-      // Sort by: Completed (asc), Priority (asc -> high to low rank), CreatedAt (desc)
-      sorted = orderBy(sorted, ['completed', priorityRank, 'createdAt'], ['asc', 'asc', 'desc']);
-    } else if (sortBy === 'createdAt') {
-      sorted = orderBy(sorted, ['completed', 'createdAt'], ['asc', 'desc']);
-    } else if (sortBy === 'dueDate') {
-      sorted = orderBy(sorted, ['completed', 'dueDate'], ['asc', 'asc']);
-    }
-    
-    return sorted;
-  }, [tasks, sortBy]);
-
-  const sortedTasks = useMemo(() => getSortedTasks(), [getSortedTasks]);
-  const isCustomSort = sortBy === 'custom';
+  const displayTasks = tasks;
+  const canReorder = Boolean(onReorder);
 
   const handlePress = useCallback((task: Task) => {
     router.push(`/task/${task._id}`);
@@ -72,21 +44,21 @@ export default function TaskList({ tasks, onRefresh, refreshing, onToggleComplet
                 onDelete={onDelete}
                 onPress={handlePress}
                 onLongPress={() => {
-                   if (isCustomSort) {
+                   if (canReorder) {
                        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                        drag();
                    }
                 }}
                 disabled={isActive}
                 isActive={isActive}
-                showDragHandle={!!onReorder && isCustomSort}
+                showDragHandle={canReorder}
                 onDragStart={drag}
             />
           </ShadowDecorator>
         </OpacityDecorator>
       </ScaleDecorator>
     );
-  }, [handlePress, onDelete, onReorder, onToggleComplete, isCustomSort]);
+  }, [canReorder, handlePress, onDelete, onToggleComplete]);
 
   const renderStaticTask = useCallback(({ item }: { item: Task }) => (
     <TaskItem
@@ -118,7 +90,7 @@ export default function TaskList({ tasks, onRefresh, refreshing, onToggleComplet
                 )}
             </View>
             <FlashList
-                data={sortedTasks}
+                data={displayTasks}
                 renderItem={renderStaticTask}
                 keyExtractor={(item) => item._id}
                 contentContainerStyle={{ paddingBottom: 24 }}
@@ -149,16 +121,16 @@ export default function TaskList({ tasks, onRefresh, refreshing, onToggleComplet
         {viewMode === 'list' && (
             !scrollEnabled ? (
                 <FlashList
-                    data={sortedTasks}
+                    data={displayTasks}
                     renderItem={renderStaticTask}
                     keyExtractor={(item) => item._id}
                     contentContainerStyle={{ paddingTop: 12, paddingBottom: 100 }}
                 />
             ) : (
                 <DraggableFlatList
-                    data={sortedTasks}
+                    data={displayTasks}
                     onDragEnd={({ data }) => {
-                        if (isCustomSort) {
+                        if (canReorder) {
                             onReorder?.(data);
                         }
                     }}
@@ -174,7 +146,7 @@ export default function TaskList({ tasks, onRefresh, refreshing, onToggleComplet
 
         {viewMode === 'board' && (
             <TaskBoard 
-                tasks={tasks} 
+                tasks={displayTasks} 
                 onTaskPress={handlePress} 
                 onToggleComplete={onToggleComplete}
             />
@@ -182,7 +154,7 @@ export default function TaskList({ tasks, onRefresh, refreshing, onToggleComplet
 
         {viewMode === 'calendar' && (
             <TaskTimeline 
-                tasks={tasks} 
+                tasks={displayTasks} 
                 onTaskPress={handlePress} 
                 onCreateTask={onCreateTask}
             />

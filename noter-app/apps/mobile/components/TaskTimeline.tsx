@@ -120,7 +120,7 @@ export const TaskTimeline: React.FC<TaskTimelineProps> = ({ tasks, onTaskPress, 
   const { t, i18n } = useTranslation();
   const theme = useTheme();
   const dayLabels = [t('days.monShort'), t('days.tueShort'), t('days.wedShort'), t('days.thuShort'), t('days.friShort'), t('days.satShort'), t('days.sunShort')];
-  const { updateTask } = useStore();
+  const updateTask = useStore((state) => state.updateTask);
   const [mode, setMode] = useState<ViewMode>('week');
   const [selectedDate, setSelectedDate] = useState(new Date()); // For Day/Week anchor
   const todayKey = dateKey(new Date());

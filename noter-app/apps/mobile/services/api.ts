@@ -83,6 +83,7 @@ const getApiUrl = () => {
 
 export let API_URL = getApiUrl();
 type SessionAuthResponse = AuthResponse & { refreshToken?: string };
+const getApiRootUrl = () => API_URL.replace(/\/api\/?$/i, '');
 
 export const setApiUrl = async (url: string) => {
   API_URL = normalizeApiUrl(url);
@@ -465,3 +466,20 @@ export async function fetchWithAuth(
 
   throw new Error(`Request failed after ${maxRetries} attempts`);
 }
+
+export const probeBackendReachability = async (timeoutMs = 5000): Promise<boolean> => {
+  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timeout = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
+  try {
+    const response = await fetch(`${getApiRootUrl()}/api/ready`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller?.signal,
+    });
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+};

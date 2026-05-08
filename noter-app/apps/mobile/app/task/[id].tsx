@@ -7,7 +7,6 @@ import { useForm, Controller } from 'react-hook-form';
 import { yupResolver } from '@hookform/resolvers/yup';
 import * as yup from 'yup';
 import { useStore } from '@/stores/useStore';
-import { useStore as useGlobalStore } from '@/stores/useStore';
 import { Note } from '@repo/shared';
 import { CreateTaskDto, UpdateTaskDto } from '@repo/shared';
 import { debounce } from 'lodash';
@@ -30,7 +29,11 @@ export default function TaskEditorScreen() {
   const { id, parentNoteId: routeParentId, dueDate: routeDueDate } = useLocalSearchParams<{ id: string, parentNoteId?: string, dueDate?: string }>();
   const router = useRouter();
   const theme = useTheme();
-  const { tasks, createTask, updateTask, deleteTask, notes } = useStore();
+  const tasks = useStore((state) => state.tasks);
+  const createTask = useStore((state) => state.createTask);
+  const updateTask = useStore((state) => state.updateTask);
+  const deleteTask = useStore((state) => state.deleteTask);
+  const notes = useStore((state) => state.notes);
   const { t } = useTranslation();
   const schema = useMemo(() => yup.object({
     title: yup.string().required(t('tasks.titleRequired')),
