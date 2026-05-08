@@ -32,6 +32,12 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
 }) => {
   const theme = useTheme();
   const { t, i18n } = useTranslation();
+  const safeTitle = typeof task.title === 'string' && task.title.trim().length > 0
+    ? task.title.trim()
+    : t('common.untitled');
+  const safeDescription = typeof task.description === 'string'
+    ? task.description.trim()
+    : '';
   const handleLongPress = () => {
     onLongPress?.();
     onDragStart?.();
@@ -99,9 +105,9 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
               ]}
               numberOfLines={1}
             >
-              {task.title}
+              {safeTitle}
             </Text>
-            {task.description ? (
+            {safeDescription ? (
               <Text
                 variant="bodySmall"
                 style={[
@@ -110,7 +116,7 @@ export const TaskItem: React.FC<TaskItemProps> = React.memo(({
                 ]}
                 numberOfLines={1}
               >
-                {task.description}
+                {safeDescription}
               </Text>
             ) : null}
             <View style={styles.metaContainer}>

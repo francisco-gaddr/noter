@@ -17,6 +17,7 @@ import IconPickerModal from '@/components/IconPickerModal';
 
 import { EditListDialog } from '@/components/EditListDialog';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
+import { getReadableProtectedLabel } from '@/utils/protectedNote';
 
 const ListAvatar = ({ uri }: { uri?: string }) => {
   const [failed, setFailed] = useState(false);
@@ -137,6 +138,11 @@ export default function TasksScreen() {
   const selectedChipBg = useMemo(() => theme.colors.primary, [theme]);
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const settingsPersistTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const taskCountRef = useRef(tasks.length);
+
+  useEffect(() => {
+    taskCountRef.current = tasks.length;
+  }, [tasks.length]);
 
   // Load persistence
   useEffect(() => {
@@ -218,16 +224,21 @@ export default function TasksScreen() {
 
 
 
-  // Load all tasks once when screen is focused; rely on socket updates afterward
-  const loadedRef = useRef(false);
+  const lastFocusRefreshAtRef = useRef(0);
   useFocusEffect(
     useCallback(() => {
-      if (!loadedRef.current) {
-        fetchNotes();
-        fetchTasks(undefined);
-        loadedRef.current = true;
+      const now = Date.now();
+      const activeListId = selectedListId && selectedListId !== 'all' ? selectedListId : undefined;
+      const shouldRefresh = now - lastFocusRefreshAtRef.current > 1500 || taskCountRef.current === 0;
+
+      if (!shouldRefresh) {
+        return;
       }
-    }, [])
+
+      lastFocusRefreshAtRef.current = now;
+      void fetchNotes();
+      void fetchTasks(activeListId);
+    }, [fetchNotes, fetchTasks, selectedListId])
   );
 
   const filteredTasks = useMemo(() => {
@@ -272,6 +283,14 @@ export default function TasksScreen() {
     const lists = notes.filter((n) => normalizeNoteType((n as any).type) === 'task_list');
     return orderBy(lists, [(n) => (typeof (n as any).order === 'number' ? (n as any).order : 0), 'createdAt'], ['asc', 'desc']);
   }, [notes]);
+
+  const getListLabel = useCallback((list: any) => (
+    getReadableProtectedLabel(
+      (list as any).__rawEncryptedTitle ?? list?.title,
+      list?.title,
+      t('tasks.listFallback'),
+    )
+  ), [t]);
 
   const handleIconSelect = async (icon: string) => {
     if (!selectedListId) return;
@@ -338,7 +357,7 @@ export default function TasksScreen() {
   }, [deleteTask, t]);
 
   const handleLongPressList = (list: any) => {
-    setEditingList({ id: list._id, title: list.title });
+    setEditingList({ id: list._id, title: getListLabel(list) });
     setEditListDialogVisible(true);
   };
 
@@ -489,7 +508,7 @@ export default function TasksScreen() {
               showSelectedCheck={false}
               textStyle={{ color: selectedListId === list._id ? theme.colors.onPrimary : theme.colors.onSurface, fontWeight: selectedListId === list._id ? '700' : '400' }}
             >
-              {list.title || 'Lista'}
+              {getListLabel(list)}
             </Chip>
           ))}
           <IconButton icon="plus" size={18} onPress={handleCreateList} />

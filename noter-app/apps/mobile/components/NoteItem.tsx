@@ -5,7 +5,8 @@ import { Note } from '@repo/shared';
 import * as Haptics from 'expo-haptics';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import { SvgUri } from 'react-native-svg';
-import { getReadableProtectedText } from '@/utils/protectedNote';
+import { getReadableProtectedLabel } from '@/utils/protectedNote';
+import { useTranslation } from 'react-i18next';
 
 interface NoteItemProps {
   note: Note;
@@ -29,6 +30,7 @@ export const NoteItem: React.FC<NoteItemProps> = ({
   isActive,
 }) => {
   const theme = useTheme();
+  const { t } = useTranslation();
 
   const toFa5 = (faKey: string) => {
     const name = faKey.startsWith('Fa') ? faKey.substring(2) : faKey;
@@ -36,7 +38,7 @@ export const NoteItem: React.FC<NoteItemProps> = ({
   };
 
   const rawTitle = (note as any).__rawEncryptedTitle || note.title;
-  const decryptedTitle = getReadableProtectedText(rawTitle, note.title, '');
+  const decryptedTitle = getReadableProtectedLabel(rawTitle, note.title, t('common.untitled'));
 
   return (
     <TouchableOpacity

@@ -637,16 +637,6 @@ const createWindow = () => {
     },
   });
 
-  win.webContents.on('render-process-gone', (_event, details) => {
-    writeMainLog('render-process-gone', { reason: details?.reason, exitCode: details?.exitCode });
-  });
-  win.on('unresponsive', () => {
-    writeMainLog('window-unresponsive', {});
-  });
-  win.on('responsive', () => {
-    writeMainLog('window-responsive', {});
-  });
-
   if (isMac) {
     try {
       win.setWindowButtonVisibility(true);
@@ -714,6 +704,20 @@ const createWindow = () => {
       recovering = false;
     }
   };
+
+  win.webContents.on('render-process-gone', (_event, details) => {
+    const reason = details?.reason;
+    writeMainLog('render-process-gone', { reason, exitCode: details?.exitCode });
+    if (reason === 'clean-exit') return;
+    recoverRenderer().catch(() => {});
+  });
+  win.on('unresponsive', () => {
+    writeMainLog('window-unresponsive', {});
+    scheduleRendererRecovery();
+  });
+  win.on('responsive', () => {
+    writeMainLog('window-responsive', {});
+  });
 
   if (isDev) {
     recordStartupEvent('load-started', { source: 'dev-url' });
@@ -977,18 +981,24 @@ ipcMain.handle('session:get', async (event) => {
 
 ipcMain.handle('session:set', async (event, payload) => {
   assertTrustedIpcSender(event);
-  const nextToken = typeof payload?.token === 'string' ? payload.token : null;
-  const nextUser = payload?.user ?? null;
+  const hasToken = Object.prototype.hasOwnProperty.call(payload || {}, 'token');
+  const hasUser = Object.prototype.hasOwnProperty.call(payload || {}, 'user');
   await enqueueSettingsWrite((settings) => {
-    if (nextToken) {
-      settings.token = nextToken;
-    } else {
-      delete settings.token;
+    if (hasToken) {
+      const nextToken = typeof payload?.token === 'string' ? payload.token : null;
+      if (nextToken) {
+        settings.token = nextToken;
+      } else {
+        delete settings.token;
+      }
     }
-    if (nextUser !== null && nextUser !== undefined) {
-      settings.user = nextUser;
-    } else {
-      delete settings.user;
+    if (hasUser) {
+      const nextUser = payload?.user ?? null;
+      if (nextUser !== null && nextUser !== undefined) {
+        settings.user = nextUser;
+      } else {
+        delete settings.user;
+      }
     }
   });
   return true;

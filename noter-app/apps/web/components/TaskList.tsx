@@ -20,6 +20,12 @@ const ItemType = 'TASK';
 
 type DragItem = { id: string; index: number };
 
+const getTaskDisplayTitle = (task: Pick<Task, 'title'>, fallback: string) => {
+    if (typeof task.title !== 'string') return fallback;
+    const trimmed = task.title.trim();
+    return trimmed.length > 0 ? trimmed : fallback;
+};
+
 interface TaskItemProps {
     task: Task;
     index: number;
@@ -152,7 +158,7 @@ const TaskItem: React.FC<TaskItemProps> = ({
                 <div
                     className={`text-sm truncate flex gap-2 items-center ${task.completed ? 'line-through text-gray-500 dark:text-gray-300' : ''}`}
                 >
-                    <span>{task.title}</span>
+                    <span>{getTaskDisplayTitle(task, t('common.untitled'))}</span>
                     {task.dueDate && (
                         <span className="text-xs text-gray-500 dark:text-gray-300 flex items-center gap-1">
                             {task.reminderEnabled ? <FaBell size={10} /> : <FaCalendar size={10} />}
@@ -261,7 +267,6 @@ export default function TaskList() {
     }, [selectedList]);
 
     useEffect(() => {
-        setLocalTasks([]); // Clear local tasks to prevent blinking old tasks
         fetchTasks(selectedTaskListId || undefined);
     }, [selectedTaskListId, fetchTasks]);
 

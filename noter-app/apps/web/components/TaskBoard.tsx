@@ -12,11 +12,15 @@ interface TaskBoardProps {
 }
 
 const DraggableTaskCard = ({ task, onClick, onStatusChange }: { task: Task, onClick: (t: Task) => void, onStatusChange: (t: Task, c: boolean) => void }) => {
+    const { t } = useTranslation();
     const [{ isDragging }, drag] = useDrag({
         type: 'BOARD_TASK',
         item: { id: task._id, completed: task.completed },
         collect: (monitor) => ({ isDragging: !!monitor.isDragging() })
     });
+    const safeTitle = typeof task.title === 'string' && task.title.trim().length > 0
+        ? task.title.trim()
+        : t('common.untitled');
 
     return (
         <div 
@@ -36,7 +40,7 @@ const DraggableTaskCard = ({ task, onClick, onStatusChange }: { task: Task, onCl
                 </button>
                 <div className="flex-1 min-w-0">
                     <h4 className={`text-sm font-medium truncate ${task.completed ? 'text-gray-500 line-through' : 'text-gray-900 dark:text-gray-100'}`}>
-                        {task.title}
+                        {safeTitle}
                     </h4>
                     {task.description && (
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">

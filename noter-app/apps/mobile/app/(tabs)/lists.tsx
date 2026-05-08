@@ -7,6 +7,7 @@ import { useFocusEffect } from 'expo-router';
 import { useCallback } from 'react';
 import { orderBy } from 'lodash';
 import { useTranslation } from 'react-i18next';
+import { getReadableProtectedLabel } from '@/utils/protectedNote';
 
 const normalizeNoteType = (value: unknown): string => {
   if (typeof value !== 'string') return 'note';
@@ -36,9 +37,17 @@ export default function ListsScreen() {
 
   const lists = orderBy(notes.filter((n) => normalizeNoteType((n as any).type) === 'task_list'), ['updatedAt'], ['desc']);
 
+  const getListLabel = useCallback((note: Note) => (
+    getReadableProtectedLabel(
+      (note as any).__rawEncryptedTitle ?? note.title,
+      note.title,
+      t('tasks.listFallback'),
+    )
+  ), [t]);
+
   const startEdit = (note: Note) => {
     setEditingId(note._id);
-    setEditingTitle(note.title || '');
+    setEditingTitle(getListLabel(note));
   };
 
   const saveEdit = async () => {
@@ -114,7 +123,7 @@ export default function ListsScreen() {
             ) : (
               <TouchableOpacity activeOpacity={0.8} onLongPress={() => startEdit(list)}>
                 <List.Item
-                  title={list.title || t('tasks.listFallback')}
+                  title={getListLabel(list)}
                   left={props => <List.Icon {...props} icon="format-list-bulleted" />}
                   right={() => (
                     <View style={{ flexDirection: 'row', alignItems: 'center' }}>

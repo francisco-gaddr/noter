@@ -4,6 +4,7 @@ import { Task } from '@repo/shared';
 import { useTheme, Card, Checkbox } from 'react-native-paper';
 import { FlashList } from '@shopify/flash-list';
 import { formatTaskDueLabel } from '@/utils/date';
+import { useTranslation } from 'react-i18next';
 
 interface TaskBoardProps {
   tasks: Task[];
@@ -25,12 +26,17 @@ const TaskBoardCard = React.memo(function TaskBoardCard({
     onToggleComplete: (task: Task) => void;
     colors: any;
 }) {
+    const { t } = useTranslation();
+    const safeTitle = typeof task.title === 'string' && task.title.trim().length > 0
+        ? task.title.trim()
+        : t('common.untitled');
+
     return (
         <Card style={styles.card} onPress={() => onTaskPress(task)}>
             <Card.Content style={styles.cardContent}>
                 <View style={styles.cardHeader}>
                     <Text style={[styles.cardTitle, { color: colors.onSurface, textDecorationLine: task.completed ? 'line-through' : 'none' }]}>
-                        {task.title}
+                        {safeTitle}
                     </Text>
                     <Checkbox
                         status={task.completed ? 'checked' : 'unchecked'}
@@ -71,6 +77,7 @@ const TaskBoardCard = React.memo(function TaskBoardCard({
 
 export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, onTaskPress, onToggleComplete }) => {
     const theme = useTheme();
+    const { t } = useTranslation();
     const activeTasks = tasks.filter(t => !t.completed);
     const completedTasks = tasks.filter(t => t.completed);
 
@@ -95,8 +102,8 @@ export const TaskBoard: React.FC<TaskBoardProps> = ({ tasks, onTaskPress, onTogg
 
     return (
         <ScrollView horizontal pagingEnabled snapToInterval={COLUMN_WIDTH + 16} contentContainerStyle={styles.container} showsHorizontalScrollIndicator={false}>
-            {renderColumn('To Do', activeTasks)}
-            {renderColumn('Completed', completedTasks)}
+            {renderColumn(t('tasks.filter.active'), activeTasks)}
+            {renderColumn(t('tasks.filter.completed'), completedTasks)}
         </ScrollView>
     );
 };

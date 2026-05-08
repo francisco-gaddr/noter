@@ -125,6 +125,34 @@ const decryptOrFallback = (value: unknown, fallback = ''): string => {
   return result.value;
 };
 
+const getNonEmptyText = (value: unknown, fallback: string): string => {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : fallback;
+};
+
+const getTaskTitleFallback = () => i18n.t('common.untitled');
+
+const getTaskTitleFromValue = (value: unknown): string => {
+  const decrypted = decryptOrFallback(value, '');
+  return getNonEmptyText(decrypted, getTaskTitleFallback());
+};
+
+const readStoredAuthToken = async (): Promise<string | null> => {
+  const directToken = await SecureStore.getItemAsync('token');
+  if (directToken) {
+    return directToken;
+  }
+
+  const legacyToken = await SecureStore.getItemAsync('auth_token');
+  if (legacyToken) {
+    await SecureStore.setItemAsync('token', legacyToken).catch(() => {});
+    return legacyToken;
+  }
+
+  return null;
+};
+
 const toStoredString = (value: unknown): string => {
   if (typeof value === 'string') return value;
   if (value == null) return '';
@@ -363,7 +391,7 @@ const parseReminderOffsets = (value: string): number[] => {
 
 const processApiTask = (task: any): Task => ({
   ...(task as Task),
-  title: decryptOrFallback(task.title, ''),
+  title: getTaskTitleFromValue(task.title),
   description: task.description ? decryptOrFallback(task.description, '') : '',
   completed: parseTaskCompleted(task.completed),
   priority: parseTaskPriority(task.priority),
@@ -386,6 +414,7 @@ const processApiTask = (task: any): Task => ({
 
 const processLocalTask = (task: Task): Task => ({
   ...task,
+  title: getNonEmptyText(task.title, getTaskTitleFallback()),
   dueDate: task.dueDate ?? null,
   reminderOffsetMinutes: Array.isArray(task.reminderOffsetMinutes) ? task.reminderOffsetMinutes : [],
 });
@@ -568,7 +597,7 @@ export const useStore = create<AppState>((set, get) => ({
             storedActiveProjectId,
             storedViewMode,
           ] = await Promise.all([
-            measureStartupStage('secureTokenRead', () => SecureStore.getItemAsync('token')),
+            measureStartupStage('secureTokenRead', () => readStoredAuthToken()),
             measureStartupStage('notificationsPreferenceRead', () => AsyncStorage.getItem('notificationsEnabled')),
             measureStartupStage('activeProjectRead', () => AsyncStorage.getItem('activeProjectId')),
             measureStartupStage('viewModeRead', () => AsyncStorage.getItem('viewMode')),

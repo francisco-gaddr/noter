@@ -9,6 +9,7 @@ import { SvgUri } from 'react-native-svg';
 import DraggableFlatList, { RenderItemParams } from 'react-native-draggable-flatlist';
 import * as Haptics from 'expo-haptics';
 import { useTranslation } from 'react-i18next';
+import { getReadableProtectedLabel } from '@/utils/protectedNote';
 
 interface ProjectSelectorProps {
   visible: boolean;
@@ -181,6 +182,11 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
       const bo = Number((b as any).order ?? 0);
       return ao - bo;
     }), [notes]);
+  const getProjectLabel = (project: Note) => getReadableProtectedLabel(
+    (project as any).__rawEncryptedTitle ?? project.title,
+    project.title,
+    t('common.untitled'),
+  );
 
   useEffect(() => {
     if (!unlockDialogVisible) return;
@@ -372,7 +378,7 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
                     delayLongPress={180}
                   >
                     {renderProjectIcon((item as any).icon)}
-                    <Text variant="bodyLarge" style={{ flex: 1 }}>{item.title}</Text>
+                    <Text variant="bodyLarge" style={{ flex: 1 }}>{getProjectLabel(item)}</Text>
                     <IconButton
                       icon="dots-horizontal"
                       size={20}
@@ -400,7 +406,7 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
                 <Dialog.Content>
                     <RenameProjectInput
                       visible={!!editingProject}
-                      initialName={editingProject?.title || ''}
+                      initialName={editingProject ? getProjectLabel(editingProject) : ''}
                       onCancel={() => setEditingProject(null)}
                       onSave={handleUpdate}
                     />

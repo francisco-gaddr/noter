@@ -25,12 +25,16 @@ export const useTaskListWindowing = ({
 }) => {
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(0);
+  const hasDynamicRows = useMemo(
+    () => tasks.some((task) => Boolean(task.dueDate) || Boolean(task.description?.trim())),
+    [tasks],
+  );
 
   useEffect(() => {
     setScrollTop(0);
   }, [quickFilter, searchQuery, selectedTaskListId, sortBy, statusFilter, tasks.length, viewMode]);
 
-  const isVirtualized = viewMode === 'list' && sortBy !== 'custom';
+  const isVirtualized = viewMode === 'list' && sortBy !== 'custom' && !hasDynamicRows && tasks.length >= 120;
 
   const visibleRange = useMemo(() => {
     if (!isVirtualized || tasks.length === 0) {

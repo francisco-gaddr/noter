@@ -10,7 +10,8 @@ import DraggableFlatList, { RenderItemParams, ScaleDecorator } from 'react-nativ
 import { noteContentToPlainText } from '@/utils/tiptap';
 import * as Haptics from 'expo-haptics';
 import { NoteItem } from './NoteItem';
-import { getReadableProtectedText } from '@/utils/protectedNote';
+import { getReadableProtectedLabel, getReadableProtectedText } from '@/utils/protectedNote';
+import { useTranslation } from 'react-i18next';
 
 interface NoteTreeProps {
   notes: Note[];
@@ -50,6 +51,7 @@ export default function NoteTree({
 }: NoteTreeProps) {
   const router = useRouter();
   const theme = useTheme();
+  const { t } = useTranslation();
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const lastOrderKeyRef = useRef<string>('');
   const draggedItemRef = useRef<TreeItem | null>(null);
@@ -179,7 +181,7 @@ export default function NoteTree({
       const visibleTags = tags.slice(0, 3);
       
       const rawTitle = (item as any).__rawEncryptedTitle || item.title;
-      const decryptedTitle = getReadableProtectedText(rawTitle, item.title, '');
+      const decryptedTitle = getReadableProtectedLabel(rawTitle, item.title, t('common.untitled'));
 
       const rawContent = (item as any).__rawEncryptedContent || item.content;
       const decryptedContent = getReadableProtectedText(rawContent, item.content, '');

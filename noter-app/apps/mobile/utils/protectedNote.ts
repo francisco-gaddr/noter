@@ -26,3 +26,20 @@ export const getReadableProtectedText = (primary: unknown, secondary?: unknown, 
 
   return fallback;
 };
+
+export const getReadableProtectedLabel = (primary: unknown, secondary?: unknown, fallback = '') => {
+  const candidates = [
+    getReadableProtectedText(primary, undefined, ''),
+    getReadableProtectedText(secondary, undefined, ''),
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') continue;
+    const trimmed = candidate.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+  }
+
+  return fallback;
+};

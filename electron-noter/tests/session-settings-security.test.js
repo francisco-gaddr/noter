@@ -10,5 +10,7 @@ describe('electron session/settings boundary', () => {
     expect(mainJs).toContain("ipcMain.handle('session:set'");
     expect(mainJs).toContain("if (isSensitiveSessionKey(key)) return null;");
     expect(mainJs).toContain("if (isSensitiveSessionKey(key)) return false;");
+    expect(mainJs).toContain("const hasToken = Object.prototype.hasOwnProperty.call(payload || {}, 'token')");
+    expect(mainJs).toContain("const hasUser = Object.prototype.hasOwnProperty.call(payload || {}, 'user')");
   });
 });
