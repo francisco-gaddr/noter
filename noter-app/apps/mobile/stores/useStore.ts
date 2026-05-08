@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import 'react-native-get-random-values';
 import * as Crypto from 'expo-crypto';
 import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, decryptWithSource, hasEncryptionKey, isV3Ciphertext, normalizeId } from '@repo/shared';
-import { fetchWithAuth, login as apiLogin, register as apiRegister, logout as apiLogout, setAuthToken, initApiUrl, setUnauthorizedHandler, setTokenUpdateHandler } from '../services/api';
+import { fetchWithAuth, login as apiLogin, register as apiRegister, logout as apiLogout, probeBackendReachability, setAuthToken, initApiUrl, setUnauthorizedHandler, setTokenUpdateHandler } from '../services/api';
 import * as Database from '../services/database';
 import { initSocket, disconnectSocket, getSocket } from '../services/socket';
 import NetInfo from '@react-native-community/netinfo';
@@ -21,7 +21,9 @@ let initPromise: Promise<void> | null = null;
 let netInfoUnsubscribe: (() => void) | null = null;
 let notesFetchPromise: Promise<void> | null = null;
 const taskFetchPromises = new Map<string, Promise<void>>();
+let collectionsRefreshPromise: Promise<void> | null = null;
 let lastRemoteCollectionsSyncAt = 0;
+let reconnectSyncTimer: ReturnType<typeof setTimeout> | null = null;
 const yieldToEventLoop = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 const persistInBatches = async <T,>(items: T[], batchSize: number, persist: (item: T) => Promise<void>) => {
   for (let index = 0; index < items.length; index += batchSize) {
@@ -58,6 +60,7 @@ interface AppState {
   setSecurityLocked: (locked: boolean) => Promise<void>;
   init: () => Promise<void>;
   register: (username: string, password: string) => Promise<void>;
+  refreshCollections: (options?: { force?: boolean }) => Promise<void>;
   
   // Socket Actions
   connectSocket: () => void;
@@ -478,6 +481,19 @@ const shouldSuppressCollectionError = (error: unknown, localCount: number) => (
   localCount > 0 && shouldFallbackToOffline(error)
 );
 
+const isSyncConflictError = (error: unknown) => {
+  const err = error as any;
+  const status = typeof err?.status === 'number' ? err.status : undefined;
+  const code = String(err?.details?.code ?? err?.code ?? '').toUpperCase();
+  return status === 409 || code === 'SYNC_CONFLICT';
+};
+
+const getSyncConflictMessage = (entity: 'note' | 'task') => (
+  entity === 'note'
+    ? 'Anteckningen har ändrats på en annan enhet. Synka och granska innan du skriver över.'
+    : 'Uppgiften har ändrats på en annan enhet. Synka och granska innan du skriver över.'
+);
+
 const syncTaskReminder = async (task: Task, notificationsEnabled: boolean) => {
   if (!notificationsEnabled || !task.reminderEnabled) {
     await cancelTaskReminder(task._id);
@@ -577,8 +593,7 @@ export const useStore = create<AppState>((set, get) => ({
     set({ securityLocked: false });
     const token = get().token;
     if (token) {
-      await get().fetchNotes();
-      await get().fetchTasks();
+      await get().refreshCollections({ force: true });
       get().connectSocket();
     }
   },
@@ -700,13 +715,24 @@ export const useStore = create<AppState>((set, get) => ({
 
       if (!netInfoUnsubscribe) {
         netInfoUnsubscribe = NetInfo.addEventListener(state => {
-          const isOffline = !state.isConnected;
+          const isOffline = !(state.isConnected && state.isInternetReachable !== false);
           set({ isOffline });
           if (!databaseReady) return;
           if (!isOffline) {
             const refreshAfterSync = wasOffline;
             wasOffline = false;
-            void get().syncOfflineChanges({ refreshAfterSync });
+            if (reconnectSyncTimer) clearTimeout(reconnectSyncTimer);
+            reconnectSyncTimer = setTimeout(() => {
+              void (async () => {
+                const reachable = await probeBackendReachability();
+                if (!reachable) {
+                  set({ isOffline: true });
+                  return;
+                }
+                set({ isOffline: false, error: null });
+                await get().syncOfflineChanges({ refreshAfterSync });
+              })();
+            }, 800);
           } else {
             wasOffline = true;
           }
@@ -717,10 +743,11 @@ export const useStore = create<AppState>((set, get) => ({
         const socketStartedAt = Date.now();
         get().connectSocket();
         recordStartupStage('socketConnect', Date.now() - socketStartedAt);
-        await Promise.all([
-          measureStartupStage('remoteNotesFetch', () => get().fetchNotes()),
-          measureStartupStage('remoteTasksFetch', () => get().fetchTasks()),
-        ]);
+        const backendReachable = await probeBackendReachability().catch(() => false);
+        set({ isOffline: !backendReachable });
+        if (backendReachable) {
+          await measureStartupStage('remoteCollectionsRefresh', () => get().refreshCollections({ force: true }));
+        }
       }
 
       set({ isInitialized: true });
@@ -738,11 +765,33 @@ export const useStore = create<AppState>((set, get) => ({
     if (hasRecentRemoteCollectionsSync()) return;
     try {
       log.debug('Attempting HTTP sync fallback due to WebSocket issues');
-      await get().fetchNotes();
-      await get().fetchTasks();
+      await get().refreshCollections({ force: true });
       log.debug('HTTP sync fallback completed successfully');
     } catch (error) {
       log.error(error, { area: 'store.httpSyncFallback' });
+    }
+  },
+
+  refreshCollections: async (options) => {
+    if (get().securityLocked) return;
+    if (!options?.force && hasRecentRemoteCollectionsSync()) return;
+    if (collectionsRefreshPromise) {
+      await collectionsRefreshPromise;
+      return;
+    }
+    const refreshPromise = Promise.all([
+      get().fetchNotes(),
+      get().fetchTasks(),
+    ]).then(() => {
+      markRemoteCollectionsSynced();
+    });
+    collectionsRefreshPromise = refreshPromise;
+    try {
+      await refreshPromise;
+    } finally {
+      if (collectionsRefreshPromise === refreshPromise) {
+        collectionsRefreshPromise = null;
+      }
     }
   },
 
@@ -940,8 +989,7 @@ export const useStore = create<AppState>((set, get) => ({
         await get().setSecurityLocked(false);
       }
       if (get().isInitialized) {
-        await get().fetchNotes();
-        await get().fetchTasks();
+        await get().refreshCollections({ force: true });
         get().connectSocket();
       } else {
         await get().init();
@@ -1004,6 +1052,7 @@ export const useStore = create<AppState>((set, get) => ({
           });
           await persistInBatches(notesToPersist, 25, (note) => Database.saveNoteLocal(note, true));
           set({ notes: securedNotes, isRefreshingNotes: false });
+          markRemoteCollectionsSynced();
         } else {
           const localNotes = await Database.getNotesLocal();
           const securedNotes = materializeNotesFromEncrypted(localNotes.map(processLocalNote) as any, new Set(get().unlockedProtectedNoteIds));
@@ -1119,6 +1168,12 @@ export const useStore = create<AppState>((set, get) => ({
     // Optimistic Update
     set({ isLoading: true, error: null });
     const { unlockPassword, ...updateData } = (data as any) ?? {};
+    const baseUpdatedAt = typeof (data as any)?.baseUpdatedAt === 'string'
+      ? (data as any).baseUpdatedAt
+      : undefined;
+    const clientMutationId = typeof (data as any)?.clientMutationId === 'string'
+      ? (data as any).clientMutationId
+      : Crypto.randomUUID();
     
     // 1. Get current note
     const state = get();
@@ -1147,6 +1202,8 @@ export const useStore = create<AppState>((set, get) => ({
         if (updateData.order !== undefined) encryptedData.order = encrypt(String(updateData.order));
         if (updateData.password !== undefined) encryptedData.password = updateData.password;
         encryptedData.updatedAt = encrypt(new Date().toISOString());
+        encryptedData.baseUpdatedAt = baseUpdatedAt || currentNote.updatedAt;
+        encryptedData.clientMutationId = clientMutationId;
         if (typeof unlockPassword === 'string') {
           encryptedData.unlockPassword = unlockPassword;
         }
@@ -1225,6 +1282,8 @@ export const useStore = create<AppState>((set, get) => ({
       if (updateData.password !== undefined) encryptedData.password = updateData.password;
       // Always update updatedAt
       encryptedData.updatedAt = encrypt(new Date().toISOString());
+      encryptedData.baseUpdatedAt = baseUpdatedAt || currentNote.updatedAt;
+      encryptedData.clientMutationId = clientMutationId;
 
       // 5. Try Sync
       const netState = await NetInfo.fetch();
@@ -1249,11 +1308,15 @@ export const useStore = create<AppState>((set, get) => ({
         } catch (error) {
           const isSettingPassword = typeof updateData.password === 'string' && updateData.password.length > 0;
           if (typeof unlockPassword === 'string' || isSettingPassword) throw error;
-          if (!shouldFallbackToOffline(error)) throw error;
           const mergedIntoCreate = await Database.mergeIntoQueuedCreate('NOTE', id, encryptedData);
           if (!mergedIntoCreate) {
             await Database.addToSyncQueue('UPDATE', 'NOTE', { id, ...encryptedData });
           }
+          if (isSyncConflictError(error)) {
+            set({ error: getSyncConflictMessage('note') });
+            throw new Error(getSyncConflictMessage('note'));
+          }
+          if (!shouldFallbackToOffline(error)) throw error;
           return optimisticNote;
         }
       } else {
@@ -1561,6 +1624,12 @@ export const useStore = create<AppState>((set, get) => ({
     if (!currentTask) {
       throw new Error('Task not found');
     }
+    const baseUpdatedAt = typeof (data as any)?.baseUpdatedAt === 'string'
+      ? (data as any).baseUpdatedAt
+      : currentTask.updatedAt;
+    const clientMutationId = typeof (data as any)?.clientMutationId === 'string'
+      ? (data as any).clientMutationId
+      : Crypto.randomUUID();
 
     const optimisticTask = { ...currentTask };
     if (data.title !== undefined) optimisticTask.title = data.title;
@@ -1634,6 +1703,8 @@ export const useStore = create<AppState>((set, get) => ({
         encryptedData.reminderOffsetMinutes = offsets.length > 0 ? encrypt(JSON.stringify(offsets)) : '';
       }
       encryptedData.updatedAt = encrypt(new Date().toISOString());
+      encryptedData.baseUpdatedAt = baseUpdatedAt;
+      encryptedData.clientMutationId = clientMutationId;
       if (data.position !== undefined) encryptedData.position = encrypt(String(data.position));
 
       await Database.saveTaskLocal(optimisticTask, false);
@@ -1657,11 +1728,15 @@ export const useStore = create<AppState>((set, get) => ({
 
           return realTask;
         } catch (error) {
-          if (!shouldFallbackToOffline(error)) throw error;
           const mergedIntoCreate = await Database.mergeIntoQueuedCreate('TASK', id, encryptedData);
           if (!mergedIntoCreate) {
             await Database.addToSyncQueue('UPDATE', 'TASK', { id, ...encryptedData });
           }
+          if (isSyncConflictError(error)) {
+            set({ error: getSyncConflictMessage('task') });
+            throw new Error(getSyncConflictMessage('task'));
+          }
+          if (!shouldFallbackToOffline(error)) throw error;
           return optimisticTask;
         }
       } else {
@@ -1837,6 +1912,12 @@ export const useStore = create<AppState>((set, get) => ({
     let failedItems = 0;
     let oldestItemAgeMs: number | null = null;
     try {
+      const backendReachable = await probeBackendReachability().catch(() => false);
+      if (!backendReachable) {
+        set({ isOffline: true });
+        return;
+      }
+      set({ isOffline: false, error: null });
       const queue = await Database.getSyncQueue();
       initialQueueSize = queue.length;
       oldestItemAgeMs = queue.length
@@ -1844,8 +1925,7 @@ export const useStore = create<AppState>((set, get) => ({
         : null;
       if (queue.length === 0) {
         if (options?.refreshAfterSync) {
-          await get().fetchNotes();
-          await get().fetchTasks();
+          await get().refreshCollections({ force: true });
         }
         return;
       }
@@ -1989,6 +2069,9 @@ export const useStore = create<AppState>((set, get) => ({
           const err: any = error;
           const status = typeof err?.status === 'number' ? err.status : undefined;
           if (status === 401) return;
+          if (status === 409) {
+            set({ error: item.entity === 'NOTE' ? getSyncConflictMessage('note') : getSyncConflictMessage('task') });
+          }
           if (typeof status === 'number' && status >= 400 && status < 500 && status !== 429) {
             await Database.removeFromSyncQueue(item.id);
           }
@@ -1996,8 +2079,7 @@ export const useStore = create<AppState>((set, get) => ({
         }
       }
       
-      await get().fetchNotes();
-      await get().fetchTasks();
+      await get().refreshCollections({ force: true });
     } catch (error) {
       log.error(error, { area: 'store.syncOfflineChanges' });
     } finally {

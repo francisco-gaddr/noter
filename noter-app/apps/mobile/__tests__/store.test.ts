@@ -547,6 +547,50 @@ describe('Mobile Store', () => {
     expect(state.tasks.map((task: any) => task._id)).toEqual(['task-a', 'task-b']);
   });
 
+  it('should dedupe concurrent collection refreshes into one notes fetch and one tasks fetch', async () => {
+    const { fetchWithAuth } = require('../services/api');
+    const Database = require('../services/database');
+    const now = encrypt(new Date().toISOString());
+
+    Database.getNotesLocal.mockResolvedValueOnce([]);
+    Database.getTasksLocal.mockResolvedValueOnce([]);
+    Database.getLocalNoteSyncIndex.mockResolvedValueOnce(new Map());
+    Database.getLocalTaskSyncIndex.mockResolvedValueOnce(new Map());
+    fetchWithAuth.mockImplementation((url: string) => {
+      if (url === '/notes') {
+        return Promise.resolve([]);
+      }
+      if (url === '/tasks') {
+        return Promise.resolve([
+          {
+            _id: 'task-a',
+            title: encrypt('Task A'),
+            description: encrypt('Beskrivning A'),
+            completed: encrypt('false'),
+            priority: encrypt('medium'),
+            dueDate: null,
+            recurrenceType: encrypt('none'),
+            recurrenceDays: encrypt('[]'),
+            reminderEnabled: encrypt('false'),
+            reminderOffsetMinutes: encrypt('[]'),
+            createdAt: now,
+            updatedAt: now,
+            parentNoteId: 'list-a',
+          },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+
+    await Promise.all([
+      useStore.getState().refreshCollections({ force: true }),
+      useStore.getState().refreshCollections({ force: true }),
+    ]);
+
+    expect(fetchWithAuth.mock.calls.filter(([url]: [string]) => url === '/notes')).toHaveLength(1);
+    expect(fetchWithAuth.mock.calls.filter(([url]: [string]) => url === '/tasks')).toHaveLength(1);
+  });
+
   it('should skip unchanged local writes during background refresh', async () => {
     const { fetchWithAuth } = require('../services/api');
     const Database = require('../services/database');

@@ -109,8 +109,7 @@ export default function TasksScreen() {
   const notes = useStore((state) => state.notes);
   const isRefreshingNotes = useStore((state) => state.isRefreshingNotes);
   const isRefreshingTasks = useStore((state) => state.isRefreshingTasks);
-  const fetchTasks = useStore((state) => state.fetchTasks);
-  const fetchNotes = useStore((state) => state.fetchNotes);
+  const refreshCollections = useStore((state) => state.refreshCollections);
   const updateTask = useStore((state) => state.updateTask);
   const reorderTasks = useStore((state) => state.reorderTasks);
   const createNote = useStore((state) => state.createNote);
@@ -228,17 +227,15 @@ export default function TasksScreen() {
   useFocusEffect(
     useCallback(() => {
       const now = Date.now();
-      const activeListId = selectedListId && selectedListId !== 'all' ? selectedListId : undefined;
-      const shouldRefresh = now - lastFocusRefreshAtRef.current > 1500 || taskCountRef.current === 0;
+      const shouldRefresh = now - lastFocusRefreshAtRef.current > 15000 || taskCountRef.current === 0;
 
       if (!shouldRefresh) {
         return;
       }
 
       lastFocusRefreshAtRef.current = now;
-      void fetchNotes();
-      void fetchTasks(activeListId);
-    }, [fetchNotes, fetchTasks, selectedListId])
+      void refreshCollections();
+    }, [refreshCollections])
   );
 
   const filteredTasks = useMemo(() => {
@@ -366,9 +363,9 @@ export default function TasksScreen() {
         await updateNote(editingList.id, { title: editingList.title });
         setEditListDialogVisible(false);
         setEditingList(null);
-        fetchNotes(); // Refresh lists
     }
   };
+  
   
   const deleteCurrentList = async () => {
     if (editingList) {
@@ -380,8 +377,7 @@ export default function TasksScreen() {
         if (selectedListId === editingList.id) {
           setSelectedListId(null);
         }
-        await fetchNotes();
-        await fetchTasks();
+        await refreshCollections({ force: true });
       } catch (e) {
         // Non-fatal
       }
@@ -519,7 +515,7 @@ export default function TasksScreen() {
         <TaskList
           tasks={sortedTasks}
           onRefresh={() => {
-            void Promise.all([fetchTasks(), fetchNotes()]);
+            void refreshCollections({ force: true });
           }}
           refreshing={isRefreshingTasks || isRefreshingNotes}
           onToggleComplete={handleToggleComplete}
@@ -560,7 +556,6 @@ export default function TasksScreen() {
                 await updateNote(editingList.id, { title: newTitle });
                 setEditListDialogVisible(false);
                 setEditingList(null);
-                fetchNotes(); // Refresh lists
             }
         }}
         onDelete={confirmDeleteCurrentList}

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { View, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { List, IconButton, TextInput, FAB, useTheme, Divider, Text } from 'react-native-paper';
 import { useStore } from '@/stores/useStore';
@@ -20,19 +20,21 @@ const normalizeNoteType = (value: unknown): string => {
 export default function ListsScreen() {
   const { t } = useTranslation();
   const theme = useTheme();
-  const { notes, fetchNotes, createNote, updateNote, deleteNote } = useStore();
+  const { notes, refreshCollections, createNote, updateNote, deleteNote } = useStore();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
-
-  useEffect(() => {
-    fetchNotes();
-  }, []);
+  const lastFocusRefreshAtRef = useRef(0);
 
   useFocusEffect(
     useCallback(() => {
-      fetchNotes();
-    }, [])
+      const now = Date.now();
+      if (now - lastFocusRefreshAtRef.current < 15000 && notes.length > 0) {
+        return;
+      }
+      lastFocusRefreshAtRef.current = now;
+      void refreshCollections();
+    }, [notes.length, refreshCollections])
   );
 
   const lists = orderBy(notes.filter((n) => normalizeNoteType((n as any).type) === 'task_list'), ['updatedAt'], ['desc']);

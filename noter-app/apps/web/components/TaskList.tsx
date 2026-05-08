@@ -210,7 +210,6 @@ const TaskItem: React.FC<TaskItemProps> = ({
 export default function TaskList() {
     const notes = useStore((state) => state.notes);
     const tasks = useStore((state) => state.tasks);
-    const fetchTasks = useStore((state) => state.fetchTasks);
     const createTask = useStore((state) => state.createTask);
     const updateTask = useStore((state) => state.updateTask);
     const deleteTask = useStore((state) => state.deleteTask);
@@ -265,10 +264,6 @@ export default function TaskList() {
         }
         setListTitle(selectedList.title || '');
     }, [selectedList]);
-
-    useEffect(() => {
-        fetchTasks(selectedTaskListId || undefined);
-    }, [selectedTaskListId, fetchTasks]);
 
     const openTaskDetail = useCallback((task: Task) => {
         setSelectedTask(task);

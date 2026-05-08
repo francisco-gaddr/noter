@@ -6,6 +6,7 @@ import { useStore } from '../stores/useStore';
 // Mocks
 jest.mock('../services/api', () => ({
   getUUID: jest.fn(() => 'mock-uuid'),
+  probeBackendReachability: jest.fn().mockResolvedValue(true),
   setApiToken: jest.fn(),
   setApiRefreshToken: jest.fn(),
   setApiAuthTokenListener: jest.fn(),
@@ -277,6 +278,22 @@ describe('Web Store', () => {
     await act(async () => {
       await Promise.all([first, second]);
     });
+  });
+
+  it('should dedupe concurrent refreshCollections calls', async () => {
+    const { api } = require('../services/api');
+    api.fetchNotes.mockResolvedValueOnce([]);
+    api.fetchTasks.mockResolvedValueOnce([]);
+
+    await act(async () => {
+      await Promise.all([
+        useStore.getState().refreshCollections({ force: true }),
+        useStore.getState().refreshCollections({ force: true }),
+      ]);
+    });
+
+    expect(api.fetchNotes).toHaveBeenCalledTimes(1);
+    expect(api.fetchTasks).toHaveBeenCalledTimes(1);
   });
 
   it('should skip unchanged note writes during fetchNotes', async () => {

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { Note, Task, UpdateTaskDto, User, decrypt, encrypt, hasEncryptionKey, normalizeId, normalizeNoteType } from '@repo/shared';
-import { api, getApiBaseUrl, getUUID, setApiAuthTokenListener, setApiBaseUrl, setApiRefreshToken, setApiToken } from '../services/api';
+import { api, getApiBaseUrl, getUUID, probeBackendReachability, setApiAuthTokenListener, setApiBaseUrl, setApiRefreshToken, setApiToken } from '../services/api';
 import { socket, connectSocket, disconnectSocket, setSocketToken } from '../services/socket';
 import { db } from '../services/db';
 import deepmerge from 'deepmerge';
@@ -13,7 +13,14 @@ import { getWebAuthTokenSync, getWebRefreshTokenSync, setWebAuthToken, setWebRef
 let networkListenersReady = false;
 let notesFetchPromise: Promise<void> | null = null;
 const taskFetchPromises = new Map<string, Promise<void>>();
-const taskFetchKey = (parentNoteId?: string | null) => parentNoteId || '__all__';
+let reconnectSyncTimer: ReturnType<typeof setTimeout> | null = null;
+let collectionsRefreshPromise: Promise<void> | null = null;
+let lastCollectionsRefreshAt = 0;
+const taskFetchKey = () => '__all__';
+const markCollectionsRefreshed = () => {
+  lastCollectionsRefreshAt = Date.now();
+};
+const hasRecentCollectionsRefresh = () => Date.now() - lastCollectionsRefreshAt < 5000;
 const yieldToEventLoop = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 const persistInBatches = async <T,>(items: T[], batchSize: number, persist: (item: T) => Promise<void>) => {
   for (let index = 0; index < items.length; index += batchSize) {
@@ -36,6 +43,19 @@ const runWithConcurrency = async <T,>(items: T[], concurrency: number, worker: (
   });
   await Promise.all(runners);
 };
+
+const isSyncConflictError = (error: unknown) => {
+  const err = error as any;
+  const status = typeof err?.status === 'number' ? err.status : undefined;
+  const code = String(err?.details?.code ?? err?.code ?? '').toUpperCase();
+  return status === 409 || code === 'SYNC_CONFLICT';
+};
+
+const getSyncConflictMessage = (entity: 'note' | 'task') => (
+  entity === 'note'
+    ? 'Anteckningen har ändrats på en annan enhet. Synka och granska innan du skriver över.'
+    : 'Uppgiften har ändrats på en annan enhet. Synka och granska innan du skriver över.'
+);
 const readElectronSettings = async (keys: string[]) => {
   if (typeof window === 'undefined') return {};
   const mlc = (window as any).mlc;
@@ -605,6 +625,7 @@ interface StoreState {
   
   fetchNotes: () => Promise<void>;
   fetchTasks: (parentNoteId?: string) => Promise<void>;
+  refreshCollections: (options?: { force?: boolean }) => Promise<void>;
   selectNote: (id: string | null) => void;
   createNote: (title: string, parentId?: string | null, type?: 'note' | 'task_list' | 'project', order?: number, icon?: string) => Promise<void>;
   updateNote: (id: string, dataOrTitle?: string | Partial<Note>, content?: string, locked?: boolean, password?: string, icon?: string, type?: string, iconColor?: string) => Promise<void>;
@@ -621,7 +642,7 @@ interface StoreState {
   setSearchQuery: (query: string) => void;
   setSortOrder: (order: SortOrder) => void;
   initSocket: () => void;
-  syncOfflineChanges: () => Promise<void>;
+  syncOfflineChanges: (options?: { refreshAfterSync?: boolean }) => Promise<void>;
   hydrate: () => void;
   isHydrated: boolean;
 }
@@ -762,9 +783,14 @@ export const useStore = create<StoreState>((set, get) => ({
                 const effectiveToken = String(storedToken || token || '');
                 const effectiveRefreshToken = String(storedRefreshToken || getWebRefreshTokenSync() || '');
                 if (effectiveToken && !nextLocked) {
-                    get().fetchNotes();
-                    get().fetchTasks();
                     get().initSocket();
+                    probeBackendReachability().then((reachable) => {
+                        set({ isOffline: !reachable });
+                        if (!reachable) return;
+                        void get().refreshCollections();
+                    }).catch(() => {
+                        set({ isOffline: true });
+                    });
                 } else if (effectiveRefreshToken && !nextLocked) {
                     Promise.resolve(api.restoreSession()).then((session) => {
                         if (!session?.token) {
@@ -786,9 +812,14 @@ export const useStore = create<StoreState>((set, get) => ({
                             refreshToken: (session as any).refreshToken || effectiveRefreshToken,
                             user: session.user,
                         });
-                        get().fetchNotes();
-                        get().fetchTasks();
                         get().initSocket();
+                        probeBackendReachability().then((reachable) => {
+                            set({ isOffline: !reachable });
+                            if (!reachable) return;
+                            void get().refreshCollections();
+                        }).catch(() => {
+                            set({ isOffline: true });
+                        });
                     }).catch(() => {});
                 }
             }).catch(() => {});
@@ -796,11 +827,19 @@ export const useStore = create<StoreState>((set, get) => ({
         if (!networkListenersReady) {
             networkListenersReady = true;
             window.addEventListener('online', () => {
-                set({ isOffline: false, error: null });
                 localStorage.removeItem('hideOfflineIndicator');
-                get().syncOfflineChanges();
-                get().fetchNotes();
-                get().fetchTasks();
+                if (reconnectSyncTimer) clearTimeout(reconnectSyncTimer);
+                reconnectSyncTimer = setTimeout(() => {
+                    void (async () => {
+                        const reachable = await probeBackendReachability();
+                        if (!reachable) {
+                            set({ isOffline: true });
+                            return;
+                        }
+                        set({ isOffline: false, error: null });
+                        await get().syncOfflineChanges({ refreshAfterSync: true });
+                    })();
+                }, 800);
             });
             window.addEventListener('offline', () => {
                 set({ isOffline: true, error: 'Offline-läge' });
@@ -809,9 +848,14 @@ export const useStore = create<StoreState>((set, get) => ({
         }
         if (!hasElectronSettingsBridge && !nextLocked) {
             if (token) {
-                get().fetchNotes();
-                get().fetchTasks();
                 get().initSocket();
+                probeBackendReachability().then((reachable) => {
+                    set({ isOffline: !reachable });
+                    if (!reachable) return;
+                    void get().refreshCollections();
+                }).catch(() => {
+                    set({ isOffline: true });
+                });
             } else {
                 Promise.resolve(api.restoreSession())
                     .then((session) => {
@@ -824,9 +868,14 @@ export const useStore = create<StoreState>((set, get) => ({
                         set({ user: session.user, token: session.token, isAppLocked: false });
                         setApiToken(session.token);
                         setSocketToken(session.token);
-                        get().fetchNotes();
-                        get().fetchTasks();
                         get().initSocket();
+                        probeBackendReachability().then((reachable) => {
+                            set({ isOffline: !reachable });
+                            if (!reachable) return;
+                            void get().refreshCollections();
+                        }).catch(() => {
+                            set({ isOffline: true });
+                        });
                     })
                     .catch(() => {
                         localStorage.removeItem('user');
@@ -853,9 +902,12 @@ export const useStore = create<StoreState>((set, get) => ({
         setApiRefreshToken(refreshToken || null);
         setSocketToken(token);
         setElectronSession({ token, refreshToken: refreshToken || null, user });
-        await get().fetchNotes();
-        await get().fetchTasks();
         get().initSocket();
+        const reachable = await probeBackendReachability().catch(() => false);
+        set({ isOffline: !reachable });
+        if (reachable) {
+            await get().refreshCollections({ force: true });
+        }
     } catch (error: any) {
         set({ error: error.message });
         throw error;
@@ -875,9 +927,12 @@ export const useStore = create<StoreState>((set, get) => ({
         setApiRefreshToken(refreshToken || null);
         setSocketToken(token);
         setElectronSession({ token, refreshToken: refreshToken || null, user });
-        await get().fetchNotes();
-        await get().fetchTasks();
         get().initSocket();
+        const reachable = await probeBackendReachability().catch(() => false);
+        set({ isOffline: !reachable });
+        if (reachable) {
+            await get().refreshCollections({ force: true });
+        }
     } catch (error: any) {
         set({ error: error.message });
         throw error;
@@ -961,8 +1016,7 @@ export const useStore = create<StoreState>((set, get) => ({
     } else {
         set({ isAppLocked: false });
         // Re-fetch data
-        get().fetchNotes();
-        get().fetchTasks();
+        get().refreshCollections({ force: true });
         get().initSocket();
     }
     setElectronLockState(locked);
@@ -1215,8 +1269,14 @@ export const useStore = create<StoreState>((set, get) => ({
     });
   },
 
-  syncOfflineChanges: async () => {
+  syncOfflineChanges: async (options) => {
       if (get().isAppLocked) return;
+      const reachable = await probeBackendReachability().catch(() => false);
+      if (!reachable) {
+          set({ isOffline: true });
+          return;
+      }
+      set({ isOffline: false, error: null });
       // Sync Notes
       const pendingNotes = await db.getPendingSyncNotes();
       await runWithConcurrency(pendingNotes, 3, async (note) => {
@@ -1245,6 +1305,8 @@ export const useStore = create<StoreState>((set, get) => ({
                   await api.updateNote(note._id, {
                       title: note.title,
                       content: note.content,
+                      baseUpdatedAt: note.baseUpdatedAt,
+                      clientMutationId: note.clientMutationId,
                       locked: Boolean(note.locked),
                       password: noteWithPassword.password,
                       icon: note.icon,
@@ -1263,6 +1325,10 @@ export const useStore = create<StoreState>((set, get) => ({
                       selectedTaskListId: state.selectedTaskListId === note._id ? null : state.selectedTaskListId
                   }));
                   await db.deleteNote(note._id);
+                  return;
+              }
+              if (isSyncConflictError(e)) {
+                  set({ error: getSyncConflictMessage('note') });
                   return;
               }
               console.error('Sync failed for note', note._id, e);
@@ -1297,6 +1363,8 @@ export const useStore = create<StoreState>((set, get) => ({
               } else {
                   await api.updateTask(task._id, {
                       title: task.title,
+                      baseUpdatedAt: task.baseUpdatedAt,
+                      clientMutationId: task.clientMutationId,
                       completed: task.completed,
                       description: task.description,
                       priority: task.priority,
@@ -1318,9 +1386,19 @@ export const useStore = create<StoreState>((set, get) => ({
                    await db.deleteTask(task._id);
                    return;
                }
+               if (isSyncConflictError(e)) {
+                   set({ error: getSyncConflictMessage('task') });
+                   return;
+               }
                console.error('Sync failed for task', task._id, e);
           }
       });
+      if (options?.refreshAfterSync) {
+          await get().fetchNotes();
+          setTimeout(() => {
+              void get().fetchTasks();
+          }, 0);
+      }
   },
 
   fetchNotes: async () => {
@@ -1449,6 +1527,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
         const notesToPersist = nextNotes.filter((note) => noteSyncIndex.get(note._id) !== String(note.updatedAt || ''));
         await persistInBatches(notesToPersist, 50, (note) => db.saveNote(note));
+        markCollectionsRefreshed();
       } catch (error: any) {
         logElectronDataDebug('fetchNotes-error', {
           message: error?.message || 'unknown-error',
@@ -1533,6 +1612,7 @@ export const useStore = create<StoreState>((set, get) => ({
         await persistInBatches(tasksToPersist, 50, (task) => db.saveTask(task));
         
         visibleTasks.forEach(scheduleWebReminder);
+        markCollectionsRefreshed();
       } catch (error: any) {
         set({ error: error.message, isLoading: false });
       } finally {
@@ -1541,6 +1621,29 @@ export const useStore = create<StoreState>((set, get) => ({
     })();
     taskFetchPromises.set(currentFetchKey, fetchPromise);
     return fetchPromise;
+  },
+
+  refreshCollections: async (options) => {
+    if (get().isAppLocked) return;
+    if (!options?.force && hasRecentCollectionsRefresh()) return;
+    if (collectionsRefreshPromise) {
+      await collectionsRefreshPromise;
+      return;
+    }
+    const refreshPromise = Promise.all([
+      get().fetchNotes(),
+      get().fetchTasks(),
+    ]).then(() => {
+      markCollectionsRefreshed();
+    });
+    collectionsRefreshPromise = refreshPromise;
+    try {
+      await refreshPromise;
+    } finally {
+      if (collectionsRefreshPromise === refreshPromise) {
+        collectionsRefreshPromise = null;
+      }
+    }
   },
 
   selectNote: (id) => {
@@ -1631,11 +1734,20 @@ export const useStore = create<StoreState>((set, get) => ({
     }
 
     const { unlockPassword, password: notePassword, ...safeUpdates } = updates as any;
+    const currentNote = get().notes.find(n => n._id === id);
+    const baseUpdatedAt = typeof updates?.baseUpdatedAt === 'string'
+      ? updates.baseUpdatedAt
+      : currentNote?.updatedAt;
+    const clientMutationId = typeof updates?.clientMutationId === 'string'
+      ? updates.clientMutationId
+      : getUUID();
     if (typeof unlockPassword === 'string') {
       if (id.startsWith('temp-')) return;
       try {
         const payload: any = { ...safeUpdates, password: notePassword, unlockPassword };
         payload.updatedAt = encrypt(new Date().toISOString());
+        payload.baseUpdatedAt = baseUpdatedAt;
+        payload.clientMutationId = clientMutationId;
         const updatedNote = await api.updateNote(id, payload);
         set((state) => deriveProtectedVisibilityState(state, {
           notes: state.notes.map((n) => (n._id === id ? updatedNote : n)) as any,
@@ -1656,6 +1768,8 @@ export const useStore = create<StoreState>((set, get) => ({
       try {
         const payload: any = { ...safeUpdates, password: notePassword };
         payload.updatedAt = encrypt(new Date().toISOString());
+        payload.baseUpdatedAt = baseUpdatedAt;
+        payload.clientMutationId = clientMutationId;
         const updatedNote = await api.updateNote(id, payload);
         set((state) => deriveProtectedVisibilityState(state, {
           notes: state.notes.map((n) => (n._id === id ? updatedNote : n)) as any,
@@ -1672,7 +1786,7 @@ export const useStore = create<StoreState>((set, get) => ({
     }
 
     const stateUpdates = { ...safeUpdates };
-    const currentBeforeLock = get().notes.find(n => n._id === id) as any;
+    const currentBeforeLock = currentNote as any;
     if (safeUpdates.locked === true) {
         if (currentBeforeLock) {
             stateUpdates.__rawEncryptedTitle = currentBeforeLock.__rawEncryptedTitle || encrypt(currentBeforeLock.title || '');
@@ -1692,6 +1806,8 @@ export const useStore = create<StoreState>((set, get) => ({
             return {
                 ...n,
                 ...stateUpdates,
+                baseUpdatedAt,
+                clientMutationId,
                 updatedAt: new Date().toISOString()
             };
         }
@@ -1707,9 +1823,9 @@ export const useStore = create<StoreState>((set, get) => ({
     });
     
     // Save to DB (optimistic)
-    const currentNote = get().notes.find(n => n._id === id);
-    if (currentNote) {
-        await db.saveNote(currentNote, true); // Mark pending sync initially
+    const optimisticNote = get().notes.find(n => n._id === id);
+    if (optimisticNote) {
+        await db.saveNote(optimisticNote, true); // Mark pending sync initially
     }
 
     if (id.startsWith('temp-')) {
@@ -1719,6 +1835,8 @@ export const useStore = create<StoreState>((set, get) => ({
     try {
       const payload: any = { ...safeUpdates };
       payload.updatedAt = encrypt(new Date().toISOString());
+      payload.baseUpdatedAt = baseUpdatedAt;
+      payload.clientMutationId = clientMutationId;
 
       const updatedNote = await api.updateNote(id, payload);
       set((state) => deriveProtectedVisibilityState(state, {
@@ -1726,7 +1844,7 @@ export const useStore = create<StoreState>((set, get) => ({
       }));
       await db.saveNote(updatedNote, false); // Mark synced
     } catch (error: any) {
-      set({ error: error.message });
+      set({ error: isSyncConflictError(error) ? getSyncConflictMessage('note') : error.message });
       // Keep pending sync in DB
     }
   },
@@ -1891,6 +2009,12 @@ export const useStore = create<StoreState>((set, get) => ({
 
   updateTask: async (id, data) => {
       const previousTask = get().tasks.find(t => t._id === id);
+      const baseUpdatedAt = typeof (data as any)?.baseUpdatedAt === 'string'
+        ? (data as any).baseUpdatedAt
+        : previousTask?.updatedAt;
+      const clientMutationId = typeof (data as any)?.clientMutationId === 'string'
+        ? (data as any).clientMutationId
+        : getUUID();
       const mergedTask = previousTask ? { ...previousTask, ...data } as Task : null;
       const shouldCreateNext = data.completed === true && previousTask && !previousTask.completed;
 
@@ -1915,7 +2039,7 @@ export const useStore = create<StoreState>((set, get) => ({
 
       // Optimistic
       set(state => ({
-          tasks: state.tasks.map(t => t._id === id ? { ...t, ...data, updatedAt: new Date().toISOString() } : t)
+          tasks: state.tasks.map(t => t._id === id ? { ...t, ...data, baseUpdatedAt, clientMutationId, updatedAt: new Date().toISOString() } : t)
       }));
       
       const currentTask = get().tasks.find(t => t._id === id);
@@ -1927,13 +2051,13 @@ export const useStore = create<StoreState>((set, get) => ({
       if (id.startsWith('temp-')) return;
 
       try {
-          const updatedTask = await api.updateTask(id, data);
+          const updatedTask = await api.updateTask(id, { ...data, baseUpdatedAt, clientMutationId });
           set(state => ({
               tasks: state.tasks.map(t => t._id === id ? updatedTask : t)
           }));
           await db.saveTask(updatedTask, false);
       } catch (error: any) {
-          set({ error: error.message });
+          set({ error: isSyncConflictError(error) ? getSyncConflictMessage('task') : error.message });
           // Keep pending sync
       }
   },
