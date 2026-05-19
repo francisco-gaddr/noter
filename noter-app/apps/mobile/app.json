@@ -37,7 +37,6 @@
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.WAKE_LOCK"
       ],
-      "usesCleartextTraffic": true,
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
@@ -59,7 +58,8 @@
         "expo-build-properties",
         {
           "android": {
-            "kotlinVersion": "2.1.0"
+            "kotlinVersion": "2.1.0",
+            "usesCleartextTraffic": true
           }
         }
       ]

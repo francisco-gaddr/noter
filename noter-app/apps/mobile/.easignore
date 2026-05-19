@@ -1,0 +1,19 @@
+# EAS-specific ignore (mirrors .gitignore intent for managed workflow).
+# /android contains 2 force-tracked MLC native files that are not a complete
+# Android project — EAS would treat the folder as bare workflow and skip
+# `expo prebuild`. Exclude it here so EAS runs prebuild fresh and produces
+# a working managed APK. The MLC native module is optional — MLCModule.ts
+# graceful-degrades when NativeModules.MLCModule is undefined.
+/android
+/ios
+
+# Test + lint artifacts not needed for cloud builds
+__tests__/
+**/__snapshots__/
+coverage/
+.expo/
+.cache/
+
+# Local-only files
+.env.local
+.env.development.local
