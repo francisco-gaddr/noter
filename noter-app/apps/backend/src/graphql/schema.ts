@@ -31,6 +31,12 @@ const encryptText = (value?: string | null) => {
 
 type ResolverContext = {
   userId?: string;
+  tenant?: {
+    orgId?: string;
+    roles?: string[];
+    scopes?: string[];
+    plan?: string;
+  };
 };
 
 const NoteType = new GraphQLObjectType({

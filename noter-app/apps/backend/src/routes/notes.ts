@@ -9,6 +9,8 @@ import { AuthRequest } from '../middleware/authMiddleware';
 import { validate } from '../middleware/validate';
 import cache from '../services/cache';
 import { isEncryptedPayload } from '../utils/encryption';
+import { parsePageParams, buildCursorFilter, buildPage } from '../utils/pagination';
+import { runWithReadPreference } from '../utils/readPreference';
 
 const router = express.Router();
 
@@ -79,6 +81,27 @@ const verifyLockLimiter = rateLimit({
 router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = (req as AuthRequest).user!.userId;
+
+    // Pagination is OPT-IN per request: callers that send ?limit= or
+    // ?cursor= get a paginated envelope; callers that send neither get
+    // the historical full-list response (back-compat for the existing
+    // mobile + web clients that don't yet read nextCursor).
+    const wantsPagination = typeof req.query.limit !== 'undefined' || typeof req.query.cursor !== 'undefined';
+    if (wantsPagination) {
+      const { limit, cursor } = parsePageParams(req.query as Record<string, unknown>);
+      const filter = { userId, ...buildCursorFilter(cursor, 'desc') };
+      // Read from a secondary when the cluster offers one. The note-list
+      // path tolerates a few seconds of replication lag (we don't ask for
+      // "give me the note I just wrote"; reads-after-write hit the
+      // by-id route below which stays on primary).
+      const query = Note.find(filter).sort({ createdAt: -1, _id: -1 }).limit(limit + 1);
+      runWithReadPreference(query, 'secondaryPreferred');
+      const rows = await query;
+      const page = buildPage(rows.map((n) => n.toObject()) as Array<{ _id: { toString(): string }; createdAt: string }>, limit);
+      res.json(page);
+      return;
+    }
+
     const cacheKey = `notes:list:${userId}`;
     const cachedNotes = await cache.get(cacheKey);
 
@@ -88,13 +111,13 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
     }
 
     const notes = await Note.find({ userId: (req as AuthRequest).user!.userId }).sort({ createdAt: -1 });
-    
+
     // Early return if no notes
     if (notes.length === 0) {
       res.json([]);
       return;
     }
-    
+
     // Since locked is now E2E encrypted, we cannot determine lock status on the server
     // The client handles lock logic and decryption. We return all notes as-is.
     const sanitizedNotes = notes.map(note => {

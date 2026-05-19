@@ -7,6 +7,7 @@ import logger from '../utils/logger';
 import { AuthResponse } from '@repo/shared';
 import { validate } from '../middleware/validate';
 import { getJwtSecret, getJwtSignOptions } from '../utils/security';
+import { ConflictError, UnauthorizedError, HttpError } from '../utils/httpErrors';
 
 const router = express.Router();
 
@@ -23,16 +24,18 @@ const loginSchema = Joi.object({
 const BCRYPT_ROUNDS = Math.max(10, Number.parseInt(process.env.BCRYPT_ROUNDS || '12', 10) || 12);
 const DUMMY_HASH = '$2b$12$90hPdzA7y6QAYnltj7LjY.BM7rjOADfVv8BfS7kqkQxB7MlMijH7e';
 
-// Register
-router.post('/register', validate(registerSchema), async (req, res) => {
+// Register — typed errors flow through errorMiddleware which emits a
+// consistent { message, code, requestId } shape per round-7's HttpError
+// hierarchy. ConflictError → 409 with code USERNAME_TAKEN so the mobile
+// client can branch on the code rather than parsing the message string.
+router.post('/register', validate(registerSchema), async (req, res, next) => {
   try {
     const username = String(req.body.username || '').trim().toLowerCase();
     const password = String(req.body.password || '');
-    // Validation handled by middleware
 
     const existingUser = await User.findOne({ username });
     if (existingUser) {
-      return res.status(400).json({ message: 'Username already exists' });
+      throw new ConflictError('Username already exists', { code: 'USERNAME_TAKEN' });
     }
 
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
@@ -40,7 +43,7 @@ router.post('/register', validate(registerSchema), async (req, res) => {
     await newUser.save();
 
     const token = jwt.sign({ userId: newUser._id }, getJwtSecret(), getJwtSignOptions());
-    
+
     const response: AuthResponse = {
       user: {
         _id: newUser._id.toString(),
@@ -52,26 +55,29 @@ router.post('/register', validate(registerSchema), async (req, res) => {
 
     res.status(201).json(response);
   } catch (error: any) {
-    logger.error('Auth register failed', { error: error?.message || String(error) });
-    const message = error?.message?.includes('JWT_SECRET') ? 'Auth configuration error' : 'Error registering user';
-    res.status(500).json({ message });
+    // Configuration errors (JWT_SECRET missing) are surfaced as 500 with a
+    // safe message; the errorMiddleware logs the stack but doesn't leak it.
+    if (error?.message?.includes('JWT_SECRET')) {
+      return next(new HttpError(500, 'Auth configuration error', { code: 'AUTH_CONFIG' }));
+    }
+    next(error);
   }
 });
 
 // Login
-router.post('/login', validate(loginSchema), async (req, res) => {
+router.post('/login', validate(loginSchema), async (req, res, next) => {
   try {
     const username = String(req.body.username || '').trim().toLowerCase();
     const password = String(req.body.password || '');
     const user = await User.findOne({ username });
     if (!user) {
       await bcrypt.compare(password, DUMMY_HASH);
-      return res.status(401).json({ message: 'Invalid credentials' });
+      throw new UnauthorizedError('Invalid credentials', { code: 'INVALID_CREDENTIALS' });
     }
 
     const isMatch = await bcrypt.compare(password, user.passwordHash);
     if (!isMatch) {
-      return res.status(401).json({ message: 'Invalid credentials' });
+      throw new UnauthorizedError('Invalid credentials', { code: 'INVALID_CREDENTIALS' });
     }
 
     const token = jwt.sign({ userId: user._id }, getJwtSecret(), getJwtSignOptions());
@@ -87,9 +93,10 @@ router.post('/login', validate(loginSchema), async (req, res) => {
 
     res.json(response);
   } catch (error: any) {
-    logger.error('Auth login failed', { error: error?.message || String(error) });
-    const message = error?.message?.includes('JWT_SECRET') ? 'Auth configuration error' : 'Error logging in';
-    res.status(500).json({ message });
+    if (error?.message?.includes('JWT_SECRET')) {
+      return next(new HttpError(500, 'Auth configuration error', { code: 'AUTH_CONFIG' }));
+    }
+    next(error);
   }
 });
 

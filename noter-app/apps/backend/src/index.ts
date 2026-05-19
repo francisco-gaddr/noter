@@ -7,8 +7,8 @@ import mongoose from 'mongoose';
 import http from 'http';
 import helmet from 'helmet';
 import compression from 'compression';
-import rateLimit from 'express-rate-limit';
 import mongoSanitize from 'express-mongo-sanitize';
+import { createRateLimit } from './middleware/rateLimit';
 import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import logger from './utils/logger';
@@ -18,12 +18,36 @@ import authRoutes from './routes/auth';
 import aiModelRoutes from './routes/aiModels';
 import aiSyncRoutes from './routes/aiSync';
 import mcpRoutes from './routes/mcp';
-import { authMiddleware, getBearerTokenFromRequestLike, getUserIdFromDecodedToken } from './middleware/authMiddleware';
+import healthDeepRoutes from './routes/healthDeep';
+import cspReportRoutes from './routes/cspReport';
+import { authMiddleware, extractTenantClaims, getBearerTokenFromRequestLike, getUserIdFromDecodedToken } from './middleware/authMiddleware';
 import { errorHandler } from './middleware/errorMiddleware';
 import { blockSuspiciousRequestPatterns, enforceJsonApiRequests } from './middleware/requestSecurity';
-import { createHandler } from 'graphql-http/lib/use/express';
+import { perfHistogramMiddleware, getPerfSnapshot } from './middleware/perfHistogram';
+import { serverTimingMiddleware, recordTiming } from './middleware/serverTiming';
+import { requestIdMiddleware } from './middleware/requestId';
+import { requestLogMiddleware } from './middleware/requestLog';
+import { readinessGate } from './middleware/readiness';
+import { conditionalGet } from './middleware/etag';
+import { idempotency } from './middleware/idempotency';
+import { auditLog } from './middleware/auditLog';
+import { sanitiseNumbersMiddleware } from './middleware/sanitiseNumbers';
+import { performance } from 'node:perf_hooks';
+import { ApolloServer, type ApolloServerPlugin } from '@apollo/server';
+import { expressMiddleware } from '@as-integrations/express4';
 import { toolSchema } from './graphql/schema';
+import { complexityPlugin } from './graphql/complexityPlugin';
+import { depthPlugin } from './graphql/depthPlugin';
 import { getAllowedOrigins, getJwtSecret, getJwtVerifyOptions, isDemoTokenEnabled } from './utils/security';
+import { installMongooseDebug } from './utils/mongooseDebug';
+import { installSlowQueryLogger } from './utils/slowQueryLogger';
+import { installTrustProxy } from './utils/trustProxy';
+import { startChangeStreamInvalidator, stopChangeStreamInvalidator } from './services/changeStreamInvalidator';
+import { startInstanceHeartbeat, stopInstanceHeartbeat } from './services/instanceHeartbeat';
+import { schedule as scheduleCron, start as startCron, stop as stopCron } from './services/cronScheduler';
+import { installAuthRefresh } from './socket/authRefresh';
+import { installGracefulShutdown, isShuttingDown } from './utils/gracefulShutdown';
+import { closeRateLimitRedis } from './middleware/rateLimit';
 
 const dotenvPath = process.env.DOTENV_PATH;
 if (dotenvPath) {
@@ -37,14 +61,34 @@ if (dotenvPath) {
   }
 }
 
+installMongooseDebug();
+installSlowQueryLogger();
+
+// In production we never want mongoose to build indexes on startup — that
+// stalls the boot on large collections and silently re-introduces dropped
+// indexes. Use `pnpm --filter backend run db:reconcile-indexes` to apply
+// index changes explicitly, and `--dry-run` in CI to detect drift.
+if (process.env.NODE_ENV === 'production') {
+  mongoose.set('autoIndex', false);
+  mongoose.set('autoCreate', false);
+}
+
 const app = express();
 const server = http.createServer(app);
 const port = parseInt(process.env.PORT || '3001', 10);
 const allowedOrigins = getAllowedOrigins();
 const isProduction = process.env.NODE_ENV === 'production';
 
-app.set('trust proxy', 1);
+installTrustProxy(app);
 app.disable('x-powered-by');
+// requestId must run before anything that might log so correlation works
+// across helmet/cors/error-handler/etc.
+app.use(requestIdMiddleware);
+app.use(requestLogMiddleware);
+// Readiness gate runs early but AFTER request-log so we still log the 503s
+// during warm-up. Before any route-specific middleware (CORS, helmet) so the
+// 503 returns fast with minimal work.
+app.use(readinessGate);
 
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
@@ -55,45 +99,141 @@ const corsOptions: cors.CorsOptions = {
   },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   credentials: true,
+  // Browsers cap maxAge: Chromium 7200s, Firefox 86400s. We pick 1h to match
+  // the more conservative cap so preflight roundtrips don't dominate
+  // request latency on busy clients. Combined with `vary: Origin`, this is
+  // safe: a new origin still triggers a fresh preflight.
+  maxAge: 3600,
+  // Explicit header allow-list — narrower than the `*` we used to send by
+  // default. Includes the new Idempotency-Key + X-Request-ID for the round-5/6
+  // middleware to actually be reachable from the browser.
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'Idempotency-Key',
+    'X-Request-ID',
+    'X-Correlation-ID',
+    'If-None-Match',
+  ],
+  exposedHeaders: [
+    'ETag',
+    'X-Request-ID',
+    'X-RateLimit-Limit',
+    'X-RateLimit-Remaining',
+    'X-RateLimit-Reset',
+    'Retry-After',
+    'Server-Timing',
+    'X-Trace-Id',
+    'Idempotency-Replayed',
+  ],
 };
 
 // Security & Performance Middleware
+//
+// Explicit CSP: helmet's default policy includes 'unsafe-inline' for styles and
+// allows blob: in script-src on some versions. We pin everything to 'self' and
+// the upgrade-insecure-requests directive forces http→https for any subresource.
+// Frame-ancestors 'none' prevents click-jacking via <iframe>.
 app.use(helmet({
   referrerPolicy: { policy: 'no-referrer' },
+  contentSecurityPolicy: {
+    useDefaults: false,
+    directives: {
+      'default-src': ["'self'"],
+      'script-src': ["'self'"],
+      'style-src': ["'self'", "'unsafe-inline'"], // many UI libs ship runtime-inserted styles; revisit when SSR strict-CSP is in place
+      'img-src': ["'self'", 'data:', 'blob:'],
+      'font-src': ["'self'", 'data:'],
+      'connect-src': ["'self'"],
+      'media-src': ["'self'"],
+      'object-src': ["'none'"],
+      'frame-ancestors': ["'none'"],
+      'form-action': ["'self'"],
+      'base-uri': ["'self'"],
+      'upgrade-insecure-requests': [],
+      // Browsers POST violation reports here. Reporting-API uses the
+      // separate report-to mechanism; we emit both for cross-browser coverage.
+      'report-uri': ['/api/csp-report'],
+    },
+    reportOnly: false,
+  },
+  crossOriginEmbedderPolicy: false, // OFF — would break image hotlinking from CDN; re-enable per-route if needed
+  crossOriginOpenerPolicy: { policy: 'same-origin' },
+  crossOriginResourcePolicy: { policy: 'same-site' },
+  strictTransportSecurity: {
+    maxAge: 60 * 60 * 24 * 365, // 1 year
+    includeSubDomains: true,
+    preload: true,
+  },
 }));
 app.use(cors(corsOptions));
-app.use(compression());
+// compression@1.8 supports brotli natively and prefers `br` over `gzip` when
+// the client's Accept-Encoding allows. We tune the brotli level for a balance
+// between CPU cost and payload size: level 4 is the sweet spot for dynamic
+// JSON responses (cf. https://blog.cloudflare.com/results-experimenting-brotli/).
+// `threshold: 1kb` skips tiny payloads where the encoding overhead exceeds the
+// savings.
+app.use(compression({
+  threshold: 1024,
+  level: 6, // gzip level (1=fastest, 9=smallest)
+  brotli: {
+    enabled: true,
+    zlib: {
+      params: {
+        // BROTLI_PARAM_QUALITY = 0
+        0: 4,
+      },
+    },
+  },
+} as any));
+// Once SIGTERM has been received we return 503 so the load balancer can drain
+// us off without surfacing 5xx to existing connections (those keep going).
+app.use((_req, res, next) => {
+  if (isShuttingDown()) {
+    res.setHeader('Connection', 'close');
+    return res.status(503).json({ message: 'Server is shutting down' });
+  }
+  return next();
+});
+app.use(perfHistogramMiddleware);
+app.use(serverTimingMiddleware);
+// Default body limit covers most REST + GraphQL — small. Per-route overrides
+// below for endpoints that legitimately need more. ai-sync handles batches of
+// notes/tasks/messages from the client, so 2mb. Everything else stays 1mb.
 app.use(express.json({ limit: '1mb' }));
+// Strip NaN/Infinity from parsed bodies BEFORE any route reads them.
+// Mongo silently writes NaN to numeric fields → confusing equality
+// behaviour; better to coerce to null at the boundary.
+app.use(sanitiseNumbersMiddleware);
 app.use(enforceJsonApiRequests);
 app.use(mongoSanitize({ replaceWith: '_' }));
 app.use(blockSuspiciousRequestPatterns);
 
-// Rate Limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: 'Too many requests from this IP, please try again later.'
+// Rate Limiting — Redis-backed when REDIS_URL is set (multi-pod safe),
+// in-memory fallback when not (single-pod dev). Failures during a request
+// transparently fall back to memory so a Redis outage cannot 5xx the API.
+const limiter = createRateLimit({
+  keyPrefix: 'global',
+  points: 100,
+  durationSec: 15 * 60,
+  message: 'Too many requests from this IP, please try again later.',
 });
 
-// Apply rate limiting to all requests
 app.use(limiter);
 
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: 'Too many authentication attempts, please try again later.'
+const authLimiter = createRateLimit({
+  keyPrefix: 'auth',
+  points: 20,
+  durationSec: 15 * 60,
+  blockDurationSec: 15 * 60,
+  message: 'Too many authentication attempts, please try again later.',
 });
 
-const apiSensitiveLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000,
-  max: 40,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: 'Too many security-sensitive requests from this IP, please try again later.'
+const apiSensitiveLimiter = createRateLimit({
+  keyPrefix: 'sensitive',
+  points: 40,
+  durationSec: 10 * 60,
+  message: 'Too many security-sensitive requests from this IP, please try again later.',
 });
 
 const socketConnectionAttempts = new Map<string, { count: number; startedAt: number }>();
@@ -149,6 +289,10 @@ io.use((socket, next) => {
       return;
     }
     (socket.data as any).userId = userId;
+    // Stash the raw token so installAuthRefresh can read its `exp` claim
+    // when the connection is established. We never expose this beyond
+    // the socket.data field.
+    (socket.data as any).initialToken = token;
     next();
   } catch {
     next(new Error('Unauthorized'));
@@ -158,6 +302,20 @@ io.use((socket, next) => {
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
   const userId = (socket.data as any).userId as string | undefined;
+
+  // Install JWT-expiry tracking on this socket. The handshake already
+  // verified the initial token; this hook arms a timer to warn the
+  // client 1min before expiry via `auth:expiring`, accepts a new token
+  // via the `auth:refresh` event without forcing a reconnect, and
+  // disconnects 30s after expiry if no refresh arrived.
+  const initialToken = (socket.data as any).initialToken as string | undefined;
+  if (userId && initialToken) {
+    try { installAuthRefresh(socket, initialToken, userId); } catch (err) {
+      logger.warn('socket.authRefresh-install-failed', {
+        sid: socket.id, error: (err as Error)?.message,
+      });
+    }
+  }
   if (userId) {
     socket.join(`user:${userId}`);
   }
@@ -253,12 +411,35 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() });
 });
 
+app.use('/api/health/deep', healthDeepRoutes);
+app.use('/api/csp-report', cspReportRoutes);
+
+app.get('/internal/perf-snapshot', (req, res) => {
+  // Auth: shared-secret header OR loopback only.
+  const expected = process.env.PERF_SNAPSHOT_TOKEN;
+  const provided = req.headers['x-internal-token'];
+  const remote = req.ip || '';
+  const isLoopback = remote === '127.0.0.1' || remote === '::1' || remote === '::ffff:127.0.0.1';
+  if (expected) {
+    if (provided !== expected) return res.status(401).json({ message: 'unauthorized' });
+  } else if (!isLoopback) {
+    return res.status(401).json({ message: 'unauthorized' });
+  }
+  return res.json(getPerfSnapshot());
+});
+
+// Per-route body-size overrides. The auth limit is intentionally tiny so a
+// malicious actor cannot wedge a 1MB JSON blob through /login and waste a
+// rate-limit slot on parsing — credentials fit in well under 10kb.
+const authBodyLimit = express.json({ limit: '10kb' });
+const aiSyncBodyLimit = express.json({ limit: '2mb' });
+
 // Routes
-app.use('/api/auth', authLimiter, authRoutes);
-app.use('/api/notes', authMiddleware, noteRoutes);
-app.use('/api/tasks', authMiddleware, taskRoutes);
+app.use('/api/auth', authLimiter, authBodyLimit, authRoutes);
+app.use('/api/notes', authMiddleware, conditionalGet(), idempotency(), auditLog(), noteRoutes);
+app.use('/api/tasks', authMiddleware, conditionalGet(), idempotency(), auditLog(), taskRoutes);
 app.use('/api/ai/models', aiModelRoutes);
-app.use('/api/ai/sync', authMiddleware, aiSyncRoutes);
+app.use('/api/ai/sync', authMiddleware, aiSyncBodyLimit, aiSyncRoutes);
 app.use('/api/mcp', apiSensitiveLimiter, authMiddleware, mcpRoutes);
 app.use('/api/graphql', apiSensitiveLimiter);
 app.use('/api/graphql', (req, res, next) => {
@@ -270,21 +451,81 @@ app.use('/api/graphql', (req, res, next) => {
   }
   return next();
 });
-app.use('/api/graphql', authMiddleware, createHandler({
+
+// Apollo Server v4 plugin: emit per-operation Server-Timing into our response
+// header pipeline so the GraphQL phase has its own timing breakdown alongside
+// REST routes (parsing, validation, execution).
+const serverTimingPlugin: ApolloServerPlugin = {
+  async requestDidStart() {
+    const phaseStarts = new Map<string, number>();
+    const markStart = (phase: string) => { phaseStarts.set(phase, performance.now()); };
+    const markEnd = (req: any, phase: string) => {
+      const t0 = phaseStarts.get(phase);
+      if (typeof t0 !== 'number') return;
+      const dur = performance.now() - t0;
+      if (req) recordTiming(req as any, `gql_${phase}`, dur);
+    };
+    return {
+      async parsingDidStart(ctx) { markStart('parse'); return async () => markEnd((ctx.contextValue as any)?.req, 'parse'); },
+      async validationDidStart(ctx) { markStart('validate'); return async () => markEnd((ctx.contextValue as any)?.req, 'validate'); },
+      async executionDidStart(ctx) { markStart('execute'); return { async executionDidEnd() { markEnd((ctx.contextValue as any)?.req, 'execute'); } }; },
+      async willSendResponse(ctx) {
+        const op = ctx.operationName || ctx.operation?.operation || 'graphql';
+        const t0 = phaseStarts.get('parse') ?? performance.now();
+        const total = performance.now() - t0;
+        recordTiming((ctx.contextValue as any)?.req, `gql_${op}`, total, 'apollo total');
+      },
+    };
+  },
+};
+
+const apollo = new ApolloServer({
   schema: toolSchema,
-  context: (req: any) => {
-    let userId: string | undefined = req?.user?.userId || req?.raw?.user?.userId;
-    const token = getBearerTokenFromRequestLike(req);
-    if (!userId && token === 'demo-token') userId = 'demo-user-id';
-    if (!userId && token) {
-      try {
-        const decoded = jwt.verify(token, getJwtSecret(), getJwtVerifyOptions());
-        userId = getUserIdFromDecodedToken(decoded);
-      } catch {}
+  introspection: !isProduction || process.env.ALLOW_GRAPHQL_INTROSPECTION === 'true',
+  // Automatic Persisted Queries reduce request body size and let us cache
+  // parsed/validated AST keyed on the SHA-256 hash sent by the client.
+  // The cache is in-process; for multi-pod deployments swap to a KeyValueCache
+  // backed by Redis (we already have a Redis client wired up).
+  persistedQueries: { ttl: 60 * 60 },
+  plugins: [depthPlugin, complexityPlugin, serverTimingPlugin],
+  // Mask internal errors in production, expose codes only.
+  formatError: (formatted, err) => {
+    if (isProduction) {
+      const code = (formatted.extensions as any)?.code || 'INTERNAL';
+      logger.warn('graphql.error', { code, msg: formatted.message });
+      return {
+        message: code === 'BAD_USER_INPUT' || code === 'UNAUTHENTICATED' ? formatted.message : 'Internal server error',
+        extensions: { code },
+      };
     }
-    return { userId, io: req?.app?.get('io') };
-  }
-}));
+    return formatted;
+  },
+});
+
+// Apollo v4 requires explicit start before middleware mounting. We start it
+// synchronously below and gate the route registration on completion.
+const apolloReady = apollo.start();
+
+app.use('/api/graphql', authMiddleware, async (req, res, next) => {
+  await apolloReady;
+  const middleware = expressMiddleware(apollo, {
+    context: async ({ req: incoming }) => {
+      let userId: string | undefined = (incoming as any).user?.userId;
+      let tenant: ReturnType<typeof extractTenantClaims> | undefined = (incoming as any).tenant;
+      const token = getBearerTokenFromRequestLike(incoming);
+      if (!userId && token === 'demo-token') userId = 'demo-user-id';
+      if (token && token !== 'demo-token' && (!userId || !tenant)) {
+        try {
+          const decoded = jwt.verify(token, getJwtSecret(), getJwtVerifyOptions());
+          if (!userId) userId = getUserIdFromDecodedToken(decoded);
+          if (!tenant) tenant = extractTenantClaims(decoded);
+        } catch { /* fall through */ }
+      }
+      return { userId, tenant: tenant || {}, io: (incoming as any).app?.get('io'), req: incoming };
+    },
+  });
+  middleware(req as any, res as any, next);
+});
 app.use('/api', (_req, res) => {
   res.status(404).json({ message: 'API endpoint not found' });
 });
@@ -305,6 +546,30 @@ const startServer = async () => {
       });
       console.log('Connected to MongoDB');
       logger.info('Connected to MongoDB');
+      startChangeStreamInvalidator(io).catch((err) => {
+        logger.warn('changeStream startup failed', { error: (err as Error)?.message });
+      });
+      startInstanceHeartbeat().catch((err) => {
+        logger.warn('instance-heartbeat startup failed', { error: (err as Error)?.message });
+      });
+
+      // Register baseline cron jobs and start the scheduler. Each registered
+      // job is wrapped in withLock so multi-pod deployments don't double-fire.
+      try {
+        scheduleCron('instances-cleanup', { kind: 'daily', hourUtc: 3, minuteUtc: 0 }, async () => {
+          // Sweep stale instance-heartbeat rows (instances that haven't pinged
+          // in 5 minutes are presumed dead). Best-effort.
+          try {
+            const cutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+            await mongoose.connection.db?.collection('_instances').deleteMany({ lastSeen: { $lt: cutoff } });
+          } catch (err) {
+            logger.warn('cron.instances-cleanup failed', { error: (err as Error)?.message });
+          }
+        });
+      } catch (err) {
+        logger.warn('cron registration failed', { error: (err as Error)?.message });
+      }
+      startCron();
     } catch (err) {
       console.error('MongoDB connection error:', err);
       logger.error('MongoDB connection error:', err);
@@ -319,6 +584,17 @@ const startServer = async () => {
   server.listen(Number(port), '0.0.0.0', () => {
     console.log(`Server running at http://0.0.0.0:${port}`);
     logger.info(`Server running at http://0.0.0.0:${port}`);
+  });
+
+  installGracefulShutdown({
+    httpServer: server,
+    io,
+    extras: [
+      { name: 'cron-scheduler', close: () => stopCron() },
+      { name: 'instance-heartbeat', close: () => stopInstanceHeartbeat() },
+      { name: 'change-streams', close: () => stopChangeStreamInvalidator() },
+      { name: 'redis-rate-limit', close: () => closeRateLimitRedis() },
+    ],
   });
 };
 

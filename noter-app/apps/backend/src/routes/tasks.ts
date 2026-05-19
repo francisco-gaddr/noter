@@ -6,6 +6,8 @@ import { AuthRequest } from '../middleware/authMiddleware';
 import mongoose from 'mongoose';
 import { validate } from '../middleware/validate';
 import { isEncryptedPayload } from '../utils/encryption';
+import { parsePageParams, buildCursorFilter, buildPage } from '../utils/pagination';
+import { runWithReadPreference } from '../utils/readPreference';
 
 const router = express.Router();
 
@@ -65,6 +67,21 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
     const filter: any = { userId: (req as AuthRequest).user!.userId };
     if (req.query.parentNoteId) {
         filter.parentNoteId = req.query.parentNoteId;
+    }
+    // Cursor pagination is opt-in via ?limit/?cursor; without them we keep
+    // the historical full-list shape so existing clients aren't broken.
+    const wantsPagination = typeof req.query.limit !== 'undefined' || typeof req.query.cursor !== 'undefined';
+    if (wantsPagination) {
+      const { limit, cursor } = parsePageParams(req.query as Record<string, unknown>);
+      const merged = { ...filter, ...buildCursorFilter(cursor, 'desc') };
+      // Tasks list read-path can tolerate eventual consistency the same
+      // way notes can — route to secondary when available.
+      const query = Task.find(merged).sort({ createdAt: -1, _id: -1 }).limit(limit + 1);
+      runWithReadPreference(query, 'secondaryPreferred');
+      const rows = await query;
+      const page = buildPage(rows.map((t) => t.toObject()) as Array<{ _id: { toString(): string }; createdAt: string }>, limit);
+      res.json(page);
+      return;
     }
     const tasks = await Task.find(filter).sort({ createdAt: -1 });
     res.json(tasks);
