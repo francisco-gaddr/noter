@@ -1,0 +1,104 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    "group:monorepos",
+    "group:recommended",
+    ":timezone(Europe/Stockholm)"
+  ],
+  "schedule": [
+    "before 7am on monday"
+  ],
+  "labels": ["dependencies"],
+  "rangeStrategy": "auto",
+  "rebaseWhen": "behind-base-branch",
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 7am on the first day of the month"]
+  },
+  "vulnerabilityAlerts": {
+    "labels": ["security", "vulnerability"],
+    "enabled": true,
+    "platformAutomerge": true
+  },
+  "osvVulnerabilityAlerts": true,
+  "packageRules": [
+    {
+      "description": "Patch-level updates without known CVE — safe to automerge after CI passes.",
+      "matchUpdateTypes": ["patch", "pin", "digest"],
+      "matchCurrentVersion": "!/^0\\./",
+      "automerge": true,
+      "platformAutomerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "squash",
+      "labels": ["auto-merge", "patch"]
+    },
+    {
+      "description": "Dev-only dependencies: patch + minor automerged.",
+      "matchDepTypes": ["devDependencies"],
+      "matchUpdateTypes": ["patch", "minor"],
+      "automerge": true,
+      "platformAutomerge": true,
+      "automergeType": "pr",
+      "automergeStrategy": "squash"
+    },
+    {
+      "description": "Low/medium severity CVE (CVSS <7) patches: automerge.",
+      "matchPackagePatterns": ["*"],
+      "matchUpdateTypes": ["patch"],
+      "vulnerabilitySeverity": ["LOW", "MEDIUM"],
+      "automerge": true,
+      "platformAutomerge": true,
+      "labels": ["security", "cve-low"]
+    },
+    {
+      "description": "HIGH or CRITICAL CVE: NEVER automerge — requires human review.",
+      "matchPackagePatterns": ["*"],
+      "vulnerabilitySeverity": ["HIGH", "CRITICAL"],
+      "automerge": false,
+      "prPriority": 10,
+      "labels": ["security", "cve-high", "needs-review"]
+    },
+    {
+      "description": "Block major bumps from auto-merging anywhere.",
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "labels": ["major-bump", "needs-review"]
+    },
+    {
+      "description": "0.x packages — minor bumps are effectively breaking; never automerge.",
+      "matchCurrentVersion": "/^0\\./",
+      "matchUpdateTypes": ["minor", "patch"],
+      "automerge": false
+    },
+    {
+      "description": "Pin GitHub Actions to commit SHAs (supply-chain).",
+      "matchManagers": ["github-actions"],
+      "pinDigests": true
+    },
+    {
+      "description": "Keep Electron upgrades human-reviewed.",
+      "matchPackageNames": ["electron", "electron-builder", "@electron-forge/cli"],
+      "automerge": false,
+      "labels": ["electron", "needs-review"]
+    },
+    {
+      "description": "Keep React/Next/Expo majors and minors human-reviewed.",
+      "matchPackageNames": ["react", "react-dom", "react-native", "next", "expo"],
+      "matchUpdateTypes": ["major", "minor"],
+      "automerge": false,
+      "labels": ["framework", "needs-review"]
+    }
+  ],
+  "ignorePaths": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "electron-noter/dist-electron-mac-arm64/**",
+    "electron-noter/dist-electron-ready-mac-arm64/**"
+  ],
+  "prHourlyLimit": 4,
+  "prConcurrentLimit": 10
+}

@@ -1,0 +1,163 @@
+name: rekor-audit
+
+# Audit transparency log for our own cosign-signed releases.
+#
+# Why: every time CI signs an artifact with cosign (keyless or key-pair), the
+# signature is appended to the Sigstore Rekor public transparency log. If a
+# signature appears that did NOT originate from our trusted CI identities, that
+# is supply-chain evidence we want to catch within minutes.
+#
+# How: poll the Rekor public log for entries that match our subject (release
+# tags, container digests, npm tarballs) and verify each one matches an
+# allow-listed signer identity. Any mismatch triggers a GitHub issue.
+
+on:
+  schedule:
+    - cron: '17 */6 * * *'  # every 6h offset so it doesn't pile up on top of release runs
+  workflow_dispatch:
+    inputs:
+      lookback_hours:
+        description: 'How many hours of Rekor history to scan'
+        required: false
+        default: '24'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    env:
+      # Sigstore Rekor public instance. Override via secret if we move to a
+      # private Rekor at some point.
+      REKOR_URL: ${{ vars.REKOR_URL || 'https://rekor.sigstore.dev' }}
+      # Comma-separated GitHub identities allowed to sign for this repo (keyless).
+      # Format matches cosign's --certificate-identity expectation.
+      ALLOWED_IDENTITIES: ${{ vars.SIGSTORE_ALLOWED_IDENTITIES || 'https://github.com/francisco-gaddr/noter/.github/workflows/' }}
+      LOOKBACK_HOURS: ${{ github.event.inputs.lookback_hours || '6' }}
+      SUBJECTS: ${{ vars.REKOR_AUDIT_SUBJECTS || 'noter/electron-noter,noter/backend,noter/web,noter/mobile' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install rekor-cli
+        run: |
+          set -euo pipefail
+          curl -fsSL -o rekor-cli https://github.com/sigstore/rekor/releases/download/v1.3.6/rekor-cli-linux-amd64
+          sudo install -m 0755 rekor-cli /usr/local/bin/rekor-cli
+          rekor-cli version
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3.7.0
+
+      - name: Query Rekor & verify signers
+        id: audit
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p audit-out
+          # Compute lookback window
+          NOW_EPOCH=$(date -u +%s)
+          LOOKBACK_EPOCH=$(( NOW_EPOCH - LOOKBACK_HOURS * 3600 ))
+          echo "Auditing Rekor for entries since $(date -u -d @${LOOKBACK_EPOCH} +%FT%TZ)"
+
+          findings=0
+          IFS=',' read -ra SUBJECT_ARRAY <<< "${SUBJECTS}"
+          IFS=',' read -ra IDENTITY_ARRAY <<< "${ALLOWED_IDENTITIES}"
+
+          for subject in "${SUBJECT_ARRAY[@]}"; do
+            subject_trim=$(echo "${subject}" | tr -d '[:space:]')
+            [[ -z "${subject_trim}" ]] && continue
+            echo "::group::Audit subject ${subject_trim}"
+
+            uuids=$(rekor-cli search --rekor_server "${REKOR_URL}" --artifact "${subject_trim}" 2>/dev/null | tail -n +2 || true)
+            if [[ -z "${uuids}" ]]; then
+              echo "no rekor entries for ${subject_trim}"
+              echo "::endgroup::"
+              continue
+            fi
+
+            while IFS= read -r uuid; do
+              [[ -z "${uuid}" ]] && continue
+              entry=$(rekor-cli get --rekor_server "${REKOR_URL}" --uuid "${uuid}" --format json 2>/dev/null || echo '{}')
+              if [[ "${entry}" == "{}" ]]; then continue; fi
+
+              # IntegratedTime is unix epoch; skip entries older than lookback
+              integrated_time=$(echo "${entry}" | jq -r '.IntegratedTime // 0')
+              if (( integrated_time < LOOKBACK_EPOCH )); then
+                continue
+              fi
+
+              # Pull X.509 SAN identity from the certificate (if any)
+              cert_pem=$(echo "${entry}" | jq -r '.Body.HashedRekordObj.signature.publicKey.content // empty' | base64 -d 2>/dev/null || true)
+              if [[ -z "${cert_pem}" ]]; then
+                echo "entry ${uuid}: no cert (key-pair signature) — manual review needed"
+                echo "${entry}" > "audit-out/unknown-${uuid}.json"
+                findings=$((findings + 1))
+                continue
+              fi
+
+              san=$(echo "${cert_pem}" | openssl x509 -noout -ext subjectAltName 2>/dev/null | tr ',' '\n' | grep -i 'URI:' | sed 's/.*URI://; s/ //g' | head -n1)
+
+              matched=0
+              for allowed in "${IDENTITY_ARRAY[@]}"; do
+                allowed_trim=$(echo "${allowed}" | tr -d '[:space:]')
+                if [[ "${san}" == ${allowed_trim}* ]]; then
+                  matched=1
+                  break
+                fi
+              done
+              if (( matched == 0 )); then
+                echo "::warning::UNEXPECTED SIGNER for ${subject_trim} uuid=${uuid} san=${san}"
+                echo "${entry}" > "audit-out/unexpected-${uuid}.json"
+                findings=$((findings + 1))
+              else
+                echo "ok ${uuid} san=${san}"
+              fi
+            done <<< "${uuids}"
+
+            echo "::endgroup::"
+          done
+
+          echo "findings=${findings}" >> "${GITHUB_OUTPUT}"
+
+      - name: Upload audit findings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rekor-audit-${{ github.run_id }}
+          path: audit-out/
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Open issue on unexpected signers
+        if: steps.audit.outputs.findings != '0'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const findings = '${{ steps.audit.outputs.findings }}';
+            const title = `[rekor-audit] ${findings} unexpected Sigstore signature(s) detected`;
+            const body = [
+              `The Rekor audit job found **${findings}** signature(s) for our release subjects that do not match an allow-listed signer identity.`,
+              '',
+              `- Subjects audited: \`${process.env.SUBJECTS}\``,
+              `- Allowed identities: \`${process.env.ALLOWED_IDENTITIES}\``,
+              `- Lookback window: ${process.env.LOOKBACK_HOURS}h`,
+              `- Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              '',
+              'Download the run artifact `rekor-audit-${{ github.run_id }}` to inspect the unexpected entries.',
+            ].join('\n');
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['security', 'supply-chain', 'rekor-audit'],
+            });
+        env:
+          SUBJECTS: ${{ env.SUBJECTS }}
+          ALLOWED_IDENTITIES: ${{ env.ALLOWED_IDENTITIES }}
+          LOOKBACK_HOURS: ${{ env.LOOKBACK_HOURS }}

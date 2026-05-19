@@ -1,0 +1,33 @@
+name: actionlint
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - '.github/scripts/check-checkout-credentials.sh'
+  push:
+    branches: [dev, main]
+    paths:
+      - '.github/workflows/**'
+      - '.github/scripts/check-checkout-credentials.sh'
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Run actionlint
+        uses: docker://rhysd/actionlint:1.7.7
+        with:
+          # actionlint exits non-zero on any finding. We rely on its built-in
+          # rules for syntax + shellcheck integration.
+          args: -color
+
+      - name: Custom rule — actions/checkout must set persist-credentials false
+        run: ./.github/scripts/check-checkout-credentials.sh
