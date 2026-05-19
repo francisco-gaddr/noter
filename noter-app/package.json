@@ -6,7 +6,7 @@
     "dev": "turbo run dev",
     "lint": "turbo run lint",
     "prepare": "husky",
-    "postinstall": "patch-package",
+    "postinstall": "patch-package && turbo run build --filter=@repo/shared --filter=@repo/ai",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "check-types": "turbo run check-types",
     "validate:critical": "node scripts/validate-critical.mjs",
