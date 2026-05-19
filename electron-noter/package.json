@@ -23,7 +23,35 @@
     },
     "win": {
       "target": "nsis"
-    }
+    },
+    "publish": {
+      "provider": "generic",
+      "url": "https://updates.noter.app/releases/${os}/${arch}",
+      "channel": "stable"
+    },
+    "fileAssociations": [
+      {
+        "ext": "noter",
+        "name": "Noter Document",
+        "description": "Noter note file",
+        "role": "Editor"
+      },
+      {
+        "ext": "md",
+        "name": "Markdown Document",
+        "description": "Markdown note",
+        "role": "Editor"
+      }
+    ],
+    "protocols": [
+      {
+        "name": "Noter Protocol",
+        "schemes": ["noter"]
+      }
+    ]
+  },
+  "dependencies": {
+    "electron-updater": "^6.6.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
