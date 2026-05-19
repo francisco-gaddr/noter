@@ -16,6 +16,7 @@
   },
   "devDependencies": {
     "@expo/config-plugins": "^54.0.4",
+    "expo-router": "~6.0.21",
     "husky": "^9.1.7",
     "jest-expo": "^54.0.16",
     "patch-package": "^8.0.0",
