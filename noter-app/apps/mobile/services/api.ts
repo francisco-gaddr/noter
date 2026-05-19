@@ -229,6 +229,30 @@ export async function fetchWithAuth(
 
   const maxRetries = 3;
   const baseDelayMs = 500;
+  const maxDelayMs = 8000;
+
+  // Jittered exponential backoff: prevents thundering-herd when many clients
+  // recover simultaneously after a server hiccup. We honour `Retry-After`
+  // when the server provides it (RFC 9110 §10.2.3) — that header is the
+  // server explicitly telling us when to come back, so respecting it beats
+  // any local heuristic.
+  const computeDelay = (attempt: number, retryAfterHeader?: string | null): number => {
+    if (retryAfterHeader) {
+      const seconds = Number(retryAfterHeader);
+      if (Number.isFinite(seconds) && seconds > 0) {
+        return Math.min(seconds * 1000, maxDelayMs);
+      }
+      // Retry-After may also be an HTTP-date.
+      const dateMs = Date.parse(retryAfterHeader);
+      if (Number.isFinite(dateMs)) {
+        const wait = dateMs - Date.now();
+        if (wait > 0) return Math.min(wait, maxDelayMs);
+      }
+    }
+    const exp = Math.min(baseDelayMs * Math.pow(2, attempt), maxDelayMs);
+    // Full jitter (AWS Architecture Blog recommendation): pick random in [0, exp].
+    return Math.floor(Math.random() * exp);
+  };
 
   for (let attempt = 0; attempt < maxRetries; attempt += 1) {
     try {
@@ -295,7 +319,7 @@ export async function fetchWithAuth(
         const shouldRetry =
           attempt < maxRetries - 1 && (response.status >= 500 || response.status === 429);
         if (shouldRetry) {
-          const delay = baseDelayMs * Math.pow(2, attempt);
+          const delay = computeDelay(attempt, response.headers.get('retry-after'));
           await new Promise((r) => setTimeout(r, delay));
           continue;
         }
@@ -321,7 +345,7 @@ export async function fetchWithAuth(
 
       const shouldRetry = attempt < maxRetries - 1 && (isNetworkError || status >= 500);
       if (shouldRetry) {
-        const delay = baseDelayMs * Math.pow(2, attempt);
+        const delay = computeDelay(attempt);
         await new Promise((r) => setTimeout(r, delay));
         continue;
       }

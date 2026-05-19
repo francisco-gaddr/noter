@@ -69,9 +69,16 @@ export const TaskItem: React.FC<TaskItemProps> = ({
       overshootRight={false}
     >
       <TouchableRipple
-        onPress={() => onPress(task)}
-          onLongPress={handleLongPress}
+        onPress={() => {
+          Haptics.selectionAsync();
+          onPress(task);
+        }}
+        onLongPress={handleLongPress}
         disabled={disabled}
+        accessibilityRole="button"
+        accessibilityLabel={`Task: ${task.title || 'Untitled'}${task.completed ? ', completed' : ''}${task.priority ? `, priority ${task.priority}` : ''}`}
+        accessibilityHint="Double-tap to open. Swipe right to delete."
+        accessibilityState={{ checked: !!task.completed, disabled: !!disabled }}
         style={[
           styles.itemContainer,
           { backgroundColor: isActive ? theme.colors.elevation.level3 : theme.colors.elevation.level1 }
@@ -81,6 +88,13 @@ export const TaskItem: React.FC<TaskItemProps> = ({
           {showDragHandle ? (
             <IconButton icon="drag" size={18} style={styles.dragHandle} />
           ) : null}
+          {/*
+            Paper's Checkbox typings don't expose accessibilityLabel directly,
+            but the outer TouchableRipple already carries accessibilityRole=
+            "button" + accessibilityState.checked, so the screen reader has the
+            full meaning. The checkbox itself reads "selected/not selected" via
+            its native role.
+          */}
           <Checkbox
             status={task.completed ? 'checked' : 'unchecked'}
             onPress={() => {

@@ -13,6 +13,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SvgUri } from 'react-native-svg';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Platform } from 'react-native';
+import { SkeletonRow } from '@/components/Skeleton';
+import { useRefreshControl } from '@/hooks/useRefreshControl';
 import IconPickerModal from '@/components/IconPickerModal';
 
 import { EditListDialog } from '@/components/EditListDialog';
@@ -70,6 +72,12 @@ export default function TasksScreen() {
   const navigation = useNavigation();
   const theme = useTheme();
   const { tasks, notes, isLoading, fetchTasks, fetchNotes, updateTask, reorderTasks, createNote, updateNote, deleteNote, deleteTask } = useStore();
+
+  // Shared pull-to-refresh with haptic + min-spin + reentrancy guard.
+  const { refreshing: pullRefreshing, onRefresh: onPullRefresh } = useRefreshControl(
+    async () => { await Promise.all([fetchTasks(), fetchNotes()]); },
+  );
+
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'board' | 'calendar'>('list');
 
@@ -447,11 +455,14 @@ export default function TasksScreen() {
         </ScrollView>
       </View>
 
+      {viewMode === 'list' && isLoading && sortedTasks.length === 0 ? (
+        <SkeletonRow count={6} />
+      ) : null}
       {viewMode === 'list' ? (
         <TaskList
           tasks={sortedTasks}
-          onRefresh={() => { fetchTasks(); fetchNotes(); }}
-          refreshing={isLoading}
+          onRefresh={onPullRefresh}
+          refreshing={pullRefreshing || (isLoading && sortedTasks.length > 0)}
           onToggleComplete={handleToggleComplete}
           onReorder={sortBy === 'custom' ? handleReorder : undefined}
           showViewToggle={false}

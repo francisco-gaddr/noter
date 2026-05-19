@@ -3,10 +3,12 @@ import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { Link, Tabs } from 'expo-router';
 import { View, Pressable } from 'react-native';
 import { useTranslation } from 'react-i18next';
+import * as Haptics from 'expo-haptics';
 
 import Colors from '@/constants/Colors';
 import { useClientOnlyValue } from '@/components/useClientOnlyValue';
 import { useThemeContext } from '@/context/ThemeContext';
+import { useReduceMotion } from '@/hooks/useReduceMotion';
 
 // You can explore the built-in icon families and icons on the web at https://icons.expo.fyi/
 function TabBarIcon(props: {
@@ -20,6 +22,7 @@ export default function TabLayout() {
   const { actualTheme } = useThemeContext();
   const colorScheme = actualTheme;
   const { t } = useTranslation();
+  const reduceMotion = useReduceMotion();
 
   return (
     <Tabs
@@ -28,6 +31,16 @@ export default function TabLayout() {
         // Disable the static render of the header on web
         // to prevent a hydration error in React Navigation v6.
         headerShown: useClientOnlyValue(false, true),
+      }}
+      // Subtle haptic on every tab switch. Gated on reduceMotion as a proxy
+      // for the user's preference for subdued feedback — they're separate
+      // OS settings on iOS but conceptually paired here.
+      screenListeners={{
+        tabPress: () => {
+          if (!reduceMotion) {
+            try { Haptics.selectionAsync(); } catch { /* haptics is best-effort */ }
+          }
+        },
       }}>
       <Tabs.Screen
         name="index"

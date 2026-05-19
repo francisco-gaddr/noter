@@ -6,6 +6,7 @@ import { PanGestureHandler, PanGestureHandlerGestureEvent, ScrollView } from 're
 import { useStore } from '@/stores/useStore';
 import { Calendar } from 'react-native-calendars';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { formatDate } from '@/utils/dateFormat';
 
 // --- Utils ---
 
@@ -89,7 +90,8 @@ function getCurrentTimePosition() {
 
 function formatWeekRange(start: Date) {
   const end = addDays(start, 6);
-  return `${start.toLocaleDateString()} – ${end.toLocaleDateString()}`;
+  // formatDate respects the device locale + falls back to ISO if Intl breaks.
+  return `${formatDate(start)} – ${formatDate(end)}`;
 }
 
 function formatAgendaHeader(key: string) {

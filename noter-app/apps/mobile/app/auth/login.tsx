@@ -5,6 +5,7 @@ import { Link, useRouter } from 'expo-router';
 import { useStore } from '@/stores/useStore';
 import { API_URL, setApiUrl } from '@/services/api';
 import { BackendUrlDialog } from '@/components/BackendUrlDialog';
+import { KeyboardSafeView } from '@/components/KeyboardSafeView';
 import { useTranslation } from 'react-i18next';
 
 export default function LoginScreen() {
@@ -49,7 +50,11 @@ export default function LoginScreen() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <KeyboardSafeView
+      scrollable
+      style={{ backgroundColor: theme.colors.background }}
+      contentContainerStyle={styles.container}
+    >
       <Surface style={styles.card} elevation={2}>
         <Text variant="headlineMedium" style={styles.title}>{t('auth.welcomeBack')}</Text>
         {errorVisible && errorMessage ? (
@@ -103,14 +108,14 @@ export default function LoginScreen() {
       </Surface>
 
       <Portal>
-        <BackendUrlDialog 
+        <BackendUrlDialog
             visible={showSettings}
             onDismiss={() => setShowSettings(false)}
             currentUrl={activeApiUrl}
             onSave={handleSaveSettings}
         />
       </Portal>
-    </View>
+    </KeyboardSafeView>
   );
 }
 

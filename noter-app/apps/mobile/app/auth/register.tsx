@@ -3,6 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import { Text, TextInput, Button, Surface, useTheme, Snackbar } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { useStore } from '@/stores/useStore';
+import { KeyboardSafeView } from '@/components/KeyboardSafeView';
 import { useTranslation } from 'react-i18next';
 
 export default function RegisterScreen() {
@@ -51,7 +52,11 @@ export default function RegisterScreen() {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <KeyboardSafeView
+      scrollable
+      style={{ backgroundColor: theme.colors.background }}
+      contentContainerStyle={styles.container}
+    >
       <Surface style={styles.card} elevation={2}>
         <Text variant="headlineMedium" style={styles.title}>{t('auth.createAccount')}</Text>
         
@@ -107,7 +112,7 @@ export default function RegisterScreen() {
       >
         {errorMessage}
       </Snackbar>
-    </View>
+    </KeyboardSafeView>
   );
 }
 

@@ -11,6 +11,33 @@ interface State {
   error: Error | null;
 }
 
+// Rate-limit identical error reports. Without this, a render-loop error
+// would spam logs hundreds of times per second and obscure the actual
+// signal. We key on the error's name+message+first stack frame so distinct
+// errors aren't collapsed but the same one stays at 1/min.
+const REPORT_WINDOW_MS = 60_000;
+const recentReports = new Map<string, number>();
+
+const reportKey = (error: Error): string => {
+  const firstFrame = (error.stack || '').split('\n')[1] || '';
+  return `${error.name || 'Error'}|${error.message || ''}|${firstFrame.trim()}`;
+};
+
+const shouldReport = (error: Error): boolean => {
+  const key = reportKey(error);
+  const now = Date.now();
+  const last = recentReports.get(key);
+  if (last !== undefined && now - last < REPORT_WINDOW_MS) return false;
+  recentReports.set(key, now);
+  // Garbage-collect entries older than the window so the map can't grow unbounded.
+  if (recentReports.size > 64) {
+    for (const [k, t] of recentReports) {
+      if (now - t > REPORT_WINDOW_MS) recentReports.delete(k);
+    }
+  }
+  return true;
+};
+
 export class CustomErrorBoundary extends Component<Props, State> {
   public state: State = {
     hasError: false,
@@ -22,7 +49,21 @@ export class CustomErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('Uncaught error:', error, errorInfo);
+    if (!shouldReport(error)) return;
+    // Structured payload — easy to parse by log shippers and easy to read
+    // in a terminal. Stack trace included; PII should never be in error
+    // messages but we leave that as a separate redaction concern.
+    const payload = {
+      level: 'error',
+      kind: 'react-error-boundary',
+      name: error.name || 'Error',
+      message: String(error.message || '').slice(0, 500),
+      stack: String(error.stack || '').slice(0, 4000),
+      componentStack: String(errorInfo.componentStack || '').slice(0, 2000),
+      ts: new Date().toISOString(),
+    };
+    // eslint-disable-next-line no-console
+    console.error('[error-boundary]', JSON.stringify(payload));
   }
 
   private handleRetry = () => {

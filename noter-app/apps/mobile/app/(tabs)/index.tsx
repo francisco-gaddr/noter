@@ -11,6 +11,9 @@ import { SvgUri } from 'react-native-svg';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import { Note } from '@repo/shared';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { parseSettings } from '@/services/storage';
+import { SkeletonRow } from '@/components/Skeleton';
+import { useRefreshControl } from '@/hooks/useRefreshControl';
 
 const normalizeNoteType = (value: unknown): string => {
   if (typeof value !== 'string') return 'note';
@@ -88,6 +91,13 @@ export default function NotesScreen() {
   const navigation = useNavigation();
   const theme = useTheme();
   const { notes, isLoading, error, fetchNotes, viewMode, setViewMode, activeProjectId, updateNote, reorderNotes, deleteNote } = useStore();
+
+  // Standardised pull-to-refresh: haptic on initiation, minimum 350ms spinner
+  // so a fast-cached response doesn't flicker the UI, reentrancy-guarded so
+  // multiple drags can't queue parallel fetches.
+  const { refreshing: pullRefreshing, onRefresh: onPullRefresh } = useRefreshControl(
+    async () => { await fetchNotes(); },
+  );
   
   const [sortMenuVisible, setSortMenuVisible] = useState(false);
   const [projectSelectorVisible, setProjectSelectorVisible] = useState(false);
@@ -122,9 +132,21 @@ export default function NotesScreen() {
     AsyncStorage.getItem(NOTES_SORT_KEY)
       .then((saved) => {
         if (!saved) return;
-        const parsed = JSON.parse(saved);
-        if (parsed?.sortBy) setSortBy(parsed.sortBy);
-        if (parsed?.sortOrder) setSortOrder(parsed.sortOrder);
+        // Defensive parse: corrupt JSON or wrong-type values were silently
+        // setting `undefined` onto sortBy/sortOrder before. parseSettings is
+        // already-defined schema for these exact field names (notesSortBy /
+        // notesSortOrder) and returns the defaults on validation failure.
+        try {
+          const parsed = JSON.parse(saved);
+          const { settings } = parseSettings({
+            notesSortBy: parsed?.sortBy,
+            notesSortOrder: parsed?.sortOrder,
+          });
+          setSortBy(settings.notesSortBy);
+          setSortOrder(settings.notesSortOrder);
+        } catch {
+          // corrupt JSON — leave defaults
+        }
       })
       .catch(() => {});
   }, []);
@@ -296,10 +318,16 @@ export default function NotesScreen() {
         onDismiss={() => setIconPickerVisible(false)}
         onSelect={handleIconSelect}
       />
-      <NoteList 
-        notes={sortedNotes} 
-        onRefresh={fetchNotes}
-        refreshing={isLoading}
+      {isLoading && sortedNotes.length === 0 ? (
+        // Cold-start placeholder: skeletons let the user see "something is
+        // happening" without staring at an empty screen. Reduce-motion is
+        // honoured by Skeleton internally.
+        <SkeletonRow count={6} />
+      ) : null}
+      <NoteList
+        notes={sortedNotes}
+        onRefresh={onPullRefresh}
+        refreshing={pullRefreshing || (isLoading && sortedNotes.length > 0)}
         viewMode={viewMode}
         onReorder={handleReorder}
         sortBy={sortBy}

@@ -6,6 +6,7 @@ import { useStore } from '@/stores/useStore';
 import NoteList from '@/components/NoteList';
 import TaskList from '@/components/TaskList';
 import { Note, Task } from '@repo/shared';
+import { HighlightedText } from '@/components/HighlightedText';
 
 export default function SearchScreen() {
   const { notes, tasks, updateTask } = useStore();
@@ -57,6 +58,15 @@ export default function SearchScreen() {
       
       {searchQuery ? (
         <ScrollView style={styles.resultsContainer}>
+          {(filteredNotes.length > 0 || filteredTasks.length > 0) && (
+            <View style={styles.matchPreview}>
+              <HighlightedText
+                text={`Showing matches for "${searchQuery}"`}
+                terms={[searchQuery]}
+                style={{ color: theme.colors.onSurfaceVariant, fontSize: 13 }}
+              />
+            </View>
+          )}
           {filteredNotes.length > 0 && (
             <View>
               <Text variant="titleMedium" style={styles.sectionTitle}>Notes ({filteredNotes.length})</Text>
@@ -113,5 +123,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 32,
     opacity: 0.5,
+  },
+  matchPreview: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 4,
   },
 });

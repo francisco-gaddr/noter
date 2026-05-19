@@ -25,6 +25,16 @@ const lockTimingToMs = (timing: LockTiming) => {
   return 60 * 60 * 1000;
 };
 
+// Sliding-window lockout: 5 failed prompts inside 60s → 30s cool-down.
+// Pure helpers live in utils/biometricLockout.ts so the gate logic is
+// unit-tested without an RN runtime.
+import {
+  recordFailure,
+  isLockedOut as isLockedOutNow,
+  lockoutSecondsRemaining as remainingSeconds,
+  LOCKOUT_DURATION_MS,
+} from '@/utils/biometricLockout';
+
 export const AppLock: React.FC<AppLockProps> = ({ children }) => {
   const appState = useRef(AppState.currentState);
   const [isLocked, setIsLocked] = useState(true); // Default to locked
@@ -35,6 +45,12 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
   const lastBackgroundAtRef = useRef<number | null>(null);
   const isMounted = useRef(false);
   const setSecurityLocked = useStore((s) => s.setSecurityLocked);
+
+  // Per-mount attempt log: timestamps of failed authenticate() calls.
+  // We slide the window so successes earlier-this-minute don't keep counting.
+  const failedAttemptsRef = useRef<number[]>([]);
+  const [lockoutUntilMs, setLockoutUntilMs] = useState<number>(0);
+  const [, forceTick] = useState(0);
 
   useEffect(() => {
     isMounted.current = true;
@@ -102,10 +118,35 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
   };
 
   const unlockApp = async () => {
+    // Sliding-window lockout check: too many failures in a minute → enforce
+    // a 30s cooldown before prompting again. Without this, a bystander
+    // could keep cancelling+retrying the biometric prompt to wear down
+    // the lock-attempt counter the OS itself enforces.
+    const now = Date.now();
+    if (isLockedOutNow(lockoutUntilMs, now)) {
+      setChecking(false);
+      return;
+    }
+
     const result = await authenticate('Lås upp Noter');
     if (result.success) {
       setIsLocked(false);
       await setSecurityLocked(false);
+      failedAttemptsRef.current = [];
+    } else {
+      const { nextAttempts, lockoutUntil } = recordFailure(failedAttemptsRef.current, Date.now());
+      failedAttemptsRef.current = nextAttempts;
+      if (lockoutUntil !== null) {
+        setLockoutUntilMs(lockoutUntil);
+        // Tick on lockout expiry so the UI re-renders without lockout text.
+        setTimeout(() => {
+          if (isMounted.current) {
+            setLockoutUntilMs(0);
+            failedAttemptsRef.current = [];
+            forceTick((n) => n + 1);
+          }
+        }, LOCKOUT_DURATION_MS + 100);
+      }
     }
     setChecking(false);
   };
@@ -174,6 +215,10 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
     return <>{children}</>;
   }
 
+  const now = Date.now();
+  const isLockedOut = isLockedOutNow(lockoutUntilMs, now);
+  const lockoutSecondsRemaining = remainingSeconds(lockoutUntilMs, now);
+
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <Surface style={styles.surface} elevation={4}>
@@ -181,14 +226,18 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
           Noter är låst
         </Text>
         <Text style={{ marginBottom: 20, textAlign: 'center' }}>
-          Verifiera din identitet för att fortsätta.
+          {isLockedOut
+            ? `För många misslyckade försök. Försök igen om ${lockoutSecondsRemaining}s.`
+            : 'Verifiera din identitet för att fortsätta.'}
         </Text>
-        <Button 
-          mode="contained" 
+        <Button
+          mode="contained"
           onPress={unlockApp}
           icon="lock-open"
+          disabled={isLockedOut}
+          accessibilityState={{ disabled: isLockedOut }}
         >
-          Lås upp med {getBiometryLabel()}
+          {isLockedOut ? `Försök igen om ${lockoutSecondsRemaining}s` : `Lås upp med ${getBiometryLabel()}`}
         </Button>
       </Surface>
     </View>

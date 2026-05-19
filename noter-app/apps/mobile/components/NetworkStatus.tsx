@@ -54,17 +54,36 @@ export function NetworkStatus() {
         <Text variant="labelMedium" style={{ color: theme.colors.onError }}>
           Offline
         </Text>
-        <Pressable
-          onPress={() => {
-            AsyncStorage.setItem('hideOfflineBanner', 'true');
-            setDismissed(true);
-          }}
-          style={styles.close}
-          accessibilityRole="button"
-          accessibilityLabel="Dölj offline-indikator"
-        >
-          <IconButton icon="close" size={14} iconColor={theme.colors.onError} />
-        </Pressable>
+        <View style={styles.actions}>
+          <Pressable
+            onPress={() => {
+              // Trigger a fresh NetInfo probe. NetInfo's internal listeners
+              // will refire if the device actually has connectivity again,
+              // and the offline queue (round 7) will flush automatically.
+              NetInfo.refresh().catch(() => undefined);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Försök igen"
+            accessibilityHint="Pröva att ansluta till servern igen"
+            style={styles.retry}
+            hitSlop={8}
+          >
+            <Text variant="labelSmall" style={{ color: theme.colors.onError, textDecorationLine: 'underline' }}>
+              Försök igen
+            </Text>
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              AsyncStorage.setItem('hideOfflineBanner', 'true');
+              setDismissed(true);
+            }}
+            style={styles.close}
+            accessibilityRole="button"
+            accessibilityLabel="Dölj offline-indikator"
+          >
+            <IconButton icon="close" size={14} iconColor={theme.colors.onError} />
+          </Pressable>
+        </View>
       </View>
     </Animated.View>
   );
@@ -75,7 +94,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     alignSelf: 'center', // Center horizontally
-    width: '40%',
+    width: '60%',
     borderBottomLeftRadius: 12,
     borderBottomRightRadius: 12,
     zIndex: 9999,
@@ -90,6 +109,14 @@ const styles = StyleSheet.create({
   },
   close: {
     marginLeft: 6,
+  },
+  actions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  retry: {
+    paddingHorizontal: 6,
+    paddingVertical: 4,
   },
 });
 

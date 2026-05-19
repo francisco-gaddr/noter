@@ -1,6 +1,12 @@
 import 'react-native-get-random-values';
 import '@/utils/polyfill';
 import '../services/i18n';
+// react-native-screens v4.x enables natively-rendered Screen primitives by
+// default, but we make it explicit at the very top of the entrypoint so a
+// future React Navigation upgrade can't silently disable it. Idempotent on
+// hot-reload because enableScreens caches its state internally.
+import { enableScreens } from 'react-native-screens';
+enableScreens(true);
 import FontAwesome from '@expo/vector-icons/FontAwesome';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
@@ -13,7 +19,8 @@ import { Provider as PaperProvider, Snackbar, Text, useTheme } from 'react-nativ
 
 import { useColorScheme } from '@/components/useColorScheme';
 
-import { ThemeContextProvider, useThemeContext } from '@/context/ThemeContext';
+import { ThemeContextProvider, useThemeContext, preloadTheme } from '@/context/ThemeContext';
+import { runKvMigrationIfNeeded } from '@/services/storage';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -33,19 +40,48 @@ export default function RootLayout() {
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
     ...FontAwesome.font,
   });
+  const [bootReady, setBootReady] = useState(false);
 
   // Expo Router uses Error Boundaries to catch errors in the navigation tree.
   useEffect(() => {
     if (error) throw error;
   }, [error]);
 
+  // Critical-path bootstraps that MUST be done before we reveal UI. Keep this
+  // tight — anything that touches the network must time out, otherwise we
+  // risk holding the splash forever on poor connections.
   useEffect(() => {
-    if (loaded) {
-      SplashScreen.hideAsync();
-    }
-  }, [loaded]);
+    let cancelled = false;
+    const timeout = new Promise<void>((r) => setTimeout(r, 4000));
+    const bootstrap = async () => {
+      try {
+        await Promise.race([
+          // KV migration is a no-op today; placeholder for future MMKV switch.
+          // preloadTheme runs in parallel so the ThemeContext picks up the
+          // stored value on its first render — eliminates the light→dark
+          // flash on cold start.
+          Promise.all([runKvMigrationIfNeeded(), preloadTheme()]).then(() => undefined),
+          timeout,
+        ]);
+      } catch (e) {
+        // Boot must never block on a bootstrap failure — fall through to UI.
+        console.warn('[bootstrap] non-fatal error', e);
+      }
+      if (!cancelled) setBootReady(true);
+    };
+    void bootstrap();
+    return () => { cancelled = true; };
+  }, []);
 
-  if (!loaded) {
+  // Splash hides only once BOTH fonts AND critical bootstraps are ready.
+  // The 4s timeout above guarantees we never stay on splash forever.
+  useEffect(() => {
+    if (loaded && bootReady) {
+      SplashScreen.hideAsync().catch(() => undefined);
+    }
+  }, [loaded, bootReady]);
+
+  if (!loaded || !bootReady) {
     return null;
   }
 
@@ -63,6 +99,14 @@ import { MD3DarkTheme, MD3LightTheme } from 'react-native-paper';
 import { useStore } from '@/stores/useStore';
 
 import { initApiUrl } from '@/services/api';
+import { useAppForegroundSync } from '@/hooks/useAppForegroundSync';
+import { useDeepLinkConsumer } from '@/hooks/useDeepLinkConsumer';
+import { useRouteRestore } from '@/hooks/useRouteRestore';
+import {
+  setBackgroundFetchTask,
+  registerBackgroundFetch,
+  unregisterBackgroundFetch,
+} from '@/services/backgroundFetch';
 import { Alert, View } from 'react-native';
 import { useRouter, useSegments } from 'expo-router';
 
@@ -72,6 +116,11 @@ function RootLayoutNav() {
   const { init } = require('@/stores/useStore').useStore.getState();
   require('react').useEffect(() => {
     const bootstrap = async () => {
+        // KV migration is a no-op today (AsyncStorage is still the store). When
+        // we flip `USE_MMKV_WHEN_AVAILABLE` in services/storage/kv.ts the same
+        // call performs a one-shot migration with batched, yielding reads so
+        // the JS thread stays responsive during cold-start.
+        try { await runKvMigrationIfNeeded(); } catch (err) { console.warn('[kv-migration]', err); }
         await initApiUrl();
         await init();
     };
@@ -83,6 +132,52 @@ function RootLayoutNav() {
   const token = useStore((s) => s.token);
   const isInitialized = useStore((s) => s.isInitialized);
   const inAuth = segments[0] === 'auth';
+
+  // Re-sync when the app comes back to the foreground. The hook handles
+  // debounce + cooldown + offline-skip so this is safe to call unconditionally.
+  // We only sync when the user is authenticated; an anonymous app coming back
+  // to the foreground has nothing to fetch.
+  useAppForegroundSync(async () => {
+    if (!token) return;
+    const store = useStore.getState();
+    await Promise.all([store.fetchNotes(), store.fetchTasks()]);
+  });
+
+  // Route incoming noter:// + universal links (e.g. https://daylited.com/note/<id>)
+  // to the matching internal screen. Same parser as the Electron side so
+  // links work identically across platforms.
+  useDeepLinkConsumer();
+
+  // Cold-boot route restoration: if the user kills the app while reading a
+  // note, the next launch returns them to that note (1h window so we don't
+  // resurrect ancient state). Gated on auth — anonymous bootflow always
+  // lands on the default tab. Hook also persists every navigation, so
+  // there's no separate save-step the caller needs to do.
+  useRouteRestore(Boolean(token));
+
+  // Register the OS background-fetch task once we have a token. iOS calls
+  // us back roughly every 15 minutes (subject to user permission); the
+  // injected handler fetches notes + tasks. We tear down the registration
+  // when the user logs out so anonymous re-installations don't keep firing
+  // it. Idempotent — safe across re-renders.
+  useEffect(() => {
+    if (!token) {
+      void unregisterBackgroundFetch();
+      return;
+    }
+    setBackgroundFetchTask(async () => {
+      try {
+        const store = useStore.getState();
+        const before = (store.notes?.length || 0) + (store.tasks?.length || 0);
+        await Promise.all([store.fetchNotes(), store.fetchTasks()]);
+        const after = (store.notes?.length || 0) + (store.tasks?.length || 0);
+        return after !== before ? 'new-data' : 'no-data';
+      } catch {
+        return 'failed';
+      }
+    });
+    void registerBackgroundFetch();
+  }, [token]);
 
   useEffect(() => {
     console.log('RootLayoutNav: Auth State Change', { 

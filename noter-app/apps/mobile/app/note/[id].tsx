@@ -15,6 +15,7 @@ import ProjectSelector from '@/components/ProjectSelector';
 import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { buildSecurityNoteMap, findBlockingLockedAncestor } from '@/services/ai/security';
+import { exportNoteToMarkdown, exportNoteToPdf } from '@/services/noteExport';
 
 export default function NoteEditorScreen() {
   const params = useLocalSearchParams<{ id: string | string[]; parentId?: string | string[] }>();
@@ -589,6 +590,45 @@ export default function NoteEditorScreen() {
               }} 
               title={existingNote?.locked ? t('note.removeLock') : t('note.lock')} 
               leadingIcon={existingNote?.locked ? "lock-open" : "lock"} 
+            />
+          )}
+          {!isNew && !existingNote?.locked && (
+            <Menu.Item
+              onPress={async () => {
+                setShowMenu(false);
+                // exportNoteToPdf uses expo-print + expo-sharing to write the
+                // PDF to the cache directory and pop the share sheet. Locked
+                // notes are refused inside the helper via LockedNoteExportError.
+                await exportNoteToPdf({
+                  id: existingNote?._id || 'new',
+                  title: existingNote?.title || 'Untitled',
+                  content: typeof existingNote?.content === 'string'
+                    ? existingNote.content
+                    : tiptapJsonToHtml(existingNote?.content as any),
+                  createdAt: existingNote?.createdAt as any,
+                  updatedAt: existingNote?.updatedAt as any,
+                  locked: false,
+                });
+              }}
+              title="Share as PDF"
+              leadingIcon="file-pdf-box"
+            />
+          )}
+          {!isNew && !existingNote?.locked && (
+            <Menu.Item
+              onPress={async () => {
+                setShowMenu(false);
+                await exportNoteToMarkdown({
+                  id: existingNote?._id || 'new',
+                  title: existingNote?.title || 'Untitled',
+                  content: typeof existingNote?.content === 'string' ? existingNote.content : '',
+                  createdAt: existingNote?.createdAt as any,
+                  updatedAt: existingNote?.updatedAt as any,
+                  locked: false,
+                });
+              }}
+              title="Share as Markdown"
+              leadingIcon="language-markdown"
             />
           )}
           {!isNew && (

@@ -372,8 +372,15 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
                       currentSelected === item._id && { backgroundColor: theme.colors.secondaryContainer },
                       isActive ? { opacity: 0.85 } : null,
                     ]}
-                    onPress={() => handleSelect(item._id)}
+                    onPress={() => {
+                      Haptics.selectionAsync();
+                      handleSelect(item._id);
+                    }}
                     testID={`project-row-${item._id}`}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Project: ${item.title || 'Untitled'}`}
+                    accessibilityHint="Double-tap to select. Long-press to reorder."
+                    accessibilityState={{ selected: currentSelected === item._id }}
                     onLongPress={() => {
                       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
                       drag();
