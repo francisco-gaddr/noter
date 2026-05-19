@@ -16,7 +16,7 @@
     "check-types": "tsc --noEmit",
     "test": "jest",
     "test:android:mlc-device-e2e": "cd android && gradlew connectedAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.noter.app.MLCConverterDeviceE2ETest",
-    "postinstall": "turbo run build --filter=@repo/shared"
+    "postinstall": "turbo run build --filter=@repo/shared --filter=@repo/ai"
   },
   "expo": {
     "doctor": {
