@@ -29,7 +29,12 @@ services:
       - MONGO_URI=mongodb://mongodb:27017/noter
       - REDIS_URL=redis://redis:6379
       - PORT=3001
-      # Add other env vars here or use env_file
+      # Auth secret — value lives in the gitignored .env next to this compose
+      # file (compose substitutes ${JWT_SECRET} at deploy time). Required in
+      # production; backend throws AUTH_CONFIG without it.
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_ISSUER=${JWT_ISSUER:-daylited}
+      - JWT_AUDIENCE=${JWT_AUDIENCE:-noter}
     depends_on:
       - mongodb
       - redis
