@@ -3,7 +3,7 @@ import Note from '../models/Note';
 import Task from '../models/Task';
 import Joi from 'joi';
 import bcrypt from 'bcryptjs';
-import rateLimit from 'express-rate-limit';
+import { createRateLimit } from '../middleware/rateLimit';
 import { decrypt, encrypt } from '@repo/shared';
 import { AuthRequest } from '../middleware/authMiddleware';
 import { validate } from '../middleware/validate';
@@ -69,11 +69,13 @@ const reorderSchema = Joi.object({
     .required(),
 });
 
-const verifyLockLimiter = rateLimit({
-  windowMs: 10 * 60 * 1000,
-  max: 25,
-  standardHeaders: true,
-  legacyHeaders: false,
+// Redis-backed (with in-memory fallback) limiter — 25 attempts / 10 min.
+// Uses the shared createRateLimit wrapper so unlock attempts are rate-limited
+// consistently across multiple backend instances, not just per-process.
+const verifyLockLimiter = createRateLimit({
+  keyPrefix: 'verify-lock',
+  points: 25,
+  durationSec: 10 * 60,
   message: 'Too many unlock verification attempts, please try again later.'
 });
 
