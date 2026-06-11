@@ -128,8 +128,8 @@ export default function Navbar({ onToggleSidebar, isSidebarCollapsed }: { onTogg
           target="_blank"
           rel="noopener noreferrer"
           className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"
-          title={t('navbar.hubTitle', { defaultValue: 'Daylited Hub – alla verktyg' })}
-          aria-label={t('navbar.hubTitle', { defaultValue: 'Daylited Hub – alla verktyg' })}
+          title={t('navbar.hubTitle', { defaultValue: 'Daylited Hub — alla verktyg & tjänster' })}
+          aria-label={t('navbar.hubTitle', { defaultValue: 'Daylited Hub — alla verktyg & tjänster' })}
         >
           <FaThLarge aria-hidden="true" />
         </a>
