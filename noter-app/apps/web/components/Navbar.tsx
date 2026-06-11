@@ -2,7 +2,7 @@
 
 import { useTheme } from 'next-themes';
 import { useEffect, useState } from 'react';
-import { FaMoon, FaSun, FaSearch, FaSignOutAlt, FaCog, FaIndent } from 'react-icons/fa';
+import { FaMoon, FaSun, FaSearch, FaSignOutAlt, FaCog, FaIndent, FaThLarge } from 'react-icons/fa';
 import { useStore } from '../stores/useStore';
 import SettingsModal from './SettingsModal';
 import { useTranslation } from 'react-i18next';
@@ -123,6 +123,16 @@ export default function Navbar({ onToggleSidebar, isSidebarCollapsed }: { onTogg
                 {user.username}
             </div>
         )}
+        <a
+          href="https://mail.daylited.com/hub/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"
+          title={t('navbar.hubTitle', { defaultValue: 'Daylited Hub – alla verktyg' })}
+          aria-label={t('navbar.hubTitle', { defaultValue: 'Daylited Hub – alla verktyg' })}
+        >
+          <FaThLarge aria-hidden="true" />
+        </a>
         <button
           onClick={() => setIsSettingsOpen(true)}
           className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"
