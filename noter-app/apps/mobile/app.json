@@ -32,6 +32,7 @@
       },
       "package": "com.noter.app",
       "versionCode": 7,
+      "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "android.permission.USE_BIOMETRIC",
         "android.permission.USE_FINGERPRINT",

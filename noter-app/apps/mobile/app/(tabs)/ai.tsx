@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { StyleSheet, View, FlatList, TextInput, KeyboardAvoidingView, Platform, ScrollView, Pressable, AppState, Linking } from 'react-native';
-import { Text, Button, useTheme, IconButton, List, ActivityIndicator, ProgressBar, Portal, Dialog, TextInput as PaperTextInput, Switch, Menu } from 'react-native-paper';
+import { Text, Button, useTheme, IconButton, List, ActivityIndicator, ProgressBar, Portal, Dialog, TextInput as PaperTextInput, Switch, Menu, Divider } from 'react-native-paper';
 import { useLocalSearchParams, useNavigation } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { MobileLlamaProvider } from '@/services/ai/provider';
@@ -256,6 +256,8 @@ export default function AIScreen() {
   const [aiUseApiProviders, setAiUseApiProviders] = useState(false);
   const [apiProvider, setApiProvider] = useState<ApiProviderType>('openrouter');
   const [providerMenuVisible, setProviderMenuVisible] = useState(false);
+  const [modelMenuVisible, setModelMenuVisible] = useState(false);
+  const [customModelMode, setCustomModelMode] = useState(false);
   const [openRouterApiKey, setOpenRouterApiKey] = useState('');
   const [openRouterModel, setOpenRouterModel] = useState('openai/gpt-4o-mini');
   const [geminiApiKey, setGeminiApiKey] = useState('');
@@ -465,6 +467,16 @@ export default function AIScreen() {
     if (!userScopeKey) return;
     AsyncStorage.setItem(`ai_attachments_enabled_${userScopeKey}`, attachmentsEnabled ? 'true' : 'false');
   }, [attachmentsEnabled, userScopeKey]);
+
+  // Auto-save the system prompt locally (encrypted) as you type — debounced — so it
+  // always persists without needing an explicit save tap.
+  useEffect(() => {
+    if (!userScopeKey) return;
+    const handle = setTimeout(() => {
+      AsyncStorage.setItem(`ai_system_prompt_${userScopeKey}`, systemPrompt ? encrypt(systemPrompt) : '').catch(() => {});
+    }, 400);
+    return () => clearTimeout(handle);
+  }, [systemPrompt, userScopeKey]);
 
   useEffect(() => {
     if (!userScopeKey) return;
@@ -2207,7 +2219,13 @@ export default function AIScreen() {
           </View>
 
           {settingsTab === 'models' && (
-            <View style={{ flex: 1 }}>
+            <ScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={{ paddingBottom: 48 }}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              showsVerticalScrollIndicator
+            >
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
                 <Text style={{ color: theme.colors.onSurface }}>Använd API-baserad AI</Text>
                 <Switch value={aiUseApiProviders} onValueChange={setAiUseApiProviders} />
@@ -2272,69 +2290,114 @@ export default function AIScreen() {
                     secureTextEntry
                     style={{ marginTop: 8 }}
                   />
-                  <PaperTextInput
-                    mode="outlined"
-                    label={`${API_PROVIDERS[apiProvider].label} modell`}
-                    value={activeBinding.model}
-                    onChangeText={activeBinding.setModel}
-                    autoCorrect={false}
-                    autoCapitalize="none"
-                    style={{ marginTop: 8 }}
-                  />
-                  <Text style={{ marginTop: 6, fontSize: 12, color: theme.colors.onSurfaceVariant }}>
-                    Förslag: {API_PROVIDERS[apiProvider].defaultModels.join(', ')}
-                  </Text>
+                  {/* Per-provider model picker: choose from the provider's known
+                      models, or switch to a custom id. Selection is remembered per
+                      provider (AsyncStorage). */}
+                  <Text style={{ color: theme.colors.onSurface, marginTop: 12, marginBottom: 6 }}>Modell ({API_PROVIDERS[apiProvider].label})</Text>
+                  {!customModelMode ? (
+                    <Menu
+                      visible={modelMenuVisible}
+                      onDismiss={() => setModelMenuVisible(false)}
+                      anchor={
+                        <Button mode="outlined" onPress={() => setModelMenuVisible(true)} testID="ai-model-dropdown-button" icon="chevron-down" contentStyle={{ flexDirection: 'row-reverse' }}>
+                          {activeBinding.model || 'Välj modell'}
+                        </Button>
+                      }
+                    >
+                      {API_PROVIDERS[apiProvider].defaultModels.map((m) => (
+                        <Menu.Item
+                          key={m}
+                          onPress={() => { activeBinding.setModel(m); setModelMenuVisible(false); }}
+                          title={m}
+                          leadingIcon={activeBinding.model === m ? 'check' : undefined}
+                        />
+                      ))}
+                      <Divider />
+                      <Menu.Item
+                        onPress={() => { setCustomModelMode(true); setModelMenuVisible(false); }}
+                        title="Egen modell-id…"
+                        leadingIcon="pencil"
+                      />
+                    </Menu>
+                  ) : (
+                    <View>
+                      <PaperTextInput
+                        mode="outlined"
+                        label={`Egen modell-id`}
+                        value={activeBinding.model}
+                        onChangeText={activeBinding.setModel}
+                        autoCorrect={false}
+                        autoCapitalize="none"
+                        placeholder={API_PROVIDERS[apiProvider].defaultModels[0]}
+                      />
+                      <Button mode="text" compact onPress={() => setCustomModelMode(false)} style={{ alignSelf: 'flex-start', marginTop: 2 }}>
+                        ← Välj från lista
+                      </Button>
+                    </View>
+                  )}
                   {API_PROVIDERS[apiProvider].apiKeyUrl ? (
                     <Button
                       mode="text"
                       compact
                       onPress={() => Linking.openURL(API_PROVIDERS[apiProvider].apiKeyUrl)}
-                      style={{ alignSelf: 'flex-start', marginTop: 2 }}
+                      style={{ alignSelf: 'flex-start', marginTop: 4 }}
                     >
                       Hämta API-nyckel
                     </Button>
                   ) : null}
                   {usageSnapshot ? (
-                    <View style={{ marginTop: 10, padding: 10, borderRadius: 8, backgroundColor: theme.colors.surfaceVariant }}>
-                      <Text style={{ fontWeight: '600', color: theme.colors.onSurface, marginBottom: 2 }}>Förbrukning</Text>
+                    <View style={{ marginTop: 12, padding: 12, borderRadius: 8, backgroundColor: theme.colors.surfaceVariant }}>
+                      <Text style={{ fontWeight: '600', color: theme.colors.onSurface, marginBottom: 6 }}>Förbrukning & rate limit ({activeApiModel || '—'})</Text>
                       <Text style={{ fontSize: 12, color: theme.colors.onSurfaceVariant }}>
-                        Idag: {usageSnapshot.callsDay}
-                        {usageSnapshot.limit.callsPerDay ? ` / ${usageSnapshot.limit.callsPerDay}` : ''} anrop · {usageSnapshot.tokensDay.toLocaleString()} tokens
+                        Idag: {usageSnapshot.callsDay}{usageSnapshot.limit.callsPerDay ? ` / ${usageSnapshot.limit.callsPerDay}` : ''} anrop · {usageSnapshot.tokensDay.toLocaleString()} tokens{usageSnapshot.limit.tokensPerDay ? ` / ${usageSnapshot.limit.tokensPerDay.toLocaleString()}` : ''}
                       </Text>
-                      <Text style={{ fontSize: 12, color: theme.colors.onSurfaceVariant }}>
+                      {usageSnapshot.limit.callsPerDay ? (
+                        <View style={{ marginTop: 6 }}>
+                          <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>Anrop/dag: {Math.round((usageSnapshot.callsDay / usageSnapshot.limit.callsPerDay) * 100)}%</Text>
+                          <ProgressBar progress={Math.min(1, usageSnapshot.callsDay / usageSnapshot.limit.callsPerDay)} color={usageSnapshot.callsDay / usageSnapshot.limit.callsPerDay > 0.85 ? theme.colors.error : theme.colors.primary} style={{ height: 6, borderRadius: 3, marginTop: 2 }} />
+                        </View>
+                      ) : null}
+                      {usageSnapshot.limit.tokensPerDay ? (
+                        <View style={{ marginTop: 6 }}>
+                          <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>Tokens/dag: {Math.round((usageSnapshot.tokensDay / usageSnapshot.limit.tokensPerDay) * 100)}%</Text>
+                          <ProgressBar progress={Math.min(1, usageSnapshot.tokensDay / usageSnapshot.limit.tokensPerDay)} color={usageSnapshot.tokensDay / usageSnapshot.limit.tokensPerDay > 0.85 ? theme.colors.error : theme.colors.primary} style={{ height: 6, borderRadius: 3, marginTop: 2 }} />
+                        </View>
+                      ) : null}
+                      {!usageSnapshot.limit.callsPerDay && !usageSnapshot.limit.tokensPerDay ? (
+                        <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant, marginTop: 4 }}>Ingen publik gräns för denna källa (t.ex. egen Hermes-server).</Text>
+                      ) : null}
+                      <Text style={{ fontSize: 12, color: theme.colors.onSurfaceVariant, marginTop: 6 }}>
                         Denna månad: {usageSnapshot.callsMonth} anrop · {usageSnapshot.tokensMonth.toLocaleString()} tokens
                       </Text>
                     </View>
                   ) : null}
                 </View>
               ) : (
-                <View style={{ marginTop: 12, flex: 1 }}>
+                <View style={{ marginTop: 12 }}>
                   <Text variant="titleMedium" style={{ marginBottom: 8, color: theme.colors.onSurface }}>Nedladdade modeller</Text>
                   {localModels.length === 0 ? (
                     <Text style={{ color: theme.colors.onSurfaceVariant, marginBottom: 16 }}>Inga modeller nedladdade</Text>
                   ) : (
-                    <FlatList
-                      data={localModels}
-                      keyExtractor={(item) => item.id}
-                      renderItem={({ item: m }) => (
-                        <View style={[styles.modelItem, { borderColor: theme.colors.outline }]}>
-                          <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
-                            <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.colors.onSurface, fontWeight: 'bold' }}>{m.name}</Text>
-                            <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.colors.onSurfaceVariant }}>{(m.size / 1024 / 1024).toFixed(1)} MB</Text>
-                          </View>
-                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            <Button
-                              mode={activeModel === m.path ? 'contained' : 'outlined'}
-                              onPress={() => setActiveModel(m.path)}
-                              style={{ marginRight: 8 }}
-                            >
-                              {activeModel === m.path ? 'Active' : 'Select'}
-                            </Button>
-                            <IconButton icon="delete" onPress={() => handleDeleteModel(m.id, m.path)} />
-                          </View>
+                    // map (not FlatList) so the whole models tab scrolls as one — a
+                    // VirtualizedList can't nest inside a ScrollView.
+                    localModels.map((m) => (
+                      <View key={m.id} style={[styles.modelItem, { borderColor: theme.colors.outline }]}>
+                        <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
+                          <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.colors.onSurface, fontWeight: 'bold' }}>{m.name}</Text>
+                          <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.colors.onSurfaceVariant }}>{(m.size / 1024 / 1024).toFixed(1)} MB</Text>
                         </View>
-                      )}
-                    />
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                          <Button
+                            mode={activeModel === m.path ? 'contained' : 'outlined'}
+                            onPress={() => setActiveModel(m.path)}
+                            style={{ marginRight: 8 }}
+                          >
+                            {activeModel === m.path ? 'Active' : 'Select'}
+                          </Button>
+                          <IconButton icon="delete" onPress={() => handleDeleteModel(m.id, m.path)} />
+                        </View>
+                      </View>
+                    ))
                   )}
                 </View>
               )}
@@ -2346,7 +2409,7 @@ export default function AIScreen() {
                   Nedladdning och konvertering fortsätter i bakgrunden även om du stänger dialogen.
                 </Text>
               </View>
-            </View>
+            </ScrollView>
           )}
           {settingsTab === 'instructions' && (
             <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 24 }}>
@@ -2593,15 +2656,21 @@ export default function AIScreen() {
         </View>
       ) : (
         <>
-            <KeyboardAvoidingView 
-              behavior={Platform.OS === "ios" ? "padding" : "height"}
+            {/* iOS needs padding+offset to lift the composer above the keyboard.
+                Android resizes the window itself (softwareKeyboardLayoutMode:resize),
+                so the flex layout already keeps the composer visible — using the
+                "height" behavior there double-compensated and clipped the input. */}
+            <KeyboardAvoidingView
+              behavior={Platform.OS === "ios" ? "padding" : undefined}
               style={{ flex: 1 }}
-              keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 80}
+              keyboardVerticalOffset={Platform.OS === "ios" ? 88 : 0}
             >
               <FlatList
                 data={messages}
                 keyExtractor={(item, index) => item.id ?? String(index)}
                 contentContainerStyle={styles.listContent}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="interactive"
                 renderItem={({ item, index }) => {
                   if (item.role === 'tool') {
                     const key = item.id ?? String(index);
