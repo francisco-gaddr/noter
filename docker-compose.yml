@@ -1,9 +1,10 @@
 services:
   mongodb:
-    # Pinned to the 8.0 series for reproducible deploys. NOTE: must match (or exceed)
-    # the version that created the data volume — pinning DOWN to 7.0 made mongod exit
-    # 62 ("incompatible data format") because the Pi's data was written by mongo 8.x.
-    image: mongo:8.0
+    # Pinned to 8.2 — the series that created the Pi's data volume (mongo v8.2.10).
+    # WiredTiger refuses to open a newer data dir on an older binary (exit 62), so the
+    # pin must match (or exceed) the data's version. Bump this in lockstep if the data
+    # is ever upgraded; never pin BELOW the on-disk version.
+    image: mongo:8.2
     container_name: noter-mongodb
     # NOT published to the host — only the backend reaches it over the internal
     # Docker network (mongodb://mongodb:27017). Publishing 27017 exposed the
