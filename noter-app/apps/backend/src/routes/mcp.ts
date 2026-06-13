@@ -6,7 +6,7 @@ import { getSystemDashboardForUser } from '../services/mcp/systemDashboard';
 
 const router = express.Router();
 
-const allowedServices = new Set<McpIntegrationId>(['slack', 'googleWorkspace', 'notion', 'filesystem', 'playwright']);
+const allowedServices = new Set<McpIntegrationId>(['slack', 'googleWorkspace', 'notion', 'filesystem', 'playwright', 'github']);
 
 const parseService = (raw: unknown): McpIntegrationId => {
   const service = typeof raw === 'string' ? raw.trim() : '';

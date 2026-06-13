@@ -12,8 +12,10 @@ const logger = winston.createLogger({
     // - Write all logs with importance level of `error` or less to `error.log`
     // - Write all logs with importance level of `info` or less to `combined.log`
     //
-    new winston.transports.File({ filename: 'error.log', level: 'error' }),
-    new winston.transports.File({ filename: 'combined.log' }),
+    // Bounded + rotating so logs can't exhaust the (small) Raspberry Pi disk and
+    // crash the app. ~5 MB/file: error keeps 3 (≈15 MB), combined keeps 5 (≈25 MB).
+    new winston.transports.File({ filename: 'error.log', level: 'error', maxsize: 5_000_000, maxFiles: 3, tailable: true }),
+    new winston.transports.File({ filename: 'combined.log', maxsize: 5_000_000, maxFiles: 5, tailable: true }),
   ],
 });
 

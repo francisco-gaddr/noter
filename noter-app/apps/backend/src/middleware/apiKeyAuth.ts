@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual, randomBytes } from 'node:crypto';
 import mongoose from 'mongoose';
 import { UnauthorizedError, ForbiddenError } from '../utils/httpErrors';
 import logger from '../utils/logger';
@@ -38,9 +38,13 @@ const parseToken = (raw: string): { kid: string; secret: string } | null => {
   if (typeof raw !== 'string' || raw.length === 0 || raw.length > 128) return null;
   if (!raw.startsWith(PREFIX)) return null;
   const rest = raw.slice(PREFIX.length);
-  const parts = rest.split('_');
-  if (parts.length !== 2) return null;
-  const [kid, secret] = parts;
+  // The secret is base64url and may itself contain '_', so split on the FIRST
+  // separator only. The kid is fixed-charset [a-z0-9] (never '_'), so the first
+  // '_' is unambiguously the kid/secret boundary.
+  const sep = rest.indexOf('_');
+  if (sep === -1) return null;
+  const kid = rest.slice(0, sep);
+  const secret = rest.slice(sep + 1);
   if (!KID_PATTERN.test(kid) || !SECRET_PATTERN.test(secret)) return null;
   return { kid, secret };
 };
@@ -138,7 +142,60 @@ export const apiKeyAuth = (requiredScopes: string[] = []) => {
   };
 };
 
+// ---------------------------------------------------------------------------
+// Key minting / management — lets users create API keys so external apps can
+// integrate. The full token is returned ONCE on creation; only SHA-256(secret)
+// is ever stored (symmetric with the verify path above).
+// ---------------------------------------------------------------------------
+
+/** 8-char [a-z0-9] key id (matches KID_PATTERN). */
+const genKid = (): string => randomBytes(8).toString('hex').slice(0, 8);
+/** 32-char base64url secret (matches SECRET_PATTERN). */
+const genSecret = (): string => randomBytes(24).toString('base64url').slice(0, 32);
+
+export const buildApiKeyToken = (kid: string, secret: string): string => `${PREFIX}${kid}_${secret}`;
+
+export interface CreatedApiKey {
+  token: string; // shown once — never stored
+  kid: string;
+  scopes: string[];
+}
+
+const apiKeyCollection = () => {
+  const conn = mongoose.connection;
+  if (!conn || conn.readyState !== 1 || !conn.db) return null;
+  return conn.db.collection<ApiKeyRecord>(COLLECTION);
+};
+
+export const createApiKey = async (ownerUserId: string | undefined, scopes: string[] = []): Promise<CreatedApiKey> => {
+  const col = apiKeyCollection();
+  if (!col) throw new Error('Database unavailable');
+  const kid = genKid();
+  const secret = genSecret();
+  await col.insertOne({ kid, hash: sha256(secret), ownerUserId, scopes, createdAt: new Date(), revokedAt: null });
+  return { token: buildApiKeyToken(kid, secret), kid, scopes };
+};
+
+export type ApiKeySummary = Pick<ApiKeyRecord, 'kid' | 'scopes' | 'createdAt' | 'lastSeenAt' | 'revokedAt'>;
+
+export const listApiKeys = async (ownerUserId?: string): Promise<ApiKeySummary[]> => {
+  const col = apiKeyCollection();
+  if (!col) return [];
+  return col
+    .find({ ownerUserId }, { projection: { _id: 0, hash: 0, ownerUserId: 0 } })
+    .toArray() as unknown as Promise<ApiKeySummary[]>;
+};
+
+export const revokeApiKey = async (kid: string, ownerUserId?: string): Promise<boolean> => {
+  const col = apiKeyCollection();
+  if (!col) return false;
+  const res = await col.updateOne({ kid, ownerUserId, revokedAt: null }, { $set: { revokedAt: new Date() } });
+  return res.modifiedCount > 0;
+};
+
 // Test-only exports
 export const _parseToken = parseToken;
 export const _sha256 = sha256;
 export const _PREFIX = PREFIX;
+export const _genKid = genKid;
+export const _genSecret = genSecret;

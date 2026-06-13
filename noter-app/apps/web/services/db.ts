@@ -1,5 +1,5 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
-import { Note, Task, Conversation, Message, AIModel, encrypt, decrypt } from '@repo/shared';
+import { Note, Task, Conversation, Message, AIModel, encrypt, decrypt, safeDecrypt } from '@repo/shared';
 
 type LocalConversation = Conversation & { localOnly?: boolean; userId?: string };
 
@@ -104,11 +104,9 @@ const parseTaskPriority = (value: unknown): 'low' | 'medium' | 'high' => {
 const decryptText = (value: unknown, fallback: string | null = null): string | null => {
   if (value == null) return fallback;
   const raw = typeof value === 'string' ? value : String(value);
-  try {
-    return decrypt(raw);
-  } catch {
-    return raw;
-  }
+  // safeDecrypt: plaintext/legacy pass through, v3 decrypts with the active key,
+  // never blanks (raw `decrypt` returned '' for plaintext — a blank-data bug).
+  return safeDecrypt(raw, raw);
 };
 
 const parseEncryptedBool = (value: unknown): boolean => {
@@ -183,26 +181,8 @@ export const db = {
           __rawEncryptedIcon: n.icon,
           __rawEncryptedIconColor: n.iconColor,
           password: (n as any).password ? (decryptText((n as any).password, (n as any).password) || (n as any).password) : undefined,
-          createdAt: (() => {
-              const value: any = (n as any).createdAt;
-              if (typeof value !== 'string') return new Date().toISOString();
-              try {
-                  const decrypted = decrypt(value);
-                  return decrypted || value;
-              } catch {
-                  return value;
-              }
-          })(),
-          updatedAt: (() => {
-              const value: any = (n as any).updatedAt;
-              if (typeof value !== 'string') return new Date().toISOString();
-              try {
-                  const decrypted = decrypt(value);
-                  return decrypted || value;
-              } catch {
-                  return value;
-              }
-          })(),
+          createdAt: typeof (n as any).createdAt === 'string' ? safeDecrypt((n as any).createdAt, (n as any).createdAt) : new Date().toISOString(),
+          updatedAt: typeof (n as any).updatedAt === 'string' ? safeDecrypt((n as any).updatedAt, (n as any).updatedAt) : new Date().toISOString(),
           pendingSync: parseEncryptedBool((n as any).pendingSync),
           deleted: parseEncryptedBool((n as any).deleted),
         } as any;
@@ -256,26 +236,8 @@ export const db = {
         __rawEncryptedIcon: note.icon,
         __rawEncryptedIconColor: note.iconColor,
         password: (note as any).password ? (decryptText((note as any).password, (note as any).password) || (note as any).password) : undefined,
-        createdAt: (() => {
-            const value: any = (note as any).createdAt;
-            if (typeof value !== 'string') return new Date().toISOString();
-            try {
-                const decrypted = decrypt(value);
-                return decrypted || value;
-            } catch {
-                return value;
-            }
-        })(),
-        updatedAt: (() => {
-            const value: any = (note as any).updatedAt;
-            if (typeof value !== 'string') return new Date().toISOString();
-            try {
-                const decrypted = decrypt(value);
-                return decrypted || value;
-            } catch {
-                return value;
-            }
-        })(),
+        createdAt: typeof (note as any).createdAt === 'string' ? safeDecrypt((note as any).createdAt, (note as any).createdAt) : new Date().toISOString(),
+        updatedAt: typeof (note as any).updatedAt === 'string' ? safeDecrypt((note as any).updatedAt, (note as any).updatedAt) : new Date().toISOString(),
         pendingSync: parseEncryptedBool((note as any).pendingSync),
         deleted: parseEncryptedBool((note as any).deleted),
     } as any;

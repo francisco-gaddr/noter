@@ -1,0 +1,70 @@
+name: CI
+
+# Typecheck + tests + dead-code report for the noter-app monorepo and the
+# Electron app. Blocking gates are kept to checks that are currently green so the
+# required status never goes red through no fault of a PR; the flakier app suites
+# and the knip backlog run as non-blocking reports until they are burned down
+# (tracked in Doc/ops/ci-quality.md).
+
+on:
+  push:
+    branches: [dev, main, 'agent/**']
+  pull_request:
+    branches: [dev, main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  app-quality:
+    name: noter-app · typecheck, core tests, dead-code
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: noter-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: noter-app/package-lock.json
+      - run: npm ci
+
+      # --- Blocking gates (currently green) ---
+      - name: Typecheck (all workspaces)
+        run: npm run check-types
+      - name: Core package tests (shared + ai)
+        run: npx turbo run test --filter=@repo/shared --filter=@repo/ai
+      - name: No dead files (knip --include files)
+        run: npm run knip:files
+
+      # --- Non-blocking reports (burn-down in progress) ---
+      - name: App tests (mobile + backend + web)
+        continue-on-error: true
+        run: npx turbo run test --filter=mobile --filter=backend --filter=web
+      - name: Dead code & unused deps (knip)
+        continue-on-error: true
+        run: npm run knip
+
+  electron-quality:
+    name: electron-noter · tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: electron-noter
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: electron-noter/package-lock.json
+      - run: npm ci
+      - name: Unit tests
+        continue-on-error: true
+        run: npm test

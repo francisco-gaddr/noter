@@ -1,4 +1,4 @@
-import { Note, CreateNoteDto, UpdateNoteDto, Task, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, AuthResponse } from '@repo/shared';
+import { Note, CreateNoteDto, UpdateNoteDto, Task, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, safeDecrypt, AuthResponse } from '@repo/shared';
 
 export const getUUID = (): string => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -197,6 +197,50 @@ const parseNoteLocked = (value: unknown): boolean => {
   return false;
 };
 
+/**
+ * Single source for decrypting a note from the API. Uses safeDecrypt so
+ * plaintext/legacy/v3 values are never blanked (the "tomma poster" bug), and a
+ * locked note is masked. Replaces four near-identical inline blocks.
+ */
+const decryptNoteFromApi = (note: any): Note => {
+  const locked = parseNoteLocked(note.locked);
+  return {
+    ...note,
+    title: locked ? 'Låst anteckning' : safeDecrypt(note.title, note.title),
+    content: locked ? '' : safeDecrypt(note.content, note.content),
+    tags: locked ? [] : (note.tags?.map((t: string) => safeDecrypt(t, t)) ?? []),
+    icon: locked ? undefined : (note.icon ? safeDecrypt(note.icon, note.icon) : undefined),
+    type: note.type ? (safeDecrypt(note.type, note.type) as any) : 'note',
+    locked,
+    order: parseNoteOrder((note as any).order),
+    createdAt: safeDecrypt(note.createdAt, note.createdAt),
+    updatedAt: safeDecrypt(note.updatedAt, note.updatedAt),
+  };
+};
+
+/** Single source for decrypting a task from the API (safeDecrypt — never blanks). */
+const decryptTaskFromApi = (task: any): Task => ({
+  ...task,
+  title: safeDecrypt(task.title, task.title),
+  description: safeDecrypt(task.description, task.description),
+  completed: parseTaskCompleted(task.completed),
+  priority: parseTaskPriority(task.priority),
+  dueDate: task.dueDate
+    ? (() => { const d = new Date(safeDecrypt(task.dueDate, task.dueDate)); return isNaN(d.getTime()) ? null : d; })()
+    : null,
+  recurrenceType: task.recurrenceType ? (safeDecrypt(task.recurrenceType, 'none') as any) : 'none',
+  recurrenceDays: task.recurrenceDays
+    ? (() => { try { return JSON.parse(safeDecrypt(task.recurrenceDays, '[]')); } catch { return []; } })()
+    : [],
+  reminderEnabled: task.reminderEnabled ? safeDecrypt(task.reminderEnabled) === 'true' : false,
+  reminderOffsetMinutes: parseReminderOffsets(task.reminderOffsetMinutes),
+  createdAt: safeDecrypt(task.createdAt, task.createdAt),
+  updatedAt: safeDecrypt(task.updatedAt, task.updatedAt),
+  position: task.position
+    ? (() => { const n = Number(safeDecrypt(String(task.position), String(task.position))); return isNaN(n) ? 0 : n; })()
+    : 0,
+});
+
 export const api = {
   // Auth
   async register(username: string, password: string): Promise<AuthResponse> {
@@ -234,21 +278,7 @@ export const api = {
         // Use a small delay to let the UI breathe if the list is huge
         if (i > 0) await new Promise(resolve => setTimeout(resolve, 0));
         
-        const decryptedChunk = chunk.map(note => {
-            const locked = parseNoteLocked(note.locked);
-            return {
-                ...note,
-                title: locked ? 'Låst anteckning' : decrypt(note.title),
-                content: locked ? '' : decrypt(note.content),
-                tags: locked ? [] : (note.tags?.map((t: string) => { try { return decrypt(t) } catch { return t } }) ?? []),
-                icon: locked ? undefined : (note.icon ? (() => { try { return decrypt(note.icon) } catch { return note.icon } })() : undefined),
-                type: note.type ? (() => { try { return decrypt(note.type) as any } catch { return note.type } })() : 'note',
-                locked: locked,
-                order: parseNoteOrder((note as any).order),
-                createdAt: decrypt(note.createdAt),
-                updatedAt: decrypt(note.updatedAt),
-            };
-        });
+        const decryptedChunk = chunk.map(decryptNoteFromApi);
         result.push(...decryptedChunk);
     }
     return result;
@@ -257,19 +287,7 @@ export const api = {
   async getNote(id: string): Promise<Note> {
     const res = await fetch(`${getBaseUrl()}/notes/${id}`, { headers: getHeaders() });
     const note: Note = await handleResponse(res);
-    const locked = parseNoteLocked(note.locked);
-    return {
-        ...note,
-        title: locked ? 'Låst anteckning' : decrypt(note.title),
-        content: locked ? '' : decrypt(note.content),
-        tags: locked ? [] : (note.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? []),
-        icon: locked ? undefined : (note.icon ? (() => { try { return decrypt(note.icon) } catch { return note.icon } })() : undefined),
-        type: note.type ? (() => { try { return decrypt(note.type) as any } catch { return note.type } })() : 'note',
-        locked: locked,
-        order: parseNoteOrder((note as any).order),
-        createdAt: decrypt(note.createdAt),
-        updatedAt: decrypt(note.updatedAt),
-    };
+    return decryptNoteFromApi(note);
   },
 
   async createNote(data: CreateNoteDto): Promise<Note> {
@@ -292,19 +310,7 @@ export const api = {
       body: JSON.stringify(encryptedData),
     });
     const note: Note = await handleResponse(res);
-    const locked = note.locked ? decrypt(String(note.locked)) === 'true' : false;
-    return {
-      ...note,
-      title: locked ? 'Låst anteckning' : decrypt(note.title),
-      content: locked ? '' : decrypt(note.content),
-      tags: locked ? [] : (note.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? []),
-      icon: locked ? undefined : (note.icon ? (() => { try { return decrypt(note.icon) } catch { return note.icon } })() : undefined),
-      type: note.type ? (() => { try { return decrypt(note.type) as any } catch { return note.type } })() : 'note',
-      locked,
-      order: parseNoteOrder((note as any).order),
-      createdAt: decrypt(note.createdAt),
-      updatedAt: decrypt(note.updatedAt),
-    };
+    return decryptNoteFromApi(note);
   },
 
   async updateNote(id: string, data: UpdateNoteDto): Promise<Note> {
@@ -326,17 +332,19 @@ export const api = {
       body: JSON.stringify(encryptedData),
     });
     const note: Note = await handleResponse(res);
+    // updateNote intentionally does NOT mask (you're editing the note); still
+    // routed through safeDecrypt so values are never blanked.
     return {
       ...note,
-      title: decrypt(note.title),
-      content: decrypt(note.content),
-      tags: note.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? [],
-      icon: note.icon ? (() => { try { return decrypt(note.icon) } catch { return note.icon } })() : undefined,
-      type: note.type ? (() => { try { return decrypt(note.type) as any } catch { return note.type } })() : 'note',
-      locked: note.locked ? decrypt(String(note.locked)) === 'true' : false,
+      title: safeDecrypt(note.title, note.title),
+      content: safeDecrypt(note.content, note.content),
+      tags: note.tags?.map(t => safeDecrypt(t, t)) ?? [],
+      icon: note.icon ? safeDecrypt(note.icon, note.icon) : undefined,
+      type: note.type ? (safeDecrypt(note.type, note.type) as any) : 'note',
+      locked: parseNoteLocked(note.locked),
       order: parseNoteOrder((note as any).order),
-      createdAt: decrypt(note.createdAt),
-      updatedAt: decrypt(note.updatedAt),
+      createdAt: safeDecrypt(note.createdAt, note.createdAt),
+      updatedAt: safeDecrypt(note.updatedAt, note.updatedAt),
     };
   },
 
@@ -365,8 +373,8 @@ export const api = {
     
     return {
       success: true,
-      content: decrypt(data.content),
-      title: data.title ? decrypt(data.title) : undefined,
+      content: safeDecrypt(data.content, data.content),
+      title: data.title ? safeDecrypt(data.title, data.title) : undefined,
       unlockedId: typeof data.unlockedId === 'string' ? data.unlockedId : undefined,
     };
   },
@@ -395,55 +403,7 @@ export const api = {
         
         if (i > 0) await new Promise(resolve => setTimeout(resolve, 0));
 
-        const decryptedChunk = chunk.map(task => ({
-            ...task,
-            title: decrypt(task.title),
-            description: decrypt(task.description),
-            completed: parseTaskCompleted(task.completed),
-            priority: parseTaskPriority(task.priority),
-            dueDate: task.dueDate ? (() => {
-                try {
-                const decrypted = decrypt(task.dueDate);
-                const date = new Date(decrypted);
-                return isNaN(date.getTime()) ? null : date;
-                } catch {
-                return null;
-                }
-            })() : null,
-            recurrenceType: task.recurrenceType ? (() => {
-                try {
-                return decrypt(task.recurrenceType) as any;
-                } catch {
-                return 'none' as any;
-                }
-            })() : 'none',
-            recurrenceDays: task.recurrenceDays ? (() => {
-                try {
-                return JSON.parse(decrypt(task.recurrenceDays));
-                } catch {
-                return [];
-                }
-            })() : [],
-            reminderEnabled: task.reminderEnabled ? (() => {
-                try {
-                return decrypt(task.reminderEnabled) === 'true';
-                } catch {
-                return false;
-                }
-            })() : false,
-            reminderOffsetMinutes: parseReminderOffsets(task.reminderOffsetMinutes),
-            createdAt: decrypt(task.createdAt),
-            updatedAt: decrypt(task.updatedAt),
-            position: task.position ? (() => {
-                try {
-                const decrypted = decrypt(String(task.position));
-                const num = Number(decrypted);
-                return isNaN(num) ? 0 : num;
-                } catch {
-                return 0;
-                }
-            })() : 0,
-        }));
+        const decryptedChunk = chunk.map(decryptTaskFromApi);
         result.push(...decryptedChunk);
     }
     return result;
@@ -472,55 +432,7 @@ export const api = {
       body: JSON.stringify(encryptedData),
     });
     const task: any = await handleResponse(res);
-    return {
-      ...task,
-      title: decrypt(task.title),
-      description: decrypt(task.description),
-      completed: parseTaskCompleted(task.completed),
-      priority: parseTaskPriority(task.priority),
-      dueDate: task.dueDate ? (() => {
-        try {
-          const decrypted = decrypt(task.dueDate);
-          const date = new Date(decrypted);
-          return isNaN(date.getTime()) ? null : date;
-        } catch {
-          return null;
-        }
-      })() : null,
-      recurrenceType: task.recurrenceType ? (() => {
-        try {
-          return decrypt(task.recurrenceType) as any;
-        } catch {
-          return 'none' as any;
-        }
-      })() : 'none',
-      recurrenceDays: task.recurrenceDays ? (() => {
-        try {
-          return JSON.parse(decrypt(task.recurrenceDays));
-        } catch {
-          return [];
-        }
-      })() : [],
-      reminderEnabled: task.reminderEnabled ? (() => {
-        try {
-          return decrypt(task.reminderEnabled) === 'true';
-        } catch {
-          return false;
-        }
-      })() : false,
-      reminderOffsetMinutes: parseReminderOffsets(task.reminderOffsetMinutes),
-      createdAt: decrypt(task.createdAt),
-      updatedAt: decrypt(task.updatedAt),
-      position: task.position ? (() => {
-        try {
-          const decrypted = decrypt(String(task.position));
-          const num = Number(decrypted);
-          return isNaN(num) ? 0 : num;
-        } catch {
-          return 0;
-        }
-      })() : 0,
-    };
+    return decryptTaskFromApi(task);
   },
 
   async updateTask(id: string, data: UpdateTaskDto): Promise<Task> {
@@ -553,55 +465,7 @@ export const api = {
       body: JSON.stringify(encryptedData),
     });
     const task: any = await handleResponse(res);
-    return {
-      ...task,
-      title: decrypt(task.title),
-      description: decrypt(task.description),
-      completed: parseTaskCompleted(task.completed),
-      priority: parseTaskPriority(task.priority),
-      dueDate: task.dueDate ? (() => {
-        try {
-          const decrypted = decrypt(task.dueDate);
-          const date = new Date(decrypted);
-          return isNaN(date.getTime()) ? null : date;
-        } catch {
-          return null;
-        }
-      })() : null,
-      recurrenceType: task.recurrenceType ? (() => {
-        try {
-          return decrypt(task.recurrenceType) as any;
-        } catch {
-          return 'none' as any;
-        }
-      })() : 'none',
-      recurrenceDays: task.recurrenceDays ? (() => {
-        try {
-          return JSON.parse(decrypt(task.recurrenceDays));
-        } catch {
-          return [];
-        }
-      })() : [],
-      reminderEnabled: task.reminderEnabled ? (() => {
-        try {
-          return decrypt(task.reminderEnabled) === 'true';
-        } catch {
-          return false;
-        }
-      })() : false,
-      reminderOffsetMinutes: parseReminderOffsets(task.reminderOffsetMinutes),
-      createdAt: decrypt(task.createdAt),
-      updatedAt: decrypt(task.updatedAt),
-      position: task.position ? (() => {
-        try {
-          const decrypted = decrypt(String(task.position));
-          const num = Number(decrypted);
-          return isNaN(num) ? 0 : num;
-        } catch {
-          return 0;
-        }
-      })() : 0,
-    };
+    return decryptTaskFromApi(task);
   },
 
   async deleteTask(id: string): Promise<void> {

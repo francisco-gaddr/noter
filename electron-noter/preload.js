@@ -132,6 +132,14 @@ contextBridge.exposeInMainWorld('noterDesktop', {
   // Multi-window: open a note in its own BrowserWindow
   openNoteInWindow: (id) => ipcRenderer.invoke('note:open-window', { id }),
 
+  // Secure secret store (OS keychain via safeStorage). Use for the auth token
+  // and the v3 dataKey instead of plaintext localStorage.
+  secureStatus: () => ipcRenderer.invoke('secure:status'),
+  secureGet: (key) => ipcRenderer.invoke('secure:get', key),
+  secureSet: (key, value) => ipcRenderer.invoke('secure:set', { key, value }),
+  secureDelete: (key) => ipcRenderer.invoke('secure:delete', key),
+  secureClear: () => ipcRenderer.invoke('secure:clear'),
+
   // Spell-check user dictionary
   addToUserDictionary: (word) => ipcRenderer.invoke('dictionary:add', { word }),
   removeFromUserDictionary: (word) => ipcRenderer.invoke('dictionary:remove', { word }),

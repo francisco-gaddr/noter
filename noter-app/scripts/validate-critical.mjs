@@ -6,6 +6,21 @@ const repoRoot = process.cwd();
 
 const steps = [
   {
+    // Fail fast if any dead (unimported) source file sneaks in.
+    label: 'No dead files (knip)',
+    cwd: repoRoot,
+    command: 'npm',
+    args: ['run', 'knip:files'],
+  },
+  {
+    // Shared is the crypto/widget foundation — gate it first so a broken
+    // encrypt/cryptoV3/widgetData can't reach any app.
+    label: 'Shared package tests (crypto, widgets, key bootstrap)',
+    cwd: path.join(repoRoot, 'packages', 'shared'),
+    command: 'npm',
+    args: ['run', 'test'],
+  },
+  {
     label: 'Backend critical unit/integration/security',
     cwd: path.join(repoRoot, 'apps', 'backend'),
     command: 'npm',
@@ -15,11 +30,18 @@ const steps = [
       '--',
       '__tests__/api.test.ts',
       '__tests__/encryption-validation.test.ts',
+      '__tests__/utils/encryption.test.ts',
+      '__tests__/routes/keyBundle.test.ts',
+      '__tests__/routes/apiKeys.test.ts',
+      '__tests__/routes/ownership-isolation.test.ts',
+      '__tests__/health-deep.test.ts',
       '__tests__/ai-sync.test.ts',
       '__tests__/graphql-tools.test.ts',
       '__tests__/notes-lock-security.test.ts',
       '__tests__/request-security.test.ts',
       '__tests__/api-hardening.test.ts',
+      '__tests__/api-key-mint.test.ts',
+      '__tests__/middleware/apiKeyAuth.test.ts',
       '__tests__/mcp-runtime.test.ts',
       '__tests__/mcp-routes.test.ts',
     ],
@@ -47,6 +69,7 @@ const steps = [
       '__tests__/task-encryption.test.ts',
       '__tests__/mcp-settings.test.ts',
       '__tests__/video-embed-e2e.test.ts',
+      '__tests__/web-crypto.test.ts',
     ],
   },
   {
@@ -77,6 +100,11 @@ const steps = [
       'tests/database-at-rest.test.ts',
       'tests/notifications-e2e.test.ts',
       'tests/reminder-defaults.test.ts',
+      'tests/api-providers.test.ts',
+      'tests/usage-tracker.test.ts',
+      'tests/sse-parser.test.ts',
+      'tests/widget-snapshot-writer.test.ts',
+      'tests/thinking.test.ts',
     ],
   },
   {

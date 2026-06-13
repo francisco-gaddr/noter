@@ -27,10 +27,12 @@ describe('buildNoteWindowOptions', () => {
     expect(r.options.webPreferences.preload).toBe('/custom/preload.js');
   });
 
-  it('contextIsolation always on, nodeIntegration always off', () => {
+  it('contextIsolation on, nodeIntegration off, sandbox + webSecurity on', () => {
     const r = buildNoteWindowOptions('id');
     expect(r.options.webPreferences.contextIsolation).toBe(true);
     expect(r.options.webPreferences.nodeIntegration).toBe(false);
+    expect(r.options.webPreferences.sandbox).toBe(true);
+    expect(r.options.webPreferences.webSecurity).toBe(true);
   });
 
   it('ID_PATTERN accepts safe ids and rejects unsafe ones', () => {

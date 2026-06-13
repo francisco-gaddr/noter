@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, screen, nativeTheme, shell, crashReporter, dialog, clipboard, Notification, powerMonitor } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, screen, nativeTheme, shell, crashReporter, dialog, clipboard, Notification, powerMonitor, safeStorage } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -22,6 +22,7 @@ const { resolveVibrancyForTheme, isValidVibrancyMaterial } = require('./src/vibr
 const { resolveBackgroundPolicy, intervalMultiplier } = require('./src/batteryPolicy');
 const { createUpdaterStateMachine } = require('./src/updaterStatus');
 const { validateWindowState, captureWindowState, DEFAULTS: WINDOW_DEFAULTS } = require('./src/windowState');
+const { createSecureStore } = require('./src/secureStore');
 
 // ---------- single-instance lock (must run BEFORE app.whenReady) ----------
 //
@@ -404,6 +405,14 @@ const createWindow = () => {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
+      // Explicit OS-level renderer sandbox. The preload uses only contextBridge +
+      // ipcRenderer (no Node primitives), so sandboxing is safe and closes the
+      // V8/Chromium attack surface. Explicit > relying on the Electron default.
+      sandbox: true,
+      // Defence-in-depth: block loading non-local/insecure resources.
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      experimentalFeatures: false,
       spellcheck: true,
       // DevTools gate: never allow opening DevTools in production builds.
       // The View menu honours the same flag (see appMenu.js) but webContents
@@ -1020,6 +1029,19 @@ ipcMain.handle('settings:set', async (_event, payload) => {
   }
   return true;
 });
+
+// ---------- secure store (OS keychain via safeStorage) ----------
+// Renderer keeps the auth token + v3 dataKey here, encrypted at rest by the OS,
+// instead of plaintext localStorage on disk.
+const secureStore = createSecureStore({ app, safeStorage, fs, path });
+
+ipcMain.handle('secure:status', async () => ({ available: secureStore.isAvailable() }));
+ipcMain.handle('secure:get', async (_event, key) => secureStore.get(key));
+ipcMain.handle('secure:set', async (_event, payload) =>
+  secureStore.set(payload?.key, payload?.value),
+);
+ipcMain.handle('secure:delete', async (_event, key) => secureStore.delete(key));
+ipcMain.handle('secure:clear', async () => secureStore.clear());
 
 ipcMain.handle('thumbnails:create', async (_event, payload) => {
   return generateThumbnail(payload?.path, payload?.size);

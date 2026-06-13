@@ -83,4 +83,25 @@ describe('mobile ai sync service', () => {
     expect(body.messages[0].contentEnc).not.toContain('Hemligt meddelande');
     expect(body.projects[0].nameEnc).not.toContain('Hemligt projekt');
   });
+
+  it('never syncs local-only threads or projects (they stay on-device)', async () => {
+    mockFetchWithAuth.mockResolvedValue({});
+    const sync = require('../services/ai/sync');
+
+    await sync.pushAiSync({
+      conversations: [
+        { id: 'synced', title: 'Synkad', model: 'gpt', createdAt: '2026-03-14T10:00:00.000Z', updatedAt: '2026-03-14T10:00:00.000Z', messages: [] },
+        { id: 'local', title: 'Bara lokal', model: 'gpt', createdAt: '2026-03-14T10:00:00.000Z', updatedAt: '2026-03-14T10:00:00.000Z', messages: [], localOnly: true },
+      ],
+      projects: [
+        { id: 'p-sync', name: 'Synkad', createdAt: '2026-03-14T10:00:00.000Z', updatedAt: '2026-03-14T10:00:00.000Z' },
+        { id: 'p-local', name: 'Lokal', createdAt: '2026-03-14T10:00:00.000Z', updatedAt: '2026-03-14T10:00:00.000Z', localOnly: true },
+      ],
+    });
+
+    const [, req] = mockFetchWithAuth.mock.calls[0];
+    const body = JSON.parse(req.body);
+    expect(body.conversations.map((c: any) => c.id)).toEqual(['synced']);
+    expect(body.projects.map((p: any) => p.id)).toEqual(['p-sync']);
+  });
 });

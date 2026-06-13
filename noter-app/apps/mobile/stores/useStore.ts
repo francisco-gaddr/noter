@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import 'react-native-get-random-values';
 import * as Crypto from 'expo-crypto';
-import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, encrypt, decrypt } from '@repo/shared';
+import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, safeDecrypt } from '@repo/shared';
 import { fetchWithAuth, login as apiLogin, register as apiRegister, setAuthToken, initApiUrl, setUnauthorizedHandler } from '../services/api';
 import * as Database from '../services/database';
 import { initSocket, disconnectSocket, getSocket } from '../services/socket';
@@ -10,6 +10,15 @@ import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { scheduleTaskReminder, cancelTaskReminder, cancelAllTaskReminders } from '../services/notifications';
 import { buildSecurityNoteMap, findBlockingLockedAncestor } from '../services/ai/security';
+import { NativeModules } from 'react-native';
+import { writeWidgetSnapshot, createNativeWidgetBridge } from '../services/widgets/snapshotWriter';
+
+// Task widget bridge. No-ops until the native widget module ships (see
+// Doc/widgets-architecture.md), so calling refreshTaskWidget is always safe.
+const widgetBridge = createNativeWidgetBridge((NativeModules as any)?.NoterWidget);
+const refreshTaskWidget = (notes: Note[], tasks: Task[]): void => {
+  void writeWidgetSnapshot(notes, tasks, widgetBridge, new Date().toISOString()).catch(() => {});
+};
 
 let wasOffline = false;
 
@@ -68,17 +77,20 @@ interface AppState {
   setToken: (token: string | null) => void;
 }
 
+// A poison sync item (persistent 5xx/network failure) is dropped after this many
+// retries so it can't block everything behind it forever on each reconnect.
+const MAX_SYNC_ATTEMPTS = 8;
+
 const processLocalNote = (note: Note): Note => ({
   ...note,
 });
 
 const tryDecryptString = (value: unknown): any => {
   if (typeof value !== 'string') return value;
-  try {
-    return decrypt(value);
-  } catch {
-    return value;
-  }
+  // safeDecrypt passes plaintext/legacy values through untouched and falls back
+  // to the raw value on a decrypt failure, so fields like `type` never collapse
+  // to '' (which previously leaked project folders into the notes list).
+  return safeDecrypt(value, value);
 };
 
 const parseNoteLocked = (value: unknown): boolean => {
@@ -111,12 +123,12 @@ const normalizeNoteType = (value: unknown): string => {
 
 const parseNoteDateValue = (value: unknown): string => {
   if (typeof value !== 'string') return new Date().toISOString();
-  try {
-    return decrypt(value);
-  } catch {
-    const parsed = new Date(value);
-    return isNaN(parsed.getTime()) ? new Date().toISOString() : value;
-  }
+  // safeDecrypt returns plaintext/legacy ISO strings untouched and decrypts real
+  // ciphertext; only truly unusable values fall through to "now".
+  const text = safeDecrypt(value, value);
+  if (text) return text;
+  const parsed = new Date(value);
+  return isNaN(parsed.getTime()) ? new Date().toISOString() : value;
 };
 
 const normalizeEncryptedNote = (note: Note): any => {
@@ -158,49 +170,98 @@ const normalizeEncryptedNote = (note: Note): any => {
   };
 };
 
-const materializeNotesFromEncrypted = (notes: Note[], unlockedIds: Set<string>): Note[] => {
-  const normalized = notes.map(normalizeEncryptedNote);
-  const noteMap = buildSecurityNoteMap(normalized as any);
-  return normalized.map((note: any) => {
-    const blocking = findBlockingLockedAncestor(note, noteMap as any, unlockedIds);
-    if (blocking) {
-      const isDirectlyLockedProject = blocking._id === note._id && note.type === 'project';
-      let projectTitle = note.title;
-      if (isDirectlyLockedProject) {
-        try {
-          projectTitle = decrypt(note.__rawEncryptedTitle || note.title);
-        } catch {}
-      }
-      return {
-        ...note,
-        title: isDirectlyLockedProject ? projectTitle : 'Låst anteckning',
-        content: '',
-        tags: [],
-        icon: undefined,
-        iconColor: undefined,
-        locked: true,
-      };
+// Decrypt a single already-normalized note against the security map. This is the
+// hot path (AES/GCM per field) — kept as one function so the sync and chunked
+// async materializers below share identical decryption semantics.
+const materializeOneNote = (note: any, noteMap: any, unlockedIds: Set<string>): Note => {
+  const blocking = findBlockingLockedAncestor(note, noteMap as any, unlockedIds);
+  if (blocking) {
+    const isDirectlyLockedProject = blocking._id === note._id && note.type === 'project';
+    let projectTitle = note.title;
+    if (isDirectlyLockedProject) {
+      projectTitle = safeDecrypt(note.__rawEncryptedTitle || note.title, note.title);
     }
     return {
       ...note,
-      title: (() => { try { return decrypt(note.__rawEncryptedTitle || note.title) } catch { return note.title } })(),
-      content: (() => { try { return decrypt(note.__rawEncryptedContent || note.content) } catch { return note.content } })(),
-      tags: Array.isArray(note.__rawEncryptedTags)
-        ? note.__rawEncryptedTags.map((t: any) => tryDecryptString(t))
-        : (() => {
-            if (typeof note.__rawEncryptedTags !== 'string') return [];
-            try {
-              const decoded = decrypt(note.__rawEncryptedTags);
-              const parsed = JSON.parse(decoded);
-              return Array.isArray(parsed) ? parsed.map((t: any) => tryDecryptString(t)) : [];
-            } catch {
-              return [];
-            }
-          })(),
-      icon: note.__rawEncryptedIcon ? tryDecryptString(note.__rawEncryptedIcon) : undefined,
-      locked: parseNoteLocked(note.locked),
+      title: isDirectlyLockedProject ? projectTitle : 'Låst anteckning',
+      content: '',
+      tags: [],
+      icon: undefined,
+      iconColor: undefined,
+      locked: true,
     };
-  });
+  }
+  return {
+    ...note,
+    title: safeDecrypt(note.__rawEncryptedTitle || note.title, note.title),
+    content: safeDecrypt(note.__rawEncryptedContent || note.content, note.content),
+    tags: Array.isArray(note.__rawEncryptedTags)
+      ? note.__rawEncryptedTags.map((t: any) => tryDecryptString(t))
+      : (() => {
+          if (typeof note.__rawEncryptedTags !== 'string') return [];
+          try {
+            const decoded = decrypt(note.__rawEncryptedTags);
+            const parsed = JSON.parse(decoded);
+            return Array.isArray(parsed) ? parsed.map((t: any) => tryDecryptString(t)) : [];
+          } catch {
+            return [];
+          }
+        })(),
+    icon: note.__rawEncryptedIcon ? tryDecryptString(note.__rawEncryptedIcon) : undefined,
+    locked: parseNoteLocked(note.locked),
+  };
+};
+
+const materializeNotesFromEncrypted = (notes: Note[], unlockedIds: Set<string>): Note[] => {
+  const normalized = notes.map(normalizeEncryptedNote);
+  const noteMap = buildSecurityNoteMap(normalized as any);
+  return normalized.map((note: any) => materializeOneNote(note, noteMap, unlockedIds));
+};
+
+// Yield to the event loop so a long decrypt batch can't freeze the UI thread.
+const yieldToEventLoop = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+// Generic chunked map that yields between chunks. Used for task decryption, which
+// is a flat per-item transform (no cross-item dependency like the note security map).
+const mapInChunks = async <I, O>(
+  items: I[],
+  fn: (item: I) => O,
+  chunkSize = 50,
+): Promise<O[]> => {
+  if (items.length <= chunkSize) return items.map(fn);
+  const out: O[] = [];
+  for (let i = 0; i < items.length; i += chunkSize) {
+    const chunk = items.slice(i, i + chunkSize);
+    for (const item of chunk) out.push(fn(item));
+    if (i + chunkSize < items.length) await yieldToEventLoop();
+  }
+  return out;
+};
+
+// Chunked, non-blocking variant for large server payloads. The security map needs
+// every note up front (ancestor lock resolution), so normalization stays a single
+// cheap pass; only the heavy per-field decryption is sliced into chunks with a
+// yield between them — mirrors the web client's CHUNK_SIZE=50 approach so a 1000-
+// note sync never blocks scrolling or input on the JS thread.
+const MATERIALIZE_CHUNK_SIZE = 50;
+const materializeNotesFromEncryptedChunked = async (
+  notes: Note[],
+  unlockedIds: Set<string>,
+): Promise<Note[]> => {
+  const normalized = notes.map(normalizeEncryptedNote);
+  // Small lists aren't worth the async overhead — decrypt inline.
+  if (normalized.length <= MATERIALIZE_CHUNK_SIZE) {
+    const noteMap = buildSecurityNoteMap(normalized as any);
+    return normalized.map((note: any) => materializeOneNote(note, noteMap, unlockedIds));
+  }
+  const noteMap = buildSecurityNoteMap(normalized as any);
+  const out: Note[] = [];
+  for (let i = 0; i < normalized.length; i += MATERIALIZE_CHUNK_SIZE) {
+    const chunk = normalized.slice(i, i + MATERIALIZE_CHUNK_SIZE);
+    for (const note of chunk) out.push(materializeOneNote(note, noteMap, unlockedIds));
+    if (i + MATERIALIZE_CHUNK_SIZE < normalized.length) await yieldToEventLoop();
+  }
+  return out;
 };
 
 const parseTaskCompleted = (value: unknown): boolean => {
@@ -283,17 +344,19 @@ const parseReminderOffsets = (value: string): number[] => {
 
 const processApiTask = (task: any): Task => ({
   ...(task as Task),
-  title: decrypt(task.title),
-  description: decrypt(task.description),
+  // safeDecrypt keeps legacy/plaintext tasks readable and never blanks a task
+  // whose ciphertext fails to decrypt (the cause of empty tasks in the list).
+  title: safeDecrypt(task.title, typeof task.title === 'string' ? task.title : ''),
+  description: safeDecrypt(task.description, typeof task.description === 'string' ? task.description : ''),
   completed: parseTaskCompleted(task.completed),
   priority: parseTaskPriority(task.priority),
-  dueDate: task.dueDate ? (typeof task.dueDate === 'string' ? decrypt(task.dueDate) : task.dueDate) : null,
+  dueDate: task.dueDate ? (typeof task.dueDate === 'string' ? safeDecrypt(task.dueDate, task.dueDate) : task.dueDate) : null,
   recurrenceType: task.recurrenceType ? (() => { try { return decrypt(task.recurrenceType) as any } catch { return 'none' as any } })() : 'none',
   recurrenceDays: task.recurrenceDays ? (() => { try { return JSON.parse(decrypt(task.recurrenceDays)) } catch { return [] } })() : [],
   reminderEnabled: task.reminderEnabled ? (() => { try { return decrypt(task.reminderEnabled) === 'true' } catch { return false } })() : false,
   reminderOffsetMinutes: task.reminderOffsetMinutes ? (() => { try { return parseReminderOffsets(decrypt(task.reminderOffsetMinutes)); } catch { return []; } })() : [],
-  createdAt: decrypt(task.createdAt),
-  updatedAt: decrypt(task.updatedAt),
+  createdAt: safeDecrypt(task.createdAt, typeof task.createdAt === 'string' ? task.createdAt : ''),
+  updatedAt: safeDecrypt(task.updatedAt, typeof task.updatedAt === 'string' ? task.updatedAt : ''),
   position: task.position ? (() => {
     try {
       const decryptedPosition = decrypt(String(task.position));
@@ -684,32 +747,35 @@ export const useStore = create<AppState>((set, get) => ({
       set({ isLoading: false });
       return;
     }
-    set({ isLoading: true, error: null });
+    const unlocked = () => new Set(get().unlockedProtectedNoteIds);
+
+    // 1) Offline-first: paint local data immediately. Show the spinner only on a
+    //    genuinely empty cold start, so a returning user never waits on the net.
+    try {
+      const localNotes = await Database.getNotesLocal();
+      const securedLocal = materializeNotesFromEncrypted(localNotes.map(processLocalNote) as any, unlocked());
+      set({ notes: securedLocal, isLoading: securedLocal.length === 0, error: null });
+    } catch {
+      /* fall through to the network refresh */
+    }
+
+    // 2) Background refresh from the server — never blocks the rendered list.
     try {
       const netState = await NetInfo.fetch();
-      
-      if (netState.isConnected) {
-        const notes = await fetchWithAuth('/notes');
-        const safeNotes = Array.isArray(notes) ? notes : [];
-        const securedNotes = materializeNotesFromEncrypted(safeNotes as any, new Set(get().unlockedProtectedNoteIds));
-        
-        // Update local DB
-        for (const note of securedNotes) {
-          await Database.saveNoteLocal(note, true);
-        }
-        set({ notes: securedNotes, isLoading: false });
-      } else {
-        // Already loaded from init, but refresh just in case
-        const localNotes = await Database.getNotesLocal();
-        const securedNotes = materializeNotesFromEncrypted(localNotes.map(processLocalNote) as any, new Set(get().unlockedProtectedNoteIds));
-        set({ notes: securedNotes, isLoading: false });
+      if (!netState.isConnected) {
+        set({ isLoading: false });
+        return;
       }
+      const notes = await fetchWithAuth('/notes');
+      const safeNotes = Array.isArray(notes) ? notes : [];
+      // Chunked decrypt so a large sync doesn't freeze the UI thread.
+      const securedNotes = await materializeNotesFromEncryptedChunked(safeNotes as any, unlocked());
+      set({ notes: securedNotes, isLoading: false });
+      // Persist the snapshot in a single transaction, off the render path.
+      void Database.saveNotesLocalBulk(securedNotes).catch(() => {});
     } catch (error: any) {
       console.error('[Store] Fetch notes error:', error);
-      // Fallback to local
-      const localNotes = await Database.getNotesLocal();
-      const securedNotes = materializeNotesFromEncrypted(localNotes.map(processLocalNote) as any, new Set(get().unlockedProtectedNoteIds));
-      set({ notes: securedNotes, isLoading: false, error: error.message });
+      set({ isLoading: false, error: error.message });
     }
   },
 
@@ -966,50 +1032,53 @@ export const useStore = create<AppState>((set, get) => ({
       set({ isLoading: false });
       return;
     }
-    set({ isLoading: true, error: null });
+
+    // Reminder scheduling is fire-and-forget so it never sequence-blocks render.
+    const scheduleReminders = (tasks: Task[]) => {
+      if (!get().notificationsEnabled) return;
+      void (async () => {
+        for (const task of tasks) {
+          try { await scheduleTaskReminder(task); } catch { /* non-fatal */ }
+        }
+      })();
+    };
+
+    // 1) Offline-first: paint local tasks immediately (spinner only when empty).
     try {
-      const netState = await NetInfo.fetch();
-      if (netState.isConnected) {
-        const url = parentNoteId ? `/tasks?parentNoteId=${encodeURIComponent(parentNoteId)}` : '/tasks';
-        const tasks = await fetchWithAuth(url);
-        const decryptedTasks = tasks.map(processApiTask);
-        for (const task of decryptedTasks) {
-          await Database.saveTaskLocal(task, true);
-        }
-        
-        // Merge with local-only tasks (deduplicated by clientId if possible)
-        const state = get();
-        const serverClientIds = new Set(decryptedTasks.map((t: any) => t.clientId).filter(Boolean));
-        const localOnlyTasks = state.tasks.filter(t => t._id.startsWith('local_task_') && !serverClientIds.has(t.clientId));
-        
-        const mergedTasks = [...decryptedTasks, ...localOnlyTasks];
-        set({ tasks: mergedTasks, isLoading: false });
-        if (get().notificationsEnabled) {
-          for (const task of mergedTasks) {
-            await scheduleTaskReminder(task);
-          }
-        }
-      } else {
-        const localTasks = await Database.getTasksLocal();
-        const filtered = parentNoteId ? localTasks.filter(t => t.parentNoteId === parentNoteId) : localTasks;
-        const mapped = filtered.map(processLocalTask);
-        set({ tasks: mapped, isLoading: false });
-        if (get().notificationsEnabled) {
-          for (const task of mapped) {
-            await scheduleTaskReminder(task);
-          }
-        }
-      }
-    } catch (error: any) {
       const localTasks = await Database.getTasksLocal();
       const filtered = parentNoteId ? localTasks.filter(t => t.parentNoteId === parentNoteId) : localTasks;
       const mapped = filtered.map(processLocalTask);
-      set({ tasks: mapped, isLoading: false, error: error.message });
-      if (get().notificationsEnabled) {
-        for (const task of mapped) {
-          await scheduleTaskReminder(task);
-        }
+      set({ tasks: mapped, isLoading: mapped.length === 0, error: null });
+      scheduleReminders(mapped);
+    } catch {
+      /* fall through to the network refresh */
+    }
+
+    // 2) Background refresh from the server.
+    try {
+      const netState = await NetInfo.fetch();
+      if (!netState.isConnected) {
+        set({ isLoading: false });
+        return;
       }
+      const url = parentNoteId ? `/tasks?parentNoteId=${encodeURIComponent(parentNoteId)}` : '/tasks';
+      const tasks = await fetchWithAuth(url);
+      // Chunked decrypt so a large sync doesn't freeze the UI thread.
+      const decryptedTasks = await mapInChunks(Array.isArray(tasks) ? tasks : [], processApiTask);
+
+      // Keep local-only (unsynced) tasks, deduped by clientId against the server set.
+      const serverClientIds = new Set(decryptedTasks.map((t: any) => t.clientId).filter(Boolean));
+      const localOnlyTasks = get().tasks.filter(
+        (t) => t._id.startsWith('local_task_') && !serverClientIds.has(t.clientId),
+      );
+      const mergedTasks = [...decryptedTasks, ...localOnlyTasks];
+
+      set({ tasks: mergedTasks, isLoading: false });
+      void Database.saveTasksLocalBulk(decryptedTasks).catch(() => {});
+      scheduleReminders(mergedTasks);
+      refreshTaskWidget(get().notes, mergedTasks);
+    } catch (error: any) {
+      set({ isLoading: false, error: error.message });
     }
   },
 
@@ -1021,14 +1090,14 @@ export const useStore = create<AppState>((set, get) => ({
 
       const notes = await fetchWithAuth('/notes');
       const safeNotes = Array.isArray(notes) ? notes : [];
-      const decryptedNotes = materializeNotesFromEncrypted(safeNotes as any, new Set(get().unlockedProtectedNoteIds));
+      const decryptedNotes = await materializeNotesFromEncryptedChunked(safeNotes as any, new Set(get().unlockedProtectedNoteIds));
       for (const note of decryptedNotes) {
         await Database.saveNoteLocal(note, true);
       }
       set({ notes: decryptedNotes });
 
       const tasks = await fetchWithAuth('/tasks');
-      const decryptedTasks = tasks.map(processApiTask);
+      const decryptedTasks = await mapInChunks(Array.isArray(tasks) ? tasks : [], processApiTask);
       for (const task of decryptedTasks) {
         await Database.saveTaskLocal(task, true);
       }
@@ -1586,9 +1655,18 @@ export const useStore = create<AppState>((set, get) => ({
         } catch (error) {
           const err: any = error;
           const status = typeof err?.status === 'number' ? err.status : undefined;
-          if (status === 401) return;
+          if (status === 401) return; // auth problem — stop, keep the queue intact
           if (typeof status === 'number' && status >= 400 && status < 500 && status !== 429) {
+            // Permanent client error — drop so it can't block the queue forever.
             await Database.removeFromSyncQueue(item.id);
+          } else {
+            // Transient (5xx / 429 / network): bump the retry counter and drop
+            // only after MAX_SYNC_ATTEMPTS so a poison item can't retry forever.
+            const attempts = await Database.incrementSyncAttempt(item.id);
+            if (attempts >= MAX_SYNC_ATTEMPTS) {
+              await Database.removeFromSyncQueue(item.id);
+              console.warn('[sync] dropping item after max attempts', { id: item.id, action: item.action, entity: item.entity });
+            }
           }
           console.error('Sync item failed', item, error);
         }

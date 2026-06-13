@@ -1,6 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import CryptoJS from 'crypto-js';
-import { Note, Task, Conversation, Message, AIModel, AIProject, encrypt, decrypt } from '@repo/shared';
+import { Note, Task, Conversation, Message, AIModel, AIProject, encrypt, decrypt, safeDecrypt } from '@repo/shared';
 
 type LocalConversation = Conversation & { localOnly?: boolean };
 type LocalAIProject = AIProject & { localOnly?: boolean };
@@ -16,24 +16,9 @@ const toIsoString = (value: unknown): string => {
 const decryptText = (value: unknown, fallback: string | null = null): string | null => {
   if (value == null) return fallback;
   const raw = typeof value === 'string' ? value : String(value);
-  // Optimization: If raw looks like a valid encrypted string (base64, no spaces), try decrypt
-  // Otherwise return raw. This prevents trying to decrypt already decrypted text or garbage.
-  try {
-    // Only attempt decryption if it looks like it might be encrypted (no spaces, length check)
-    // Encrypted strings are usually base64 and longer. Simple heuristic.
-    // Also skip if it starts with { or [ as it might be JSON (which implies not encrypted string)
-    if (raw.includes(' ') || raw.length < 10 || raw.startsWith('{') || raw.startsWith('[')) return raw;
-
-    const decrypted = decrypt(raw);
-    // Handle malformed UTF-8 or empty result from decrypt
-    if (!decrypted) return raw;
-    // Check if result is valid UTF-8 string (not strictly needed in JS but good sanity check)
-    return decrypted;
-  } catch (e) {
-    // If decryption fails (e.g. Malformed UTF-8 data), return raw value
-    // This handles cases where data might not be encrypted or is corrupted
-    return raw;
-  }
+  // safeDecrypt: passes plaintext/legacy values through, decrypts real
+  // ciphertext, and returns `raw` (never '') if a ciphertext fails to decrypt.
+  return safeDecrypt(raw, raw);
 };
 
 const encryptText = (value: unknown): string => encrypt(String(value ?? ''));
@@ -128,7 +113,8 @@ export const initDatabase = async () => {
       data TEXT,
       timestamp TEXT,
       dedupeKey TEXT,
-      dedupeKeyHash TEXT
+      dedupeKeyHash TEXT,
+      attempts INTEGER DEFAULT 0
     );
     CREATE TABLE IF NOT EXISTS conversations (
       id TEXT PRIMARY KEY,
@@ -281,6 +267,12 @@ export const initDatabase = async () => {
   }
 
   try {
+      await db.execAsync('ALTER TABLE sync_queue ADD COLUMN attempts INTEGER DEFAULT 0');
+  } catch (e) {
+      // Column likely exists
+  }
+
+  try {
       await db.execAsync('ALTER TABLE tasks ADD COLUMN parentId TEXT');
   } catch (e) {
       // Column likely exists
@@ -411,6 +403,18 @@ export const saveNoteLocal = async (note: Note, isSynced: boolean = true) => {
   );
 };
 
+/**
+ * Persist many notes in a single transaction (one commit/fsync instead of N).
+ * Used by the offline-first refresh path so writing the server snapshot to disk
+ * doesn't block the UI with a sequential await-per-row loop.
+ */
+export const saveNotesLocalBulk = async (notes: Note[], isSynced: boolean = true): Promise<void> => {
+  if (!notes.length) return;
+  await db.withTransactionAsync(async () => {
+    for (const note of notes) await saveNoteLocal(note, isSynced);
+  });
+};
+
 export const getNotesLocal = async (): Promise<Note[]> => {
   const result = await db.getAllAsync<any>('SELECT * FROM notes');
   const notes = result.map(row => {
@@ -424,21 +428,9 @@ export const getNotesLocal = async (): Promise<Note[]> => {
 
     let type: 'note' | 'task_list' | 'project' | undefined = undefined;
     if (row.type) {
-        try {
-            const decryptedType = decrypt(row.type);
-            if (['note', 'task_list', 'project'].includes(decryptedType)) {
-                type = decryptedType as any;
-            } else if (['note', 'task_list', 'project'].includes(row.type)) {
-                type = row.type as any;
-            } else {
-                type = undefined;
-            }
-        } catch {
-             if (['note', 'task_list', 'project'].includes(row.type)) {
-                type = row.type as any;
-            } else {
-                type = undefined;
-            }
+        const decryptedType = safeDecrypt(row.type, row.type);
+        if (['note', 'task_list', 'project'].includes(decryptedType)) {
+            type = decryptedType as any;
         }
     }
 
@@ -531,6 +523,14 @@ export const saveTaskLocal = async (task: Task, isSynced: boolean = true) => {
   );
 };
 
+/** Persist many tasks in a single transaction (see saveNotesLocalBulk). */
+export const saveTasksLocalBulk = async (tasks: Task[], isSynced: boolean = true): Promise<void> => {
+  if (!tasks.length) return;
+  await db.withTransactionAsync(async () => {
+    for (const task of tasks) await saveTaskLocal(task, isSynced);
+  });
+};
+
 export const getTasksLocal = async (): Promise<Task[]> => {
   const result = await db.getAllAsync<any>('SELECT * FROM tasks');
   const tasks = result.map(row => {
@@ -596,8 +596,8 @@ export const getTasksLocal = async (): Promise<Task[]> => {
 
     return {
         _id: row._id,
-        title: decrypt(row.title),
-        description: row.description ? decrypt(row.description) : '',
+        title: safeDecrypt(row.title, row.title),
+        description: row.description ? safeDecrypt(row.description, row.description) : '',
         priority: priority,
         completed: completed,
         dueDate: dueDate,
@@ -676,13 +676,20 @@ export const getSyncQueue = async () => {
       }
     })();
     const timestamp = decryptText(row.timestamp, row.timestamp) || row.timestamp;
-    return { id: row.id, action, entity, data, timestamp };
+    return { id: row.id, action, entity, data, timestamp, attempts: Number(row.attempts) || 0 };
   });
   return queue.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 };
 
 export const removeFromSyncQueue = async (id: number) => {
   await db.runAsync('DELETE FROM sync_queue WHERE id = ?', [id]);
+};
+
+/** Bump the retry counter for a queue item that failed transiently. Returns the new count. */
+export const incrementSyncAttempt = async (id: number): Promise<number> => {
+  await db.runAsync('UPDATE sync_queue SET attempts = COALESCE(attempts, 0) + 1 WHERE id = ?', [id]);
+  const row = await db.getFirstAsync<any>('SELECT attempts FROM sync_queue WHERE id = ?', [id]);
+  return Number(row?.attempts) || 0;
 };
 
 // AI Conversations & Messages
@@ -708,14 +715,14 @@ export const getConversationsLocal = async (): Promise<LocalConversation[]> => {
   const result = await db.getAllAsync<any>('SELECT * FROM conversations ORDER BY updatedAt DESC');
   return result.map((row: any) => ({
     id: row.id,
-    title: decrypt(row.title),
-    model: row.model ? decrypt(row.model) : undefined,
-    projectId: row.projectId ? decrypt(row.projectId) : undefined,
-    icon: row.icon ? decrypt(row.icon) : undefined,
-    iconColor: row.iconColor ? decrypt(row.iconColor) : undefined,
-    localOnly: row.localOnly ? decrypt(row.localOnly) === 'true' : false,
-    createdAt: decrypt(row.createdAt),
-    updatedAt: decrypt(row.updatedAt),
+    title: safeDecrypt(row.title, row.title),
+    model: row.model ? safeDecrypt(row.model, row.model) : undefined,
+    projectId: row.projectId ? safeDecrypt(row.projectId, row.projectId) : undefined,
+    icon: row.icon ? safeDecrypt(row.icon, row.icon) : undefined,
+    iconColor: row.iconColor ? safeDecrypt(row.iconColor, row.iconColor) : undefined,
+    localOnly: row.localOnly ? safeDecrypt(row.localOnly) === 'true' : false,
+    createdAt: safeDecrypt(row.createdAt, row.createdAt),
+    updatedAt: safeDecrypt(row.updatedAt, row.updatedAt),
     messages: []
   }));
 };
@@ -745,16 +752,16 @@ export const getMessagesLocal = async (conversationId: string): Promise<Message[
     let toolCalls = undefined;
     if (row.toolCalls) {
       try {
-        toolCalls = JSON.parse(decrypt(row.toolCalls));
+        toolCalls = JSON.parse(safeDecrypt(row.toolCalls, row.toolCalls));
       } catch {}
     }
     return {
       id: row.id,
-      role: decrypt(row.role) as any,
-      content: decrypt(row.content),
+      role: safeDecrypt(row.role, row.role) as any,
+      content: safeDecrypt(row.content, row.content),
       toolCalls,
-      toolCallId: row.toolCallId ? decrypt(row.toolCallId) : undefined,
-      createdAt: decrypt(row.createdAt)
+      toolCallId: row.toolCallId ? safeDecrypt(row.toolCallId, row.toolCallId) : undefined,
+      createdAt: safeDecrypt(row.createdAt, row.createdAt)
     };
   });
 };

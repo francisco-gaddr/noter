@@ -2,3 +2,6 @@ export * from './encrypt';
 export * from './types';
 export * from './mcpSettings';
 export * from './whatsNew';
+export * from './widgetData';
+export * from './keyBootstrap';
+export * from './insights';

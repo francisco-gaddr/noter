@@ -33,11 +33,16 @@ jest.mock('../services/database', () => ({
   initDatabase: jest.fn(),
   getNotesLocal: jest.fn().mockResolvedValue([]),
   saveNoteLocal: jest.fn(),
+  saveNotesLocalBulk: jest.fn().mockResolvedValue(undefined),
   deleteNoteLocal: jest.fn(),
   getTasksLocal: jest.fn().mockResolvedValue([]),
   saveTaskLocal: jest.fn(),
+  saveTasksLocalBulk: jest.fn().mockResolvedValue(undefined),
   deleteTaskLocal: jest.fn(),
   syncPendingChanges: jest.fn(),
+  getSyncQueue: jest.fn().mockResolvedValue([]),
+  removeFromSyncQueue: jest.fn().mockResolvedValue(undefined),
+  incrementSyncAttempt: jest.fn().mockResolvedValue(1),
 }));
 
 jest.mock('../services/socket', () => ({
@@ -140,6 +145,56 @@ describe('Mobile Store', () => {
     expect(state.notes[0]._id).toBe('1');
   });
 
+  it('chunked decrypt: materializes a large note payload correctly across chunk boundaries', async () => {
+    const { fetchWithAuth } = require('../services/api');
+    // 137 notes forces multiple chunks (chunk size 50) plus a partial final chunk.
+    const COUNT = 137;
+    const mockNotes = Array.from({ length: COUNT }, (_, i) => ({
+      _id: String(i),
+      title: encrypt(`Note ${i}`),
+      content: encrypt(`Content ${i}`),
+      locked: encrypt('false'),
+      type: encrypt('note'),
+      createdAt: encrypt(new Date().toISOString()),
+      updatedAt: encrypt(new Date().toISOString()),
+    }));
+    fetchWithAuth.mockResolvedValueOnce(mockNotes);
+
+    await useStore.getState().fetchNotes();
+
+    const state = useStore.getState();
+    expect(state.notes.length).toBe(COUNT);
+    // First, a boundary-crossing, and last item all decrypt — proving no chunk is dropped.
+    expect(state.notes[0].title).toBe('Note 0');
+    expect(state.notes[50].title).toBe('Note 50');
+    expect(state.notes[COUNT - 1].title).toBe(`Note ${COUNT - 1}`);
+    expect(state.isLoading).toBe(false);
+  });
+
+  it('chunked decrypt: materializes a large task payload correctly across chunk boundaries', async () => {
+    const { fetchWithAuth } = require('../services/api');
+    const COUNT = 120;
+    const mockTasks = Array.from({ length: COUNT }, (_, i) => ({
+      _id: String(i),
+      title: encrypt(`Task ${i}`),
+      description: encrypt(`Desc ${i}`),
+      completed: encrypt('false'),
+      priority: encrypt('medium'),
+      createdAt: encrypt(new Date().toISOString()),
+      updatedAt: encrypt(new Date().toISOString()),
+    }));
+    fetchWithAuth.mockResolvedValueOnce(mockTasks);
+
+    await useStore.getState().fetchTasks();
+
+    const state = useStore.getState();
+    expect(state.tasks.length).toBe(COUNT);
+    expect(state.tasks[0].title).toBe('Task 0');
+    expect(state.tasks[60].title).toBe('Task 60');
+    expect(state.tasks[COUNT - 1].title).toBe(`Task ${COUNT - 1}`);
+    expect(state.isLoading).toBe(false);
+  });
+
   it('should mask locked notes from API', async () => {
     const { fetchWithAuth } = require('../services/api');
     const mockNotes = [
@@ -227,6 +282,102 @@ describe('Mobile Store', () => {
      const state = useStore.getState();
      expect(state.notes.length).toBe(1);
      expect(state.notes[0]._id).toBe('local_1');
+  });
+
+  it('offline-first: paints local notes even when the network refresh fails', async () => {
+    const NetInfo = require('@react-native-community/netinfo');
+    NetInfo.fetch.mockResolvedValueOnce({ isConnected: true });
+    const { fetchWithAuth } = require('../services/api');
+    fetchWithAuth.mockRejectedValueOnce(new Error('network down'));
+
+    const Database = require('../services/database');
+    Database.getNotesLocal.mockResolvedValueOnce([{
+      _id: 'local_offline_1',
+      title: encrypt('Cached Note'),
+      content: encrypt('Cached'),
+      locked: encrypt('false'),
+      type: encrypt('note'),
+      createdAt: encrypt(new Date().toISOString()),
+      updatedAt: encrypt(new Date().toISOString()),
+      __rawEncryptedTitle: encrypt('Cached Note'),
+      __rawEncryptedContent: encrypt('Cached'),
+      __rawEncryptedTags: encrypt('[]'),
+    }]);
+
+    await useStore.getState().fetchNotes();
+
+    const state = useStore.getState();
+    // Local data is shown despite the failed refresh; spinner is off.
+    expect(state.notes.map((n) => n._id)).toContain('local_offline_1');
+    expect(state.isLoading).toBe(false);
+  });
+
+  it('offline-first: does not block on bulk-persist when online', async () => {
+    const NetInfo = require('@react-native-community/netinfo');
+    NetInfo.fetch.mockResolvedValueOnce({ isConnected: true });
+    const { fetchWithAuth } = require('../services/api');
+    fetchWithAuth.mockResolvedValueOnce([{
+      _id: 'srv_1',
+      title: encrypt('Server Note'),
+      content: encrypt('Body'),
+      locked: encrypt('false'),
+      type: encrypt('note'),
+      createdAt: encrypt(new Date().toISOString()),
+      updatedAt: encrypt(new Date().toISOString()),
+    }]);
+    const Database = require('../services/database');
+
+    await useStore.getState().fetchNotes();
+
+    // Server snapshot is shown and persisted via the single-transaction bulk path.
+    expect(useStore.getState().notes.map((n) => n._id)).toContain('srv_1');
+    expect(Database.saveNotesLocalBulk).toHaveBeenCalled();
+  });
+
+  it('offline sync: drops a poison item after MAX attempts (persistent 5xx)', async () => {
+    const Database = require('../services/database');
+    const { fetchWithAuth } = require('../services/api');
+    Database.getSyncQueue.mockResolvedValueOnce([
+      { id: 7, action: 'CREATE', entity: 'NOTE', data: { title: 'enc', tempId: 'local_1' }, timestamp: new Date().toISOString(), attempts: 7 },
+    ]);
+    const err: any = new Error('server error'); err.status = 500;
+    fetchWithAuth.mockRejectedValueOnce(err);
+    Database.incrementSyncAttempt.mockResolvedValueOnce(8); // reaches MAX_SYNC_ATTEMPTS
+
+    await useStore.getState().syncOfflineChanges();
+
+    expect(Database.incrementSyncAttempt).toHaveBeenCalledWith(7);
+    expect(Database.removeFromSyncQueue).toHaveBeenCalledWith(7);
+  });
+
+  it('offline sync: keeps a transiently-failed item below MAX attempts', async () => {
+    const Database = require('../services/database');
+    const { fetchWithAuth } = require('../services/api');
+    Database.getSyncQueue.mockResolvedValueOnce([
+      { id: 8, action: 'CREATE', entity: 'NOTE', data: { title: 'enc', tempId: 'local_2' }, timestamp: new Date().toISOString(), attempts: 1 },
+    ]);
+    fetchWithAuth.mockRejectedValueOnce(new Error('network down')); // no status → transient
+    Database.incrementSyncAttempt.mockResolvedValueOnce(2);
+
+    await useStore.getState().syncOfflineChanges();
+
+    expect(Database.incrementSyncAttempt).toHaveBeenCalledWith(8);
+    expect(Database.removeFromSyncQueue).not.toHaveBeenCalledWith(8);
+  });
+
+  it('offline sync: drops a permanent 4xx item immediately (not retried)', async () => {
+    const Database = require('../services/database');
+    const { fetchWithAuth } = require('../services/api');
+    Database.getSyncQueue.mockResolvedValueOnce([
+      { id: 9, action: 'UPDATE', entity: 'NOTE', data: { id: 'srv_9', title: 'enc' }, timestamp: new Date().toISOString(), attempts: 0 },
+    ]);
+    const err: any = new Error('bad request'); err.status = 400;
+    fetchWithAuth.mockRejectedValueOnce(err);
+
+    await useStore.getState().syncOfflineChanges();
+
+    expect(Database.removeFromSyncQueue).toHaveBeenCalledWith(9);
+    expect(Database.incrementSyncAttempt).not.toHaveBeenCalledWith(9);
   });
 
   it('should unlock note content without logging out', async () => {

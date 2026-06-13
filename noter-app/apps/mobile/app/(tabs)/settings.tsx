@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { StyleSheet, View, Alert, Platform, useWindowDimensions, ScrollView } from 'react-native';
-import { List, Switch, Text, Divider, useTheme, Menu, Dialog, Portal, Button, TextInput, RadioButton, Checkbox } from 'react-native-paper';
+import { List, Switch, Text, Divider, useTheme, Menu, Dialog, Portal, Button, TextInput, RadioButton, Checkbox, ActivityIndicator } from 'react-native-paper';
 import { useThemeContext } from '@/context/ThemeContext';
 import { useRouter } from 'expo-router';
 import * as SecureStore from 'expo-secure-store';
@@ -10,8 +10,10 @@ import { API_URL, setApiUrl, getAuthToken } from '@/services/api';
 import { disconnectSocket, initSocket } from '@/services/socket';
 import { BackendUrlDialog } from '@/components/BackendUrlDialog';
 import { useTranslation } from 'react-i18next';
-import { clearLocalData, clearNotesLocal, clearTasksLocal, clearModelsLocal, clearSyncQueue, getModelsLocal } from '@/services/database';
+import { clearLocalData, clearNotesLocal, clearTasksLocal, clearModelsLocal, clearSyncQueue, getModelsLocal, getSyncQueue } from '@/services/database';
 import { deleteModel as deleteModelFile } from '@/services/ai/modelService';
+import { enrollOrUnlockCrypto } from '@/services/crypto';
+import { hasActiveDataKey } from '@repo/shared';
 
 export default function SettingsScreen() {
   const { t, i18n } = useTranslation();
@@ -23,13 +25,65 @@ export default function SettingsScreen() {
   const setActiveProject = useStore((s) => s.setActiveProject);
   const notificationsEnabled = useStore((s) => s.notificationsEnabled);
   const setNotificationsEnabled = useStore((s) => s.setNotificationsEnabled);
+  const syncOfflineChanges = useStore((s) => s.syncOfflineChanges);
+  const isOffline = useStore((s) => s.isOffline);
+  const isSyncingOffline = useStore((s) => s.isSyncingOffline);
   const paperTheme = useTheme();
   const touchRippleColor = 'rgba(33, 150, 243, 0.22)';
   const router = useRouter();
   const { width } = useWindowDimensions();
   const [language, setLanguage] = useState<'sv' | 'en'>('sv');
-  const [lockTiming, setLockTiming] = useState<'immediate' | '5min' | '15min' | '30min' | '1h' | '3h'>('immediate');
+  const [lockTiming, setLockTiming] = useState<'immediate' | '5min' | '15min' | '30min' | '1h' | '3h' | '6h' | '12h'>('immediate');
   const [lockTimingDialogVisible, setLockTimingDialogVisible] = useState(false);
+
+  // Manual sync controls.
+  const [pendingSync, setPendingSync] = useState<number | null>(null);
+  const refreshPendingSync = useCallback(async () => {
+    try { setPendingSync((await getSyncQueue()).length); } catch { setPendingSync(null); }
+  }, []);
+  useEffect(() => { void refreshPendingSync(); }, [refreshPendingSync, isSyncingOffline]);
+
+  const handleSyncNow = async () => {
+    await syncOfflineChanges();
+    await refreshPendingSync();
+  };
+
+  // Enhanced (v3) end-to-end encryption enrolment.
+  const [e2eActive, setE2eActive] = useState(hasActiveDataKey());
+  const [e2eDialogVisible, setE2eDialogVisible] = useState(false);
+  const [e2ePassword, setE2ePassword] = useState('');
+  const [e2eBusy, setE2eBusy] = useState(false);
+
+  const handleEnableE2E = async () => {
+    if (!e2ePassword) return;
+    setE2eBusy(true);
+    try {
+      const outcome = await enrollOrUnlockCrypto(e2ePassword);
+      setE2eActive(true);
+      setE2eDialogVisible(false);
+      setE2ePassword('');
+      if (outcome.result === 'enrolled' && outcome.recoveryCode) {
+        // Show the recovery code ONCE — it is never stored in plaintext.
+        Alert.alert(
+          t('settings.e2eRecoveryTitle', 'Spara din återställningskod'),
+          t('settings.e2eRecoveryBody', 'Förstärkt kryptering är aktiverad. Skriv ner denna kod och förvara den säkert — den är enda sättet att återställa datan om du glömmer lösenordet:') +
+            `\n\n${outcome.recoveryCode}`,
+        );
+      } else {
+        Alert.alert(
+          t('common.success'),
+          t('settings.e2eUnlocked', 'Förstärkt kryptering upplåst på denna enhet.'),
+        );
+      }
+    } catch (e: any) {
+      Alert.alert(
+        t('common.error'),
+        t('settings.e2eFailed', 'Kunde inte aktivera förstärkt kryptering. Kontrollera lösenordet och anslutningen.'),
+      );
+    } finally {
+      setE2eBusy(false);
+    }
+  };
   
   // Backend URL state
   const [backendUrl, setBackendUrl] = useState(API_URL);
@@ -74,7 +128,9 @@ export default function SettingsScreen() {
         savedLockTiming === '15min' ||
         savedLockTiming === '30min' ||
         savedLockTiming === '1h' ||
-        savedLockTiming === '3h'
+        savedLockTiming === '3h' ||
+        savedLockTiming === '6h' ||
+        savedLockTiming === '12h'
       ) {
         setLockTiming(savedLockTiming);
       }
@@ -100,6 +156,8 @@ export default function SettingsScreen() {
     if (v === '15min') return t('settings.lock15min', 'Efter 15 min');
     if (v === '30min') return t('settings.lock30min', 'Efter 30 min');
     if (v === '3h') return t('settings.lock3h', 'Efter 3 h');
+    if (v === '6h') return t('settings.lock6h', 'Efter 6 h');
+    if (v === '12h') return t('settings.lock12h', 'Efter 12 h');
     return t('settings.lock1h', 'Efter 1 h');
   };
 
@@ -293,6 +351,50 @@ export default function SettingsScreen() {
             {t('settings.lockHint', 'Välj hur snabbt appen ska låsas vid inaktivitet')}
           </Text>
         </View>
+
+        <List.Item
+          title={t('settings.e2e', 'Förstärkt kryptering (E2E)')}
+          description={
+            e2eActive
+              ? t('settings.e2eOn', 'Aktiv — anteckningar krypteras end-to-end (AES-256-GCM)')
+              : t('settings.e2eOff', 'Lås upp med ditt lösenord för att aktivera')
+          }
+          left={props => <List.Icon {...props} icon={e2eActive ? 'shield-check' : 'shield-key'} />}
+          right={() => (
+            <Switch
+              value={e2eActive}
+              disabled={e2eActive}
+              onValueChange={() => { if (!e2eActive) setE2eDialogVisible(true); }}
+            />
+          )}
+          onPress={() => { if (!e2eActive) setE2eDialogVisible(true); }}
+          rippleColor={touchRippleColor}
+        />
+        <View style={styles.hint}>
+          <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
+            {t('settings.e2eHint', 'Din nyckel härleds från ditt lösenord och lämnar aldrig enheten okrypterad. Befintliga anteckningar migreras automatiskt när de sparas.')}
+          </Text>
+        </View>
+      </List.Section>
+
+      <Divider />
+
+      <List.Section title={t('settings.syncSection', 'Synkning')}>
+        <List.Item
+          title={t('settings.syncNow', 'Synka nu')}
+          description={
+            isOffline
+              ? t('settings.syncOffline', 'Offline — ändringar synkas automatiskt när nätet återkommer')
+              : pendingSync && pendingSync > 0
+              ? t('settings.syncPending', { defaultValue: '{{count}} ändringar väntar på synk', count: pendingSync })
+              : t('settings.syncUpToDate', 'Allt är synkat')
+          }
+          left={props => <List.Icon {...props} icon={isOffline ? 'cloud-off-outline' : 'cloud-sync-outline'} />}
+          onPress={isOffline || isSyncingOffline ? undefined : handleSyncNow}
+          right={() => (isSyncingOffline ? <ActivityIndicator style={{ marginRight: 12 }} /> : undefined)}
+          disabled={isOffline || isSyncingOffline}
+          rippleColor={touchRippleColor}
+        />
       </List.Section>
 
       <Divider />
@@ -409,10 +511,40 @@ export default function SettingsScreen() {
               <RadioButton.Item label={t('settings.lock30min', 'Efter 30 min')} value="30min" />
               <RadioButton.Item label={t('settings.lock1h', 'Efter 1 h')} value="1h" />
               <RadioButton.Item label={t('settings.lock3h', 'Efter 3 h')} value="3h" />
+              <RadioButton.Item label={t('settings.lock6h', 'Efter 6 h')} value="6h" />
+              <RadioButton.Item label={t('settings.lock12h', 'Efter 12 h')} value="12h" />
             </RadioButton.Group>
           </Dialog.Content>
           <Dialog.Actions>
             <Button onPress={() => setLockTimingDialogVisible(false)}>{t('common.cancel')}</Button>
+          </Dialog.Actions>
+        </Dialog>
+
+        {/* Enhanced encryption (E2E) enrolment Dialog */}
+        <Dialog visible={e2eDialogVisible} onDismiss={() => { if (!e2eBusy) { setE2eDialogVisible(false); setE2ePassword(''); } }}>
+          <Dialog.Title>{t('settings.e2e', 'Förstärkt kryptering (E2E)')}</Dialog.Title>
+          <Dialog.Content>
+            <Text variant="bodyMedium" style={{ marginBottom: 12 }}>
+              {t('settings.e2eDialogBody', 'Ange ditt kontolösenord för att härleda din krypteringsnyckel. Glömmer du lösenordet och tappar dina enheter kan datan inte återställas.')}
+            </Text>
+            <TextInput
+              mode="outlined"
+              label={t('common.password', 'Lösenord')}
+              value={e2ePassword}
+              onChangeText={setE2ePassword}
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              disabled={e2eBusy}
+            />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => { setE2eDialogVisible(false); setE2ePassword(''); }} disabled={e2eBusy}>
+              {t('common.cancel')}
+            </Button>
+            <Button onPress={handleEnableE2E} loading={e2eBusy} disabled={e2eBusy || !e2ePassword}>
+              {t('settings.e2eActivate', 'Aktivera')}
+            </Button>
           </Dialog.Actions>
         </Dialog>
 

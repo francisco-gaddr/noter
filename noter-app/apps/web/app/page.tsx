@@ -10,6 +10,7 @@ import { useStore } from '../stores/useStore';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { loadHotkeys, matchesHotkey } from '../lib/hotkeys';
+import { restoreCryptoFromSession } from '../lib/crypto';
 
 export default function Home() {
   const { initSocket, user, activeTab, isHydrated } = useStore();
@@ -42,6 +43,9 @@ export default function Home() {
 
   useEffect(() => {
     setMounted(true);
+    // Re-activate v3 E2E from the per-tab session key (if enrolled) before data
+    // loads, so v3-encrypted notes decrypt on first render. No-op otherwise.
+    void restoreCryptoFromSession().catch(() => undefined);
     const savedWidth = localStorage.getItem('sidebarWidth');
     if (savedWidth) {
       setSidebarWidth(parseInt(savedWidth, 10));

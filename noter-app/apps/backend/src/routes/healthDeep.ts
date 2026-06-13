@@ -5,6 +5,13 @@ const router = express.Router();
 
 const TIMEOUT_MS = 1500;
 
+// Surfaced in the health payload so dashboards (Uptime Kuma, admin view, the Pi
+// hub) can show exactly which build + crypto posture is live. SECURITY_LEVEL
+// mirrors the SecurityClass in @repo/shared whatsNew; bump it whenever the crypto
+// layer materially changes so the running posture is always observable.
+const SERVICE_VERSION = process.env.npm_package_version || '1.1.0';
+const SECURITY_LEVEL = process.env.SECURITY_LEVEL || 'v3-aes-gcm-argon2id';
+
 const withTimeout = async <T>(p: Promise<T>, ms: number): Promise<T> => {
   let timer: NodeJS.Timeout | undefined;
   try {
@@ -80,6 +87,8 @@ router.get('/', authGuard, async (_req, res) => {
   const allOk = mongo.ok && redis.ok;
   res.status(allOk ? 200 : 503).json({
     status: allOk ? 'ok' : 'degraded',
+    version: SERVICE_VERSION,
+    securityLevel: SECURITY_LEVEL,
     time: new Date().toISOString(),
     uptime_sec: Math.round(process.uptime()),
     checks: { mongo, redis },

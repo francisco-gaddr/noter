@@ -1,4 +1,4 @@
-export type McpIntegrationId = 'slack' | 'googleWorkspace' | 'notion' | 'filesystem' | 'playwright';
+export type McpIntegrationId = 'slack' | 'googleWorkspace' | 'notion' | 'filesystem' | 'playwright' | 'github';
 
 export type McpFieldDefinition = {
   key: string;
@@ -103,6 +103,14 @@ export const MCP_INTEGRATIONS: McpIntegrationDefinition[] = [
       { key: 'browser', label: 'Browser', secret: false, envKeys: ['MCP_PLAYWRIGHT_BROWSER', 'PLAYWRIGHT_BROWSER'], placeholder: 'chromium' },
       { key: 'headless', label: 'Headless', secret: false, envKeys: ['MCP_PLAYWRIGHT_HEADLESS', 'PLAYWRIGHT_HEADLESS'], placeholder: 'true' },
       { key: 'channel', label: 'Channel', secret: false, envKeys: ['MCP_PLAYWRIGHT_CHANNEL', 'PLAYWRIGHT_CHANNEL'], placeholder: 'chrome' },
+    ],
+  },
+  {
+    id: 'github',
+    label: 'GitHub',
+    envEnabledKeys: ['MCP_GITHUB_ENABLED', 'GITHUB_MCP_ENABLED'],
+    fields: [
+      { key: 'token', label: 'Personal Access Token', secret: true, envKeys: ['MCP_GITHUB_TOKEN', 'GITHUB_PERSONAL_ACCESS_TOKEN'], placeholder: 'github_pat_... / ghp_...' },
     ],
   },
 ];

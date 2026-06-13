@@ -1,5 +1,5 @@
 import { AIProject, ChatMessage, Conversation } from '@repo/ai';
-import { decrypt, encrypt } from '@repo/shared';
+import { encrypt, safeDecrypt } from '@repo/shared';
 import { fetchWithAuth } from '../api';
 
 type LocalConversation = Conversation & { localOnly?: boolean };
@@ -15,11 +15,8 @@ let pullInFlight: Promise<PullAiSyncResult> | null = null;
 let lastPullAt = 0;
 let lastPullResult: PullAiSyncResult | null = null;
 
-const safeDecrypt = (value: unknown) => {
-  if (typeof value !== 'string') return '';
-  const decrypted = decrypt(value);
-  return decrypted || value;
-};
+// Uses the shared safeDecrypt (single source of truth): plaintext/legacy values
+// pass through, v3 envelopes decrypt with the active key, nothing blanks.
 
 const toEncryptedConversation = (conversation: LocalConversation) => ({
   id: conversation.id,

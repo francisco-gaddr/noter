@@ -11,18 +11,28 @@ interface AppLockProps {
   children: React.ReactNode;
 }
 
-type LockTiming = 'immediate' | '5min' | '15min' | '30min' | '1h' | '3h';
+type LockTiming = 'immediate' | '5min' | '15min' | '30min' | '1h' | '3h' | '6h' | '12h';
 
 const LOCK_TIMING_KEY = 'lockTiming';
 const LAST_BACKGROUND_KEY = 'lastBackgroundAt';
+
+const HOUR_MS = 60 * 60 * 1000;
+
+const LOCK_TIMINGS: readonly LockTiming[] = ['immediate', '5min', '15min', '30min', '1h', '3h', '6h', '12h'];
+
+const isLockTiming = (v: unknown): v is LockTiming =>
+  typeof v === 'string' && (LOCK_TIMINGS as readonly string[]).includes(v);
 
 const lockTimingToMs = (timing: LockTiming) => {
   if (timing === 'immediate') return 0;
   if (timing === '5min') return 5 * 60 * 1000;
   if (timing === '15min') return 15 * 60 * 1000;
   if (timing === '30min') return 30 * 60 * 1000;
-  if (timing === '3h') return 3 * 60 * 60 * 1000;
-  return 60 * 60 * 1000;
+  if (timing === '1h') return HOUR_MS;
+  if (timing === '3h') return 3 * HOUR_MS;
+  if (timing === '6h') return 6 * HOUR_MS;
+  if (timing === '12h') return 12 * HOUR_MS;
+  return HOUR_MS;
 };
 
 // Sliding-window lockout: 5 failed prompts inside 60s → 30s cool-down.
@@ -51,6 +61,10 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
   const failedAttemptsRef = useRef<number[]>([]);
   const [lockoutUntilMs, setLockoutUntilMs] = useState<number>(0);
   const [, forceTick] = useState(0);
+  // Guards against overlapping biometric prompts. The mount path
+  // (checkBiometrics) and the isLocked effect can both reach unlockApp(); without
+  // this, the OS dialog could be requested twice in a row.
+  const authInFlightRef = useRef(false);
 
   useEffect(() => {
     isMounted.current = true;
@@ -62,7 +76,7 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
         ]);
 
         let currentTiming: LockTiming = 'immediate';
-        if (saved === 'immediate' || saved === '5min' || saved === '15min' || saved === '30min' || saved === '1h' || saved === '3h') {
+        if (isLockTiming(saved)) {
           setLockTiming(saved);
           currentTiming = saved;
         }
@@ -118,6 +132,9 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
   };
 
   const unlockApp = async () => {
+    // Only one biometric prompt may be in flight at a time (see authInFlightRef).
+    if (authInFlightRef.current) return;
+
     // Sliding-window lockout check: too many failures in a minute → enforce
     // a 30s cooldown before prompting again. Without this, a bystander
     // could keep cancelling+retrying the biometric prompt to wear down
@@ -128,27 +145,32 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
       return;
     }
 
-    const result = await authenticate('Lås upp Noter');
-    if (result.success) {
-      setIsLocked(false);
-      await setSecurityLocked(false);
-      failedAttemptsRef.current = [];
-    } else {
-      const { nextAttempts, lockoutUntil } = recordFailure(failedAttemptsRef.current, Date.now());
-      failedAttemptsRef.current = nextAttempts;
-      if (lockoutUntil !== null) {
-        setLockoutUntilMs(lockoutUntil);
-        // Tick on lockout expiry so the UI re-renders without lockout text.
-        setTimeout(() => {
-          if (isMounted.current) {
-            setLockoutUntilMs(0);
-            failedAttemptsRef.current = [];
-            forceTick((n) => n + 1);
-          }
-        }, LOCKOUT_DURATION_MS + 100);
+    authInFlightRef.current = true;
+    try {
+      const result = await authenticate('Lås upp Noter');
+      if (result.success) {
+        setIsLocked(false);
+        await setSecurityLocked(false);
+        failedAttemptsRef.current = [];
+      } else {
+        const { nextAttempts, lockoutUntil } = recordFailure(failedAttemptsRef.current, Date.now());
+        failedAttemptsRef.current = nextAttempts;
+        if (lockoutUntil !== null) {
+          setLockoutUntilMs(lockoutUntil);
+          // Tick on lockout expiry so the UI re-renders without lockout text.
+          setTimeout(() => {
+            if (isMounted.current) {
+              setLockoutUntilMs(0);
+              failedAttemptsRef.current = [];
+              forceTick((n) => n + 1);
+            }
+          }, LOCKOUT_DURATION_MS + 100);
+        }
       }
+    } finally {
+      authInFlightRef.current = false;
+      setChecking(false);
     }
-    setChecking(false);
   };
 
   // AppState listener
@@ -166,7 +188,7 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
           let timingToUse: LockTiming = lockTiming;
           try {
             const saved = await SecureStore.getItemAsync(LOCK_TIMING_KEY);
-            if (saved === 'immediate' || saved === '5min' || saved === '15min' || saved === '30min' || saved === '1h' || saved === '3h') {
+            if (isLockTiming(saved)) {
               timingToUse = saved;
               if (saved !== lockTiming) setLockTiming(saved);
             }

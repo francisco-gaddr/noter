@@ -6,8 +6,9 @@ import { useTranslation } from 'react-i18next';
 import { clearNotesAndTasks } from '../services/db';
 import ApiUrlModal from './ApiUrlModal';
 import { FaCog } from 'react-icons/fa';
-import { WHATS_NEW_ENTRIES } from '@repo/shared';
+import { WHATS_NEW_ENTRIES, hasActiveDataKey } from '@repo/shared';
 import { getDefaultHotkeys } from '../lib/hotkeys';
+import { enrollOrUnlockCrypto } from '../lib/crypto';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -25,6 +26,33 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [clearing, setClearing] = React.useState(false);
   const [isApiModalOpen, setIsApiModalOpen] = React.useState(false);
   const [whatsNewOpen, setWhatsNewOpen] = React.useState(true);
+
+  // Enhanced (v3) end-to-end encryption enrolment.
+  const [e2eActive, setE2eActive] = React.useState(false);
+  const [e2ePassword, setE2ePassword] = React.useState('');
+  const [e2eBusy, setE2eBusy] = React.useState(false);
+  const [e2eMsg, setE2eMsg] = React.useState<string | null>(null);
+  React.useEffect(() => { setE2eActive(hasActiveDataKey()); }, [isOpen]);
+
+  const handleEnableE2E = async () => {
+    if (!e2ePassword) return;
+    setE2eBusy(true);
+    setE2eMsg(null);
+    try {
+      const outcome = await enrollOrUnlockCrypto(e2ePassword);
+      setE2eActive(true);
+      setE2ePassword('');
+      setE2eMsg(
+        outcome.result === 'enrolled' && outcome.recoveryCode
+          ? `Aktiverad. Spara din återställningskod säkert: ${outcome.recoveryCode}`
+          : 'Förstärkt kryptering upplåst för denna session.',
+      );
+    } catch {
+      setE2eMsg('Kunde inte aktivera. Kontrollera lösenordet och anslutningen.');
+    } finally {
+      setE2eBusy(false);
+    }
+  };
 
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -68,6 +96,38 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             <option value="sv">Svenska</option>
             <option value="en">English</option>
           </select>
+        </div>
+
+        <div className="mt-4">
+          <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">Förstärkt kryptering (E2E)</h3>
+          {e2eActive ? (
+            <p className="text-xs text-green-600 dark:text-green-400">
+              Aktiv — anteckningar krypteras end-to-end (AES-256-GCM) med en nyckel härledd från ditt lösenord.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-xs text-gray-600 dark:text-gray-300">
+                Lås upp med ditt lösenord för att aktivera. Nyckeln stannar i denna flik (sessionStorage) och lämnar aldrig servern.
+              </p>
+              <input
+                type="password"
+                value={e2ePassword}
+                onChange={(e) => setE2ePassword(e.target.value)}
+                placeholder={t('common.password', 'Lösenord')}
+                autoComplete="current-password"
+                className="w-full p-2 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+              />
+              <button
+                type="button"
+                onClick={handleEnableE2E}
+                disabled={e2eBusy || !e2ePassword}
+                className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm disabled:opacity-50"
+              >
+                {e2eBusy ? 'Aktiverar…' : 'Aktivera'}
+              </button>
+            </div>
+          )}
+          {e2eMsg && <p className="mt-2 text-xs text-gray-700 dark:text-gray-200 break-words">{e2eMsg}</p>}
         </div>
 
         <div className="mt-4">

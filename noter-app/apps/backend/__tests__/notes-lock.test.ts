@@ -16,8 +16,11 @@ beforeAll(async () => {
   app = express();
   app.use(express.json());
   app.set('io', { to: () => ({ emit: () => null }) });
+  // Stub auth: the real authMiddleware populates req.user from the JWT. The
+  // routes read req.user.userId (and now scope every /:id lookup by it), so the
+  // stub must set req.user — not just the header — or the handlers throw.
   app.use('/api/notes', (req, _res, next) => {
-    req.headers.authorization = 'Bearer demo-token';
+    (req as any).user = { userId: 'demo-user-id' };
     next();
   }, noteRoutes);
 });

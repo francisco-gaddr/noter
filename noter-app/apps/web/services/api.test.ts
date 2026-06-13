@@ -1,4 +1,4 @@
-import { encrypt, decrypt } from '@repo/shared';
+import { encrypt, decrypt, safeDecrypt } from '@repo/shared';
 import { api, setApiBaseUrl } from './api';
 
 // Mock the fetch function
@@ -21,6 +21,12 @@ Object.defineProperty(globalThis, 'localStorage', {
 jest.mock('@repo/shared', () => ({
   encrypt: jest.fn((text: string) => `encrypted_${text}`),
   decrypt: jest.fn((ciphertext: string) => ciphertext.replace('encrypted_', '')),
+  // safeDecrypt mirrors the real one: plaintext passes through, ciphertext
+  // decrypts, never blanks (falls back to the raw value / provided fallback).
+  safeDecrypt: jest.fn((v: unknown, fb?: string) =>
+    typeof v === 'string'
+      ? (v.startsWith('encrypted_') ? v.replace('encrypted_', '') : v)
+      : (typeof fb === 'string' ? fb : '')),
 }));
 
 describe('E2E Encryption Tests', () => {
@@ -75,10 +81,11 @@ describe('E2E Encryption Tests', () => {
         parentId: null,
       });
 
-      // Verify decryption was called for encrypted fields
+      // Verify decryption was called for encrypted fields. Dates/title/content
+      // now go through safeDecrypt (never-blank); locked still via decrypt.
       expect(decrypt).toHaveBeenCalledWith('encrypted_true');
-      expect(decrypt).toHaveBeenCalledWith('encrypted_2024-01-01T00:00:00.000Z');
-      expect(decrypt).toHaveBeenCalledWith('encrypted_2024-01-02T00:00:00.000Z');
+      expect(safeDecrypt).toHaveBeenCalledWith('encrypted_2024-01-01T00:00:00.000Z', 'encrypted_2024-01-01T00:00:00.000Z');
+      expect(safeDecrypt).toHaveBeenCalledWith('encrypted_2024-01-02T00:00:00.000Z', 'encrypted_2024-01-02T00:00:00.000Z');
     });
 
     it('should handle false locked values correctly', async () => {

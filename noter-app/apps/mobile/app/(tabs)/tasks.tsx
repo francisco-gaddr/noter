@@ -7,7 +7,7 @@ import { useStore } from '@/stores/useStore';
 import TaskList from '@/components/TaskList';
 import { TaskBoard } from '@/components/TaskBoard';
 import { TaskTimeline } from '@/components/TaskTimeline';
-import { Task } from '@repo/shared';
+import { Task, computeTaskInsights, priorityRank } from '@repo/shared';
 import { orderBy } from 'lodash';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SvgUri } from 'react-native-svg';
@@ -222,17 +222,17 @@ export default function TasksScreen() {
     return result;
   }, [tasks, selectedListId, statusFilter, filterDateRange]);
 
+  // Dashboard insights for the tasks in the currently-selected list (or all).
+  const insights = useMemo(() => {
+    const scope = selectedListId ? tasks.filter((t) => t.parentNoteId === selectedListId) : tasks;
+    return computeTaskInsights(scope, new Date());
+  }, [tasks, selectedListId]);
+
   const sortedTasks = useMemo(() => {
     if (sortBy === 'custom') {
         return orderBy(filteredTasks, ['completed', 'position'], ['asc', 'asc']);
     }
     if (sortBy === 'priority') {
-        const priorityRank = (p: unknown) => {
-            if (p === 'high') return 0;
-            if (p === 'medium') return 1;
-            if (p === 'low') return 2;
-            return 1;
-        };
         return orderBy(filteredTasks, ['completed', (t) => priorityRank((t as any).priority), 'createdAt'], ['asc', 'asc', 'desc']);
     }
     return orderBy(filteredTasks, ['completed', sortBy], ['asc', sortOrder]);
@@ -455,6 +455,23 @@ export default function TasksScreen() {
         </ScrollView>
       </View>
 
+      {insights.total > 0 ? (
+        <View style={styles.insightsRow}>
+          {insights.overdue > 0 && (
+            <Chip compact mode="flat" style={{ backgroundColor: theme.colors.errorContainer }} textStyle={{ fontSize: 12 }}>
+              {insights.overdue} försenade
+            </Chip>
+          )}
+          {insights.dueToday > 0 && (
+            <Chip compact mode="flat" textStyle={{ fontSize: 12 }}>{insights.dueToday} idag</Chip>
+          )}
+          <Chip compact mode="flat" textStyle={{ fontSize: 12 }}>{insights.active} aktiva</Chip>
+          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginLeft: 'auto', alignSelf: 'center' }}>
+            {Math.round(insights.completionRate * 100)}% klart
+          </Text>
+        </View>
+      ) : null}
+
       {viewMode === 'list' && isLoading && sortedTasks.length === 0 ? (
         <SkeletonRow count={6} />
       ) : null}
@@ -607,6 +624,13 @@ const styles = StyleSheet.create({
   tabsContent: {
     alignItems: 'center',
     paddingRight: 16
+  },
+  insightsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
   tabChip: {
     marginHorizontal: 4

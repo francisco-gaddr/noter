@@ -91,3 +91,8 @@ jest.mock('expo-haptics', () => ({
   notificationAsync: jest.fn(async () => undefined),
   selectionAsync: jest.fn(async () => undefined),
 }));
+
+// expo/fetch is a native (RN-runtime) module providing a streaming fetch. Stub it
+// so modules that import it (services/ai/apiProviders streaming) load under jest;
+// streaming itself isn't exercised in unit tests.
+jest.mock('expo/fetch', () => ({ fetch: jest.fn() }));

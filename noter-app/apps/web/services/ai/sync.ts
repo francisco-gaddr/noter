@@ -1,5 +1,5 @@
 import { AIProject, ChatMessage, Conversation } from '@repo/ai';
-import { decrypt, encrypt } from '@repo/shared';
+import { encrypt, safeDecrypt } from '@repo/shared';
 import { getApiBaseUrl } from '../api';
 
 type LocalConversation = Conversation & { localOnly?: boolean };
@@ -25,11 +25,7 @@ const getHeaders = () => {
 
 const baseUrl = () => `${getApiBaseUrl().replace(/\/+$/, '')}/ai/sync`;
 
-const safeDecrypt = (value: unknown) => {
-  if (typeof value !== 'string') return '';
-  const decrypted = decrypt(value);
-  return decrypted || value;
-};
+// Shared safeDecrypt (single source of truth) — handles plaintext/legacy/v3.
 
 const fetchJsonWithRetry = async (url: string, options: RequestInit, retries = 2) => {
   let lastError: unknown;

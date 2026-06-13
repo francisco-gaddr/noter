@@ -21,6 +21,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 
 import { ThemeContextProvider, useThemeContext, preloadTheme } from '@/context/ThemeContext';
 import { runKvMigrationIfNeeded } from '@/services/storage';
+import { restoreCryptoFromDevice } from '@/services/crypto';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -60,7 +61,14 @@ export default function RootLayout() {
           // preloadTheme runs in parallel so the ThemeContext picks up the
           // stored value on its first render — eliminates the light→dark
           // flash on cold start.
-          Promise.all([runKvMigrationIfNeeded(), preloadTheme()]).then(() => undefined),
+          // restoreCryptoFromDevice re-activates v3 E2E from the Keychain backup
+          // BEFORE any notes load, so v3 content decrypts on first render. No-op
+          // (and never throws) for users who haven't enrolled.
+          Promise.all([
+            runKvMigrationIfNeeded(),
+            preloadTheme(),
+            restoreCryptoFromDevice().catch(() => false),
+          ]).then(() => undefined),
           timeout,
         ]);
       } catch (e) {

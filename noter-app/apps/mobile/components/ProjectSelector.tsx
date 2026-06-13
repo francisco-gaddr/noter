@@ -362,6 +362,8 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
                 keyExtractor={(item) => item._id}
                 style={{ maxHeight: 260 }}
                 containerStyle={{ paddingBottom: 130 }}
+                // Breathing room so the last folder never sits flush against the footer.
+                contentContainerStyle={{ paddingBottom: 16 }}
                 activationDistance={8}
                 onDragEnd={({ data }) => handleReorder(data as Note[])}
                 renderItem={({ item, drag, isActive }: RenderItemParams<Note>) => (

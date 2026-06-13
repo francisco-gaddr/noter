@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { StyleSheet, View, FlatList, TextInput, KeyboardAvoidingView, Platform, ScrollView, Pressable, AppState } from 'react-native';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { StyleSheet, View, FlatList, TextInput, KeyboardAvoidingView, Platform, ScrollView, Pressable, AppState, Linking } from 'react-native';
 import { Text, Button, useTheme, IconButton, List, ActivityIndicator, ProgressBar, Portal, Dialog, TextInput as PaperTextInput, Switch, Menu } from 'react-native-paper';
 import { useLocalSearchParams, useNavigation } from 'expo-router';
 import { useTranslation } from 'react-i18next';
@@ -13,8 +13,10 @@ import { saveConversationLocal, getConversationsLocal, deleteConversationLocal, 
 import { combineSystemPrompts, buildToolUseNotice } from '@/services/ai/prompt';
 import { API_URL, fetchWithAuth } from '@/services/api';
 import { buildToolSystemPrompt, extractToolCalls } from '@/services/ai/tooling';
+import { extractThinking } from '@/services/ai/thinking';
 import { shouldStopToolIteration, toToolCallKeys, toToolIterationSignature } from '@/services/ai/toolChain';
-import { generateApiProviderResponse } from '@/services/ai/apiProviders';
+import { generateApiProviderResponse, streamApiProviderResponse, API_PROVIDERS, API_PROVIDER_LIST, type ApiProviderType } from '@/services/ai/apiProviders';
+import { recordUsage, getUsageSnapshot, type UsageSnapshot } from '@/services/ai/usageTracker';
 import { pullAiSync, pushAiSync } from '@/services/ai/sync';
 import { initSocket, getSocket } from '@/services/socket';
 import { buildSecurityNoteMap, isReadableWithLocks } from '@/services/ai/security';
@@ -28,7 +30,7 @@ import * as Clipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
-import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings } from '@repo/shared';
+import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, safeDecrypt, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings } from '@repo/shared';
 
 const provider = new MobileLlamaProvider();
 type LocalConversation = Conversation & { localOnly?: boolean };
@@ -206,6 +208,7 @@ export default function AIScreen() {
   const [toolSettingsVisible, setToolSettingsVisible] = useState(false);
   const [userScopeKey, setUserScopeKey] = useState<string>('anon');
   const [collapsedTool, setCollapsedTool] = useState<Record<string, boolean>>({});
+  const [collapsedThinking, setCollapsedThinking] = useState<Record<string, boolean>>({});
 
   // Projects
   const [projects, setProjects] = useState<LocalAIProject[]>([]);
@@ -243,12 +246,45 @@ export default function AIScreen() {
   const [preferLocalConversion, setPreferLocalConversion] = useState(false);
   const [allowBackgroundAIWork, setAllowBackgroundAIWork] = useState(false);
   const [aiUseApiProviders, setAiUseApiProviders] = useState(false);
-  const [apiProvider, setApiProvider] = useState<'openrouter' | 'gemini'>('openrouter');
+  const [apiProvider, setApiProvider] = useState<ApiProviderType>('openrouter');
   const [providerMenuVisible, setProviderMenuVisible] = useState(false);
   const [openRouterApiKey, setOpenRouterApiKey] = useState('');
   const [openRouterModel, setOpenRouterModel] = useState('openai/gpt-4o-mini');
   const [geminiApiKey, setGeminiApiKey] = useState('');
   const [geminiModel, setGeminiModel] = useState('gemini-2.5-flash');
+  const [groqApiKey, setGroqApiKey] = useState('');
+  const [groqModel, setGroqModel] = useState('llama-3.3-70b-versatile');
+  // Self-hosted Hermes agent (MacBook / Raspberry Pi): user-supplied base URL,
+  // model id, and an optional key. Stored encrypted at rest like the other keys.
+  const [hermesApiKey, setHermesApiKey] = useState('');
+  const [hermesModel, setHermesModel] = useState('hermes-3-llama-3.1-8b');
+  const [hermesBaseUrl, setHermesBaseUrl] = useState('');
+
+  // Resolve the active provider's key/model + setters without N-way ternaries at
+  // each use. Add a provider to API_PROVIDERS + a binding row here and the whole UI
+  // (menu, key/model inputs, validation, send) picks it up. `baseUrl` is only set
+  // for configurable (self-hosted) providers.
+  const apiProviderBindings: Record<ApiProviderType, {
+    key: string; setKey: (v: string) => void; model: string; setModel: (v: string) => void;
+    baseUrl?: string; setBaseUrl?: (v: string) => void;
+  }> = {
+    openrouter: { key: openRouterApiKey, setKey: setOpenRouterApiKey, model: openRouterModel, setModel: setOpenRouterModel },
+    gemini: { key: geminiApiKey, setKey: setGeminiApiKey, model: geminiModel, setModel: setGeminiModel },
+    groq: { key: groqApiKey, setKey: setGroqApiKey, model: groqModel, setModel: setGroqModel },
+    hermes: { key: hermesApiKey, setKey: setHermesApiKey, model: hermesModel, setModel: setHermesModel, baseUrl: hermesBaseUrl, setBaseUrl: setHermesBaseUrl },
+  };
+  const activeBinding = apiProviderBindings[apiProvider];
+  const activeApiKey = activeBinding.key;
+  const activeApiModel = activeBinding.model;
+  const activeBaseUrl = activeBinding.baseUrl;
+
+  // Usage / limits for the active provider+model (calls + tokens, today + month).
+  const [usageSnapshot, setUsageSnapshot] = useState<UsageSnapshot | null>(null);
+  const refreshUsage = useCallback(async () => {
+    if (!activeApiModel) { setUsageSnapshot(null); return; }
+    try { setUsageSnapshot(await getUsageSnapshot(apiProvider, activeApiModel)); } catch {}
+  }, [apiProvider, activeApiModel]);
+  useEffect(() => { void refreshUsage(); }, [refreshUsage]);
   const [mcpSettings, setMcpSettings] = useState<McpUiSettings>(() => createEmptyMcpUiSettings());
   const [mcpDashboardOpen, setMcpDashboardOpen] = useState(false);
   const [mcpDashboardLoading, setMcpDashboardLoading] = useState(false);
@@ -366,15 +402,25 @@ export default function AIScreen() {
       const savedApiEnabled = await AsyncStorage.getItem(`ai_api_enabled_${scopeKey}`);
       if (savedApiEnabled !== null) setAiUseApiProviders(savedApiEnabled === 'true');
       const savedApiProvider = await AsyncStorage.getItem(`ai_api_provider_${scopeKey}`);
-      if (savedApiProvider === 'openrouter' || savedApiProvider === 'gemini') setApiProvider(savedApiProvider);
+      if (savedApiProvider && savedApiProvider in API_PROVIDERS) setApiProvider(savedApiProvider as ApiProviderType);
       const savedOpenRouterModel = await AsyncStorage.getItem(`ai_openrouter_model_${scopeKey}`);
       if (savedOpenRouterModel) setOpenRouterModel(savedOpenRouterModel);
       const savedGeminiModel = await AsyncStorage.getItem(`ai_gemini_model_${scopeKey}`);
       if (savedGeminiModel) setGeminiModel(savedGeminiModel);
+      const savedGroqModel = await AsyncStorage.getItem(`ai_groq_model_${scopeKey}`);
+      if (savedGroqModel) setGroqModel(savedGroqModel);
+      const savedHermesModel = await AsyncStorage.getItem(`ai_hermes_model_${scopeKey}`);
+      if (savedHermesModel) setHermesModel(savedHermesModel);
+      const savedHermesBaseUrl = await AsyncStorage.getItem(`ai_hermes_base_url_${scopeKey}`);
+      if (savedHermesBaseUrl) setHermesBaseUrl(savedHermesBaseUrl);
       const openRouterKeyEnc = await SecureStore.getItemAsync(`ai_openrouter_key_${scopeKey}`);
-      if (openRouterKeyEnc) setOpenRouterApiKey(decrypt(openRouterKeyEnc) || '');
+      if (openRouterKeyEnc) setOpenRouterApiKey(safeDecrypt(openRouterKeyEnc) || '');
       const geminiKeyEnc = await SecureStore.getItemAsync(`ai_gemini_key_${scopeKey}`);
-      if (geminiKeyEnc) setGeminiApiKey(decrypt(geminiKeyEnc) || '');
+      if (geminiKeyEnc) setGeminiApiKey(safeDecrypt(geminiKeyEnc) || '');
+      const groqKeyEnc = await SecureStore.getItemAsync(`ai_groq_key_${scopeKey}`);
+      if (groqKeyEnc) setGroqApiKey(safeDecrypt(groqKeyEnc) || '');
+      const hermesKeyEnc = await SecureStore.getItemAsync(`ai_hermes_key_${scopeKey}`);
+      if (hermesKeyEnc) setHermesApiKey(safeDecrypt(hermesKeyEnc) || '');
       const mcpSettingsRaw = await SecureStore.getItemAsync(`ai_mcp_settings_${scopeKey}`);
       let parsedMcpSettings = createEmptyMcpUiSettings();
       if (mcpSettingsRaw) {
@@ -425,6 +471,22 @@ export default function AIScreen() {
 
   useEffect(() => {
     if (!userScopeKey) return;
+    AsyncStorage.setItem(`ai_groq_model_${userScopeKey}`, groqModel);
+  }, [groqModel, userScopeKey]);
+
+  useEffect(() => {
+    if (!userScopeKey) return;
+    AsyncStorage.setItem(`ai_hermes_model_${userScopeKey}`, hermesModel);
+  }, [hermesModel, userScopeKey]);
+
+  useEffect(() => {
+    if (!userScopeKey) return;
+    // Base URL is not a secret (LAN address) → plain AsyncStorage like models.
+    AsyncStorage.setItem(`ai_hermes_base_url_${userScopeKey}`, hermesBaseUrl);
+  }, [hermesBaseUrl, userScopeKey]);
+
+  useEffect(() => {
+    if (!userScopeKey) return;
     SecureStore.setItemAsync(`ai_openrouter_key_${userScopeKey}`, openRouterApiKey ? encrypt(openRouterApiKey) : '');
   }, [openRouterApiKey, userScopeKey]);
 
@@ -432,6 +494,16 @@ export default function AIScreen() {
     if (!userScopeKey) return;
     SecureStore.setItemAsync(`ai_gemini_key_${userScopeKey}`, geminiApiKey ? encrypt(geminiApiKey) : '');
   }, [geminiApiKey, userScopeKey]);
+
+  useEffect(() => {
+    if (!userScopeKey) return;
+    SecureStore.setItemAsync(`ai_groq_key_${userScopeKey}`, groqApiKey ? encrypt(groqApiKey) : '');
+  }, [groqApiKey, userScopeKey]);
+
+  useEffect(() => {
+    if (!userScopeKey) return;
+    SecureStore.setItemAsync(`ai_hermes_key_${userScopeKey}`, hermesApiKey ? encrypt(hermesApiKey) : '');
+  }, [hermesApiKey, userScopeKey]);
 
   useEffect(() => {
     if (!userScopeKey) return;
@@ -593,7 +665,7 @@ export default function AIScreen() {
   const isConversationLocalOnly = (conversationId: string) =>
       Boolean(conversations.find((item) => item.id === conversationId)?.localOnly);
   const activeModelLabel = aiUseApiProviders
-      ? (apiProvider === 'openrouter' ? openRouterModel : geminiModel)
+      ? activeApiModel
       : (activeModel || '');
 
   const formatError = (error: unknown) => {
@@ -1298,29 +1370,36 @@ export default function AIScreen() {
           let generationError: any = null;
           if (aiUseApiProviders) {
               try {
-                  const response = await generateApiProviderResponse({
+                  // Real SSE streaming: append each delta as it arrives. A fresh
+                  // AbortController lets the existing Stop button cancel the stream.
+                  const controller = new AbortController();
+                  const apiResult = await streamApiProviderResponse({
                       provider: apiProvider,
-                      apiKey: apiProvider === 'openrouter' ? openRouterApiKey : geminiApiKey,
-                      model: apiProvider === 'openrouter' ? openRouterModel : geminiModel,
+                      apiKey: activeApiKey,
+                      model: activeApiModel,
                       history: currentHistory,
+                      baseUrl: activeBaseUrl,
+                      signal: controller.signal,
+                      onToken: (delta) => {
+                          if (stopRequestedRef.current) { try { controller.abort(); } catch {} return; }
+                          fullContent += delta;
+                          tokenCount += 1;
+                          if (Date.now() - lastUpdate > 100) {
+                              updateTps();
+                              lastUpdate = Date.now();
+                          }
+                          setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
+                      },
                   });
-                  const chunks = response.split(/(\s+)/).filter(Boolean);
-                  for (const chunk of chunks) {
-                      if (stopRequestedRef.current) break;
-                      fullContent += chunk;
-                      tokenCount += 1;
-                      if (Date.now() - lastUpdate > 300) {
-                          updateTps();
-                          lastUpdate = Date.now();
-                      }
-                      setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
+                  // Reconcile with the final text (covers the non-streaming fallback path).
+                  if (apiResult.text && apiResult.text.length >= fullContent.length) {
+                      fullContent = apiResult.text;
                   }
-                  if (!chunks.length) {
-                      fullContent = response;
-                      tokenCount = Math.max(tokenCount, 1);
-                      updateTps();
-                      setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
-                  }
+                  tokenCount = Math.max(tokenCount, 1);
+                  updateTps();
+                  setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
+                  // Record usage for the limits/förbrukning display (best-effort).
+                  void recordUsage(apiProvider, activeApiModel, apiResult.totalTokens).then(refreshUsage);
               } catch (apiError: any) {
                   generationError = apiError;
               }
@@ -1810,15 +1889,23 @@ export default function AIScreen() {
         setSettingsVisible(true);
         return;
     }
-    if (aiUseApiProviders && apiProvider === 'openrouter' && (!openRouterApiKey || !openRouterModel)) {
-        alert('Ange OpenRouter API-nyckel och modell först');
-        setSettingsVisible(true);
-        return;
-    }
-    if (aiUseApiProviders && apiProvider === 'gemini' && (!geminiApiKey || !geminiModel)) {
-        alert('Ange Gemini API-nyckel och modell först');
-        setSettingsVisible(true);
-        return;
+    if (aiUseApiProviders) {
+        const meta = API_PROVIDERS[apiProvider];
+        if (meta.configurableEndpoint && !activeBaseUrl?.trim()) {
+            alert(`Ange bas-URL till din ${meta.label} först`);
+            setSettingsVisible(true);
+            return;
+        }
+        if (!meta.apiKeyOptional && !activeApiKey) {
+            alert(`Ange ${meta.label} API-nyckel och modell först`);
+            setSettingsVisible(true);
+            return;
+        }
+        if (!activeApiModel) {
+            alert(`Ange ${meta.label} modell först`);
+            setSettingsVisible(true);
+            return;
+        }
     }
 
     let conversationId = currentConversationId;
@@ -2064,7 +2151,7 @@ export default function AIScreen() {
                 <Switch value={aiUseApiProviders} onValueChange={setAiUseApiProviders} />
               </View>
               <Text style={{ marginTop: 6, color: theme.colors.onSurfaceVariant }}>
-                När detta är på används OpenRouter/Gemini. Annars används vald lokal modell.
+                När detta är på används en AI-källa (OpenRouter, Groq, Gemini eller din egen Hermes-agent på Mac/Pi). Annars används vald lokal modell.
               </Text>
               {aiUseApiProviders ? (
                 <View style={{ marginTop: 12 }}>
@@ -2074,52 +2161,82 @@ export default function AIScreen() {
                     onDismiss={() => setProviderMenuVisible(false)}
                     anchor={
                       <Button mode="outlined" onPress={() => setProviderMenuVisible(true)} testID="ai-provider-dropdown-button">
-                        {apiProvider === 'gemini' ? 'Gemini' : 'OpenRouter'}
+                        {API_PROVIDERS[apiProvider].label}
                       </Button>
                     }
                   >
-                    <Menu.Item onPress={() => { setApiProvider('openrouter'); setProviderMenuVisible(false); }} title="OpenRouter" />
-                    <Menu.Item onPress={() => { setApiProvider('gemini'); setProviderMenuVisible(false); }} title="Gemini" />
+                    {API_PROVIDER_LIST.map((p) => (
+                      <Menu.Item
+                        key={p.id}
+                        onPress={() => { setApiProvider(p.id); setProviderMenuVisible(false); }}
+                        title={p.label}
+                      />
+                    ))}
                   </Menu>
-                  {apiProvider === 'openrouter' ? (
+                  {API_PROVIDERS[apiProvider].configurableEndpoint ? (
                     <>
                       <PaperTextInput
                         mode="outlined"
-                        label="OpenRouter API Key"
-                        value={openRouterApiKey}
-                        onChangeText={setOpenRouterApiKey}
+                        label={`${API_PROVIDERS[apiProvider].label} bas-URL`}
+                        value={activeBinding.baseUrl ?? ''}
+                        onChangeText={activeBinding.setBaseUrl ?? (() => {})}
                         autoCorrect={false}
+                        autoCapitalize="none"
+                        placeholder="http://192.168.50.16:8080"
+                        keyboardType="url"
                         style={{ marginTop: 8 }}
+                        testID="ai-hermes-base-url"
                       />
-                      <PaperTextInput
-                        mode="outlined"
-                        label="OpenRouter modell"
-                        value={openRouterModel}
-                        onChangeText={setOpenRouterModel}
-                        autoCorrect={false}
-                        style={{ marginTop: 8 }}
-                      />
+                      {API_PROVIDERS[apiProvider].hint ? (
+                        <Text style={{ marginTop: 4, fontSize: 12, color: theme.colors.onSurfaceVariant }}>
+                          {API_PROVIDERS[apiProvider].hint}
+                        </Text>
+                      ) : null}
                     </>
-                  ) : (
-                    <>
-                      <PaperTextInput
-                        mode="outlined"
-                        label="Gemini API Key"
-                        value={geminiApiKey}
-                        onChangeText={setGeminiApiKey}
-                        autoCorrect={false}
-                        style={{ marginTop: 8 }}
-                      />
-                      <PaperTextInput
-                        mode="outlined"
-                        label="Gemini modell"
-                        value={geminiModel}
-                        onChangeText={setGeminiModel}
-                        autoCorrect={false}
-                        style={{ marginTop: 8 }}
-                      />
-                    </>
-                  )}
+                  ) : null}
+                  <PaperTextInput
+                    mode="outlined"
+                    label={`${API_PROVIDERS[apiProvider].label} API Key${API_PROVIDERS[apiProvider].apiKeyOptional ? ' (valfri)' : ''}`}
+                    value={activeBinding.key}
+                    onChangeText={activeBinding.setKey}
+                    autoCorrect={false}
+                    secureTextEntry
+                    style={{ marginTop: 8 }}
+                  />
+                  <PaperTextInput
+                    mode="outlined"
+                    label={`${API_PROVIDERS[apiProvider].label} modell`}
+                    value={activeBinding.model}
+                    onChangeText={activeBinding.setModel}
+                    autoCorrect={false}
+                    autoCapitalize="none"
+                    style={{ marginTop: 8 }}
+                  />
+                  <Text style={{ marginTop: 6, fontSize: 12, color: theme.colors.onSurfaceVariant }}>
+                    Förslag: {API_PROVIDERS[apiProvider].defaultModels.join(', ')}
+                  </Text>
+                  {API_PROVIDERS[apiProvider].apiKeyUrl ? (
+                    <Button
+                      mode="text"
+                      compact
+                      onPress={() => Linking.openURL(API_PROVIDERS[apiProvider].apiKeyUrl)}
+                      style={{ alignSelf: 'flex-start', marginTop: 2 }}
+                    >
+                      Hämta API-nyckel
+                    </Button>
+                  ) : null}
+                  {usageSnapshot ? (
+                    <View style={{ marginTop: 10, padding: 10, borderRadius: 8, backgroundColor: theme.colors.surfaceVariant }}>
+                      <Text style={{ fontWeight: '600', color: theme.colors.onSurface, marginBottom: 2 }}>Förbrukning</Text>
+                      <Text style={{ fontSize: 12, color: theme.colors.onSurfaceVariant }}>
+                        Idag: {usageSnapshot.callsDay}
+                        {usageSnapshot.limit.callsPerDay ? ` / ${usageSnapshot.limit.callsPerDay}` : ''} anrop · {usageSnapshot.tokensDay.toLocaleString()} tokens
+                      </Text>
+                      <Text style={{ fontSize: 12, color: theme.colors.onSurfaceVariant }}>
+                        Denna månad: {usageSnapshot.callsMonth} anrop · {usageSnapshot.tokensMonth.toLocaleString()} tokens
+                      </Text>
+                    </View>
+                  ) : null}
                 </View>
               ) : (
                 <View style={{ marginTop: 12, flex: 1 }}>
@@ -2420,24 +2537,29 @@ export default function AIScreen() {
                   if (item.role === 'tool') {
                     const key = item.id ?? String(index);
                     const collapsed = collapsedTool[key] ?? true;
-                    const label = item.content.startsWith('Tool call:')
-                      ? 'Tool call'
+                    // Colour-code + icon by kind so call/result/error read at a glance.
+                    const kind = item.content.startsWith('Tool error:')
+                      ? { label: 'Fel', icon: 'exclamation-triangle', color: theme.colors.error }
                       : item.content.startsWith('Tool result:')
-                      ? 'Tool result'
-                      : item.content.startsWith('Tool error:')
-                      ? 'Tool error'
-                      : 'Tool';
+                      ? { label: 'Resultat', icon: 'check-circle', color: '#2e9e5b' }
+                      : item.content.startsWith('Tool call:')
+                      ? { label: 'Anrop', icon: 'play-circle', color: theme.colors.primary }
+                      : { label: 'Verktyg', icon: 'tools', color: theme.colors.primary };
+                    // Compact one-line summary for the collapsed header.
+                    const summary = item.content.replace(/^Tool (call|result|error):\s*/, '').replace(/\s+/g, ' ').slice(0, 48);
                     return (
                       <View style={[styles.messageRow, styles.rowLeft]}>
-                        <View style={[styles.toolCard, { borderColor: theme.colors.outline }]}>
+                        <View style={[styles.toolCard, { borderColor: kind.color }]}>
                           <Pressable
                             style={styles.toolHeader}
                             onPress={() => setCollapsedTool(prev => ({ ...prev, [key]: !collapsed }))}
+                            accessibilityRole="button"
+                            accessibilityLabel={`Tool use ${kind.label}`}
                           >
                             <View style={styles.toolHeaderLeft}>
-                              <FontAwesome5 name="tools" size={14} color={theme.colors.primary} />
-                              <Text style={[styles.toolTitle, { color: theme.colors.onSurface }]}>
-                                Tool use · {label}
+                              <FontAwesome5 name={kind.icon} size={14} color={kind.color} />
+                              <Text style={[styles.toolTitle, { color: theme.colors.onSurface }]} numberOfLines={1}>
+                                Tool use · {kind.label}{collapsed && summary ? ` — ${summary}` : ''}
                               </Text>
                             </View>
                             <FontAwesome5 name={collapsed ? 'chevron-down' : 'chevron-up'} size={12} color={theme.colors.onSurfaceVariant} />
@@ -2451,6 +2573,11 @@ export default function AIScreen() {
                       </View>
                     );
                   }
+                  const isAssistant = item.role === 'assistant';
+                  const split = isAssistant ? extractThinking(item.content) : null;
+                  const displayText = split ? split.answer : item.content;
+                  const thinkKey = (item.id ?? String(index)) + '_think';
+                  const thinkingCollapsed = collapsedThinking[thinkKey] ?? true;
                   return (
                     <View style={[styles.messageRow, item.role === 'user' ? styles.rowRight : styles.rowLeft]}>
                       <View style={[
@@ -2458,9 +2585,32 @@ export default function AIScreen() {
                         item.role === 'user' ? styles.userBubble : styles.assistantBubble,
                         { backgroundColor: item.role === 'user' ? theme.colors.primaryContainer : theme.colors.surfaceVariant }
                       ]}>
-                        <Text style={{ color: item.role === 'user' ? theme.colors.onPrimaryContainer : theme.colors.onSurfaceVariant }}>
-                          {item.content}
-                        </Text>
+                        {split && split.thinking ? (
+                          <View style={[styles.toolCard, { borderColor: theme.colors.outlineVariant, marginBottom: 6 }]}>
+                            <Pressable
+                              style={styles.toolHeader}
+                              onPress={() => setCollapsedThinking(prev => ({ ...prev, [thinkKey]: !thinkingCollapsed }))}
+                              accessibilityRole="button"
+                              accessibilityLabel="Agentens tankegång"
+                            >
+                              <View style={styles.toolHeaderLeft}>
+                                <FontAwesome5 name="brain" size={13} color={theme.colors.onSurfaceVariant} />
+                                <Text style={[styles.toolTitle, { color: theme.colors.onSurfaceVariant }]}>Tankegång</Text>
+                              </View>
+                              <FontAwesome5 name={thinkingCollapsed ? 'chevron-down' : 'chevron-up'} size={11} color={theme.colors.onSurfaceVariant} />
+                            </Pressable>
+                            {!thinkingCollapsed && (
+                              <Text style={[styles.toolBody, { color: theme.colors.onSurfaceVariant, fontStyle: 'italic' }]}>
+                                {split.thinking}
+                              </Text>
+                            )}
+                          </View>
+                        ) : null}
+                        {displayText ? (
+                          <Text style={{ color: item.role === 'user' ? theme.colors.onPrimaryContainer : theme.colors.onSurfaceVariant }}>
+                            {displayText}
+                          </Text>
+                        ) : null}
                         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
                           {item.createdAt ? (
                             <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>

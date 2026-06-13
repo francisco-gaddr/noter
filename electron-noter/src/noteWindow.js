@@ -26,6 +26,8 @@ const buildNoteWindowOptions = (noteId, { preloadPath, isDev } = {}) => {
       preload: preloadPath || path.join(__dirname, '..', 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
       spellcheck: true,
       devTools: !!isDev,
     },

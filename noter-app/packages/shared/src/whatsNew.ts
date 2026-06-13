@@ -1,11 +1,37 @@
+/**
+ * Per-release security classification. Lets every version carry an explicit
+ * security/crypto posture so the changelog doubles as a security ledger:
+ *   - 'security-critical' — fixes an exploitable vuln or hardens a trust boundary
+ *   - 'security-hardening' — strengthens crypto/at-rest/transport without a known exploit
+ *   - 'feature' — functional change, no security delta
+ *   - 'maintenance' — refactor/cleanup/deps
+ */
+export type SecurityClass = 'security-critical' | 'security-hardening' | 'feature' | 'maintenance';
+
 export type WhatsNewEntry = {
   version: string;
   build: string;
   date: string;
   highlights: string[];
+  /** Security classification for this release (see SecurityClass). */
+  security?: SecurityClass;
 };
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
+  {
+    version: '1.1.0',
+    build: '2026.06.13.1',
+    date: '2026-06-13',
+    security: 'security-critical',
+    highlights: [
+      'Säkerhet: åtgärdade IDOR i backend — note/task kunde läsas/ändras/raderas av fel användare via gissat id; alla /:id-rutter scopar nu på userId (CWE-639/862)',
+      'Kryptering: v3-lager (AES-256-GCM + Argon2id) med per-användarnyckel, återställningskoder och säker fallback så inget innehåll tappas',
+      'AI: välj källa i mobilappen — lokala modeller, API-leverantörer (OpenRouter/Groq/Gemini) eller egen Hermes-agent på Mac/Pi med streaming',
+      'AI: svar streamas alltid, verktygskörningar och resonemang visas i tydliga kort; förbrukning per modell/tjänst (anrop + tokens)',
+      'Prestanda: notes/tasks laddas offline-först och dekrypteras i bakgrunden i bitar så stora listor inte fryser appen',
+      'Säkerhet centraliserad: all kryptering ligger i @repo/shared med versionsstämpel och säkerhetsklassificering per release',
+    ],
+  },
   {
     version: '1.0.2',
     build: '2026.03.15.2',

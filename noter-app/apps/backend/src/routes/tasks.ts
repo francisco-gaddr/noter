@@ -191,7 +191,10 @@ router.put('/:id', validate(updateTaskSchema), async (req: Request, res: Respons
       res.status(400);
       return next(new Error('Invalid ID format'));
     }
-    const task = await Task.findById(req.params.id);
+    // Scope by userId — without it any authenticated user could update another
+    // user's task by guessing its id (IDOR / broken access control).
+    const userId = (req as AuthRequest).user!.userId;
+    const task = await Task.findOne({ _id: req.params.id, userId });
     if (task) {
         // Only update fields that are present in the body (and validated)
         if (req.body.title !== undefined) task.title = req.body.title;
@@ -229,7 +232,10 @@ router.delete('/:id', async (req: Request, res: Response, next: NextFunction) =>
       res.status(400);
       return next(new Error('Invalid ID format'));
     }
-    const task = await Task.findById(req.params.id);
+    // Scope by userId — without it any authenticated user could delete another
+    // user's task by guessing its id (IDOR / broken access control).
+    const userId = (req as AuthRequest).user!.userId;
+    const task = await Task.findOne({ _id: req.params.id, userId });
     if (task) {
       await task.deleteOne();
       

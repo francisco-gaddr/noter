@@ -2,7 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { StyleSheet, View, RefreshControl, TouchableOpacity, Animated } from 'react-native';
 import DraggableFlatList, { ScaleDecorator, RenderItemParams, ShadowDecorator, OpacityDecorator } from 'react-native-draggable-flatlist';
 import { Text, Checkbox, TouchableRipple, useTheme, Chip, IconButton, SegmentedButtons, Menu, Divider } from 'react-native-paper';
-import { Task } from '@repo/shared';
+import { Task, priorityRank } from '@repo/shared';
 import { useRouter } from 'expo-router';
 import { orderBy } from 'lodash';
 import * as Haptics from 'expo-haptics';
@@ -35,14 +35,8 @@ export default function TaskList({ tasks, onRefresh, refreshing, onToggleComplet
     let sorted = [...tasks];
     
     if (sortBy === 'priority') {
-      const priorityRank = (t: Task) => {
-        if (t.priority === 'high') return 0;
-        if (t.priority === 'medium') return 1;
-        if (t.priority === 'low') return 2;
-        return 1;
-      };
       // Sort by: Completed (asc), Priority (asc -> high to low rank), CreatedAt (desc)
-      sorted = orderBy(sorted, ['completed', priorityRank, 'createdAt'], ['asc', 'asc', 'desc']);
+      sorted = orderBy(sorted, ['completed', (t: Task) => priorityRank(t.priority), 'createdAt'], ['asc', 'asc', 'desc']);
     } else if (sortBy === 'createdAt') {
       sorted = orderBy(sorted, ['completed', 'createdAt'], ['asc', 'desc']);
     } else if (sortBy === 'dueDate') {

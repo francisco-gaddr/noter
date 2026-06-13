@@ -242,12 +242,14 @@ describe('Task E2E Encryption Tests', () => {
       const result = await api.decryptTasks(encrypted);
 
       const first = result[0]!;
-      expect(first.title).toBe('');
-      expect(first.description).toBe('');
+      // Non-ciphertext (plaintext/legacy) values are PRESERVED, not blanked —
+      // this is the "inget tappas" fix (safeDecrypt). They used to blank to ''.
+      expect(first.title).toBe('invalid-encrypted-data');
+      expect(first.description).toBe('invalid-encrypted-data');
       expect(first.completed).toBe(false);
       expect(first.priority).toBe('medium');
-      expect(first.dueDate).toBe(null);
-      expect(first.position).toBe(0);
+      expect(first.dueDate).toBe(null); // not a valid date → null
+      expect(first.position).toBe(0); // not a valid number → 0
     });
 
     it('should handle null/undefined encrypted task fields', async () => {

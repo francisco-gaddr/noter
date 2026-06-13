@@ -1,7 +1,7 @@
 import { HFFile, HFModel } from '@repo/ai';
 import { saveModelLocal, deleteModelLocal } from '@/services/database';
 import { v4 as uuidv4 } from 'uuid';
-import { downloadCompiledModel, getModelDir, getPlatformTarget } from './ModelDownloader';
+import { downloadCompiledModel, getModelDir, getPlatformTarget, stopModelDownload } from './ModelDownloader';
 import { requestModelConversion, getConversionStatus, getCompiledModelUrl } from './huggingface';
 
 // Try to load RNFS safely
@@ -123,9 +123,8 @@ export const deleteModel = async (id: string, path: string) => {
     }
 };
 
-export const cancelDownload = async (modelId: string) => {
-    // RNFS download cancellation requires job ID. 
-    // In this simple impl, we don't track job IDs globally exposed yet.
-    // For now, no-op or implement job tracking map if needed.
-    console.warn("Cancel download not fully implemented for RNFS");
+export const cancelDownload = async (modelId: string): Promise<boolean> => {
+    // Stops the in-flight RNFS download (by tracked jobId) and removes the
+    // partial zip. Returns false if nothing was downloading for this model.
+    return stopModelDownload(modelId);
 };

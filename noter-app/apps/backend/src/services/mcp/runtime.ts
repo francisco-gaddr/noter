@@ -78,6 +78,7 @@ const MCP_TOOL_ALLOWLIST: Record<McpIntegrationId, string[]> = {
   notion: ['notion.*', 'search', 'pages.*', 'databases.*', 'blocks.*'],
   filesystem: ['fs.*', 'filesystem.*', 'read*', 'write*', 'list*', 'search*', 'glob*', 'stat*', 'move*', 'copy*', 'delete*'],
   playwright: ['playwright.*', 'browser.*', 'page.*', 'context.*', 'navigate*', 'click*', 'fill*', 'screenshot*', 'evaluate*'],
+  github: ['github.*', 'repo*', 'issue*', 'pull*', 'pr*', 'search*', 'list*', 'get*', 'create*', 'update*', 'comment*', 'file*', 'branch*', 'commit*'],
 };
 
 const withTimeout = <T>(promise: Promise<T>, timeoutMs: number) =>
@@ -257,6 +258,17 @@ const toMcpEnv = (resolved: McpResolvedSettings, serviceId: McpIntegrationId): M
     };
   }
 
+  if (serviceId === 'github') {
+    return {
+      enabled: true,
+      command: npxBin,
+      args: ['-y', '@modelcontextprotocol/server-github'],
+      env: {
+        GITHUB_PERSONAL_ACCESS_TOKEN: integration.fields.token?.value || '',
+      },
+    };
+  }
+
   return {
     enabled: true,
     command: npxBin,
@@ -296,6 +308,7 @@ const ensureRequiredEnv = (service: McpIntegrationId, config: McpRuntimeServiceC
     notion: ['NOTION_TOKEN'],
     filesystem: [],
     playwright: [],
+    github: ['GITHUB_PERSONAL_ACCESS_TOKEN'],
   };
   const required = requiredKeysByService[service];
   for (const key of required) {
@@ -472,6 +485,7 @@ export const isExplicitServiceIntent = (service: McpIntegrationId, intentText?: 
     slack: ['slack'],
     filesystem: ['filesystem', 'filsystem', 'lokal fil', 'lokala filer', 'mapp', 'katalog'],
     playwright: ['playwright', 'browser', 'webbläsare'],
+    github: ['github', 'git hub', 'repo', 'repository', 'pull request', 'issue', 'gh '],
   };
   return keywords[service].some((keyword) => text.includes(keyword));
 };
