@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { StyleSheet, View, FlatList, TextInput, KeyboardAvoidingView, Platform, ScrollView, Pressable, AppState, Linking } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text, Button, useTheme, IconButton, List, ActivityIndicator, ProgressBar, Portal, Dialog, TextInput as PaperTextInput, Switch, Menu, Divider } from 'react-native-paper';
 import { useLocalSearchParams, useNavigation } from 'expo-router';
 import { useTranslation } from 'react-i18next';
@@ -190,6 +191,10 @@ const ChatDialog = React.memo(({
 export default function AIScreen() {
   const theme = useTheme();
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
+  // Offset = the stack header height so the composer lands exactly above the
+  // keyboard (the KeyboardAvoidingView sits below the header).
+  const headerOffset = insets.top + (Platform.OS === 'ios' ? 44 : 56);
   const params = useLocalSearchParams<{ openSettings?: string; settingsTab?: string }>();
   const { t } = useTranslation();
   
@@ -2656,14 +2661,15 @@ export default function AIScreen() {
         </View>
       ) : (
         <>
-            {/* iOS needs padding+offset to lift the composer above the keyboard.
-                Android resizes the window itself (softwareKeyboardLayoutMode:resize),
-                so the flex layout already keeps the composer visible — using the
-                "height" behavior there double-compensated and clipped the input. */}
+            {/* padding on BOTH platforms reliably lifts the composer to sit right
+                above the keyboard. The tab bar hides on keyboard (tabBarHideOnKeyboard)
+                so nothing wedges between the composer and the keyboard. Offset =
+                header height so it lands exactly, not too high. (A previous
+                Android `behavior={undefined}` removed all avoidance and hid the input.) */}
             <KeyboardAvoidingView
-              behavior={Platform.OS === "ios" ? "padding" : undefined}
+              behavior="padding"
               style={{ flex: 1 }}
-              keyboardVerticalOffset={Platform.OS === "ios" ? 88 : 0}
+              keyboardVerticalOffset={headerOffset}
             >
               <FlatList
                 ref={messagesListRef}

@@ -68,6 +68,9 @@ const computeSyncDedupeKey = (action: string, entity: string, data: any): string
 export const initDatabase = async () => {
   await db.execAsync(`
     PRAGMA journal_mode = WAL;
+    PRAGMA busy_timeout = 8000;
+    PRAGMA synchronous = NORMAL;
+    PRAGMA foreign_keys = ON;
     CREATE TABLE IF NOT EXISTS notes (
       _id TEXT PRIMARY KEY,
       title TEXT,

@@ -31,6 +31,9 @@ export default function TabLayout() {
         // Disable the static render of the header on web
         // to prevent a hydration error in React Navigation v6.
         headerShown: useClientOnlyValue(false, true),
+        // Hide the bottom tab bar while the keyboard is up so the chat composer can
+        // sit directly above the keyboard (no tab bar wedged in between, no clipping).
+        tabBarHideOnKeyboard: true,
       }}
       // Subtle haptic on every tab switch. Gated on reduceMotion as a proxy
       // for the user's preference for subdued feedback — they're separate
