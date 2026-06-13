@@ -29,6 +29,10 @@ type McpFetchDiagnostics = {
   lastSuccessAt: number | null;
 };
 
+// A user-added API provider — an OpenAI-compatible endpoint (self-hosted Hermes
+// agent, a proxy, another cloud) the user configures themselves. Stored encrypted.
+type CustomProvider = { id: string; label: string; baseUrl: string; apiKey: string; model: string };
+
 // Model dropdown for an API provider — lists the provider's known models and keeps
 // any custom value the user typed/saved selectable. Mirrors the mobile picker.
 const ModelPicker = ({ provider, value, onChange, testId }: {
@@ -182,6 +186,13 @@ export const AISidebar = () => {
   const [hermesBaseUrl, setHermesBaseUrl] = useState('');
   // Live usage snapshot (calls + tokens today vs the provider's free-tier limit).
   const [apiUsage, setApiUsage] = useState<UsageSnapshot | null>(null);
+  // Custom user-added providers ("multiple Hermes agents") — each is an
+  // OpenAI-compatible endpoint reusing the Hermes send path, persisted encrypted.
+  const [customProviders, setCustomProviders] = useState<CustomProvider[]>([]);
+  // The selected custom provider id, or null when a built-in provider is active.
+  const [activeCustomId, setActiveCustomId] = useState<string | null>(null);
+  const [addProviderOpen, setAddProviderOpen] = useState(false);
+  const [newProviderDraft, setNewProviderDraft] = useState<CustomProvider>({ id: '', label: '', baseUrl: '', apiKey: '', model: '' });
   const [mcpSettings, setMcpSettings] = useState<McpUiSettings>(() => createEmptyMcpUiSettings());
   // Easy custom MCP JSON: paste/import a portable config or export the current one.
   const [mcpJsonOpen, setMcpJsonOpen] = useState(false);
@@ -230,6 +241,9 @@ export const AISidebar = () => {
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const activeProvider = aiUseApiProviders ? apiProvider : (aiProvider === 'lmstudio' ? 'lmstudio' : 'mlc');
   const getActiveModelLabel = () => {
+    if (aiUseApiProviders && activeCustomId) {
+      return customProviders.find(p => p.id === activeCustomId)?.model || '';
+    }
     if (activeProvider === 'lmstudio') return lmSelectedModel;
     if (activeProvider === 'mlc') return modelPath;
     if (activeProvider === 'openrouter') return openRouterModel;
@@ -368,8 +382,27 @@ export const AISidebar = () => {
       const savedLmModel = await getStoredValue('lmstudioModel');
       if (mounted && savedLmModel) setLmSelectedModel(savedLmModel);
 
+      // Custom providers first, so a saved custom selection can be honoured below.
+      const savedCustom = await getStoredValue('aiCustomProviders');
+      let loadedCustom: CustomProvider[] = [];
+      if (savedCustom) {
+        try {
+          const parsed = JSON.parse(decrypt(savedCustom) || savedCustom || '[]');
+          if (Array.isArray(parsed)) {
+            loadedCustom = parsed.filter((p: any) => p && typeof p.id === 'string').map((p: any) => ({
+              id: String(p.id), label: String(p.label || p.id), baseUrl: String(p.baseUrl || ''),
+              apiKey: String(p.apiKey || ''), model: String(p.model || ''),
+            }));
+          }
+        } catch {}
+      }
+      if (mounted) setCustomProviders(loadedCustom);
+
       const savedApiProvider = await getStoredValue('aiApiProvider');
-      if (mounted && (savedApiProvider === 'openrouter' || savedApiProvider === 'gemini' || savedApiProvider === 'groq' || savedApiProvider === 'hermes')) {
+      if (mounted && typeof savedApiProvider === 'string' && savedApiProvider.startsWith('custom:')) {
+        const id = savedApiProvider.slice('custom:'.length);
+        if (loadedCustom.some((p) => p.id === id)) setActiveCustomId(id);
+      } else if (mounted && (savedApiProvider === 'openrouter' || savedApiProvider === 'gemini' || savedApiProvider === 'groq' || savedApiProvider === 'hermes')) {
         setApiProvider(savedApiProvider as ApiProviderType);
       }
       const savedOpenRouterKey = await getStoredValue('openrouterApiKey');
@@ -467,8 +500,16 @@ export const AISidebar = () => {
 
   useEffect(() => {
     if (!settingsLoaded) return;
-    setStoredValue('aiApiProvider', apiProvider);
-  }, [apiProvider, settingsLoaded]);
+    // Persist the active selection: a custom provider as `custom:<id>`, else the
+    // built-in provider id.
+    setStoredValue('aiApiProvider', activeCustomId ? `custom:${activeCustomId}` : apiProvider);
+  }, [apiProvider, activeCustomId, settingsLoaded]);
+
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    // Custom providers carry endpoint + key — store the whole list encrypted.
+    setStoredValue('aiCustomProviders', customProviders.length ? encrypt(JSON.stringify(customProviders)) : null);
+  }, [customProviders, settingsLoaded]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
@@ -520,11 +561,11 @@ export const AISidebar = () => {
   useEffect(() => {
     if (!settingsLoaded || !aiUseApiProviders) return;
     try {
-      const cfg = resolveApiProviderConfig(apiProvider);
-      if (cfg.model) setApiUsage(getUsageSnapshot(apiProvider, cfg.model));
+      const eff = getEffectiveSendConfig();
+      if (eff.model) setApiUsage(getUsageSnapshot(eff.usageKey, eff.model));
     } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [apiProvider, aiUseApiProviders, settingsLoaded, openRouterModel, geminiModel, groqModel, hermesModel]);
+  }, [apiProvider, activeCustomId, customProviders, aiUseApiProviders, settingsLoaded, openRouterModel, geminiModel, groqModel, hermesModel]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
@@ -1339,11 +1380,33 @@ export const AISidebar = () => {
     }
   };
 
+  // The provider + credentials to actually send with. A custom provider sends via
+  // the Hermes (configurable-endpoint) path with its own base URL/key/model, and
+  // its usage is tracked under a `custom:<id>` key so each agent has its own bars.
+  const getEffectiveSendConfig = (): { sendProvider: ApiProviderType; usageKey: string; apiKey: string; model: string; baseUrl?: string } => {
+    if (activeCustomId) {
+      const c = customProviders.find(p => p.id === activeCustomId);
+      return { sendProvider: 'hermes', usageKey: `custom:${activeCustomId}`, apiKey: c?.apiKey || '', model: c?.model || '', baseUrl: c?.baseUrl || '' };
+    }
+    const cfg = resolveApiProviderConfig(apiProvider);
+    return { sendProvider: apiProvider, usageKey: apiProvider, apiKey: cfg.apiKey, model: cfg.model, baseUrl: cfg.baseUrl };
+  };
+
+  // Why the API config is incomplete (for pre-send validation + button disabling),
+  // or null when ready. Covers built-ins and custom providers uniformly.
+  const apiConfigInvalidReason = (): string | null => {
+    const eff = getEffectiveSendConfig();
+    const meta = API_PROVIDERS[eff.sendProvider];
+    if (!eff.model) return 'Välj en modell först.';
+    if (eff.sendProvider === 'hermes' && !eff.baseUrl) return 'Ange bas-URL för servern först.';
+    if (!meta?.apiKeyOptional && !eff.apiKey) return 'Ange API-nyckel först.';
+    return null;
+  };
+
   const fetchAIStream = async (history: ChatMessage[], assistantMsg: ChatMessage, convId: string): Promise<string> => {
     const promptText = buildPromptText(history);
     if (aiUseApiProviders) {
-      const selectedProvider: ApiProviderType = apiProvider;
-      const cfg = resolveApiProviderConfig(selectedProvider);
+      const eff = getEffectiveSendConfig();
       const controller = new AbortController();
       abortControllerRef.current = controller;
       // Vision: forward base64 image attachments to the model on the last user turn.
@@ -1353,10 +1416,10 @@ export const AISidebar = () => {
         .slice(0, 4);
       let built = '';
       const result = await streamApiProviderResponse({
-        provider: selectedProvider,
-        apiKey: cfg.apiKey,
-        model: cfg.model,
-        baseUrl: cfg.baseUrl,
+        provider: eff.sendProvider,
+        apiKey: eff.apiKey,
+        model: eff.model,
+        baseUrl: eff.baseUrl,
         history,
         images,
         signal: controller.signal,
@@ -1374,8 +1437,8 @@ export const AISidebar = () => {
       }
       // Record usage (calls + tokens) and refresh the live snapshot for the bars.
       try {
-        recordUsage(selectedProvider, cfg.model, result.totalTokens);
-        setApiUsage(getUsageSnapshot(selectedProvider, cfg.model));
+        recordUsage(eff.usageKey, eff.model, result.totalTokens);
+        setApiUsage(getUsageSnapshot(eff.usageKey, eff.model));
       } catch {}
       abortControllerRef.current = null;
       return finalText;
@@ -3090,21 +3153,13 @@ export const AISidebar = () => {
       setMessages(prev => [...prev, { id: uuidv4(), role: 'system', content: 'Välj en lokal modell först.', createdAt: new Date().toISOString() }]);
       return;
     }
-    if (activeProvider === 'openrouter' && (!openRouterApiKey || !openRouterModel)) {
-      setMessages(prev => [...prev, { id: uuidv4(), role: 'system', content: 'Ange OpenRouter API-nyckel och modell först.', createdAt: new Date().toISOString() }]);
-      return;
-    }
-    if (activeProvider === 'gemini' && (!geminiApiKey || !geminiModel)) {
-      setMessages(prev => [...prev, { id: uuidv4(), role: 'system', content: 'Ange Gemini API-nyckel och modell först.', createdAt: new Date().toISOString() }]);
-      return;
-    }
-    if (activeProvider === 'groq' && (!groqApiKey || !groqModel)) {
-      setMessages(prev => [...prev, { id: uuidv4(), role: 'system', content: 'Ange Groq API-nyckel och modell först.', createdAt: new Date().toISOString() }]);
-      return;
-    }
-    if (activeProvider === 'hermes' && (!hermesBaseUrl || !hermesModel)) {
-      setMessages(prev => [...prev, { id: uuidv4(), role: 'system', content: 'Ange Hermes bas-URL och modell först.', createdAt: new Date().toISOString() }]);
-      return;
+    // API providers (built-in + custom) share one validation path.
+    if (aiUseApiProviders) {
+      const reason = apiConfigInvalidReason();
+      if (reason) {
+        setMessages(prev => [...prev, { id: uuidv4(), role: 'system', content: reason, createdAt: new Date().toISOString() }]);
+        return;
+      }
     }
 
     let convId = currentConversationId;
@@ -3590,7 +3645,7 @@ export const AISidebar = () => {
                       <button 
                           className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:opacity-50 transition-colors"
                           onClick={handleSend}
-                          disabled={(!input.trim() && attachments.length === 0) || (activeProvider === 'mlc' ? !modelPath : activeProvider === 'lmstudio' ? !lmSelectedModel : activeProvider === 'openrouter' ? (!openRouterApiKey || !openRouterModel) : activeProvider === 'groq' ? (!groqApiKey || !groqModel) : activeProvider === 'hermes' ? (!hermesBaseUrl || !hermesModel) : (!geminiApiKey || !geminiModel))}
+                          disabled={(!input.trim() && attachments.length === 0) || (aiUseApiProviders ? apiConfigInvalidReason() !== null : activeProvider === 'mlc' ? !modelPath : activeProvider === 'lmstudio' ? !lmSelectedModel : false)}
                           data-testid="ai-chat-send"
                       >
                           Send
@@ -3684,10 +3739,20 @@ export const AISidebar = () => {
               <label htmlFor="ai-provider-select" className="text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider mb-1 block">AI Provider</label>
               <select
                 id="ai-provider-select"
-                value={aiUseApiProviders ? apiProvider : aiProvider}
+                value={aiUseApiProviders ? (activeCustomId ? `custom:${activeCustomId}` : apiProvider) : aiProvider}
                 onChange={(e) => {
-                  if (aiUseApiProviders) setApiProvider(e.target.value as ApiProviderType);
-                  else setAiProvider(e.target.value as 'mlc' | 'lmstudio');
+                  if (aiUseApiProviders) {
+                    const val = e.target.value;
+                    if (val === '__add_custom__') { setAddProviderOpen(true); return; }
+                    if (val.startsWith('custom:')) {
+                      setActiveCustomId(val.slice('custom:'.length));
+                    } else {
+                      setActiveCustomId(null);
+                      setApiProvider(val as ApiProviderType);
+                    }
+                  } else {
+                    setAiProvider(e.target.value as 'mlc' | 'lmstudio');
+                  }
                 }}
                 className="w-full p-2 text-sm border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 outline-none"
                 data-testid="ai-provider-select"
@@ -3697,6 +3762,14 @@ export const AISidebar = () => {
                     {API_PROVIDER_LIST.map((p) => (
                       <option key={p.id} value={p.id}>{p.label}</option>
                     ))}
+                    {customProviders.length > 0 && (
+                      <optgroup label="Egna providers">
+                        {customProviders.map((p) => (
+                          <option key={p.id} value={`custom:${p.id}`}>{p.label}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                    <option value="__add_custom__">➕ Lägg till egen provider…</option>
                   </>
                 ) : (
                   <>
@@ -3764,7 +3837,7 @@ export const AISidebar = () => {
               </div>
             )}
 
-            {aiUseApiProviders && apiProvider === 'openrouter' && (
+            {aiUseApiProviders && !activeCustomId && apiProvider === 'openrouter' && (
               <div className="mb-6 p-3 border rounded bg-gray-50 dark:bg-gray-800">
                 <div className="mb-3">
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider mb-1 block">OpenRouter API Key</label>
@@ -3790,7 +3863,7 @@ export const AISidebar = () => {
               </div>
             )}
 
-            {aiUseApiProviders && apiProvider === 'groq' && (
+            {aiUseApiProviders && !activeCustomId && apiProvider === 'groq' && (
               <div className="mb-6 p-3 border rounded bg-gray-50 dark:bg-gray-800">
                 <div className="mb-3">
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider mb-1 block">Groq API Key</label>
@@ -3816,7 +3889,7 @@ export const AISidebar = () => {
               </div>
             )}
 
-            {aiUseApiProviders && apiProvider === 'gemini' && (
+            {aiUseApiProviders && !activeCustomId && apiProvider === 'gemini' && (
               <div className="mb-6 p-3 border rounded bg-gray-50 dark:bg-gray-800">
                 <div className="mb-3">
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider mb-1 block">Gemini API Key</label>
@@ -3842,7 +3915,7 @@ export const AISidebar = () => {
               </div>
             )}
 
-            {aiUseApiProviders && apiProvider === 'hermes' && (
+            {aiUseApiProviders && !activeCustomId && apiProvider === 'hermes' && (
               <div className="mb-6 p-3 border rounded bg-gray-50 dark:bg-gray-800">
                 <div className="mb-3">
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider mb-1 block">Hermes Bas-URL (egen server)</label>
@@ -3891,6 +3964,140 @@ export const AISidebar = () => {
                     </button>
                   </div>
                   <pre className="text-[11px] whitespace-pre-wrap break-all text-gray-700 dark:text-gray-300 m-0">{`Base URL: ${hermesBaseUrl || '(ej satt)'}\nModel: ${hermesModel}`}</pre>
+                </div>
+              </div>
+            )}
+
+            {/* Active custom provider — edit its endpoint/key/model, or remove it. */}
+            {aiUseApiProviders && activeCustomId && (() => {
+              const c = customProviders.find(p => p.id === activeCustomId);
+              if (!c) return null;
+              const patch = (changes: Partial<CustomProvider>) =>
+                setCustomProviders(prev => prev.map(p => p.id === c.id ? { ...p, ...changes } : p));
+              return (
+                <div className="mb-6 p-3 border rounded bg-gray-50 dark:bg-gray-800" data-testid="custom-provider-block">
+                  <div className="flex items-center justify-between mb-2">
+                    <h5 className="font-bold text-sm">{c.label}</h5>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCustomProviders(prev => prev.filter(p => p.id !== c.id));
+                        setActiveCustomId(null);
+                        setApiProvider('openrouter');
+                      }}
+                      className="text-[11px] text-red-600 dark:text-red-400 hover:underline"
+                      data-testid="custom-provider-remove"
+                    >
+                      Ta bort
+                    </button>
+                  </div>
+                  <div className="mb-3">
+                    <label className="text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider mb-1 block">Bas-URL</label>
+                    <input
+                      className="w-full border rounded p-2 text-sm dark:bg-gray-900"
+                      value={c.baseUrl}
+                      onChange={(e) => patch({ baseUrl: e.target.value })}
+                      placeholder="http://din-server:1234"
+                      data-testid="custom-provider-baseurl"
+                    />
+                  </div>
+                  <div className="mb-3">
+                    <label className="text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider mb-1 block">API-nyckel (valfri)</label>
+                    <input
+                      type="password"
+                      className="w-full border rounded p-2 text-sm dark:bg-gray-900"
+                      value={c.apiKey}
+                      onChange={(e) => patch({ apiKey: e.target.value })}
+                      placeholder="Lämna tom för LAN-servrar"
+                      data-testid="custom-provider-apikey"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider mb-1 block">Modell</label>
+                    <input
+                      className="w-full border rounded p-2 text-sm dark:bg-gray-900"
+                      value={c.model}
+                      onChange={(e) => patch({ model: e.target.value })}
+                      placeholder="t.ex. llama3.2 / qwen2.5:3b-instruct"
+                      data-testid="custom-provider-model"
+                    />
+                  </div>
+                  <UsageBar usage={apiUsage} />
+                </div>
+              );
+            })()}
+
+            {/* Add-custom-provider dialog. */}
+            {aiUseApiProviders && addProviderOpen && (
+              <div className="mb-6 p-3 border-2 border-blue-300 dark:border-blue-700 rounded bg-blue-50 dark:bg-gray-800" data-testid="custom-provider-add">
+                <h5 className="font-bold text-sm mb-2">Ny egen provider</h5>
+                <div className="mb-2">
+                  <input
+                    className="w-full border rounded p-2 text-sm dark:bg-gray-900"
+                    value={newProviderDraft.label}
+                    onChange={(e) => setNewProviderDraft(d => ({ ...d, label: e.target.value }))}
+                    placeholder="Namn (t.ex. Min Pi-agent)"
+                    data-testid="custom-provider-new-label"
+                  />
+                </div>
+                <div className="mb-2">
+                  <input
+                    className="w-full border rounded p-2 text-sm dark:bg-gray-900"
+                    value={newProviderDraft.baseUrl}
+                    onChange={(e) => setNewProviderDraft(d => ({ ...d, baseUrl: e.target.value }))}
+                    placeholder="Bas-URL (http://din-server:1234)"
+                    data-testid="custom-provider-new-baseurl"
+                  />
+                </div>
+                <div className="mb-2">
+                  <input
+                    className="w-full border rounded p-2 text-sm dark:bg-gray-900"
+                    value={newProviderDraft.model}
+                    onChange={(e) => setNewProviderDraft(d => ({ ...d, model: e.target.value }))}
+                    placeholder="Modell (t.ex. llama3.2)"
+                    data-testid="custom-provider-new-model"
+                  />
+                </div>
+                <div className="mb-2">
+                  <input
+                    type="password"
+                    className="w-full border rounded p-2 text-sm dark:bg-gray-900"
+                    value={newProviderDraft.apiKey}
+                    onChange={(e) => setNewProviderDraft(d => ({ ...d, apiKey: e.target.value }))}
+                    placeholder="API-nyckel (valfri)"
+                    data-testid="custom-provider-new-apikey"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={!newProviderDraft.label.trim() || !newProviderDraft.baseUrl.trim()}
+                    onClick={() => {
+                      const id = `${Date.now().toString(36)}-${newProviderDraft.label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 24)}`;
+                      const created: CustomProvider = {
+                        id,
+                        label: newProviderDraft.label.trim(),
+                        baseUrl: newProviderDraft.baseUrl.trim(),
+                        apiKey: newProviderDraft.apiKey.trim(),
+                        model: newProviderDraft.model.trim() || 'llama3.2',
+                      };
+                      setCustomProviders(prev => [...prev, created]);
+                      setActiveCustomId(id);
+                      setNewProviderDraft({ id: '', label: '', baseUrl: '', apiKey: '', model: '' });
+                      setAddProviderOpen(false);
+                    }}
+                    className="bg-blue-500 text-white px-3 py-1 rounded text-xs disabled:opacity-50"
+                    data-testid="custom-provider-save"
+                  >
+                    Spara
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setAddProviderOpen(false); setNewProviderDraft({ id: '', label: '', baseUrl: '', apiKey: '', model: '' }); }}
+                    className="bg-gray-200 dark:bg-gray-700 px-3 py-1 rounded text-xs"
+                  >
+                    Avbryt
+                  </button>
                 </div>
               </div>
             )}
