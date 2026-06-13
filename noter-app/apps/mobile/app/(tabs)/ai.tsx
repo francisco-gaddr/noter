@@ -2608,49 +2608,42 @@ export default function AIScreen() {
               </View>
               <ScrollView style={{ maxHeight: 340 }}>
                 <View style={{ gap: 10 }}>
+                  {/* Compact rows: small text on its own line, small buttons, tight
+                      padding — so each model is clearly visible at a glance. */}
                   {searchResults.map((item) => (
-                    <View key={item.id} style={[styles.modelItem, { borderColor: theme.colors.outline }]}>
-                      <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
-                        <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.colors.onSurface, fontWeight: 'bold' }}>{item.name}</Text>
-                        <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.colors.onSurfaceVariant }}>{item.author}</Text>
-                        <Text style={{ color: theme.colors.onSurfaceVariant }}>
-                          {formatSearchSize(searchSizes[item.id])}
-                        </Text>
-                      </View>
-                      <View style={{ alignItems: 'flex-end' }}>
+                    <View key={item.id} style={{ borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.outline, paddingVertical: 8 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
+                          <Text numberOfLines={1} ellipsizeMode="middle" style={{ color: theme.colors.onSurface, fontWeight: '600', fontSize: 13 }}>{item.name}</Text>
+                          <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.colors.onSurfaceVariant, fontSize: 11 }}>
+                            {item.author}{formatSearchSize(searchSizes[item.id]) ? ` · ${formatSearchSize(searchSizes[item.id])}` : ''}
+                          </Text>
+                        </View>
                         {processingModels[item.id] ? (
-                          <Button mode="outlined" onPress={() => handleCancelDownload(item.id)}>
-                            Cancel
+                          <Button mode="outlined" compact onPress={() => handleCancelDownload(item.id)} labelStyle={{ fontSize: 12 }}>
+                            Avbryt
                           </Button>
                         ) : (
-                          <Button
-                            mode="contained-tonal"
-                            onPress={() => downloadModel(item)}
-                            disabled={!!processingModels[item.id]}
-                          >
-                            Download
+                          <Button mode="contained-tonal" compact onPress={() => downloadModel(item)} labelStyle={{ fontSize: 12 }}>
+                            Ladda ner
                           </Button>
                         )}
-                        <Button
-                          mode="text"
+                        <IconButton
+                          icon="shield-check"
+                          size={18}
                           onPress={() => runDeviceLocalConversionCheck(item)}
                           disabled={!!processingModels[item.id]}
-                          compact
-                        >
-                          {t('ai.deviceE2ECheck')}
-                        </Button>
-                        {typeof downloadProgress[item.id] === 'number' && (
-                          <View style={{ width: 120, marginTop: 6 }}>
-                            <ProgressBar progress={downloadProgress[item.id]} />
-                            <Text style={{ fontSize: 11, marginTop: 4, color: theme.colors.onSurfaceVariant }}>
-                              {(downloadProgress[item.id] * 100).toFixed(0)}%
-                            </Text>
-                            <Text style={{ fontSize: 10, marginTop: 2, color: theme.colors.onSurfaceVariant }}>
-                              {formatDownloadStage(downloadStage[item.id])}
-                            </Text>
-                          </View>
-                        )}
+                          accessibilityLabel={t('ai.deviceE2ECheck')}
+                        />
                       </View>
+                      {typeof downloadProgress[item.id] === 'number' && (
+                        <View style={{ marginTop: 4 }}>
+                          <ProgressBar progress={downloadProgress[item.id]} style={{ height: 4, borderRadius: 2 }} />
+                          <Text style={{ fontSize: 10, marginTop: 2, color: theme.colors.onSurfaceVariant }}>
+                            {(downloadProgress[item.id] * 100).toFixed(0)}% · {formatDownloadStage(downloadStage[item.id])}
+                          </Text>
+                        </View>
+                      )}
                     </View>
                   ))}
                 </View>
