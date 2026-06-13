@@ -9,7 +9,7 @@ import ProjectSelector from '@/components/ProjectSelector';
 import IconPickerModal from '@/components/IconPickerModal';
 import { SvgUri } from 'react-native-svg';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
-import { Note } from '@repo/shared';
+import { Note, isBlankNote } from '@repo/shared';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { parseSettings } from '@/services/storage';
 import { SkeletonRow } from '@/components/Skeleton';
@@ -257,7 +257,9 @@ export default function NotesScreen() {
   const sortedNotes = useMemo(() => {
     let filtered = notes.filter((n) => {
       const type = normalizeNoteType((n as any).type);
-      return type !== 'project' && type !== 'task_list';
+      // Only plain notes with real content — folders and completely-empty notes
+      // (junk from failed syncs) never appear in the notes list.
+      return type !== 'project' && type !== 'task_list' && !isBlankNote({ title: n.title, content: n.content, type: 'note' });
     });
 
     if (activeProjectId) {
