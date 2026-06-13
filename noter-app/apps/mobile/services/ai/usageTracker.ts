@@ -42,7 +42,7 @@ export const PROVIDER_LIMITS: Record<ApiProviderType, ProviderLimit> = {
   hermes: { callsPerDay: null, tokensPerDay: null }, // self-hosted — no provider cap
 };
 
-export const usageKey = (provider: ApiProviderType, model: string): string => `${provider}::${model}`;
+export const usageKey = (provider: ApiProviderType | string, model: string): string => `${provider}::${model}`;
 
 export const emptyRecord = (day: string, month: string): UsageRecord => ({
   day,
@@ -78,7 +78,7 @@ export const applyUsage = (
 };
 
 export interface UsageSnapshot extends UsageRecord {
-  provider: ApiProviderType;
+  provider: ApiProviderType | string;
   model: string;
   limit: ProviderLimit;
 }
@@ -100,7 +100,7 @@ const readState = async (): Promise<UsageState> => {
 
 /** Record a successful API call. Non-fatal on failure (best-effort metrics). */
 export const recordUsage = async (
-  provider: ApiProviderType,
+  provider: ApiProviderType | string,
   model: string,
   tokens: number,
   now: Date = new Date(),
@@ -118,7 +118,7 @@ export const recordUsage = async (
 
 /** Snapshot for one provider/model, with day/month buckets reset if stale. */
 export const getUsageSnapshot = async (
-  provider: ApiProviderType,
+  provider: ApiProviderType | string,
   model: string,
   now: Date = new Date(),
 ): Promise<UsageSnapshot> => {
@@ -135,5 +135,8 @@ export const getUsageSnapshot = async (
         tokensMonth: rec.month === month ? rec.tokensMonth : 0,
       }
     : emptyRecord(day, month);
-  return { ...fresh, provider, model, limit: PROVIDER_LIMITS[provider] };
+  // Custom/unknown providers (e.g. a user-added Hermes agent) have no published
+  // limit — fall back to "no cap" so the snapshot still renders.
+  const limit = PROVIDER_LIMITS[provider as ApiProviderType] ?? { callsPerDay: null, tokensPerDay: null };
+  return { ...fresh, provider, model, limit };
 };

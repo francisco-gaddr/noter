@@ -19,6 +19,20 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    version: '1.2.0',
+    build: '2026.06.14.1',
+    date: '2026-06-14',
+    security: 'security-hardening',
+    highlights: [
+      'AI-chatt (mobil): stabilare — modellinställningarna scrollar, modellval per provider via dropdown, rate limits visas i realtid, tangentbordet täcker inte längre inputfältet, systemprompt sparas automatiskt krypterat',
+      'AI-chatt: fler modeller per leverantör + egna (custom) API-providers/Hermes-agenter går att lägga till och sparas krypterat lokalt',
+      'AI-chatt: bilagor (text + bild till vision-modeller) och egna Hermes-agenter på Mac/Pi (Ollama) med streaming',
+      'Drift: backenden auto-deployas till Pi vid varje push (hälsokoll + ntfy-larm); rate limit-felet "Too many requests" åtgärdat',
+      'Data: tomma anteckningar/uppgifter döljs, projektmappar visas aldrig bland anteckningar, bulk-rensa klara uppgifter',
+      'Stabilitet: SQLite-lås ("database is locked") åtgärdat, kontrastfel i mörkt läge fixat + skyddat, kortare headers ger mer innehållsyta',
+    ],
+  },
+  {
     version: '1.1.0',
     build: '2026.06.13.1',
     date: '2026-06-13',

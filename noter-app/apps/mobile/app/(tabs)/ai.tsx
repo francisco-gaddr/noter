@@ -37,6 +37,9 @@ import { pickAttachments } from '@/services/ai/attachments';
 const provider = new MobileLlamaProvider();
 type LocalConversation = Conversation & { localOnly?: boolean };
 type LocalAIProject = AIProject & { localOnly?: boolean; userId?: string };
+// A user-added custom provider — an OpenAI-compatible endpoint (Ollama/Hermes/
+// LM Studio/own proxy). id is prefixed `custom_`. Sent via the Hermes code path.
+type CustomProvider = { id: string; label: string; baseUrl: string; model: string; apiKey: string };
 type PullAiSyncResult = Awaited<ReturnType<typeof pullAiSync>>;
 
 const ProjectDialog = React.memo(({
@@ -266,8 +269,13 @@ export default function AIScreen() {
   const [preferLocalConversion, setPreferLocalConversion] = useState(false);
   const [allowBackgroundAIWork, setAllowBackgroundAIWork] = useState(false);
   const [aiUseApiProviders, setAiUseApiProviders] = useState(false);
-  const [apiProvider, setApiProvider] = useState<ApiProviderType>('openrouter');
+  const [apiProvider, setApiProvider] = useState<string>('openrouter');
   const [providerMenuVisible, setProviderMenuVisible] = useState(false);
+  // User-added custom providers (e.g. several Hermes/Ollama agents). Each is an
+  // OpenAI-compatible endpoint reusing the Hermes send path. Persisted encrypted.
+  const [customProviders, setCustomProviders] = useState<CustomProvider[]>([]);
+  const [addProviderDialogVisible, setAddProviderDialogVisible] = useState(false);
+  const [newProvider, setNewProvider] = useState<CustomProvider>({ id: '', label: '', baseUrl: '', model: '', apiKey: '' });
   const [modelMenuVisible, setModelMenuVisible] = useState(false);
   const [customModelMode, setCustomModelMode] = useState(false);
   const [openRouterApiKey, setOpenRouterApiKey] = useState('');
@@ -295,7 +303,29 @@ export default function AIScreen() {
     groq: { key: groqApiKey, setKey: setGroqApiKey, model: groqModel, setModel: setGroqModel },
     hermes: { key: hermesApiKey, setKey: setHermesApiKey, model: hermesModel, setModel: setHermesModel, baseUrl: hermesBaseUrl, setBaseUrl: setHermesBaseUrl },
   };
-  const activeBinding = apiProviderBindings[apiProvider];
+  // Custom providers are resolved separately from the static binding map.
+  const isCustomProvider = apiProvider.startsWith('custom_');
+  const activeCustom = isCustomProvider ? customProviders.find((p) => p.id === apiProvider) : undefined;
+  const updateActiveCustom = (patch: Partial<CustomProvider>) =>
+    setCustomProviders((prev) => prev.map((p) => (p.id === apiProvider ? { ...p, ...patch } : p)));
+
+  const activeBinding: { key: string; setKey: (v: string) => void; model: string; setModel: (v: string) => void; baseUrl?: string; setBaseUrl?: (v: string) => void } =
+    isCustomProvider && activeCustom
+      ? {
+          key: activeCustom.apiKey, setKey: (v) => updateActiveCustom({ apiKey: v }),
+          model: activeCustom.model, setModel: (v) => updateActiveCustom({ model: v }),
+          baseUrl: activeCustom.baseUrl, setBaseUrl: (v) => updateActiveCustom({ baseUrl: v }),
+        }
+      : (apiProviderBindings[apiProvider as ApiProviderType] ?? apiProviderBindings.openrouter);
+
+  // Metadata for the active provider — static registry entry, or a Hermes-like
+  // descriptor for a custom one (configurable endpoint, optional key).
+  const activeProviderMeta = isCustomProvider
+    ? { id: apiProvider, label: activeCustom?.label || 'Egen provider', endpoint: null as string | null, apiKeyUrl: '', defaultModels: activeCustom?.model ? [activeCustom.model] : [], configurableEndpoint: true, apiKeyOptional: true, hint: 'Bas-URL till din egen OpenAI-kompatibla server (Ollama/Hermes/LM Studio)' }
+    : API_PROVIDERS[apiProvider as ApiProviderType];
+  // Provider id actually sent to the API layer: custom → reuse the Hermes path.
+  const sendProviderId: ApiProviderType = isCustomProvider ? 'hermes' : (apiProvider as ApiProviderType);
+
   const activeApiKey = activeBinding.key;
   const activeApiModel = activeBinding.model;
   const activeBaseUrl = activeBinding.baseUrl;
@@ -433,8 +463,16 @@ export default function AIScreen() {
       await refreshRemoteSync(scopeKey);
       const savedApiEnabled = await AsyncStorage.getItem(`ai_api_enabled_${scopeKey}`);
       if (savedApiEnabled !== null) setAiUseApiProviders(savedApiEnabled === 'true');
+      // Custom providers (encrypted JSON in SecureStore). Load before restoring id.
+      const customRaw = await SecureStore.getItemAsync(`ai_custom_providers_${scopeKey}`);
+      if (customRaw) {
+        try {
+          const parsed = JSON.parse(safeDecrypt(customRaw, customRaw) || '[]');
+          if (Array.isArray(parsed)) setCustomProviders(parsed);
+        } catch {}
+      }
       const savedApiProvider = await AsyncStorage.getItem(`ai_api_provider_${scopeKey}`);
-      if (savedApiProvider && savedApiProvider in API_PROVIDERS) setApiProvider(savedApiProvider as ApiProviderType);
+      if (savedApiProvider && (savedApiProvider in API_PROVIDERS || savedApiProvider.startsWith('custom_'))) setApiProvider(savedApiProvider);
       const savedOpenRouterModel = await AsyncStorage.getItem(`ai_openrouter_model_${scopeKey}`);
       if (savedOpenRouterModel) setOpenRouterModel(savedOpenRouterModel);
       const savedGeminiModel = await AsyncStorage.getItem(`ai_gemini_model_${scopeKey}`);
@@ -510,6 +548,12 @@ export default function AIScreen() {
     if (!userScopeKey) return;
     AsyncStorage.setItem(`ai_api_provider_${userScopeKey}`, apiProvider);
   }, [apiProvider, userScopeKey]);
+
+  // Custom providers (incl. their API keys) saved encrypted in SecureStore.
+  useEffect(() => {
+    if (!userScopeKey) return;
+    SecureStore.setItemAsync(`ai_custom_providers_${userScopeKey}`, customProviders.length ? encrypt(JSON.stringify(customProviders)) : '');
+  }, [customProviders, userScopeKey]);
 
   useEffect(() => {
     if (!userScopeKey) return;
@@ -1426,7 +1470,7 @@ export default function AIScreen() {
                   // AbortController lets the existing Stop button cancel the stream.
                   const controller = new AbortController();
                   const apiResult = await streamApiProviderResponse({
-                      provider: apiProvider,
+                      provider: sendProviderId,
                       apiKey: activeApiKey,
                       model: activeApiModel,
                       history: currentHistory,
@@ -1946,7 +1990,7 @@ export default function AIScreen() {
         return;
     }
     if (aiUseApiProviders) {
-        const meta = API_PROVIDERS[apiProvider];
+        const meta = activeProviderMeta;
         if (meta.configurableEndpoint && !activeBaseUrl?.trim()) {
             alert(`Ange bas-URL till din ${meta.label} först`);
             setSettingsVisible(true);
@@ -2139,6 +2183,34 @@ export default function AIScreen() {
         </View>
       )}
       <Portal>
+        {/* Add a custom OpenAI-compatible provider (e.g. another Hermes/Ollama agent). */}
+        <Dialog visible={addProviderDialogVisible} onDismiss={() => setAddProviderDialogVisible(false)}>
+          <Dialog.Title>Egen API-provider</Dialog.Title>
+          <Dialog.Content>
+            <Text variant="bodySmall" style={{ marginBottom: 10, color: theme.colors.onSurfaceVariant }}>
+              OpenAI-kompatibel server (Ollama/Hermes/LM Studio/egen proxy). Lagras krypterat lokalt.
+            </Text>
+            <PaperTextInput mode="outlined" label="Namn (t.ex. Hermes Pi)" value={newProvider.label} onChangeText={(v) => setNewProvider((p) => ({ ...p, label: v }))} style={{ marginBottom: 8 }} />
+            <PaperTextInput mode="outlined" label="Bas-URL" placeholder="http://100.64.0.2:11434" autoCapitalize="none" autoCorrect={false} keyboardType="url" value={newProvider.baseUrl} onChangeText={(v) => setNewProvider((p) => ({ ...p, baseUrl: v }))} style={{ marginBottom: 8 }} />
+            <PaperTextInput mode="outlined" label="Modell (t.ex. qwen2.5:3b-instruct)" autoCapitalize="none" autoCorrect={false} value={newProvider.model} onChangeText={(v) => setNewProvider((p) => ({ ...p, model: v }))} style={{ marginBottom: 8 }} />
+            <PaperTextInput mode="outlined" label="API-nyckel (valfri)" secureTextEntry value={newProvider.apiKey} onChangeText={(v) => setNewProvider((p) => ({ ...p, apiKey: v }))} />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setAddProviderDialogVisible(false)}>Avbryt</Button>
+            <Button
+              disabled={!newProvider.label.trim() || !newProvider.baseUrl.trim()}
+              onPress={() => {
+                const id = `custom_${uuidv4()}`;
+                const created: CustomProvider = { ...newProvider, id, label: newProvider.label.trim(), baseUrl: newProvider.baseUrl.trim() };
+                setCustomProviders((prev) => [...prev, created]);
+                setApiProvider(id);
+                setAddProviderDialogVisible(false);
+              }}
+            >
+              Spara
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
         <ProjectDialog
           visible={projectDialogVisible}
           mode={projectDialogMode}
@@ -2260,7 +2332,7 @@ export default function AIScreen() {
                     onDismiss={() => setProviderMenuVisible(false)}
                     anchor={
                       <Button mode="outlined" onPress={() => setProviderMenuVisible((v) => !v)} testID="ai-provider-dropdown-button" icon="chevron-down" contentStyle={{ flexDirection: 'row-reverse' }}>
-                        {API_PROVIDERS[apiProvider].label}
+                        {activeProviderMeta.label}
                       </Button>
                     }
                   >
@@ -2269,14 +2341,49 @@ export default function AIScreen() {
                         key={p.id}
                         onPress={() => { setApiProvider(p.id); setProviderMenuVisible(false); }}
                         title={p.label}
+                        leadingIcon={apiProvider === p.id ? 'check' : undefined}
                       />
                     ))}
+                    {customProviders.length > 0 ? <Divider /> : null}
+                    {customProviders.map((c) => (
+                      <Menu.Item
+                        key={c.id}
+                        onPress={() => { setApiProvider(c.id); setProviderMenuVisible(false); }}
+                        title={c.label}
+                        leadingIcon={apiProvider === c.id ? 'check' : 'server-network'}
+                      />
+                    ))}
+                    <Divider />
+                    <Menu.Item
+                      onPress={() => {
+                        setProviderMenuVisible(false);
+                        setNewProvider({ id: '', label: '', baseUrl: '', model: '', apiKey: '' });
+                        setAddProviderDialogVisible(true);
+                      }}
+                      title="Lägg till egen provider…"
+                      leadingIcon="plus"
+                    />
                   </Menu>
-                  {API_PROVIDERS[apiProvider].configurableEndpoint ? (
+                  {isCustomProvider ? (
+                    <Button
+                      mode="text"
+                      compact
+                      textColor={theme.colors.error}
+                      onPress={() => {
+                        const removingId = apiProvider;
+                        setCustomProviders((prev) => prev.filter((p) => p.id !== removingId));
+                        setApiProvider('openrouter');
+                      }}
+                      style={{ alignSelf: 'flex-start', marginTop: 4 }}
+                    >
+                      Ta bort denna egna provider
+                    </Button>
+                  ) : null}
+                  {activeProviderMeta.configurableEndpoint ? (
                     <>
                       <PaperTextInput
                         mode="outlined"
-                        label={`${API_PROVIDERS[apiProvider].label} bas-URL`}
+                        label={`${activeProviderMeta.label} bas-URL`}
                         value={activeBinding.baseUrl ?? ''}
                         onChangeText={activeBinding.setBaseUrl ?? (() => {})}
                         autoCorrect={false}
@@ -2286,16 +2393,16 @@ export default function AIScreen() {
                         style={{ marginTop: 8 }}
                         testID="ai-hermes-base-url"
                       />
-                      {API_PROVIDERS[apiProvider].hint ? (
+                      {activeProviderMeta.hint ? (
                         <Text style={{ marginTop: 4, fontSize: 12, color: theme.colors.onSurfaceVariant }}>
-                          {API_PROVIDERS[apiProvider].hint}
+                          {activeProviderMeta.hint}
                         </Text>
                       ) : null}
                     </>
                   ) : null}
                   <PaperTextInput
                     mode="outlined"
-                    label={`${API_PROVIDERS[apiProvider].label} API Key${API_PROVIDERS[apiProvider].apiKeyOptional ? ' (valfri)' : ''}`}
+                    label={`${activeProviderMeta.label} API Key${activeProviderMeta.apiKeyOptional ? ' (valfri)' : ''}`}
                     value={activeBinding.key}
                     onChangeText={activeBinding.setKey}
                     autoCorrect={false}
@@ -2305,7 +2412,7 @@ export default function AIScreen() {
                   {/* Per-provider model picker: choose from the provider's known
                       models, or switch to a custom id. Selection is remembered per
                       provider (AsyncStorage). */}
-                  <Text style={{ color: theme.colors.onSurface, marginTop: 12, marginBottom: 6 }}>Modell ({API_PROVIDERS[apiProvider].label})</Text>
+                  <Text style={{ color: theme.colors.onSurface, marginTop: 12, marginBottom: 6 }}>Modell ({activeProviderMeta.label})</Text>
                   {!customModelMode ? (
                     <Menu
                       visible={modelMenuVisible}
@@ -2316,7 +2423,7 @@ export default function AIScreen() {
                         </Button>
                       }
                     >
-                      {API_PROVIDERS[apiProvider].defaultModels.map((m) => (
+                      {activeProviderMeta.defaultModels.map((m) => (
                         <Menu.Item
                           key={m}
                           onPress={() => { activeBinding.setModel(m); setModelMenuVisible(false); }}
@@ -2340,18 +2447,18 @@ export default function AIScreen() {
                         onChangeText={activeBinding.setModel}
                         autoCorrect={false}
                         autoCapitalize="none"
-                        placeholder={API_PROVIDERS[apiProvider].defaultModels[0]}
+                        placeholder={activeProviderMeta.defaultModels[0]}
                       />
                       <Button mode="text" compact onPress={() => setCustomModelMode(false)} style={{ alignSelf: 'flex-start', marginTop: 2 }}>
                         ← Välj från lista
                       </Button>
                     </View>
                   )}
-                  {API_PROVIDERS[apiProvider].apiKeyUrl ? (
+                  {activeProviderMeta.apiKeyUrl ? (
                     <Button
                       mode="text"
                       compact
-                      onPress={() => Linking.openURL(API_PROVIDERS[apiProvider].apiKeyUrl)}
+                      onPress={() => Linking.openURL(activeProviderMeta.apiKeyUrl)}
                       style={{ alignSelf: 'flex-start', marginTop: 4 }}
                     >
                       Hämta API-nyckel

@@ -1,6 +1,6 @@
 {
   "name": "electron-noter",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "",
   "main": "main.js",
   "scripts": {
@@ -46,7 +46,9 @@
     "protocols": [
       {
         "name": "Noter Protocol",
-        "schemes": ["noter"]
+        "schemes": [
+          "noter"
+        ]
       }
     ]
   },

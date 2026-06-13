@@ -10,7 +10,7 @@ const router = express.Router();
 
 // Mirrors healthDeep so the admin overview shows the same live posture without
 // needing the internal health token (this route is JWT-scoped to the account).
-const SERVICE_VERSION = process.env.npm_package_version || '1.1.0';
+const SERVICE_VERSION = process.env.npm_package_version || '1.2.0';
 const SECURITY_LEVEL = process.env.SECURITY_LEVEL || 'v3-aes-gcm-argon2id';
 
 /**
