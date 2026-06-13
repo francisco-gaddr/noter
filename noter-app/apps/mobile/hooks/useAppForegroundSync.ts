@@ -31,7 +31,10 @@ export const useAppForegroundSync = (
 
   const lastFiredAtRef = useRef<number>(0);
   const lastStateRef = useRef<AppStateStatus>(AppState.currentState);
-  const pendingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // ReturnType<typeof setTimeout> is portable across the RN (number) and @types/node
+  // (Timeout) ambient typings — hard-coding NodeJS.Timeout breaks when the DOM/RN lib
+  // wins the setTimeout overload.
+  const pendingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const fire = async () => {
