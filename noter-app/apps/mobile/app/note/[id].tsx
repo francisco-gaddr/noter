@@ -518,22 +518,23 @@ export default function NoteEditorScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <Appbar.Header
         statusBarHeight={insets.top}
-        style={{ height: insets.top + 26, paddingBottom: 5, paddingTop: 0, marginBottom: 5 }}
+        // Compact header so it doesn't steal vertical space from the note content.
+        style={{ height: insets.top + 44, paddingBottom: 0, paddingTop: 0, marginBottom: 0 }}
       >
-        <Appbar.BackAction onPress={() => router.back()} />
+        <Appbar.BackAction onPress={() => router.back()} size={22} />
         {icon && (
           <Pressable
             onLongPress={() => setShowIconPicker(true)}
-            style={({pressed}) => ({ justifyContent: 'center', marginLeft: 8, opacity: pressed ? 0.7 : 1 })}
+            style={({pressed}) => ({ justifyContent: 'center', marginLeft: 4, opacity: pressed ? 0.7 : 1 })}
           >
-            <FontAwesome5 name={icon.replace(/^Fa/, '').toLowerCase()} size={20} color={iconColor || theme.colors.onSurface} />
+            <FontAwesome5 name={icon.replace(/^Fa/, '').toLowerCase()} size={18} color={iconColor || theme.colors.onSurface} />
           </Pressable>
         )}
         <TextInput
             ref={titleInputRef}
-            style={{ 
-                flex: 1, 
-                fontSize: 20, 
+            style={{
+                flex: 1,
+                fontSize: 17,
                 color: theme.colors.onSurface,
                 fontWeight: 'bold',
                 marginLeft: 8,

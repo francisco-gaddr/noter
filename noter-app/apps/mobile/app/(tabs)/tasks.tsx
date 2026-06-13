@@ -656,7 +656,7 @@ const styles = StyleSheet.create({
   },
   tabsContainer: {
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingVertical: 2,
     borderBottomWidth: 1,
     borderBottomColor: '#eee' // Light border for separation
   },
@@ -669,7 +669,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 3,
   },
   tabChip: {
     marginHorizontal: 4
