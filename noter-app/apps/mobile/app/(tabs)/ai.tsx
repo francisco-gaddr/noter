@@ -211,6 +211,13 @@ export default function AIScreen() {
   const [systemPrompt, setSystemPrompt] = useState('');
   const [contextInfo, setContextInfo] = useState('');
   const stopRequestedRef = useRef(false);
+  // Chat list ref so opening a thread (and new messages) scrolls to the latest.
+  const messagesListRef = useRef<FlatList<any>>(null);
+  const scrollChatToEnd = useCallback((animated = false) => {
+    requestAnimationFrame(() => {
+      try { messagesListRef.current?.scrollToEnd({ animated }); } catch {}
+    });
+  }, []);
   const [tokensPerSecond, setTokensPerSecond] = useState<number | null>(null);
   const [enableToolUse, setEnableToolUse] = useState(true);
   const [toolSettingsVisible, setToolSettingsVisible] = useState(false);
@@ -2247,7 +2254,7 @@ export default function AIScreen() {
                     visible={providerMenuVisible}
                     onDismiss={() => setProviderMenuVisible(false)}
                     anchor={
-                      <Button mode="outlined" onPress={() => setProviderMenuVisible(true)} testID="ai-provider-dropdown-button">
+                      <Button mode="outlined" onPress={() => setProviderMenuVisible((v) => !v)} testID="ai-provider-dropdown-button" icon="chevron-down" contentStyle={{ flexDirection: 'row-reverse' }}>
                         {API_PROVIDERS[apiProvider].label}
                       </Button>
                     }
@@ -2299,7 +2306,7 @@ export default function AIScreen() {
                       visible={modelMenuVisible}
                       onDismiss={() => setModelMenuVisible(false)}
                       anchor={
-                        <Button mode="outlined" onPress={() => setModelMenuVisible(true)} testID="ai-model-dropdown-button" icon="chevron-down" contentStyle={{ flexDirection: 'row-reverse' }}>
+                        <Button mode="outlined" onPress={() => setModelMenuVisible((v) => !v)} testID="ai-model-dropdown-button" icon="chevron-down" contentStyle={{ flexDirection: 'row-reverse' }}>
                           {activeBinding.model || 'Välj modell'}
                         </Button>
                       }
@@ -2666,11 +2673,15 @@ export default function AIScreen() {
               keyboardVerticalOffset={Platform.OS === "ios" ? 88 : 0}
             >
               <FlatList
+                ref={messagesListRef}
                 data={messages}
                 keyExtractor={(item, index) => item.id ?? String(index)}
                 contentContainerStyle={styles.listContent}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="interactive"
+                // Keep the latest message in view: opening a thread loads messages
+                // (content grows) and streaming appends — both fire this.
+                onContentSizeChange={() => scrollChatToEnd(false)}
                 renderItem={({ item, index }) => {
                   if (item.role === 'tool') {
                     const key = item.id ?? String(index);
@@ -2869,7 +2880,10 @@ const styles = StyleSheet.create({
   sidebar: { width: 320, padding: 16 },
   toolCard: { borderWidth: 1, borderRadius: 12, padding: 10, maxWidth: '90%', backgroundColor: 'transparent' },
   toolHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  toolHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  toolTitle: { fontSize: 12, fontWeight: '600' },
-  toolBody: { marginTop: 8, fontSize: 12 }
+  // flex + minWidth:0 lets the title truncate inside the row instead of pushing the
+  // chevron off-screen; gap keeps the icon spacing.
+  toolHeaderLeft: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, marginRight: 8 },
+  toolTitle: { fontSize: 12, fontWeight: '600', flexShrink: 1 },
+  // flexShrink + full-width keeps long expanded bodies wrapping inside the card.
+  toolBody: { marginTop: 8, fontSize: 12, flexShrink: 1, width: '100%' }
 });
