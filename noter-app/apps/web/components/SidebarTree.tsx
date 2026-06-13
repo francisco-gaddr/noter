@@ -7,7 +7,7 @@ import { FaPlus, FaTrash, FaSort, FaChevronRight, FaChevronDown, FaFolder, FaFol
 import * as FaIcons from 'react-icons/fa';
 import Fuse from 'fuse.js';
 import { orderBy } from 'lodash';
-import { Note } from '@repo/shared';
+import { Note, safeDecrypt, isAnyCiphertext } from '@repo/shared';
 import { IconPicker } from './IconPicker';
 import { CreateNodeModal } from './CreateNodeModal';
 import { ConfirmationModal } from './ConfirmationModal';
@@ -37,7 +37,13 @@ type NodeDropCollected = { isOver: boolean; canDrop: boolean };
 
 const normalizeNoteType = (value: unknown): string => {
     if (typeof value !== 'string') return 'note';
-    let normalized = value.trim().toLowerCase();
+    // Defensive: if the type arrived still-encrypted (e.g. E2E locked so upstream
+    // safeDecrypt fell back to ciphertext), decrypt it here before classifying —
+    // otherwise a project folder's ciphertext type reads as a plain note and the
+    // folder wrongly shows up among notes.
+    let raw = value;
+    if (isAnyCiphertext(raw)) raw = safeDecrypt(raw, raw);
+    let normalized = raw.trim().toLowerCase();
     while (
       normalized.length >= 2 &&
       (
