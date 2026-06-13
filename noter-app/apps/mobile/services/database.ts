@@ -621,6 +621,23 @@ export const deleteTaskLocal = async (id: string) => {
   await db.runAsync('DELETE FROM tasks WHERE _id = ?', [id]);
 };
 
+/**
+ * Enqueue an offline mutation for later replay by `syncOfflineChanges`.
+ *
+ * Dedupe + latest-wins: keyed items (UPDATE/DELETE/keyed-CREATE — see
+ * `computeSyncDedupeKey`) collapse on their `dedupeKeyHash` via an UPSERT.
+ * The payload here is the FULL entity state, so when the user edits the same
+ * note/task twice while offline the *latest* payload must replace the queued
+ * one — otherwise the stale first edit is what reaches the server and the
+ * post-sync `fetchNotes`/`fetchTasks` overwrites the newer local copy, silently
+ * losing the second edit. `INSERT OR IGNORE` had exactly that bug; the
+ * `ON CONFLICT … DO UPDATE` below makes latest-wins explicit and resets the
+ * retry counter because a fresh edit is a fresh intent.
+ *
+ * Keyless items (REORDER, and CREATEs without tempId/clientId) get a null
+ * `dedupeKeyHash`; SQLite treats nulls as distinct in a UNIQUE index, so they
+ * never collide and are always appended.
+ */
 export const addToSyncQueue = async (action: string, entity: string, data: any) => {
   const dedupeKey = computeSyncDedupeKey(action, entity, data);
   const encryptedData = encrypt(JSON.stringify(data));
@@ -629,7 +646,15 @@ export const addToSyncQueue = async (action: string, entity: string, data: any) 
   const encryptedDedupeKey = dedupeKey ? encryptText(dedupeKey) : null;
   const dedupeKeyHash = dedupeKey ? hashText(dedupeKey) : null;
   await db.runAsync(
-    `INSERT OR IGNORE INTO sync_queue (action, entity, data, timestamp, dedupeKey, dedupeKeyHash) VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO sync_queue (action, entity, data, timestamp, dedupeKey, dedupeKeyHash)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(dedupeKeyHash) DO UPDATE SET
+       action = excluded.action,
+       entity = excluded.entity,
+       data = excluded.data,
+       timestamp = excluded.timestamp,
+       dedupeKey = excluded.dedupeKey,
+       attempts = 0`,
     [encryptedAction, encryptedEntity, encryptedData, encryptText(new Date().toISOString()), encryptedDedupeKey, dedupeKeyHash]
   );
 };
