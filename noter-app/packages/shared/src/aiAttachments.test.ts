@@ -1,11 +1,15 @@
 import {
   isTextLikeAttachment,
+  isImageAttachment,
+  imageDataUrls,
+  parseDataUrl,
   attachmentKindLabel,
   extractAttachmentText,
   buildAttachmentContextBlock,
   summarizeAttachmentsForUi,
   MAX_ATTACHMENT_CHARS,
   MAX_ATTACHMENTS,
+  MAX_IMAGE_ATTACHMENTS,
   type AiAttachment,
 } from './aiAttachments';
 
@@ -66,6 +70,32 @@ describe('aiAttachments', () => {
     expect(block).toContain('3 ytterligare bifogade filer utelämnades');
     expect(block).toContain(`Fil ${MAX_ATTACHMENTS}:`);
     expect(block).not.toContain(`Fil ${MAX_ATTACHMENTS + 1}:`);
+  });
+
+  it('detects image attachments by mime and extension', () => {
+    expect(isImageAttachment({ name: 'p.png', mimeType: 'image/png' })).toBe(true);
+    expect(isImageAttachment({ name: 'p.JPG', mimeType: '' })).toBe(true);
+    expect(isImageAttachment({ name: 'n.md', mimeType: 'text/markdown' })).toBe(false);
+  });
+
+  it('collects image data URLs (only images with a dataUrl), capped', () => {
+    const atts: AiAttachment[] = [
+      { name: 'a.png', mimeType: 'image/png', dataUrl: 'data:image/png;base64,AAA' },
+      { name: 'b.txt', mimeType: 'text/plain', text: 'hi' }, // not an image
+      { name: 'c.jpg', mimeType: 'image/jpeg' }, // image but no dataUrl
+      { name: 'd.webp', mimeType: 'image/webp', dataUrl: 'data:image/webp;base64,BBB' },
+    ];
+    expect(imageDataUrls(atts)).toEqual(['data:image/png;base64,AAA', 'data:image/webp;base64,BBB']);
+
+    const many: AiAttachment[] = Array.from({ length: MAX_IMAGE_ATTACHMENTS + 2 }, (_, i) => ({
+      name: `i${i}.png`, mimeType: 'image/png', dataUrl: `data:image/png;base64,X${i}`,
+    }));
+    expect(imageDataUrls(many)).toHaveLength(MAX_IMAGE_ATTACHMENTS);
+  });
+
+  it('parses a data URL into mime + base64', () => {
+    expect(parseDataUrl('data:image/png;base64,SGVsbG8=')).toEqual({ mimeType: 'image/png', base64: 'SGVsbG8=' });
+    expect(parseDataUrl('not-a-data-url')).toBeNull();
   });
 
   it('summarizes attachments into UI chips with size', () => {

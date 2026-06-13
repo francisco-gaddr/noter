@@ -22,6 +22,8 @@ export interface AiAttachment {
   size?: number;
   /** Decoded UTF-8 text for text-like files; undefined for binary. */
   text?: string;
+  /** base64 data URL (`data:<mime>;base64,…`) for images — fed to vision models. */
+  dataUrl?: string;
 }
 
 /** Hard cap on injected text per attachment (chars) so one file can't blow the
@@ -101,6 +103,30 @@ export const buildAttachmentContextBlock = (attachments: AiAttachment[]): string
     ? `\n[${attachments.length - MAX_ATTACHMENTS} ytterligare bifogade filer utelämnades]`
     : '';
   return `<bifogade_filer>\n${parts.join('\n\n')}${overflow}\n</bifogade_filer>\n\n`;
+};
+
+/** True when the attachment is an image we can hand to a vision model. */
+export const isImageAttachment = (att: Pick<AiAttachment, 'name' | 'mimeType'>): boolean => {
+  const mime = (att.mimeType || '').toLowerCase();
+  if (mime.startsWith('image/')) return true;
+  return ['png', 'jpg', 'jpeg', 'webp', 'gif', 'heic', 'heif'].includes(extensionOf(att.name || ''));
+};
+
+/** Cap on images forwarded to a vision model per message. */
+export const MAX_IMAGE_ATTACHMENTS = 4;
+
+/** Collect the data URLs of image attachments that actually have one (≤ cap). */
+export const imageDataUrls = (attachments: AiAttachment[]): string[] =>
+  (attachments || [])
+    .filter((a) => isImageAttachment(a) && typeof a.dataUrl === 'string' && a.dataUrl.length > 0)
+    .map((a) => a.dataUrl as string)
+    .slice(0, MAX_IMAGE_ATTACHMENTS);
+
+/** Split a `data:<mime>;base64,<data>` URL into its parts (for Gemini inlineData). */
+export const parseDataUrl = (dataUrl: string): { mimeType: string; base64: string } | null => {
+  const m = /^data:([^;]+);base64,(.*)$/.exec(dataUrl || '');
+  if (!m) return null;
+  return { mimeType: m[1], base64: m[2] };
 };
 
 /** Short chip labels for the composer UI. */

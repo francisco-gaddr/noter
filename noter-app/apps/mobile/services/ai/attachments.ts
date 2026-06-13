@@ -5,9 +5,13 @@ import * as FileSystem from 'expo-file-system/legacy';
 import {
   AiAttachment,
   isTextLikeAttachment,
+  isImageAttachment,
   MAX_ATTACHMENTS,
   MAX_ATTACHMENT_CHARS,
 } from '@repo/shared';
+
+/** Max image bytes to base64-inline for a vision model (~3 MB keeps payloads sane). */
+const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 
 /**
  * Mobile glue for AI chat file attachments. The picker + file read live here; all
@@ -34,6 +38,24 @@ const readTextIfPossible = async (uri: string, name: string, mimeType: string): 
   }
 };
 
+/** Read an image as a base64 data URL for a vision model, or undefined if too big. */
+const readImageDataUrl = async (
+  uri: string,
+  name: string,
+  mimeType: string,
+  size?: number,
+): Promise<string | undefined> => {
+  if (!isImageAttachment({ name, mimeType })) return undefined;
+  if (typeof size === 'number' && size > MAX_IMAGE_BYTES) return undefined;
+  try {
+    const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+    const mime = mimeType || 'image/jpeg';
+    return `data:${mime};base64,${base64}`;
+  } catch {
+    return undefined;
+  }
+};
+
 /**
  * Open the OS document picker and return normalized attachments (≤ MAX_ATTACHMENTS).
  * Returns [] when the user cancels. Never throws — a failed read degrades to a
@@ -52,8 +74,10 @@ export const pickAttachments = async (): Promise<AiAttachment[]> => {
   for (const asset of assets) {
     const name = asset.name || 'fil';
     const mimeType = asset.mimeType || '';
+    const size = asset.size ?? undefined;
     const text = await readTextIfPossible(asset.uri, name, mimeType);
-    out.push({ name, mimeType, size: asset.size ?? undefined, text });
+    const dataUrl = await readImageDataUrl(asset.uri, name, mimeType, size);
+    out.push({ name, mimeType, size, text, dataUrl });
   }
   return out;
 };

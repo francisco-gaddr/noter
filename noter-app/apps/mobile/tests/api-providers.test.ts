@@ -93,6 +93,44 @@ describe('mobile apiProviders', () => {
     ).rejects.toThrow();
   });
 
+  it('attaches images as OpenAI content-parts on the last user turn', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: 'ser en katt' } }] }),
+    });
+    global.fetch = fetchMock as any;
+    await generateApiProviderResponse({
+      provider: 'groq',
+      apiKey: 'gsk_test',
+      model: 'llama-vision',
+      history: [{ id: '1', role: 'user', content: 'vad ser du?', createdAt: new Date().toISOString() }],
+      images: ['data:image/png;base64,AAA'],
+    });
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as any).body);
+    const lastMsg = body.messages[body.messages.length - 1];
+    expect(Array.isArray(lastMsg.content)).toBe(true);
+    expect(lastMsg.content[0]).toEqual({ type: 'text', text: 'vad ser du?' });
+    expect(lastMsg.content[1]).toEqual({ type: 'image_url', image_url: { url: 'data:image/png;base64,AAA' } });
+  });
+
+  it('attaches images as Gemini inlineData', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ candidates: [{ content: { parts: [{ text: 'ok' }] } }] }),
+    });
+    global.fetch = fetchMock as any;
+    await generateApiProviderResponse({
+      provider: 'gemini',
+      apiKey: 'k',
+      model: 'gemini-2.0-flash',
+      history: [{ id: '1', role: 'user', content: 'beskriv', createdAt: new Date().toISOString() }],
+      images: ['data:image/jpeg;base64,ZZZ'],
+    });
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as any).body);
+    const lastParts = body.contents[body.contents.length - 1].parts;
+    expect(lastParts).toContainEqual({ inlineData: { mimeType: 'image/jpeg', data: 'ZZZ' } });
+  });
+
   it('calls Gemini endpoint and merges text parts', async () => {
     const fetchMock = jest.fn().mockResolvedValue({
       ok: true,

@@ -63,8 +63,11 @@ Status 2026-06-13. Uppdatera den här listan när poster blir klara.
 
 **AI-chatt (mobil):**
 - [x] Filbilagor i chatten: textfiler (md/txt/json/kod) läses in i prompten via
-      `@repo/shared` `aiAttachments`; PDF/bild bifogas som referens-placeholder.
-      Inställning + chips + `expo-document-picker`. Nästa: vision-väg för bild/PDF.
+      `@repo/shared` `aiAttachments`; PDF bifogas som referens-placeholder.
+      Inställning + chips + `expo-document-picker`.
+- [x] Vision-väg: bilder skickas som OpenAI content-parts (`image_url`) resp. Gemini
+      `inlineData` till vision-modeller (`imageDataUrls`/`parseDataUrl` i shared).
+      PDF-textextraktion kräver parser-lib — kvar som nästa steg.
 - [x] Per-tråd: header-växel synkad E2E ↔ lokal-only (lokala trådar pushas aldrig;
       sync-filtret testat i `tests/ai-sync-service.test.ts`).
 - [ ] Enhetsvalidering av lokal modell: nedladdning → konvertering → inläsning → chatt.

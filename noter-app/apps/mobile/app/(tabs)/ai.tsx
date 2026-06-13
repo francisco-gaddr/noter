@@ -30,7 +30,7 @@ import * as Clipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
-import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, safeDecrypt, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings, buildAttachmentContextBlock, summarizeAttachmentsForUi, MAX_ATTACHMENTS, type AiAttachment } from '@repo/shared';
+import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, safeDecrypt, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings, buildAttachmentContextBlock, summarizeAttachmentsForUi, imageDataUrls, MAX_ATTACHMENTS, type AiAttachment } from '@repo/shared';
 import { pickAttachments } from '@/services/ai/attachments';
 
 const provider = new MobileLlamaProvider();
@@ -1364,7 +1364,7 @@ export default function AIScreen() {
       return newMessages;
   };
 
-  const runAIGeneration = async (conversationId: string, initialHistory: ChatMessage[]) => {
+  const runAIGeneration = async (conversationId: string, initialHistory: ChatMessage[], images: string[] = []) => {
       let currentHistory = [...initialHistory];
       const intentText = [...initialHistory].reverse().find((msg) => msg.role === 'user')?.content || '';
       let iterations = 0;
@@ -1407,6 +1407,8 @@ export default function AIScreen() {
                       model: activeApiModel,
                       history: currentHistory,
                       baseUrl: activeBaseUrl,
+                      // Images attach only to the first turn (the user's message).
+                      images: iterations === 1 ? images : [],
                       signal: controller.signal,
                       onToken: (delta) => {
                           if (stopRequestedRef.current) { try { controller.abort(); } catch {} return; }
@@ -1994,7 +1996,9 @@ export default function AIScreen() {
       if (!aiUseApiProviders) {
           await provider.loadModel(activeModel as string);
       }
-      await runAIGeneration(conversationId, buildHistory(modelUserMsg));
+      // Image attachments → vision models (API path); only forwarded on this turn.
+      const sentImages = aiUseApiProviders ? imageDataUrls(sentAttachments) : [];
+      await runAIGeneration(conversationId, buildHistory(modelUserMsg), sentImages);
     } catch (error) {
       console.error(error);
       setMessages(prev => [...prev, { id: uuidv4(), role: 'system', content: `${t('ai.errorPrefix')}${formatError(error)}`, createdAt: new Date().toISOString() }]);
@@ -2216,7 +2220,7 @@ export default function AIScreen() {
                 <Switch value={attachmentsEnabled} onValueChange={setAttachmentsEnabled} />
               </View>
               <Text style={{ marginTop: 2, fontSize: 12, color: theme.colors.onSurfaceVariant }}>
-                Bifoga textfiler (md, txt, json, kod m.m.) som läses in i prompten. PDF/bilder bifogas som referens. Max {MAX_ATTACHMENTS} filer.
+                Textfiler (md, txt, json, kod) läses in i prompten. Bilder skickas till vision-modeller (t.ex. Gemini eller en vision-Hermes). PDF bifogas som referens. Max {MAX_ATTACHMENTS} filer.
               </Text>
               {aiUseApiProviders ? (
                 <View style={{ marginTop: 12 }}>

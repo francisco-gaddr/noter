@@ -1,4 +1,5 @@
 import { ChatMessage } from '@repo/ai';
+import { parseDataUrl } from '@repo/shared';
 import { fetch as expoFetch } from 'expo/fetch';
 import { SseBuffer, sseDataPayloads, openAiDelta, openAiUsageTokens, geminiDelta, geminiUsageTokens } from './sseParser';
 
@@ -81,17 +82,43 @@ export const resolveChatCompletionsUrl = (meta: ApiProviderMeta, baseUrl?: strin
   return `${raw}/v1/chat/completions`;
 };
 
-const toOpenAiMessages = (history: ChatMessage[]) =>
-  history.map((message) => ({
-    role: message.role === 'tool' ? 'assistant' : message.role,
-    content: message.content || '',
-  }));
+// Index of the last user turn, so images attach to the message the user just sent.
+const lastUserIndex = (history: ChatMessage[]): number => {
+  for (let i = history.length - 1; i >= 0; i -= 1) if (history[i].role === 'user') return i;
+  return -1;
+};
 
-const toGeminiContents = (history: ChatMessage[]) =>
-  history.map((message) => ({
-    role: message.role === 'assistant' ? 'model' : 'user',
-    parts: [{ text: message.content || '' }],
-  }));
+const toOpenAiMessages = (history: ChatMessage[], images: string[] = []) => {
+  const imgIdx = images.length ? lastUserIndex(history) : -1;
+  return history.map((message, i) => {
+    const role = message.role === 'tool' ? 'assistant' : message.role;
+    if (i === imgIdx) {
+      // Vision: content-parts array (text + image_url data URLs).
+      return {
+        role,
+        content: [
+          { type: 'text', text: message.content || '' },
+          ...images.map((url) => ({ type: 'image_url', image_url: { url } })),
+        ],
+      };
+    }
+    return { role, content: message.content || '' };
+  });
+};
+
+const toGeminiContents = (history: ChatMessage[], images: string[] = []) => {
+  const imgIdx = images.length ? lastUserIndex(history) : -1;
+  return history.map((message, i) => {
+    const parts: any[] = [{ text: message.content || '' }];
+    if (i === imgIdx) {
+      for (const url of images) {
+        const parsed = parseDataUrl(url);
+        if (parsed) parts.push({ inlineData: { mimeType: parsed.mimeType, data: parsed.base64 } });
+      }
+    }
+    return { role: message.role === 'assistant' ? 'model' : 'user', parts };
+  });
+};
 
 export interface ApiProviderResult {
   text: string;
@@ -106,8 +133,10 @@ export const generateApiProviderResponse = async (params: {
   history: ChatMessage[];
   /** Base URL for configurable providers (Hermes self-hosted agents). */
   baseUrl?: string;
+  /** Image data URLs to attach to the last user turn (vision models). */
+  images?: string[];
 }): Promise<ApiProviderResult> => {
-  const { provider, apiKey, model, history, baseUrl } = params;
+  const { provider, apiKey, model, history, baseUrl, images = [] } = params;
   const meta = API_PROVIDERS[provider];
   if (!apiKey && !meta?.apiKeyOptional) throw new Error('API-nyckel saknas');
   if (!model) throw new Error('API-modell saknas');
@@ -122,7 +151,7 @@ export const generateApiProviderResponse = async (params: {
       headers,
       body: JSON.stringify({
         model,
-        messages: toOpenAiMessages(history),
+        messages: toOpenAiMessages(history, images),
         stream: false,
       }),
     });
@@ -145,7 +174,7 @@ export const generateApiProviderResponse = async (params: {
       'x-goog-api-key': apiKey,
     },
     body: JSON.stringify({
-      contents: toGeminiContents(history),
+      contents: toGeminiContents(history, images),
     }),
   });
   if (!response.ok) {
@@ -173,8 +202,10 @@ export const streamApiProviderResponse = async (params: {
   signal?: AbortSignal;
   /** Base URL for configurable providers (Hermes self-hosted agents). */
   baseUrl?: string;
+  /** Image data URLs to attach to the last user turn (vision models). */
+  images?: string[];
 }): Promise<ApiProviderResult> => {
-  const { provider, apiKey, model, history, onToken, signal, baseUrl } = params;
+  const { provider, apiKey, model, history, onToken, signal, baseUrl, images = [] } = params;
   const meta = API_PROVIDERS[provider];
   if (!apiKey && !meta?.apiKeyOptional) throw new Error('API-nyckel saknas');
   if (!model) throw new Error('API-modell saknas');
@@ -188,8 +219,8 @@ export const streamApiProviderResponse = async (params: {
     ? { 'Content-Type': 'application/json', ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) }
     : { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey };
   const body = isOpenAi
-    ? JSON.stringify({ model, messages: toOpenAiMessages(history), stream: true, stream_options: { include_usage: true } })
-    : JSON.stringify({ contents: toGeminiContents(history) });
+    ? JSON.stringify({ model, messages: toOpenAiMessages(history, images), stream: true, stream_options: { include_usage: true } })
+    : JSON.stringify({ contents: toGeminiContents(history, images) });
 
   try {
     const response = await expoFetch(url, { method: 'POST', headers, body, signal });
@@ -231,7 +262,7 @@ export const streamApiProviderResponse = async (params: {
   } catch (err) {
     if (signal?.aborted) throw err;
     // Streaming unsupported / network hiccup → fall back to a single response.
-    const result = await generateApiProviderResponse({ provider, apiKey, model, history, baseUrl });
+    const result = await generateApiProviderResponse({ provider, apiKey, model, history, baseUrl, images });
     if (result.text) onToken(result.text);
     return result;
   }
