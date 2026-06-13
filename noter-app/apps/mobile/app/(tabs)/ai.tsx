@@ -204,6 +204,9 @@ export default function AIScreen() {
   // toggle below gates the attach button. Cleared after each send.
   const [attachments, setAttachments] = useState<AiAttachment[]>([]);
   const [attachmentsEnabled, setAttachmentsEnabled] = useState(true);
+  // Per-thread privacy: when on, a NEW conversation stays local-only (encrypted on
+  // this device, never pushed to the server). Existing threads keep their own flag.
+  const [nextThreadLocalOnly, setNextThreadLocalOnly] = useState(false);
   const [loading, setLoading] = useState(false);
   const [systemPrompt, setSystemPrompt] = useState('');
   const [contextInfo, setContextInfo] = useState('');
@@ -362,6 +365,12 @@ export default function AIScreen() {
               {tokensPerSecond.toFixed(1)} tok/s
             </Text>
           )}
+          <IconButton
+            icon={nextThreadLocalOnly ? 'cellphone-lock' : 'cloud-sync-outline'}
+            iconColor={nextThreadLocalOnly ? theme.colors.primary : theme.colors.onSurfaceVariant}
+            onPress={() => setNextThreadLocalOnly((prev) => !prev)}
+            accessibilityLabel={nextThreadLocalOnly ? t('ai.threadLocalOnly', 'Nya trådar: endast lokalt') : t('ai.threadSynced', 'Nya trådar: synkas E2E')}
+          />
           <IconButton icon="plus" onPress={createNewChat} />
           <IconButton
             icon={settingsVisible ? 'close' : 'cog'}
@@ -370,7 +379,7 @@ export default function AIScreen() {
         </View>
       ),
     });
-  }, [navigation, theme, settingsVisible, activeModel, activeProjectId, tokensPerSecond, t]);
+  }, [navigation, theme, settingsVisible, activeModel, activeProjectId, tokensPerSecond, nextThreadLocalOnly, t]);
 
   useEffect(() => {
     if (params.openSettings === '1') {
@@ -397,6 +406,8 @@ export default function AIScreen() {
       if (savedLocalConvert !== null) setPreferLocalConversion(savedLocalConvert === 'true');
       const savedAttachmentsEnabled = await AsyncStorage.getItem(`ai_attachments_enabled_${scopeKey}`);
       if (savedAttachmentsEnabled !== null) setAttachmentsEnabled(savedAttachmentsEnabled === 'true');
+      const savedNextLocalOnly = await AsyncStorage.getItem(`ai_next_thread_local_only_${scopeKey}`);
+      if (savedNextLocalOnly !== null) setNextThreadLocalOnly(savedNextLocalOnly === 'true');
       const savedBackgroundWork = await AsyncStorage.getItem(`ai_background_work_${scopeKey}`);
       if (savedBackgroundWork !== null) {
         setAllowBackgroundAIWork(savedBackgroundWork === 'true');
@@ -454,6 +465,11 @@ export default function AIScreen() {
     if (!userScopeKey) return;
     AsyncStorage.setItem(`ai_attachments_enabled_${userScopeKey}`, attachmentsEnabled ? 'true' : 'false');
   }, [attachmentsEnabled, userScopeKey]);
+
+  useEffect(() => {
+    if (!userScopeKey) return;
+    AsyncStorage.setItem(`ai_next_thread_local_only_${userScopeKey}`, nextThreadLocalOnly ? 'true' : 'false');
+  }, [nextThreadLocalOnly, userScopeKey]);
 
   useEffect(() => {
     if (!userScopeKey) return;
@@ -1541,7 +1557,8 @@ export default function AIScreen() {
           updatedAt: new Date().toISOString(),
           messages: [],
           model: activeModelLabel || undefined,
-          projectId: activeProjectId || undefined
+          projectId: activeProjectId || undefined,
+          localOnly: nextThreadLocalOnly,
       };
       await saveConversationLocal(newConv);
       if (!newConv.localOnly) {
@@ -1932,7 +1949,8 @@ export default function AIScreen() {
             updatedAt: new Date().toISOString(),
             messages: [],
             model: activeModelLabel,
-            projectId: activeProjectId || undefined
+            projectId: activeProjectId || undefined,
+            localOnly: nextThreadLocalOnly,
         };
         await saveConversationLocal(newConv);
         if (!newConv.localOnly) {
@@ -2695,6 +2713,11 @@ export default function AIScreen() {
               {contextInfo ? (
                 <Text style={{ color: theme.colors.onSurfaceVariant, paddingHorizontal: 12, paddingBottom: 6 }}>
                   Kontext: {contextInfo}
+                </Text>
+              ) : null}
+              {nextThreadLocalOnly && !currentConversationId ? (
+                <Text style={{ paddingHorizontal: 12, paddingBottom: 4, fontSize: 12, color: theme.colors.primary }}>
+                  🔒 Nästa tråd sparas endast lokalt på denna enhet (synkas inte).
                 </Text>
               ) : null}
               {attachmentsEnabled && attachments.length > 0 ? (

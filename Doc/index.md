@@ -65,7 +65,8 @@ Status 2026-06-13. Uppdatera den här listan när poster blir klara.
 - [x] Filbilagor i chatten: textfiler (md/txt/json/kod) läses in i prompten via
       `@repo/shared` `aiAttachments`; PDF/bild bifogas som referens-placeholder.
       Inställning + chips + `expo-document-picker`. Nästa: vision-väg för bild/PDF.
-- [ ] Per-tråd: välj synkad E2E vs lokal-only-tråd (krypterad endast på enheten).
+- [x] Per-tråd: header-växel synkad E2E ↔ lokal-only (lokala trådar pushas aldrig;
+      sync-filtret testat i `tests/ai-sync-service.test.ts`).
 - [ ] Enhetsvalidering av lokal modell: nedladdning → konvertering → inläsning → chatt.
 
 **Admin/observability:**
