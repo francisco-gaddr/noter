@@ -11,12 +11,60 @@ const allowedTools = new Set([
   'mcp_list_tools', 'mcp_call_tool'
 ]);
 
-export const buildToolSystemPrompt = (baseUrl: string, enabledMcpServices: string[] = []) => {
+export type ToolContainer = { id: string; title: string };
+export type ToolPromptContext = {
+  projects?: ToolContainer[];
+  taskLists?: ToolContainer[];
+};
+
+/**
+ * "Du är här, just nu" — current date/time in the user's own timezone plus the
+ * IANA zone + UTC offset, so the agent resolves relative times ("imorgon kl 11",
+ * "på fredag") to the correct absolute instant the user means. Computed from the
+ * device clock, which is the user's local time on mobile/desktop.
+ */
+export const buildTimeContextLines = (now: Date = new Date()): string[] => {
+  let timezone = 'UTC';
+  try { timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { /* keep UTC */ }
+  let local = now.toISOString();
+  try {
+    local = new Intl.DateTimeFormat('sv-SE', {
+      timeZone: timezone, weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    }).format(now);
+  } catch { /* fall back to ISO */ }
+  const offMin = -now.getTimezoneOffset();
+  const sign = offMin >= 0 ? '+' : '-';
+  const abs = Math.abs(offMin);
+  const offset = `UTC${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`;
+  return [
+    `Aktuell tid (användarens tidszon): ${local} (${timezone}, ${offset}). ISO nu: ${now.toISOString()}.`,
+    'Räkna alltid relativa tider ("idag", "imorgon", "på fredag kl 11", "om en timme") utifrån denna aktuella tid och användarens tidszon. Om användaren anger en annan tidszon, använd den i stället.',
+    'dueDate och andra tidsfält ska vara ISO 8601 (helst med tidszonsoffset, t.ex. 2026-06-14T11:00:00+02:00, eller UTC med Z) som motsvarar den lokala tid användaren faktiskt menar.',
+  ];
+};
+
+const buildContainerLines = (context?: ToolPromptContext): string[] => {
+  if (!context) return [];
+  const fmt = (items?: ToolContainer[]) =>
+    (items && items.length)
+      ? items.slice(0, 50).map((c) => `${c.title || '(namnlös)'} [id:${c.id}]`).join(', ')
+      : '(inga)';
+  return [
+    `Tillgängliga projektmappar (type=project): ${fmt(context.projects)}.`,
+    `Tillgängliga uppgiftslistor (type=task_list): ${fmt(context.taskLists)}.`,
+    'Välj rätt projektmapp/uppgiftslista för uppgiften och sätt parentId (anteckning/projekt/lista) respektive parentNoteId (uppgift) till rätt id ovan. Finns ingen lämplig, använd list_projects/list_tasklists eller skapa en ny först.',
+  ];
+};
+
+export const buildToolSystemPrompt = (baseUrl: string, enabledMcpServices: string[] = [], context?: ToolPromptContext) => {
   const enabledMcpText = enabledMcpServices.length > 0 ? enabledMcpServices.join(', ') : 'inga';
   return [
     'När tool use är aktiverat: använd tool calls proaktivt när användaren vill skapa, uppdatera, ta bort, lista, hämta eller sammanfatta anteckningar/projekt/tasklistor/uppgifter.',
     'Tolkar även planering, påminnelser, agenda, och uppgifter/anteckningar kopplade till datum som signal att använda tool calls.',
     'För vanliga chattar, resonemang eller allmänna frågor: svara som vanlig text utan tool calls.',
+    ...buildTimeContextLines(),
+    ...buildContainerLines(context),
     `Base URL: ${baseUrl}`,
     'GraphQL endpoint: {BASE_URL}/graphql',
     'Autentisering: använd samma Bearer-token som appen använder.',

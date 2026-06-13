@@ -1709,13 +1709,34 @@ export const AISidebar = () => {
     const baseUrl = getApiBaseUrl();
     const now = new Date();
     const enabledMcpText = enabledMcpServices.length > 0 ? enabledMcpServices.join(', ') : 'inga';
+    // User's own timezone + offset, so relative times resolve to the right instant.
+    let timezone = 'UTC';
+    try { timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch {}
+    let localStr = now.toLocaleString('sv-SE');
+    try {
+      localStr = new Intl.DateTimeFormat('sv-SE', { timeZone: timezone, weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(now);
+    } catch {}
+    const offMin = -now.getTimezoneOffset();
+    const offSign = offMin >= 0 ? '+' : '-';
+    const offAbs = Math.abs(offMin);
+    const offset = `UTC${offSign}${String(Math.floor(offAbs / 60)).padStart(2, '0')}:${String(offAbs % 60).padStart(2, '0')}`;
+    // Available containers so the agent can place items in the right folder/list.
+    const allNotes = Array.isArray(notes) ? notes : [];
+    const containerFmt = (type: string) => {
+      const items = allNotes.filter((n: any) => n?.type === type).slice(0, 50)
+        .map((n: any) => `${(n.title || '(namnlös)')} [id:${n._id}]`);
+      return items.length ? items.join(', ') : '(inga)';
+    };
     return [
       'När tool use är aktiverat: använd tool calls proaktivt när användaren vill skapa, uppdatera, ta bort, lista, hämta eller sammanfatta anteckningar/projekt/tasklistor/uppgifter.',
       'Tolkar även planering, påminnelser, agenda, och uppgifter/anteckningar kopplade till datum som signal att använda tool calls.',
       'För vanliga chattar, resonemang eller allmänna frågor: svara som vanlig text utan tool calls.',
       `Base URL: ${baseUrl}`,
-      `Aktuellt datum/tid (ISO): ${now.toISOString()}`,
-      `Aktuellt datum/tid (lokalt): ${now.toLocaleString('sv-SE')}`,
+      `Aktuell tid (användarens tidszon): ${localStr} (${timezone}, ${offset}). ISO nu: ${now.toISOString()}.`,
+      'Räkna alltid relativa tider ("idag", "imorgon", "på fredag kl 11", "om en timme") utifrån denna aktuella tid och användarens tidszon. Om användaren anger en annan tidszon, använd den. dueDate ska vara ISO 8601 som motsvarar den lokala tid användaren menar (helst med offset, t.ex. 2026-06-14T11:00:00' + offset.replace("UTC","") + ', eller UTC med Z).',
+      `Tillgängliga projektmappar (type=project): ${containerFmt('project')}.`,
+      `Tillgängliga uppgiftslistor (type=task_list): ${containerFmt('task_list')}.`,
+      'Välj rätt projektmapp/uppgiftslista och sätt parentId (anteckning) respektive parentNoteId (uppgift) till rätt id ovan; finns ingen lämplig, kör list_*/create_* först.',
       'Endpoint: {BASE_URL}/graphql',
       'MCP endpoint: {BASE_URL}/mcp/tools och {BASE_URL}/mcp/call',
       `Aktiva MCP-tjänster i denna session: ${enabledMcpText}`,

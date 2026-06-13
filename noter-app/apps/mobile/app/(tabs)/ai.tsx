@@ -1589,7 +1589,15 @@ export default function AIScreen() {
   const buildHistory = (userMsg: ChatMessage) => {
       const maxChars = 12000;
       const projectPrompt = getActiveProject()?.systemPrompt || '';
-      const toolPrompt = enableToolUse ? buildToolSystemPrompt(API_URL.replace(/\/+$/, ''), getEnabledMcpServices()) : '';
+      const toolContext = (() => {
+        const state = useStore.getState() as any;
+        const allNotes = Array.isArray(state.notes) ? state.notes : [];
+        const pick = (type: string) => allNotes
+          .filter((n: any) => n?.type === type)
+          .map((n: any) => ({ id: String(n._id), title: String(n.title || '') }));
+        return { projects: pick('project'), taskLists: pick('task_list') };
+      })();
+      const toolPrompt = enableToolUse ? buildToolSystemPrompt(API_URL.replace(/\/+$/, ''), getEnabledMcpServices(), toolContext) : '';
       const toolUseNotice = buildToolUseNotice(enableToolUse);
       const combinedPrompt = combineSystemPrompts([systemPrompt, toolUseNotice, toolPrompt].filter(Boolean).join('\n\n'), projectPrompt);
       const systemMsg = combinedPrompt
