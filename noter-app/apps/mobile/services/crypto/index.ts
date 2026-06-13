@@ -15,6 +15,7 @@ import {
   restoreFromDevice,
   enrollOrUnlock,
   recoverWithCode,
+  changePassword,
   lockCrypto,
   type BootstrapDeps,
   type KeyBundle,
@@ -45,6 +46,9 @@ export const restoreCryptoFromDevice = (): Promise<boolean> => restoreFromDevice
 export const enrollOrUnlockCrypto = (password: string): Promise<EnrollOutcome> =>
   enrollOrUnlock(password, deps);
 export const recoverCryptoWithCode = (code: string): Promise<void> => recoverWithCode(code, deps);
+/** Change the E2E password (re-wraps the dataKey; no content is re-encrypted). */
+export const changeCryptoPassword = (oldPassword: string, newPassword: string): Promise<void> =>
+  changePassword(oldPassword, newPassword, deps);
 
 /** Forget the device's v3 key entirely (e.g. on logout / disable E2E). */
 export const forgetDeviceCrypto = async (): Promise<void> => {

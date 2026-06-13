@@ -133,6 +133,52 @@ export async function recoverWithCode(code: string, deps: BootstrapDeps): Promis
   setActiveDataKey(dataKey);
 }
 
+/**
+ * Change the account password WITHOUT re-encrypting any data. Envelope encryption
+ * means only the *wrapping* of the dataKey changes: we unwrap with the old password
+ * (which verifies it), derive a fresh root key from the new password + a new salt,
+ * and re-wrap the SAME dataKey. All existing v3 content stays readable because the
+ * dataKey is unchanged. The recovery wrap is preserved (the recovery code keeps
+ * working). Throws on a wrong old password (the unwrap auth tag fails).
+ */
+export async function changePassword(
+  oldPassword: string,
+  newPassword: string,
+  deps: BootstrapDeps,
+): Promise<void> {
+  if (!newPassword || newPassword.length < 1) {
+    throw new Error('Nytt lösenord saknas');
+  }
+  const existing = await deps.getBundle();
+  if (!existing) {
+    throw new Error('Inget nyckelpaket att byta lösenord för (ej registrerad)');
+  }
+
+  // Verify the old password by unwrapping the current dataKey.
+  const oldRootKey = await deriveRootKeyWithKdf(oldPassword, b64ToBytes(existing.kdfSalt), existing.kdf);
+  const dataKey = unwrapDataKey(existing.wrappedDataKey, oldRootKey); // throws on wrong old password
+
+  // Re-wrap the SAME dataKey under a fresh root key derived from the new password.
+  const newSalt = generateSalt();
+  const { key: newRootKey, kdf: newKdf } = await deriveRootKey(newPassword, newSalt);
+
+  const bundle: KeyBundle = {
+    ...existing,
+    wrappedDataKey: wrapDataKey(dataKey, newRootKey),
+    kdfSalt: bytesToB64(newSalt),
+    kdf: newKdf,
+    keyVersion: KEY_VERSION,
+    // recovery* fields preserved from `existing` via the spread — same dataKey,
+    // so the recovery code still unwraps it.
+  };
+
+  await deps.putBundle(bundle);
+  // dataKey is unchanged, but refresh the device copy for good measure and keep
+  // the active key installed so the session continues uninterrupted.
+  await deps.secureSetDataKey(bytesToB64(dataKey));
+  setActiveDataKey(dataKey);
+}
+
 /** Clear the active key (on lock / logout). Legacy reads still work. */
 export function lockCrypto(): void {
   setActiveDataKey(null);

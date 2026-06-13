@@ -12,7 +12,7 @@ import { BackendUrlDialog } from '@/components/BackendUrlDialog';
 import { useTranslation } from 'react-i18next';
 import { clearLocalData, clearNotesLocal, clearTasksLocal, clearModelsLocal, clearSyncQueue, getModelsLocal, getSyncQueue } from '@/services/database';
 import { deleteModel as deleteModelFile } from '@/services/ai/modelService';
-import { enrollOrUnlockCrypto } from '@/services/crypto';
+import { enrollOrUnlockCrypto, changeCryptoPassword } from '@/services/crypto';
 import { hasActiveDataKey } from '@repo/shared';
 
 export default function SettingsScreen() {
@@ -53,6 +53,32 @@ export default function SettingsScreen() {
   const [e2eDialogVisible, setE2eDialogVisible] = useState(false);
   const [e2ePassword, setE2ePassword] = useState('');
   const [e2eBusy, setE2eBusy] = useState(false);
+
+  // Change E2E password (re-wraps the dataKey; no content is re-encrypted).
+  const [changePwDialogVisible, setChangePwDialogVisible] = useState(false);
+  const [oldPw, setOldPw] = useState('');
+  const [newPw, setNewPw] = useState('');
+  const [newPw2, setNewPw2] = useState('');
+  const [changePwBusy, setChangePwBusy] = useState(false);
+
+  const handleChangePassword = async () => {
+    if (!oldPw || !newPw) return;
+    if (newPw !== newPw2) {
+      Alert.alert(t('common.error'), t('settings.e2ePwMismatch', 'De nya lösenorden matchar inte.'));
+      return;
+    }
+    setChangePwBusy(true);
+    try {
+      await changeCryptoPassword(oldPw, newPw);
+      setChangePwDialogVisible(false);
+      setOldPw(''); setNewPw(''); setNewPw2('');
+      Alert.alert(t('common.success'), t('settings.e2ePwChanged', 'Lösenordet är bytt. Inga anteckningar behövde krypteras om.'));
+    } catch {
+      Alert.alert(t('common.error'), t('settings.e2ePwFailed', 'Kunde inte byta lösenord. Kontrollera det gamla lösenordet och anslutningen.'));
+    } finally {
+      setChangePwBusy(false);
+    }
+  };
 
   const handleEnableE2E = async () => {
     if (!e2ePassword) return;
@@ -375,6 +401,16 @@ export default function SettingsScreen() {
             {t('settings.e2eHint', 'Din nyckel härleds från ditt lösenord och lämnar aldrig enheten okrypterad. Befintliga anteckningar migreras automatiskt när de sparas.')}
           </Text>
         </View>
+
+        {e2eActive ? (
+          <List.Item
+            title={t('settings.e2eChangePw', 'Byt krypteringslösenord')}
+            description={t('settings.e2eChangePwDesc', 'Byter lösenordet utan att kryptera om någon data')}
+            left={props => <List.Icon {...props} icon="key-change" />}
+            onPress={() => setChangePwDialogVisible(true)}
+            rippleColor={touchRippleColor}
+          />
+        ) : null}
       </List.Section>
 
       <Divider />
@@ -544,6 +580,47 @@ export default function SettingsScreen() {
             </Button>
             <Button onPress={handleEnableE2E} loading={e2eBusy} disabled={e2eBusy || !e2ePassword}>
               {t('settings.e2eActivate', 'Aktivera')}
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+
+        {/* Change E2E password Dialog */}
+        <Dialog visible={changePwDialogVisible} onDismiss={() => { if (!changePwBusy) { setChangePwDialogVisible(false); setOldPw(''); setNewPw(''); setNewPw2(''); } }}>
+          <Dialog.Title>{t('settings.e2eChangePw', 'Byt krypteringslösenord')}</Dialog.Title>
+          <Dialog.Content>
+            <Text variant="bodyMedium" style={{ marginBottom: 12 }}>
+              {t('settings.e2eChangePwBody', 'Ditt nuvarande lösenord verifieras och nyckeln packas om under det nya. Ingen anteckning krypteras om — din återställningskod fortsätter fungera.')}
+            </Text>
+            <TextInput
+              mode="outlined"
+              label={t('settings.e2eOldPw', 'Nuvarande lösenord')}
+              value={oldPw}
+              onChangeText={setOldPw}
+              secureTextEntry autoCapitalize="none" autoCorrect={false} disabled={changePwBusy}
+              style={{ marginBottom: 8 }}
+            />
+            <TextInput
+              mode="outlined"
+              label={t('settings.e2eNewPw', 'Nytt lösenord')}
+              value={newPw}
+              onChangeText={setNewPw}
+              secureTextEntry autoCapitalize="none" autoCorrect={false} disabled={changePwBusy}
+              style={{ marginBottom: 8 }}
+            />
+            <TextInput
+              mode="outlined"
+              label={t('settings.e2eNewPw2', 'Upprepa nytt lösenord')}
+              value={newPw2}
+              onChangeText={setNewPw2}
+              secureTextEntry autoCapitalize="none" autoCorrect={false} disabled={changePwBusy}
+            />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => { setChangePwDialogVisible(false); setOldPw(''); setNewPw(''); setNewPw2(''); }} disabled={changePwBusy}>
+              {t('common.cancel')}
+            </Button>
+            <Button onPress={handleChangePassword} loading={changePwBusy} disabled={changePwBusy || !oldPw || !newPw || !newPw2}>
+              {t('settings.e2eChangePwConfirm', 'Byt lösenord')}
             </Button>
           </Dialog.Actions>
         </Dialog>

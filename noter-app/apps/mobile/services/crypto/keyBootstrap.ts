@@ -8,6 +8,7 @@ export {
   restoreFromDevice,
   enrollOrUnlock,
   recoverWithCode,
+  changePassword,
   lockCrypto,
   type KeyBundle,
   type BootstrapDeps,

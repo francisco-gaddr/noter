@@ -8,7 +8,7 @@ import ApiUrlModal from './ApiUrlModal';
 import { FaCog } from 'react-icons/fa';
 import { WHATS_NEW_ENTRIES, hasActiveDataKey } from '@repo/shared';
 import { getDefaultHotkeys } from '../lib/hotkeys';
-import { enrollOrUnlockCrypto } from '../lib/crypto';
+import { enrollOrUnlockCrypto, changeCryptoPassword } from '../lib/crypto';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -51,6 +51,28 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
       setE2eMsg('Kunde inte aktivera. Kontrollera lösenordet och anslutningen.');
     } finally {
       setE2eBusy(false);
+    }
+  };
+
+  // Change E2E password (re-wraps the dataKey; no content re-encryption).
+  const [oldPw, setOldPw] = React.useState('');
+  const [newPw, setNewPw] = React.useState('');
+  const [pwBusy, setPwBusy] = React.useState(false);
+  const [pwMsg, setPwMsg] = React.useState<string | null>(null);
+
+  const handleChangePassword = async () => {
+    if (!oldPw || !newPw) return;
+    setPwBusy(true);
+    setPwMsg(null);
+    try {
+      await changeCryptoPassword(oldPw, newPw);
+      setOldPw('');
+      setNewPw('');
+      setPwMsg('Lösenordet är bytt. Ingen data behövde krypteras om; återställningskoden fungerar fortfarande.');
+    } catch {
+      setPwMsg('Kunde inte byta lösenord. Kontrollera det gamla lösenordet och anslutningen.');
+    } finally {
+      setPwBusy(false);
     }
   };
 
@@ -101,9 +123,37 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         <div className="mt-4">
           <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">Förstärkt kryptering (E2E)</h3>
           {e2eActive ? (
-            <p className="text-xs text-green-600 dark:text-green-400">
-              Aktiv — anteckningar krypteras end-to-end (AES-256-GCM) med en nyckel härledd från ditt lösenord.
-            </p>
+            <div className="space-y-2">
+              <p className="text-xs text-green-600 dark:text-green-400">
+                Aktiv — anteckningar krypteras end-to-end (AES-256-GCM) med en nyckel härledd från ditt lösenord.
+              </p>
+              <p className="text-xs text-gray-600 dark:text-gray-300">Byt krypteringslösenord (ingen data krypteras om):</p>
+              <input
+                type="password"
+                value={oldPw}
+                onChange={(e) => setOldPw(e.target.value)}
+                placeholder="Nuvarande lösenord"
+                autoComplete="current-password"
+                className="w-full p-2 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+              />
+              <input
+                type="password"
+                value={newPw}
+                onChange={(e) => setNewPw(e.target.value)}
+                placeholder="Nytt lösenord"
+                autoComplete="new-password"
+                className="w-full p-2 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+              />
+              <button
+                type="button"
+                onClick={handleChangePassword}
+                disabled={pwBusy || !oldPw || !newPw}
+                className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm disabled:opacity-50"
+              >
+                {pwBusy ? 'Byter…' : 'Byt lösenord'}
+              </button>
+              {pwMsg && <p className="mt-1 text-xs text-gray-700 dark:text-gray-200 break-words">{pwMsg}</p>}
+            </div>
           ) : (
             <div className="space-y-2">
               <p className="text-xs text-gray-600 dark:text-gray-300">
