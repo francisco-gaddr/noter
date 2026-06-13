@@ -6,7 +6,7 @@ import { useLocalSearchParams, useNavigation } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { MobileLlamaProvider } from '@/services/ai/provider';
 import { useStore } from '@/stores/useStore';
-import { ChatMessage, Conversation, HFModel, AIProject } from '@repo/ai';
+import { ChatMessage, Conversation, HFModel, AIProject, normalizeToolArguments } from '@repo/ai';
 import { searchHuggingFaceModels, getModelFiles, getConversionHealth } from '@/services/ai/huggingface';
 import { downloadModel as serviceDownloadModel, getBestQuantization, deleteModel as serviceDeleteModel, cancelDownload as cancelModelDownload } from '@/services/ai/modelService';
 import { isNativeFileSystemAvailable } from '@/services/ai/ModelDownloader';
@@ -1194,7 +1194,11 @@ export default function AIScreen() {
       return [];
   };
 
-  const executeToolCall = async (tool: string, args: Record<string, any>, intentText: string) => {
+  const executeToolCall = async (tool: string, rawArgs: Record<string, any>, intentText: string) => {
+      // Some models double-wrap fields under a stray `args`/`input` key, which makes
+      // GraphQL reject the mutation ("Field args is not defined by type TaskInput").
+      // Flatten to the TaskInput/NoteInput shape before doing anything.
+      const args = normalizeToolArguments(tool, rawArgs);
       const requireId = (value: any) => {
           if (!value) throw new Error(`Tool ${tool} kräver id`);
           return value;

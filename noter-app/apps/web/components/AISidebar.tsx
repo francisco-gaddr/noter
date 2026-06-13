@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ChatMessage, HFModel, HFFile, Conversation, AIProject } from '@repo/ai';
+import { ChatMessage, HFModel, HFFile, Conversation, AIProject, normalizeToolArguments } from '@repo/ai';
 import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, mcpSettingsFromJson, mcpSettingsToJsonString, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings } from '@repo/shared';
 import { db } from '../services/db';
 import { v4 as uuidv4 } from 'uuid';
@@ -1724,6 +1724,7 @@ export const AISidebar = () => {
       '```json',
       '{"tool":"<name>","arguments":{...}}',
       '```',
+      'VIKTIGT: lägg fälten DIREKT i "arguments". Wrappa dem ALDRIG i en extra "args"-, "input"- eller "parameters"-nivå. Ex korrekt: {"tool":"create_task","arguments":{"title":"Springa","dueDate":"2026-06-14T11:00:00.000Z"}}.',
       'Regler:',
       '- När tool use är AVSTÄNGT: skriv aldrig JSON tool calls och kör inga verktyg.',
       '- Inget resonemang eller extra text före tool call.',
@@ -2741,7 +2742,11 @@ export const AISidebar = () => {
     return { notes, tasks, noteMap, unlockedIds, ensureReadableNote, toNotePayload };
   };
 
-  const executeToolCall = async (tool: string, args: Record<string, any>, intentText: string) => {
+  const executeToolCall = async (tool: string, rawArgs: Record<string, any>, intentText: string) => {
+    // Some models double-wrap fields under a stray `args`/`input` key, which makes
+    // GraphQL reject the mutation ("Field args is not defined by type TaskInput").
+    // Flatten to the TaskInput/NoteInput shape before doing anything.
+    const args = normalizeToolArguments(tool, rawArgs);
     const requireId = (value: any) => {
       if (!value) throw new Error(`Tool ${tool} kräver id`);
       return value;

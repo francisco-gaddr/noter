@@ -26,6 +26,7 @@ export const buildToolSystemPrompt = (baseUrl: string, enabledMcpServices: strin
     '{"tool":"<name>","arguments":{...}}',
     'eller lista:',
     '[{"tool":"<name>","arguments":{...}}, {"tool":"<name2>","arguments":{...}}]',
+    'VIKTIGT: lägg fälten DIREKT i "arguments". Wrappa dem ALDRIG i en extra "args"-, "input"- eller "parameters"-nivå. Ex korrekt: {"tool":"create_task","arguments":{"title":"Springa","dueDate":"2026-06-14T11:00:00.000Z"}}.',
     'Om användaren ber om ändring i data, utför nödvändiga tool calls direkt.',
     'Använd inte tool calls när användaren uttryckligen vill ha resonemang utan ändring.',
     'Frasexempel som ska trigga tool use:',
