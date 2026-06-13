@@ -215,14 +215,24 @@ app.use(blockSuspiciousRequestPatterns);
 // Rate Limiting — Redis-backed when REDIS_URL is set (multi-pod safe),
 // in-memory fallback when not (single-pod dev). Failures during a request
 // transparently fall back to memory so a Redis outage cannot 5xx the API.
+// Coarse anti-abuse cap. 100/15min was far too low for a normal SPA session (one
+// user loading notes + tasks + ai-sync + polling easily exceeds it, and several
+// devices behind one home NAT share a public IP) — it surfaced as constant
+// "Too many requests". Raised to a generous ceiling; the tight limits that matter
+// live on auth (20) and sensitive (40) endpoints below.
 const limiter = createRateLimit({
   keyPrefix: 'global',
-  points: 100,
+  points: 3000,
   durationSec: 15 * 60,
   message: 'Too many requests from this IP, please try again later.',
 });
 
-app.use(limiter);
+// Skip the global cap for health probes so monitoring (Uptime Kuma every 60s) and
+// the apps' health polling never consume a user's request budget.
+app.use((req, res, next) => {
+  if (req.path === '/api/health' || req.path.startsWith('/api/health/')) return next();
+  return limiter(req, res, next);
+});
 
 const authLimiter = createRateLimit({
   keyPrefix: 'auth',
@@ -234,7 +244,11 @@ const authLimiter = createRateLimit({
 
 const apiSensitiveLimiter = createRateLimit({
   keyPrefix: 'sensitive',
-  points: 40,
+  // Covers /api/keys, /api/mcp, /api/graphql. The AI sidebar polls the MCP
+  // dashboards under /api/mcp, so 40/10min tripped during normal use. Raised to a
+  // level that tolerates polling while still capping abuse; the genuinely dangerous
+  // ops (key minting, tool calls) are naturally infrequent.
+  points: 300,
   durationSec: 10 * 60,
   message: 'Too many security-sensitive requests from this IP, please try again later.',
 });

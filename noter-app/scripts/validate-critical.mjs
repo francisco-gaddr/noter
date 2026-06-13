@@ -89,6 +89,7 @@ const steps = [
       '__tests__/mcp-settings.test.ts',
       '__tests__/video-embed-e2e.test.ts',
       '__tests__/web-crypto.test.ts',
+      '__tests__/contrast-guard.test.ts',
     ],
   },
   {

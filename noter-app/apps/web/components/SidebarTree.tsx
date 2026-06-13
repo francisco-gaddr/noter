@@ -789,7 +789,7 @@ export default function SidebarTree() {
 
       {activeTab === 'notes' && (
         <div className="p-4 pb-0">
-            <label htmlFor="project-select" className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1">
+            <label htmlFor="project-select" className="block text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider mb-1">
                 {t('project.label') || 'Project Folder'}
             </label>
             <div className="flex gap-2">
