@@ -7,7 +7,7 @@ import { useStore } from '@/stores/useStore';
 import TaskList from '@/components/TaskList';
 import { TaskBoard } from '@/components/TaskBoard';
 import { TaskTimeline } from '@/components/TaskTimeline';
-import { Task, computeTaskInsights, priorityRank } from '@repo/shared';
+import { Task, computeTaskInsights, priorityRank, isBlankTask, completedTasks as pickCompletedTasks } from '@repo/shared';
 import { orderBy } from 'lodash';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SvgUri } from 'react-native-svg';
@@ -201,8 +201,10 @@ export default function TasksScreen() {
   );
 
   const filteredTasks = useMemo(() => {
-    let result = tasks.filter(t => !selectedListId ? true : t.parentNoteId === selectedListId);
-    
+    // Hide completely-empty (titleless) tasks — junk from failed syncs should never
+    // clutter the list; only tasks with real content show.
+    let result = tasks.filter(t => !isBlankTask(t) && (!selectedListId ? true : t.parentNoteId === selectedListId));
+
     // Status Filter
     if (statusFilter === 'active') {
         result = result.filter(t => !t.completed);
@@ -288,6 +290,32 @@ export default function TasksScreen() {
     } catch (error) {
       console.error('Failed to update task', error);
     }
+  };
+
+  // Bulk-clear all completed tasks in the current scope (selected list, or all).
+  const completedInScope = useMemo(() => {
+    const scope = selectedListId ? tasks.filter((t) => t.parentNoteId === selectedListId) : tasks;
+    return pickCompletedTasks(scope);
+  }, [tasks, selectedListId]);
+
+  const handleClearCompleted = () => {
+    if (completedInScope.length === 0) return;
+    Alert.alert(
+      t('tasks.clearCompletedTitle', 'Rensa klara uppgifter'),
+      t('tasks.clearCompletedBody', `Ta bort ${completedInScope.length} klara uppgifter${selectedListId ? ' i den här listan' : ''}? Detta går inte att ångra.`),
+      [
+        { text: t('common.cancel', 'Avbryt'), style: 'cancel' },
+        {
+          text: t('tasks.clearCompletedConfirm', 'Rensa'),
+          style: 'destructive',
+          onPress: async () => {
+            for (const task of completedInScope) {
+              try { await deleteTask(task._id); } catch { /* continue clearing the rest */ }
+            }
+          },
+        },
+      ],
+    );
   };
 
   const handleReorder = (newTasks: Task[]) => {
@@ -543,11 +571,22 @@ export default function TasksScreen() {
             <Dialog.Title>Filtrera uppgifter</Dialog.Title>
             <Dialog.Content>
                 <Text variant="bodyMedium" style={{marginBottom: 8}}>Status</Text>
-                <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16}}>
+                <View style={{flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12}}>
                     <Chip selected={statusFilter === 'all'} onPress={() => setStatusFilter('all')}>Alla</Chip>
                     <Chip selected={statusFilter === 'active'} onPress={() => setStatusFilter('active')}>Aktiva</Chip>
                     <Chip selected={statusFilter === 'completed'} onPress={() => setStatusFilter('completed')}>Klara</Chip>
                 </View>
+
+                <Button
+                  mode="outlined"
+                  icon="broom"
+                  disabled={completedInScope.length === 0}
+                  onPress={() => { setFilterDialogVisible(false); handleClearCompleted(); }}
+                  style={{ marginBottom: 16, alignSelf: 'flex-start' }}
+                  testID="tasks-clear-completed"
+                >
+                  Rensa klara ({completedInScope.length}){selectedListId ? ' i listan' : ''}
+                </Button>
 
                 <Divider style={{marginBottom: 16}} />
 
