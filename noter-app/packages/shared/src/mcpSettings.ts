@@ -203,3 +203,76 @@ export const maskSecret = (value: string) => {
   if (text.length <= 4) return '****';
   return `${'*'.repeat(Math.max(4, text.length - 4))}${text.slice(-4)}`;
 };
+
+/**
+ * Serialise the MCP UI settings into a portable, human-editable JSON object —
+ * the same `{ mcpServers: { <id>: { enabled, ...flatValues } } }` shape Claude
+ * Desktop and friends use. Only enabled servers or servers with any value are
+ * included, so an exported config stays minimal. This is the "easy custom MCP
+ * JSON" the user can copy between devices or hand-edit and paste back.
+ */
+export const mcpSettingsToJson = (ui: McpUiSettings): { mcpServers: Record<string, Record<string, unknown>> } => {
+  const mcpServers: Record<string, Record<string, unknown>> = {};
+  for (const integration of MCP_INTEGRATIONS) {
+    const row = ui[integration.id];
+    if (!row) continue;
+    const flat: Record<string, unknown> = {};
+    let hasValue = false;
+    for (const field of integration.fields) {
+      const value = toTrimmed(row.values?.[field.key]);
+      if (value) { flat[field.key] = value; hasValue = true; }
+    }
+    if (row.enabled || hasValue) {
+      mcpServers[integration.id] = { enabled: Boolean(row.enabled), ...flat };
+    }
+  }
+  return { mcpServers };
+};
+
+export const mcpSettingsToJsonString = (ui: McpUiSettings): string =>
+  JSON.stringify(mcpSettingsToJson(ui), null, 2);
+
+/**
+ * Parse a pasted MCP JSON config into UI settings. Tolerant by design — accepts
+ * either:
+ *   - the portable `{ mcpServers: { slack: { enabled, botToken, ... } } }` shape
+ *     (flat values), or
+ *   - our internal `{ slack: { enabled, values: { botToken, ... } } }` shape.
+ * Unknown server ids and unknown fields are ignored; values are trimmed. Throws
+ * a clear error on invalid JSON so the UI can surface it.
+ */
+export const mcpSettingsFromJson = (input: string | unknown): McpUiSettings => {
+  let parsed: unknown = input;
+  if (typeof input === 'string') {
+    const trimmed = input.trim();
+    if (!trimmed) return createEmptyMcpUiSettings();
+    parsed = JSON.parse(trimmed); // let SyntaxError bubble up for the UI to show
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return createEmptyMcpUiSettings();
+  }
+  const root = parsed as Record<string, any>;
+  // Unwrap the `mcpServers` envelope if present; otherwise treat the object as
+  // the server map directly.
+  const servers = (root.mcpServers && typeof root.mcpServers === 'object' && !Array.isArray(root.mcpServers))
+    ? root.mcpServers as Record<string, any>
+    : root;
+
+  const base = createEmptyMcpUiSettings();
+  for (const integration of MCP_INTEGRATIONS) {
+    const row = servers[integration.id];
+    if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
+    // Flat shape keeps values at the top level; internal shape nests them.
+    const flat = (row.values && typeof row.values === 'object' && !Array.isArray(row.values))
+      ? row.values as Record<string, unknown>
+      : row as Record<string, unknown>;
+    let hasValue = false;
+    for (const field of integration.fields) {
+      const value = toTrimmed(flat[field.key]);
+      base[integration.id].values[field.key] = value;
+      if (value) hasValue = true;
+    }
+    base[integration.id].enabled = 'enabled' in row ? toBool(row.enabled) : hasValue;
+  }
+  return base;
+};

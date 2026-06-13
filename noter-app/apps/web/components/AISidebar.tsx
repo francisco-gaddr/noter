@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { ChatMessage, HFModel, HFFile, Conversation, AIProject } from '@repo/ai';
-import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings } from '@repo/shared';
+import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, mcpSettingsFromJson, mcpSettingsToJsonString, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings } from '@repo/shared';
 import { db } from '../services/db';
 import { v4 as uuidv4 } from 'uuid';
 import { useStore } from '../stores/useStore';
@@ -183,6 +183,11 @@ export const AISidebar = () => {
   // Live usage snapshot (calls + tokens today vs the provider's free-tier limit).
   const [apiUsage, setApiUsage] = useState<UsageSnapshot | null>(null);
   const [mcpSettings, setMcpSettings] = useState<McpUiSettings>(() => createEmptyMcpUiSettings());
+  // Easy custom MCP JSON: paste/import a portable config or export the current one.
+  const [mcpJsonOpen, setMcpJsonOpen] = useState(false);
+  const [mcpJsonText, setMcpJsonText] = useState('');
+  const [mcpJsonError, setMcpJsonError] = useState<string | null>(null);
+  const [mcpJsonNotice, setMcpJsonNotice] = useState<string | null>(null);
   const [mcpDashboardOpen, setMcpDashboardOpen] = useState(false);
   const [mcpDashboardLoading, setMcpDashboardLoading] = useState(false);
   const [mcpDashboardError, setMcpDashboardError] = useState<string | null>(null);
@@ -3895,6 +3900,85 @@ export const AISidebar = () => {
               <div className="text-xs text-gray-500 dark:text-gray-300 mb-3">
                 Värden från denna vy sparas krypterat lokalt och prioriteras över .env-värden.
               </div>
+
+              {/* Easy custom MCP JSON — paste/import or export the whole config. */}
+              <div className="mb-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMcpJsonOpen((open) => {
+                      const next = !open;
+                      if (next) {
+                        // Prefill the textarea with the current config on open.
+                        setMcpJsonText(mcpSettingsToJsonString(mcpSettings));
+                        setMcpJsonError(null);
+                        setMcpJsonNotice(null);
+                      }
+                      return next;
+                    });
+                  }}
+                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                  data-testid="mcp-json-toggle"
+                >
+                  {mcpJsonOpen ? '▾ Dölj JSON-import/export' : '▸ Importera/exportera som JSON'}
+                </button>
+                {mcpJsonOpen && (
+                  <div className="mt-2 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-2">
+                    <div className="text-[11px] text-gray-500 dark:text-gray-300 mb-2">
+                      Klistra in en konfiguration i formatet <code>{'{ "mcpServers": { "slack": { "enabled": true, "botToken": "…" } } }'}</code> och tryck Importera. Stödjer även Claude Desktop-stilen.
+                    </div>
+                    <textarea
+                      className="w-full h-40 border rounded p-2 text-[11px] font-mono dark:bg-gray-950 dark:border-gray-700"
+                      value={mcpJsonText}
+                      onChange={(e) => { setMcpJsonText(e.target.value); setMcpJsonError(null); setMcpJsonNotice(null); }}
+                      spellCheck={false}
+                      data-testid="mcp-json-textarea"
+                    />
+                    {mcpJsonError && <div className="mt-1 text-[11px] text-red-500" data-testid="mcp-json-error">{mcpJsonError}</div>}
+                    {mcpJsonNotice && <div className="mt-1 text-[11px] text-green-600 dark:text-green-400">{mcpJsonNotice}</div>}
+                    <div className="flex items-center gap-2 mt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          try {
+                            const parsed = mcpSettingsFromJson(mcpJsonText);
+                            setMcpSettings(parsed);
+                            setMcpJsonError(null);
+                            setMcpJsonNotice('Importerat. Konfigurationen sparas krypterat lokalt.');
+                          } catch (e: any) {
+                            setMcpJsonError('Ogiltig JSON: ' + (e?.message || 'kunde inte tolka'));
+                            setMcpJsonNotice(null);
+                          }
+                        }}
+                        className="bg-blue-500 text-white px-3 py-1 rounded text-xs"
+                        data-testid="mcp-json-import"
+                      >
+                        Importera
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMcpJsonText(mcpSettingsToJsonString(mcpSettings));
+                          setMcpJsonError(null);
+                          setMcpJsonNotice('Aktuell konfiguration laddad i rutan.');
+                        }}
+                        className="bg-gray-200 dark:bg-gray-700 px-3 py-1 rounded text-xs"
+                        data-testid="mcp-json-export"
+                      >
+                        Exportera aktuell
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyMessage(mcpSettingsToJsonString(mcpSettings))}
+                        className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+                      >
+                        Kopiera
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div className="space-y-4">
                 {MCP_INTEGRATIONS.map((integration) => (
                   <div key={integration.id} className="border border-gray-200 dark:border-gray-700 rounded p-3">
