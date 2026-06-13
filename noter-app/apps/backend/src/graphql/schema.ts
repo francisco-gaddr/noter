@@ -37,6 +37,9 @@ type ResolverContext = {
     scopes?: string[];
     plan?: string;
   };
+  // socket.io server, passed through from the GraphQL HTTP handler so tool-use
+  // mutations can broadcast the same realtime events the REST routes do.
+  io?: { to?: (room: string) => { emit?: (event: string, payload: unknown) => void } };
 };
 
 const NoteType = new GraphQLObjectType({
@@ -166,6 +169,13 @@ const requireUser = (userId?: string | null) => {
   return userId;
 };
 
+// Broadcast the same realtime events the REST routes emit, so an AI tool-use note/
+// task (which goes through GraphQL) shows up live on the user's other clients —
+// exactly as if the user had created it themselves.
+const emitToUser = (context: ResolverContext, userId: string, event: string, payload: unknown) => {
+  try { context.io?.to?.(`user:${userId}`)?.emit?.(event, payload); } catch { /* socket is best-effort */ }
+};
+
 const QueryType = new GraphQLObjectType({
   name: 'Query',
   fields: {
@@ -253,6 +263,8 @@ const MutationType = new GraphQLObjectType({
           createdAt: encryptText(input.createdAt || new Date().toISOString()),
           updatedAt: encryptText(input.updatedAt || new Date().toISOString()),
         });
+        // Emit the raw encrypted doc (same shape REST sends); clients safeDecrypt.
+        emitToUser(context, userId, 'note:created', note);
         return toNote(note);
       }
     },
@@ -281,6 +293,7 @@ const MutationType = new GraphQLObjectType({
         if (input.updatedAt !== undefined) update.updatedAt = encryptText(input.updatedAt || new Date().toISOString());
 
         const note = await Note.findOneAndUpdate({ _id: args.id, userId }, { $set: update }, { new: true });
+        if (note) emitToUser(context, userId, 'note:updated', note);
         return note ? toNote(note) : null;
       }
     },
@@ -291,6 +304,7 @@ const MutationType = new GraphQLObjectType({
         const userId = requireUser(context.userId);
         if (!mongoose.Types.ObjectId.isValid(args.id)) throw new Error('Invalid ID');
         const res = await Note.deleteOne({ _id: args.id, userId });
+        if (res.deletedCount > 0) emitToUser(context, userId, 'note:deleted', args.id);
         return res.deletedCount > 0;
       }
     },
@@ -318,6 +332,7 @@ const MutationType = new GraphQLObjectType({
           createdAt: encryptText(input.createdAt || new Date().toISOString()),
           updatedAt: encryptText(input.updatedAt || new Date().toISOString()),
         });
+        emitToUser(context, userId, 'task:created', task);
         return toTask(task);
       }
     },
@@ -348,6 +363,7 @@ const MutationType = new GraphQLObjectType({
         if (input.updatedAt !== undefined) update.updatedAt = encryptText(input.updatedAt || new Date().toISOString());
 
         const task = await Task.findOneAndUpdate({ _id: args.id, userId }, { $set: update }, { new: true });
+        if (task) emitToUser(context, userId, 'task:updated', task);
         return task ? toTask(task) : null;
       }
     },
@@ -358,6 +374,7 @@ const MutationType = new GraphQLObjectType({
         const userId = requireUser(context.userId);
         if (!mongoose.Types.ObjectId.isValid(args.id)) throw new Error('Invalid ID');
         const res = await Task.deleteOne({ _id: args.id, userId });
+        if (res.deletedCount > 0) emitToUser(context, userId, 'task:deleted', args.id);
         return res.deletedCount > 0;
       }
     }
