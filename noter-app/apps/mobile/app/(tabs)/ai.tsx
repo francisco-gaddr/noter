@@ -31,7 +31,7 @@ import * as Clipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
-import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, safeDecrypt, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings, buildAttachmentContextBlock, summarizeAttachmentsForUi, imageDataUrls, MAX_ATTACHMENTS, type AiAttachment } from '@repo/shared';
+import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, safeDecrypt, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings, mcpSettingsFromJson, mcpSettingsToJsonString, buildAttachmentContextBlock, summarizeAttachmentsForUi, imageDataUrls, MAX_ATTACHMENTS, type AiAttachment } from '@repo/shared';
 import { pickAttachments } from '@/services/ai/attachments';
 
 const provider = new MobileLlamaProvider();
@@ -338,6 +338,11 @@ export default function AIScreen() {
   }, [apiProvider, activeApiModel]);
   useEffect(() => { void refreshUsage(); }, [refreshUsage]);
   const [mcpSettings, setMcpSettings] = useState<McpUiSettings>(() => createEmptyMcpUiSettings());
+  // Easy custom MCP JSON — paste/import a portable config or export the current one.
+  const [mcpJsonOpen, setMcpJsonOpen] = useState(false);
+  const [mcpJsonText, setMcpJsonText] = useState('');
+  const [mcpJsonError, setMcpJsonError] = useState<string | null>(null);
+  const [mcpJsonNotice, setMcpJsonNotice] = useState<string | null>(null);
   const [mcpDashboardOpen, setMcpDashboardOpen] = useState(false);
   const [mcpDashboardLoading, setMcpDashboardLoading] = useState(false);
   const [mcpDashboardError, setMcpDashboardError] = useState<string | null>(null);
@@ -2582,6 +2587,78 @@ export default function AIScreen() {
                 <Text style={{ color: theme.colors.onSurfaceVariant, marginBottom: 10 }}>
                   Värden här sparas krypterat på enheten och prioriteras över motsvarande .env-värden.
                 </Text>
+
+                {/* Easy custom MCP JSON — paste/import or export the whole config. */}
+                <Button
+                  mode="text"
+                  compact
+                  onPress={() => {
+                    setMcpJsonOpen((open) => {
+                      const next = !open;
+                      if (next) {
+                        setMcpJsonText(mcpSettingsToJsonString(mcpSettings));
+                        setMcpJsonError(null);
+                        setMcpJsonNotice(null);
+                      }
+                      return next;
+                    });
+                  }}
+                  style={{ alignSelf: 'flex-start', marginBottom: 6 }}
+                >
+                  {mcpJsonOpen ? 'Dölj JSON-import/export' : 'Importera/exportera som JSON'}
+                </Button>
+                {mcpJsonOpen ? (
+                  <View style={{ marginBottom: 12, borderWidth: 1, borderColor: theme.colors.outlineVariant, borderRadius: 8, padding: 10 }}>
+                    <Text style={{ color: theme.colors.onSurfaceVariant, marginBottom: 8, fontSize: 12 }}>
+                      Klistra in en konfiguration ({'{ "mcpServers": { … } }'}) och tryck Importera. Stödjer Claude Desktop-stilen.
+                    </Text>
+                    <PaperTextInput
+                      mode="outlined"
+                      multiline
+                      numberOfLines={8}
+                      value={mcpJsonText}
+                      onChangeText={(value) => { setMcpJsonText(value); setMcpJsonError(null); setMcpJsonNotice(null); }}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      style={{ fontFamily: 'monospace', fontSize: 12 }}
+                      testID="mcp-json-textarea"
+                    />
+                    {mcpJsonError ? <Text style={{ color: theme.colors.error, marginTop: 4, fontSize: 12 }}>{mcpJsonError}</Text> : null}
+                    {mcpJsonNotice ? <Text style={{ color: theme.colors.primary, marginTop: 4, fontSize: 12 }}>{mcpJsonNotice}</Text> : null}
+                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                      <Button
+                        mode="contained"
+                        compact
+                        onPress={() => {
+                          try {
+                            setMcpSettings(mcpSettingsFromJson(mcpJsonText));
+                            setMcpJsonError(null);
+                            setMcpJsonNotice('Importerat. Sparas krypterat på enheten.');
+                          } catch (e: any) {
+                            setMcpJsonError('Ogiltig JSON: ' + (e?.message || 'kunde inte tolka'));
+                            setMcpJsonNotice(null);
+                          }
+                        }}
+                        testID="mcp-json-import"
+                      >
+                        Importera
+                      </Button>
+                      <Button
+                        mode="outlined"
+                        compact
+                        onPress={() => {
+                          setMcpJsonText(mcpSettingsToJsonString(mcpSettings));
+                          setMcpJsonError(null);
+                          setMcpJsonNotice('Aktuell konfiguration laddad i rutan.');
+                        }}
+                        testID="mcp-json-export"
+                      >
+                        Exportera aktuell
+                      </Button>
+                    </View>
+                  </View>
+                ) : null}
+
                 {MCP_INTEGRATIONS.map((integration) => (
                   <View key={integration.id} style={{ marginBottom: 12, borderWidth: 1, borderColor: theme.colors.outlineVariant, borderRadius: 8, padding: 10 }}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
