@@ -9,6 +9,7 @@ import { FaCog } from 'react-icons/fa';
 import { WHATS_NEW_ENTRIES, hasActiveDataKey } from '@repo/shared';
 import { getDefaultHotkeys } from '../lib/hotkeys';
 import { enrollOrUnlockCrypto, changeCryptoPassword } from '../lib/crypto';
+import { AdminDashboard } from './AdminDashboard';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -118,6 +119,10 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             <option value="sv">Svenska</option>
             <option value="en">English</option>
           </select>
+        </div>
+
+        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <AdminDashboard />
         </div>
 
         <div className="mt-4">

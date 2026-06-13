@@ -73,8 +73,11 @@ Status 2026-06-13. Uppdatera den här listan när poster blir klara.
 - [ ] Enhetsvalidering av lokal modell: nedladdning → konvertering → inläsning → chatt.
 
 **Admin/observability:**
-- [ ] Utbyggd admin-dashboard som *mäter* (AI-förbrukning, sync-kö, health) och *konfigurerar*.
-- [ ] Koppla `securityLevel`/`version` från health till dashboard-vyn + Uptime Kuma.
+- [x] Admin-dashboard (web): `GET /api/admin/overview` (JWT, userId-scopad) ger
+      serverhälsa + version + `securityLevel` + konto-counts; `AdminDashboard.tsx`
+      visar dem + uppgifts-/anteckningsinsikter via shared `insights`. 3 backend-tester.
+- [ ] Mät AI-förbrukning server-side (i dag client-local i mobil `usageTracker`).
+- [ ] Sync-kö-mätning i admin-vyn (mobil-lokal kö i dag).
 
 **Säkerhet/krypto:**
 - [ ] SQLCipher full-fil-kryptering (mobil/Electron SQLite) — Stage-4.

@@ -19,6 +19,7 @@ import aiModelRoutes from './routes/aiModels';
 import aiSyncRoutes from './routes/aiSync';
 import mcpRoutes from './routes/mcp';
 import healthDeepRoutes from './routes/healthDeep';
+import adminRoutes from './routes/admin';
 import cspReportRoutes from './routes/cspReport';
 import keyBundleRoutes from './routes/keyBundle';
 import apiKeysRoutes from './routes/apiKeys';
@@ -445,6 +446,7 @@ app.use('/api/tasks', authMiddleware, conditionalGet(), idempotency(), auditLog(
 app.use('/api/ai/models', aiModelRoutes);
 app.use('/api/ai/sync', authMiddleware, aiSyncBodyLimit, aiSyncRoutes);
 app.use('/api/mcp', apiSensitiveLimiter, authMiddleware, mcpRoutes);
+app.use('/api/admin', apiSensitiveLimiter, authMiddleware, adminRoutes);
 app.use('/api/graphql', apiSensitiveLimiter);
 app.use('/api/graphql', (req, res, next) => {
   if (!isProduction) return next();
