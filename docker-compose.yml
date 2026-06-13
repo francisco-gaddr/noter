@@ -1,7 +1,9 @@
 services:
   mongodb:
-    # Pinned (not :latest) for reproducible, auditable deploys.
-    image: mongo:7.0
+    # Pinned to the 8.0 series for reproducible deploys. NOTE: must match (or exceed)
+    # the version that created the data volume — pinning DOWN to 7.0 made mongod exit
+    # 62 ("incompatible data format") because the Pi's data was written by mongo 8.x.
+    image: mongo:8.0
     container_name: noter-mongodb
     # NOT published to the host — only the backend reaches it over the internal
     # Docker network (mongodb://mongodb:27017). Publishing 27017 exposed the
@@ -16,7 +18,10 @@ services:
     restart: always
 
   redis:
-    image: redis:7.2-alpine
+    # 8.x to match the on-disk RDB (redis 7.2 errored "Can't handle RDB format
+    # version 14" — the dump was written by redis 8.x). Redis here is a disposable
+    # cache (rate-limit + notes:list), so the volume can be reset if ever needed.
+    image: redis:8-alpine
     container_name: noter-redis
     # Internal-only (see mongodb note).
     expose:
