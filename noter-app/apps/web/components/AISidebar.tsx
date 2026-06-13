@@ -12,7 +12,8 @@ import * as FaIcons from 'react-icons/fa';
 import { IconPicker } from './IconPicker';
 import { getApiBaseUrl } from '../services/api';
 import { shouldStopToolIteration, toToolCallKeys, toToolIterationSignature } from '../services/ai/toolChain';
-import { ApiProviderType, generateApiProviderResponse } from '../services/ai/apiProviders';
+import { ApiProviderType, API_PROVIDERS, API_PROVIDER_LIST, resolveChatCompletionsUrl, streamApiProviderResponse } from '../services/ai/apiProviders';
+import { getUsageSnapshot, recordUsage, type UsageSnapshot } from '../services/ai/usageTracker';
 import { pullAiSync, pushAiSync } from '../services/ai/sync';
 import { connectSocket, socket } from '../services/socket';
 import { buildSecurityNoteMap, isReadableWithLocks } from '../services/ai/security';
@@ -26,6 +27,64 @@ type McpFetchDiagnostics = {
   attempted: string[];
   fromCache: boolean;
   lastSuccessAt: number | null;
+};
+
+// Model dropdown for an API provider — lists the provider's known models and keeps
+// any custom value the user typed/saved selectable. Mirrors the mobile picker.
+const ModelPicker = ({ provider, value, onChange, testId }: {
+  provider: ApiProviderType;
+  value: string;
+  onChange: (model: string) => void;
+  testId?: string;
+}) => {
+  const models = API_PROVIDERS[provider]?.defaultModels ?? [];
+  const options = value && !models.includes(value) ? [value, ...models] : models;
+  return (
+    <select
+      className="w-full p-2 text-sm border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-blue-500 outline-none"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      data-testid={testId}
+    >
+      {options.length === 0 && <option value="">Ingen modell</option>}
+      {options.map((m) => (
+        <option key={m} value={m}>{m}</option>
+      ))}
+    </select>
+  );
+};
+
+// Live rate-limit / usage bar: calls + tokens used today vs the provider's
+// free-tier limit. Self-hosted providers (Hermes) have no cap, so just show counts.
+const UsageBar = ({ usage }: { usage: UsageSnapshot | null }) => {
+  if (!usage) return null;
+  const pct = (used: number, limit: number | null) =>
+    limit && limit > 0 ? Math.min(100, Math.round((used / limit) * 100)) : null;
+  const callsPct = pct(usage.callsDay, usage.limit.callsPerDay);
+  const tokensPct = pct(usage.tokensDay, usage.limit.tokensPerDay);
+  const Row = ({ label, used, limit, percent }: { label: string; used: number; limit: number | null; percent: number | null }) => (
+    <div className="mb-1.5">
+      <div className="flex justify-between text-[11px] text-gray-600 dark:text-gray-300">
+        <span>{label}</span>
+        <span>{used.toLocaleString('sv-SE')}{limit ? ` / ${limit.toLocaleString('sv-SE')}` : ''}</span>
+      </div>
+      {percent !== null && (
+        <div className="h-1.5 rounded bg-gray-200 dark:bg-gray-700 overflow-hidden">
+          <div
+            className={`h-full ${percent >= 90 ? 'bg-red-500' : percent >= 70 ? 'bg-amber-500' : 'bg-green-500'}`}
+            style={{ width: `${percent}%` }}
+          />
+        </div>
+      )}
+    </div>
+  );
+  return (
+    <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700" data-testid="api-usage-bar">
+      <div className="text-[11px] font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider mb-1">Förbrukning idag</div>
+      <Row label="Anrop" used={usage.callsDay} limit={usage.limit.callsPerDay} percent={callsPct} />
+      <Row label="Tokens" used={usage.tokensDay} limit={usage.limit.tokensPerDay} percent={tokensPct} />
+    </div>
+  );
 };
 
 export const AISidebar = () => {
@@ -114,6 +173,15 @@ export const AISidebar = () => {
   const [openRouterModel, setOpenRouterModel] = useState('openai/gpt-4o-mini');
   const [geminiApiKey, setGeminiApiKey] = useState('');
   const [geminiModel, setGeminiModel] = useState('gemini-2.5-flash');
+  // Groq + self-hosted Hermes — parity with the mobile AI chat. Hermes reuses the
+  // OpenAI-compatible path with a user-supplied base URL and an optional key.
+  const [groqApiKey, setGroqApiKey] = useState('');
+  const [groqModel, setGroqModel] = useState('llama-3.3-70b-versatile');
+  const [hermesApiKey, setHermesApiKey] = useState('');
+  const [hermesModel, setHermesModel] = useState('qwen2.5:3b-instruct');
+  const [hermesBaseUrl, setHermesBaseUrl] = useState('');
+  // Live usage snapshot (calls + tokens today vs the provider's free-tier limit).
+  const [apiUsage, setApiUsage] = useState<UsageSnapshot | null>(null);
   const [mcpSettings, setMcpSettings] = useState<McpUiSettings>(() => createEmptyMcpUiSettings());
   const [mcpDashboardOpen, setMcpDashboardOpen] = useState(false);
   const [mcpDashboardLoading, setMcpDashboardLoading] = useState(false);
@@ -160,6 +228,8 @@ export const AISidebar = () => {
     if (activeProvider === 'lmstudio') return lmSelectedModel;
     if (activeProvider === 'mlc') return modelPath;
     if (activeProvider === 'openrouter') return openRouterModel;
+    if (activeProvider === 'groq') return groqModel;
+    if (activeProvider === 'hermes') return hermesModel;
     return geminiModel;
   };
 
@@ -294,8 +364,8 @@ export const AISidebar = () => {
       if (mounted && savedLmModel) setLmSelectedModel(savedLmModel);
 
       const savedApiProvider = await getStoredValue('aiApiProvider');
-      if (mounted && (savedApiProvider === 'openrouter' || savedApiProvider === 'gemini')) {
-        setApiProvider(savedApiProvider);
+      if (mounted && (savedApiProvider === 'openrouter' || savedApiProvider === 'gemini' || savedApiProvider === 'groq' || savedApiProvider === 'hermes')) {
+        setApiProvider(savedApiProvider as ApiProviderType);
       }
       const savedOpenRouterKey = await getStoredValue('openrouterApiKey');
       if (mounted && savedOpenRouterKey) setOpenRouterApiKey(decrypt(savedOpenRouterKey) || savedOpenRouterKey);
@@ -305,6 +375,16 @@ export const AISidebar = () => {
       if (mounted && savedGeminiKey) setGeminiApiKey(decrypt(savedGeminiKey) || savedGeminiKey);
       const savedGeminiModel = await getStoredValue('geminiModel');
       if (mounted && savedGeminiModel) setGeminiModel(savedGeminiModel);
+      const savedGroqKey = await getStoredValue('groqApiKey');
+      if (mounted && savedGroqKey) setGroqApiKey(decrypt(savedGroqKey) || savedGroqKey);
+      const savedGroqModel = await getStoredValue('groqModel');
+      if (mounted && savedGroqModel) setGroqModel(savedGroqModel);
+      const savedHermesKey = await getStoredValue('hermesApiKey');
+      if (mounted && savedHermesKey) setHermesApiKey(decrypt(savedHermesKey) || savedHermesKey);
+      const savedHermesModel = await getStoredValue('hermesModel');
+      if (mounted && savedHermesModel) setHermesModel(savedHermesModel);
+      const savedHermesBaseUrl = await getStoredValue('hermesBaseUrl');
+      if (mounted && savedHermesBaseUrl) setHermesBaseUrl(savedHermesBaseUrl);
       const savedMcpSettings = await getStoredValue(getMcpSettingsKey());
       let parsedMcpSettings = createEmptyMcpUiSettings();
       if (savedMcpSettings) {
@@ -404,6 +484,42 @@ export const AISidebar = () => {
     if (!settingsLoaded) return;
     setStoredValue('geminiModel', geminiModel || null);
   }, [geminiModel, settingsLoaded]);
+
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    setStoredValue('groqApiKey', groqApiKey ? encrypt(groqApiKey) : null);
+  }, [groqApiKey, settingsLoaded]);
+
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    setStoredValue('groqModel', groqModel || null);
+  }, [groqModel, settingsLoaded]);
+
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    setStoredValue('hermesApiKey', hermesApiKey ? encrypt(hermesApiKey) : null);
+  }, [hermesApiKey, settingsLoaded]);
+
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    setStoredValue('hermesModel', hermesModel || null);
+  }, [hermesModel, settingsLoaded]);
+
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    setStoredValue('hermesBaseUrl', hermesBaseUrl || null);
+  }, [hermesBaseUrl, settingsLoaded]);
+
+  // Keep the live usage snapshot in sync with the selected provider/model so the
+  // rate-limit bars reflect "today" for the model actually in use.
+  useEffect(() => {
+    if (!settingsLoaded || !aiUseApiProviders) return;
+    try {
+      const cfg = resolveApiProviderConfig(apiProvider);
+      if (cfg.model) setApiUsage(getUsageSnapshot(apiProvider, cfg.model));
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apiProvider, aiUseApiProviders, settingsLoaded, openRouterModel, geminiModel, groqModel, hermesModel]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
@@ -1206,31 +1322,58 @@ export const AISidebar = () => {
     return newMessages;
   };
 
+  // Resolve the active API provider's key/model (+ base URL for self-hosted Hermes).
+  // Single switch so adding a provider is one case, matching the mobile chat.
+  const resolveApiProviderConfig = (provider: ApiProviderType): { apiKey: string; model: string; baseUrl?: string } => {
+    switch (provider) {
+      case 'openrouter': return { apiKey: openRouterApiKey, model: openRouterModel };
+      case 'gemini': return { apiKey: geminiApiKey, model: geminiModel };
+      case 'groq': return { apiKey: groqApiKey, model: groqModel };
+      case 'hermes': return { apiKey: hermesApiKey, model: hermesModel, baseUrl: hermesBaseUrl };
+      default: return { apiKey: '', model: '' };
+    }
+  };
+
   const fetchAIStream = async (history: ChatMessage[], assistantMsg: ChatMessage, convId: string): Promise<string> => {
     const promptText = buildPromptText(history);
     if (aiUseApiProviders) {
       const selectedProvider: ApiProviderType = apiProvider;
-      const selectedApiKey = selectedProvider === 'openrouter' ? openRouterApiKey : geminiApiKey;
-      const selectedModel = selectedProvider === 'openrouter' ? openRouterModel : geminiModel;
-      const fullText = await generateApiProviderResponse({
-        provider: selectedProvider,
-        apiKey: selectedApiKey,
-        model: selectedModel,
-        history,
-      });
-      const chunks = fullText.split(/(\s+)/).filter(Boolean);
+      const cfg = resolveApiProviderConfig(selectedProvider);
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+      // Vision: forward base64 image attachments to the model on the last user turn.
+      const images = (enableAttachments ? attachments : [])
+        .filter(a => a.encoding === 'base64' && (a.type || '').startsWith('image/'))
+        .map(a => `data:${a.type};base64,${a.content}`)
+        .slice(0, 4);
       let built = '';
-      for (const chunk of chunks) {
-        if (stopRequestedRef.current) break;
-        built += chunk;
-        setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: built } : m));
-        await saveAssistantProgress(convId, assistantMsg.id as string, built);
+      const result = await streamApiProviderResponse({
+        provider: selectedProvider,
+        apiKey: cfg.apiKey,
+        model: cfg.model,
+        baseUrl: cfg.baseUrl,
+        history,
+        images,
+        signal: controller.signal,
+        onToken: (delta) => {
+          if (stopRequestedRef.current) return;
+          built += delta;
+          setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: built } : m));
+          void saveAssistantProgress(convId, assistantMsg.id as string, built);
+        },
+      });
+      const finalText = built || result.text;
+      if (!built && result.text) {
+        setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: result.text } : m));
+        await saveAssistantProgress(convId, assistantMsg.id as string, result.text);
       }
-      if (!chunks.length) {
-        setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: fullText } : m));
-        await saveAssistantProgress(convId, assistantMsg.id as string, fullText);
-      }
-      return stopRequestedRef.current ? built : fullText;
+      // Record usage (calls + tokens) and refresh the live snapshot for the bars.
+      try {
+        recordUsage(selectedProvider, cfg.model, result.totalTokens);
+        setApiUsage(getUsageSnapshot(selectedProvider, cfg.model));
+      } catch {}
+      abortControllerRef.current = null;
+      return finalText;
     }
     
     if (activeProvider === 'lmstudio') {
@@ -2950,7 +3093,15 @@ export const AISidebar = () => {
       setMessages(prev => [...prev, { id: uuidv4(), role: 'system', content: 'Ange Gemini API-nyckel och modell först.', createdAt: new Date().toISOString() }]);
       return;
     }
-    
+    if (activeProvider === 'groq' && (!groqApiKey || !groqModel)) {
+      setMessages(prev => [...prev, { id: uuidv4(), role: 'system', content: 'Ange Groq API-nyckel och modell först.', createdAt: new Date().toISOString() }]);
+      return;
+    }
+    if (activeProvider === 'hermes' && (!hermesBaseUrl || !hermesModel)) {
+      setMessages(prev => [...prev, { id: uuidv4(), role: 'system', content: 'Ange Hermes bas-URL och modell först.', createdAt: new Date().toISOString() }]);
+      return;
+    }
+
     let convId = currentConversationId;
     if (!convId) {
         convId = uuidv4();
@@ -3434,7 +3585,7 @@ export const AISidebar = () => {
                       <button 
                           className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:opacity-50 transition-colors"
                           onClick={handleSend}
-                          disabled={(!input.trim() && attachments.length === 0) || (activeProvider === 'mlc' ? !modelPath : activeProvider === 'lmstudio' ? !lmSelectedModel : activeProvider === 'openrouter' ? (!openRouterApiKey || !openRouterModel) : (!geminiApiKey || !geminiModel))}
+                          disabled={(!input.trim() && attachments.length === 0) || (activeProvider === 'mlc' ? !modelPath : activeProvider === 'lmstudio' ? !lmSelectedModel : activeProvider === 'openrouter' ? (!openRouterApiKey || !openRouterModel) : activeProvider === 'groq' ? (!groqApiKey || !groqModel) : activeProvider === 'hermes' ? (!hermesBaseUrl || !hermesModel) : (!geminiApiKey || !geminiModel))}
                           data-testid="ai-chat-send"
                       >
                           Send
@@ -3522,7 +3673,7 @@ export const AISidebar = () => {
                 checked={aiUseApiProviders}
                 onChange={(e) => setAiUseApiProviders(e.target.checked)}
               />
-              Använd API-baserad AI (OpenRouter/Gemini) istället för lokala modeller
+              Använd API-baserad AI (OpenRouter/Groq/Gemini/Hermes) istället för lokala modeller
             </label>
             <div className="mb-4">
               <label htmlFor="ai-provider-select" className="text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider mb-1 block">AI Provider</label>
@@ -3538,8 +3689,9 @@ export const AISidebar = () => {
               >
                 {aiUseApiProviders ? (
                   <>
-                    <option value="openrouter">OpenRouter API</option>
-                    <option value="gemini">Google Gemini API</option>
+                    {API_PROVIDER_LIST.map((p) => (
+                      <option key={p.id} value={p.id}>{p.label}</option>
+                    ))}
                   </>
                 ) : (
                   <>
@@ -3612,6 +3764,7 @@ export const AISidebar = () => {
                 <div className="mb-3">
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider mb-1 block">OpenRouter API Key</label>
                   <input
+                    type="password"
                     className="w-full border rounded p-2 text-sm dark:bg-gray-900"
                     value={openRouterApiKey}
                     onChange={(e) => setOpenRouterApiKey(e.target.value)}
@@ -3621,14 +3774,40 @@ export const AISidebar = () => {
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider mb-1 block">OpenRouter Modell</label>
-                  <input
-                    className="w-full border rounded p-2 text-sm dark:bg-gray-900"
+                  <ModelPicker
+                    provider="openrouter"
                     value={openRouterModel}
-                    onChange={(e) => setOpenRouterModel(e.target.value)}
-                    placeholder="openai/gpt-4o-mini"
-                    data-testid="openrouter-model"
+                    onChange={setOpenRouterModel}
+                    testId="openrouter-model"
                   />
                 </div>
+                <UsageBar usage={apiUsage} />
+              </div>
+            )}
+
+            {aiUseApiProviders && apiProvider === 'groq' && (
+              <div className="mb-6 p-3 border rounded bg-gray-50 dark:bg-gray-800">
+                <div className="mb-3">
+                  <label className="text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider mb-1 block">Groq API Key</label>
+                  <input
+                    type="password"
+                    className="w-full border rounded p-2 text-sm dark:bg-gray-900"
+                    value={groqApiKey}
+                    onChange={(e) => setGroqApiKey(e.target.value)}
+                    placeholder="gsk_..."
+                    data-testid="groq-api-key"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider mb-1 block">Groq Modell</label>
+                  <ModelPicker
+                    provider="groq"
+                    value={groqModel}
+                    onChange={setGroqModel}
+                    testId="groq-model"
+                  />
+                </div>
+                <UsageBar usage={apiUsage} />
               </div>
             )}
 
@@ -3637,6 +3816,7 @@ export const AISidebar = () => {
                 <div className="mb-3">
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider mb-1 block">Gemini API Key</label>
                   <input
+                    type="password"
                     className="w-full border rounded p-2 text-sm dark:bg-gray-900"
                     value={geminiApiKey}
                     onChange={(e) => setGeminiApiKey(e.target.value)}
@@ -3646,13 +3826,66 @@ export const AISidebar = () => {
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider mb-1 block">Gemini Modell</label>
+                  <ModelPicker
+                    provider="gemini"
+                    value={geminiModel}
+                    onChange={setGeminiModel}
+                    testId="gemini-model"
+                  />
+                </div>
+                <UsageBar usage={apiUsage} />
+              </div>
+            )}
+
+            {aiUseApiProviders && apiProvider === 'hermes' && (
+              <div className="mb-6 p-3 border rounded bg-gray-50 dark:bg-gray-800">
+                <div className="mb-3">
+                  <label className="text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider mb-1 block">Hermes Bas-URL (egen server)</label>
                   <input
                     className="w-full border rounded p-2 text-sm dark:bg-gray-900"
-                    value={geminiModel}
-                    onChange={(e) => setGeminiModel(e.target.value)}
-                    placeholder="gemini-2.5-flash"
-                    data-testid="gemini-model"
+                    value={hermesBaseUrl}
+                    onChange={(e) => setHermesBaseUrl(e.target.value)}
+                    placeholder="http://192.168.50.16:8080"
+                    data-testid="hermes-base-url"
                   />
+                  <div className="mt-1 text-[11px] text-gray-500 dark:text-gray-300">
+                    {API_PROVIDERS.hermes.hint}
+                  </div>
+                </div>
+                <div className="mb-3">
+                  <label className="text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider mb-1 block">Hermes API-nyckel (valfri)</label>
+                  <input
+                    type="password"
+                    className="w-full border rounded p-2 text-sm dark:bg-gray-900"
+                    value={hermesApiKey}
+                    onChange={(e) => setHermesApiKey(e.target.value)}
+                    placeholder="Lämna tom för LAN-servrar"
+                    data-testid="hermes-api-key"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider mb-1 block">Hermes Modell</label>
+                  <ModelPicker
+                    provider="hermes"
+                    value={hermesModel}
+                    onChange={setHermesModel}
+                    testId="hermes-model"
+                  />
+                </div>
+                <UsageBar usage={apiUsage} />
+                {/* Print the active Hermes/Ollama config so the user can copy it. */}
+                <div className="mt-3 rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[11px] font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider">Hermes-konfiguration</span>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyMessage(`Base URL: ${hermesBaseUrl || '(ej satt)'}\nModel: ${hermesModel}\nOpenAI-compatible: ${hermesBaseUrl ? resolveChatCompletionsUrl(API_PROVIDERS.hermes, hermesBaseUrl) : '(ange bas-URL)'}`)}
+                      className="text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
+                    >
+                      Kopiera
+                    </button>
+                  </div>
+                  <pre className="text-[11px] whitespace-pre-wrap break-all text-gray-700 dark:text-gray-300 m-0">{`Base URL: ${hermesBaseUrl || '(ej satt)'}\nModel: ${hermesModel}`}</pre>
                 </div>
               </div>
             )}
