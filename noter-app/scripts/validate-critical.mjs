@@ -28,6 +28,16 @@ const steps = [
     args: ['run', 'test'],
   },
   {
+    // The Docker deploy runs `@repo/shared build` (tsc) inside `npm ci`; a broken
+    // shared build fails EVERY app image build on the Pi. jest uses babel and won't
+    // catch tsc errors, so gate the real build here too (caught a test-file type
+    // error that silently broke auto-deploy on 2026-06-14).
+    label: 'Shared package build (tsc — deploy gate)',
+    cwd: path.join(repoRoot, 'packages', 'shared'),
+    command: 'npm',
+    args: ['run', 'build'],
+  },
+  {
     label: 'Backend critical unit/integration/security',
     cwd: path.join(repoRoot, 'apps', 'backend'),
     command: 'npm',

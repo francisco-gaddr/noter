@@ -57,7 +57,7 @@ describe('displayFilters', () => {
       { _id: '5', title: 'Gone', content: 'x', type: 'note' as const, deleted: true },
       { _id: '6', title: 'Keep', content: 'y' }, // undefined type → plain
     ];
-    expect(visibleNotes(notes as any).map((n) => n._id)).toEqual(['1', '6']);
+    expect(visibleNotes(notes as any).map((n: any) => n._id)).toEqual(['1', '6']);
   });
 
   it('visibleTasks + completedTasks', () => {
