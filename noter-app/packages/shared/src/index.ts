@@ -5,3 +5,4 @@ export * from './whatsNew';
 export * from './widgetData';
 export * from './keyBootstrap';
 export * from './insights';
+export * from './aiAttachments';

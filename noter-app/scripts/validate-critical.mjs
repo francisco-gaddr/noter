@@ -109,6 +109,7 @@ const steps = [
       'tests/notifications-e2e.test.ts',
       'tests/reminder-defaults.test.ts',
       'tests/api-providers.test.ts',
+      'tests/ai-attachments.test.ts',
       'tests/usage-tracker.test.ts',
       'tests/sse-parser.test.ts',
       'tests/widget-snapshot-writer.test.ts',

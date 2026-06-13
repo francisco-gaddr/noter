@@ -62,7 +62,9 @@ ska öppna för en given fråga. Läs det här först, sedan den specifika filen
 Status 2026-06-13. Uppdatera den här listan när poster blir klara.
 
 **AI-chatt (mobil):**
-- [ ] Filuppladdning i chatten (PDF/MD/bilder) + tolkning per källa (lokal/API/Hermes).
+- [x] Filbilagor i chatten: textfiler (md/txt/json/kod) läses in i prompten via
+      `@repo/shared` `aiAttachments`; PDF/bild bifogas som referens-placeholder.
+      Inställning + chips + `expo-document-picker`. Nästa: vision-väg för bild/PDF.
 - [ ] Per-tråd: välj synkad E2E vs lokal-only-tråd (krypterad endast på enheten).
 - [ ] Enhetsvalidering av lokal modell: nedladdning → konvertering → inläsning → chatt.
 

@@ -30,7 +30,8 @@ import * as Clipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
-import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, safeDecrypt, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings } from '@repo/shared';
+import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, safeDecrypt, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings, buildAttachmentContextBlock, summarizeAttachmentsForUi, MAX_ATTACHMENTS, type AiAttachment } from '@repo/shared';
+import { pickAttachments } from '@/services/ai/attachments';
 
 const provider = new MobileLlamaProvider();
 type LocalConversation = Conversation & { localOnly?: boolean };
@@ -199,6 +200,10 @@ export default function AIScreen() {
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
+  // AI chat file attachments (text files inlined; binary → placeholder). Settings
+  // toggle below gates the attach button. Cleared after each send.
+  const [attachments, setAttachments] = useState<AiAttachment[]>([]);
+  const [attachmentsEnabled, setAttachmentsEnabled] = useState(true);
   const [loading, setLoading] = useState(false);
   const [systemPrompt, setSystemPrompt] = useState('');
   const [contextInfo, setContextInfo] = useState('');
@@ -390,6 +395,8 @@ export default function AIScreen() {
       if (savedToolUse !== null) setEnableToolUse(savedToolUse === 'true');
       const savedLocalConvert = await AsyncStorage.getItem(`ai_local_convert_${scopeKey}`);
       if (savedLocalConvert !== null) setPreferLocalConversion(savedLocalConvert === 'true');
+      const savedAttachmentsEnabled = await AsyncStorage.getItem(`ai_attachments_enabled_${scopeKey}`);
+      if (savedAttachmentsEnabled !== null) setAttachmentsEnabled(savedAttachmentsEnabled === 'true');
       const savedBackgroundWork = await AsyncStorage.getItem(`ai_background_work_${scopeKey}`);
       if (savedBackgroundWork !== null) {
         setAllowBackgroundAIWork(savedBackgroundWork === 'true');
@@ -442,6 +449,11 @@ export default function AIScreen() {
     if (!userScopeKey) return;
     AsyncStorage.setItem(`ai_local_convert_${userScopeKey}`, preferLocalConversion ? 'true' : 'false');
   }, [preferLocalConversion, userScopeKey]);
+
+  useEffect(() => {
+    if (!userScopeKey) return;
+    AsyncStorage.setItem(`ai_attachments_enabled_${userScopeKey}`, attachmentsEnabled ? 'true' : 'false');
+  }, [attachmentsEnabled, userScopeKey]);
 
   useEffect(() => {
     if (!userScopeKey) return;
@@ -1881,7 +1893,8 @@ export default function AIScreen() {
   };
 
   const handleSend = async () => {
-    if (!input.trim() || loading) return;
+    const hasAttachments = attachmentsEnabled && attachments.length > 0;
+    if ((!input.trim() && !hasAttachments) || loading) return;
 
     if (!aiUseApiProviders && !activeModel) {
         alert('Please select a model first');
@@ -1911,9 +1924,10 @@ export default function AIScreen() {
     let conversationId = currentConversationId;
     if (!conversationId) {
         const newId = uuidv4();
+        const titleSeed = input.trim() || (attachmentsEnabled && attachments[0]?.name) || 'Ny chatt';
         const newConv: LocalConversation = {
             id: newId,
-            title: input.substring(0, 30) + '...',
+            title: titleSeed.substring(0, 30) + (titleSeed.length > 30 ? '...' : ''),
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
             messages: [],
@@ -1930,15 +1944,26 @@ export default function AIScreen() {
     }
     if (!conversationId) return;
     
-    const userMsg: ChatMessage = { 
+    // Attachments: the displayed/saved message stays clean (text + a short 📎 note
+    // of file names); the MODEL receives the full extracted file context prepended.
+    const sentAttachments = attachmentsEnabled ? attachments : [];
+    const attachmentNote = sentAttachments.length
+        ? `\n\n📎 ${summarizeAttachmentsForUi(sentAttachments).join(', ')}`
+        : '';
+    const userMsg: ChatMessage = {
         id: uuidv4(),
-        role: 'user', 
-        content: input,
+        role: 'user',
+        content: input + attachmentNote,
         createdAt: new Date().toISOString()
     };
-    
+    // Separate copy for the model with the file context block prepended (not stored).
+    const modelUserMsg: ChatMessage = sentAttachments.length
+        ? { ...userMsg, content: buildAttachmentContextBlock(sentAttachments) + input }
+        : userMsg;
+
     setMessages(prev => [...prev, userMsg]);
     setInput('');
+    setAttachments([]);
     setLoading(true);
     setTokensPerSecond(null);
     stopRequestedRef.current = false;
@@ -1951,7 +1976,7 @@ export default function AIScreen() {
       if (!aiUseApiProviders) {
           await provider.loadModel(activeModel as string);
       }
-      await runAIGeneration(conversationId, buildHistory(userMsg));
+      await runAIGeneration(conversationId, buildHistory(modelUserMsg));
     } catch (error) {
       console.error(error);
       setMessages(prev => [...prev, { id: uuidv4(), role: 'system', content: `${t('ai.errorPrefix')}${formatError(error)}`, createdAt: new Date().toISOString() }]);
@@ -1959,6 +1984,21 @@ export default function AIScreen() {
       setLoading(false);
       setTokensPerSecond(null);
     }
+  };
+
+  const handleAttach = async () => {
+    try {
+      const picked = await pickAttachments();
+      if (picked.length) {
+        setAttachments(prev => [...prev, ...picked].slice(0, MAX_ATTACHMENTS));
+      }
+    } catch (e) {
+      alert('Kunde inte bifoga fil: ' + String(e));
+    }
+  };
+
+  const handleRemoveAttachment = (index: number) => {
+    setAttachments(prev => prev.filter((_, i) => i !== index));
   };
 
   const handleCopyMessage = async (content: string) => {
@@ -2152,6 +2192,13 @@ export default function AIScreen() {
               </View>
               <Text style={{ marginTop: 6, color: theme.colors.onSurfaceVariant }}>
                 När detta är på används en AI-källa (OpenRouter, Groq, Gemini eller din egen Hermes-agent på Mac/Pi). Annars används vald lokal modell.
+              </Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
+                <Text style={{ color: theme.colors.onSurface, flex: 1 }}>Tillåt filbilagor i chatten</Text>
+                <Switch value={attachmentsEnabled} onValueChange={setAttachmentsEnabled} />
+              </View>
+              <Text style={{ marginTop: 2, fontSize: 12, color: theme.colors.onSurfaceVariant }}>
+                Bifoga textfiler (md, txt, json, kod m.m.) som läses in i prompten. PDF/bilder bifogas som referens. Max {MAX_ATTACHMENTS} filer.
               </Text>
               {aiUseApiProviders ? (
                 <View style={{ marginTop: 12 }}>
@@ -2650,8 +2697,30 @@ export default function AIScreen() {
                   Kontext: {contextInfo}
                 </Text>
               ) : null}
+              {attachmentsEnabled && attachments.length > 0 ? (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={{ maxHeight: 44 }}
+                  contentContainerStyle={{ paddingHorizontal: 8, paddingBottom: 6, gap: 6, flexDirection: 'row' }}
+                >
+                  {summarizeAttachmentsForUi(attachments).map((label, i) => (
+                    <Pressable
+                      key={`${label}-${i}`}
+                      onPress={() => handleRemoveAttachment(i)}
+                      style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: theme.colors.surfaceVariant, borderRadius: 14, paddingLeft: 10, paddingRight: 6, paddingVertical: 4 }}
+                    >
+                      <Text style={{ fontSize: 12, color: theme.colors.onSurfaceVariant }} numberOfLines={1}>{label}</Text>
+                      <Text style={{ fontSize: 14, marginLeft: 4, color: theme.colors.onSurfaceVariant }}>✕</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              ) : null}
               <View style={[styles.inputContainer, { backgroundColor: theme.colors.surface, borderTopColor: theme.colors.outline }]}>
                 <IconButton icon="cog" onPress={() => setToolSettingsVisible(true)} />
+                {attachmentsEnabled ? (
+                  <IconButton icon="paperclip" onPress={handleAttach} disabled={loading} testID="ai-attach-button" />
+                ) : null}
                 <TextInput
                   style={[styles.input, { color: theme.colors.onSurface, borderColor: theme.colors.outline }]}
                   placeholder={t('ai.inputPlaceholder')}
