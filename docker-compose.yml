@@ -25,6 +25,15 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # The redis-alpine entrypoint starts as root, chowns /data, then setpriv-drops
+    # to the `redis` user. cap_drop:ALL removed the caps that needs and crash-looped
+    # the container (`setpriv: setresuid failed: Operation not permitted`). Add back
+    # only the four it requires: CHOWN (data dir), SETUID/SETGID/SETPCAP (drop).
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - SETPCAP
     volumes:
       - redis_data:/data
     restart: always
