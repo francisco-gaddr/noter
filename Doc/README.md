@@ -1,6 +1,10 @@
 # Noter – Doc-index
 
-_Senast uppdaterat: 2026-04-23 · Målgrupp: utvecklare, reviewers och releaseansvariga_
+_Senast uppdaterat: 2026-06-13 · Målgrupp: utvecklare, reviewers och releaseansvariga_
+
+> **Ny här (särskilt AI-agenter)? Börja i [`index.md`](./index.md)** — master-ingången med
+> vägvisare ("jag vill … → öppna denna fil"), invarianter som inte får brytas, och den
+> prioriterade nästa-steg-backloggen. Den här filen är den fullständiga kategorilistan.
 
 Den här mappen är arbetsdokumentationen för det aktiva workspace: `noter-app/`, `electron-noter/` och tillhörande AI-, säkerhets- och releaseflöden. Dokumenten nedan ska spegla faktisk kod, inte bara planerad målbild.
 

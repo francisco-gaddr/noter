@@ -1,73 +1,90 @@
-# Noter - Säker och Modern Anteckningsapplikation
+# Noter — säker antecknings- & uppgiftsplattform
 
-"Noter" är en webbapplikation designad för enkelhet, modern design och maximal säkerhet genom full end-to-end (E2E) kryptering. Applikationen syftar till att erbjuda en trygg plats för dina tankar, idéer och projekt, med stöd för rich-text, media-embedding och hierarkisk organisering.
+Noter är en **end-to-end-krypterad** plattform för anteckningar, uppgifter och AI-chatt
+med klienter för **web, mobil (iOS/Android) och desktop (Electron)**, en **Node/Express-backend**
+och en **Raspberry Pi / Docker**-driftmiljö. Säkerhet och kryptering är kärnan: ingen
+information lagras eller skickas i klartext — varken i databasen, på serverns disk eller i
+enheternas lokala lagring.
 
-## 🌟 Nyckelfunktioner
+> **Är du en AI-agent eller ny utvecklare? Börja i [`Doc/index.md`](Doc/index.md).**
+> Det är den kuraterade kartan över *var* allt finns och *i vilken ordning* du ska läsa —
+> så du slipper gissa. Den här filen är översikten; `Doc/index.md` är navigeringen.
 
-*   **Full E2E-Kryptering:** All data krypteras på klienten (AES-256) innan den skickas till servern. Din integritet är garanterad.
-*   **Hierarkisk Struktur:** Organisera anteckningar i trädstrukturer med drag-and-drop funktionalitet.
-*   **Rich-Text Editor:** Skriv med stil med stöd för fetstil, listor, kodblock, och mer (via Slate).
-*   **Media & Embedding:** Ladda upp bilder, bädda in videor och länkar direkt i dina anteckningar.
-*   **Realtidssynkronisering:** Arbeta sömlöst över enheter med omedelbara uppdateringar (Socket.io).
-*   **Offline-stöd:** Fortsätt arbeta utan internetanslutning; ändringar synkroniseras när du är online igen (PWA/IndexedDB).
-*   **Export:** Exportera dina anteckningar till PDF, Markdown eller Text.
-*   **Tasks:** Integrerad uppgiftshantering kopplad till dina anteckningar.
+---
 
-## 🏗 Arkitektur och Teknikstack
+## 🌟 Funktioner
 
-Projektet är ett monorepo som använder **Turborepo** för att hantera frontend, backend och delad kod.
+- **End-to-end-kryptering (v3):** AES-256-GCM + Argon2id, per-användarnyckel som wrappas
+  under ett lösenordsderiverat root-key. Servern lagrar bara ogenomträngliga envelopes.
+- **Aldrig blanka ut data:** `safeDecrypt` läser klartext, legacy (v1) och v3 utan att
+  någonsin tappa innehåll vid fel.
+- **AI-chatt:** lokala modeller på enheten, API-leverantörer (OpenRouter/Groq/Gemini) och
+  **egna Hermes-agenter (Mac/Pi)** — alla med streaming, verktygskörning och förbrukningsmätning.
+- **Offline-först & realtid:** notes/tasks målas lokalt direkt, dekrypteras i bakgrunden i
+  bitar, och synkas via WSS när nätet är tillbaka.
+- **Hierarki, rich-text, media, export, uppgifter, widgets, MCP-integrationer.**
 
-### Frontend (`/apps/web`)
-*   **Ramverk:** Next.js 14+ (App Router)
-*   **Språk:** TypeScript
-*   **Styling:** Tailwind CSS (med stöd för Dark Mode)
-*   **State Management:** Zustand
-*   **Editor:** Slate-react
-*   **Lokala Data:** IndexedDB (idb)
+## 🏗 Monorepo-struktur
 
-### Backend (`/apps/backend`)
-*   **Runtime:** Node.js 20+
-*   **Ramverk:** Express.js
-*   **Databas:** MongoDB (med Mongoose)
-*   **Realtid:** Socket.io
-*   **Autentisering:** JWT (JSON Web Tokens)
-
-### Delad Kod (`/packages/shared`)
-*   Typdefinitioner (TypeScript interfaces)
-*   Krypteringslogik (CryptoJS)
-*   Valideringsscheman
+```
+noter-app/                 (npm workspaces + Turborepo)
+├── apps/
+│   ├── backend/           Express + Mongoose + Socket.io + JWT  (REST: se Doc/api-reference.md)
+│   ├── web/               Next.js (App Router) + IndexedDB
+│   ├── mobile/            Expo / React Native + SQLite + SecureStore
+│   ├── nginx/             reverse proxy + säkerhetsheaders
+│   ├── docs/              Docusaurus-sajt (publik)
+│   └── firefox-extension/
+├── packages/
+│   ├── shared/            ⭐ ALL kryptering bor här (encrypt/cryptoV3/keyBootstrap) + typer
+│   ├── ai/                delade AI-typer/hjälpare
+│   └── ui/                delade UI-komponenter
+electron-noter/            Electron desktop-app (safeStorage, sandbox, contextIsolation)
+infra/pi/                  Pi-härdningsskript
+Doc/                       ⭐ all dokumentation — börja i Doc/index.md
+```
 
 ## 🚀 Kom igång
 
-### Förutsättningar
-*   Node.js 20+
-*   npm eller yarn
+```bash
+cd noter-app
+npm install
+npm run dev            # kör web + backend (+ delade paket) via Turbo
+```
 
-### Installation
-1.  Klona repot (eller skapa mappen):
-    ```bash
-    git clone <repo-url>
-    cd noter-app
-    ```
-2.  Installera beroenden:
-    ```bash
-    npm install
-    ```
-3.  Starta utvecklingsmiljön:
-    ```bash
-    npm run dev
-    ```
+Mobil: `cd noter-app/apps/mobile && npx expo start`. Electron: `cd electron-noter && npm start`.
+
+## ✅ Validering (kör innan commit/push)
+
+```bash
+cd noter-app
+node scripts/validate-critical.mjs   # knip (död kod) + shared/backend/web/mobile/electron-tester + typecheck
+```
+
+Detta är den blockerande grinden: knip (ingen död kod), shared 43, backend 71, web 47,
+mobil 84, electron 224. Allt grönt = redo.
 
 ## 🔐 Säkerhet
-Säkerheten är kärnan i Noter.
-*   **Klientkryptering:** Inga okrypterade data lämnar någonsin din enhet.
-*   **Nyckelhantering:** Krypteringsnycklar härleds från ditt lösenord med PBKDF2.
+
+All kryptering är **centraliserad i `noter-app/packages/shared`** och versionerad med
+envelopes (`v3:` innehåll, `v3w:` wrapped key, `U2FsdGVkX1` legacy). Vill du förbättra
+säkerheten? Läs **[`Doc/security/security-upgrade-playbook.md`](Doc/security/security-upgrade-playbook.md)**
+— den har receptet, single-source-kartan och en pre-commit-checklista. Hotmodell +
+CWE-liggare finns i [`Doc/security/`](Doc/security/).
 
 ## 📄 Dokumentation
-Se `Doc/` mappen för detaljerad dokumentation:
-*   [Overview.md](Doc/Overview.md) - Kravspecifikation och systemöversikt.
-*   [Implementation.md](Doc/Implementation.md) - Steg-för-steg implementeringsplan.
+
+- **[`Doc/index.md`](Doc/index.md)** — master-index: var du börjar, hur dokumenten hänger ihop.
+- [`Doc/api-reference.md`](Doc/api-reference.md) — backend-API:t (genererat från rutterna).
+- [`Doc/security/`](Doc/security/) — kryptering, hotmodell, CWE, uppgraderingsplaybook.
+- [`Doc/adr/`](Doc/adr/) — arkitekturbeslut (ADR).
+- [`Doc/ops/`](Doc/ops/) — drift, CI-kvalitet, server-härdning, disaster recovery.
 
 ## 📱 Version
-*   **Mobile:** 1.0.1 (Build 3)
-*   **Web:** 1.0.0
+
+- **Mobil:** 1.1.0 (iOS build 6 / Android versionCode 7)
+- **Electron:** 1.1.0 · **Backend:** 1.1.0 · **Web:** 0.1.0
+
+Säkerhetsklassificering per release finns i `WHATS_NEW_ENTRIES`
+(`noter-app/packages/shared/src/whatsNew.ts`) och exponeras live via
+`GET /api/health/deep` (`version` + `securityLevel`).

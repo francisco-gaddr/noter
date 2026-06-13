@@ -13,6 +13,13 @@ const steps = [
     args: ['run', 'knip:files'],
   },
   {
+    // Mechanical IDOR guard: no unscoped findById(req.params...) in routes.
+    label: 'Route-scoping guard (IDOR / CWE-639)',
+    cwd: repoRoot,
+    command: 'node',
+    args: ['scripts/check-route-scoping.mjs'],
+  },
+  {
     // Shared is the crypto/widget foundation — gate it first so a broken
     // encrypt/cryptoV3/widgetData can't reach any app.
     label: 'Shared package tests (crypto, widgets, key bootstrap)',
@@ -34,6 +41,7 @@ const steps = [
       '__tests__/routes/keyBundle.test.ts',
       '__tests__/routes/apiKeys.test.ts',
       '__tests__/routes/ownership-isolation.test.ts',
+      '__tests__/routes/ai-sync-isolation.test.ts',
       '__tests__/health-deep.test.ts',
       '__tests__/ai-sync.test.ts',
       '__tests__/graphql-tools.test.ts',

@@ -9,6 +9,7 @@
     "knip": "knip",
     "knip:files": "knip --include files --no-config-hints",
     "knip:production": "knip --production --strict",
+    "check:route-scoping": "node scripts/check-route-scoping.mjs",
     "prepare": "husky",
     "postinstall": "patch-package && turbo run build --filter=@repo/shared --filter=@repo/ai",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
