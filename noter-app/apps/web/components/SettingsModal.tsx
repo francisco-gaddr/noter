@@ -198,6 +198,17 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         </div>
 
         <div className="mt-4">
+          {/* Per-app running version: which build this client actually is. */}
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              {(typeof window !== 'undefined' && (window as any).mlc?.isElectron) ? 'Noter Desktop' : 'Noter Web'}
+            </span>
+            {WHATS_NEW_ENTRIES[0] && (
+              <span className="text-xs font-mono text-gray-500 dark:text-gray-400" data-testid="app-version">
+                v{WHATS_NEW_ENTRIES[0].version} ({WHATS_NEW_ENTRIES[0].build})
+              </span>
+            )}
+          </div>
           <button
             type="button"
             onClick={() => setWhatsNewOpen((prev) => !prev)}
