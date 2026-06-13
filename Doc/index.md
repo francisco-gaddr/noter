@@ -80,8 +80,12 @@ Status 2026-06-13. Uppdatera den här listan när poster blir klara.
 - [ ] Sync-kö-mätning i admin-vyn (mobil-lokal kö i dag).
 
 **Säkerhet/krypto:**
-- [ ] SQLCipher full-fil-kryptering (mobil/Electron SQLite) — Stage-4.
-- [ ] UI-flöde för lösenordsbyte → re-wrap av `dataKey` (rotation).
+- [~] SQLCipher full-fil-kryptering (mobil/Electron SQLite) — Stage-4. Komplett
+      körbart runbook finns: [`ops/sqlcipher-stage4.md`](./ops/sqlcipher-stage4.md).
+      Aktivering kräver dev-client-build + enhetsvalidering (kan ej göras headless).
+      OBS: känsligt innehåll är redan fält-krypterat i SQLite i dag; detta är defense
+      in depth för metadata/struktur.
+- [x] UI-flöde för lösenordsbyte → re-wrap av `dataKey` (mobil + web, 7 tester).
 - [x] Mekanisk IDOR-grind: `scripts/check-route-scoping.mjs` (i `validate-critical`).
 
 **Hard-review:**
