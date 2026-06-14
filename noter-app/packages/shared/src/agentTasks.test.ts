@@ -30,6 +30,12 @@ describe('agentTasks delegation parsing', () => {
     expect(parsed).toMatchObject(d);
   });
 
+  it('parses backend-execution + notify fields', () => {
+    const d = parseAiDelegation('{"assignee":"ai","source":"hermes","baseUrl":"http://pi:11434","runOnBackend":true,"notify":{"onStart":true}}');
+    expect(d).toMatchObject({ assignee: 'ai', baseUrl: 'http://pi:11434', runOnBackend: true });
+    expect(d!.notify).toEqual({ onStart: true, onFinish: true }); // onFinish defaults true
+  });
+
   it('returns null for empty/invalid', () => {
     expect(parseAiDelegation('')).toBeNull();
     expect(parseAiDelegation('null')).toBeNull();

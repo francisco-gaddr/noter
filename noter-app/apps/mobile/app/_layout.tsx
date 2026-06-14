@@ -116,6 +116,7 @@ import {
   unregisterBackgroundFetch,
 } from '@/services/backgroundFetch';
 import { startAgentScheduler, runDueAgentTasks } from '@/services/ai/agentScheduler';
+import { registerPushToken } from '@/services/ai/agentBackendSync';
 import { Alert, View } from 'react-native';
 import { useRouter, useSegments } from 'expo-router';
 
@@ -191,10 +192,12 @@ function RootLayoutNav() {
   }, [token]);
 
   // Foreground AI-task scheduler: precise runs while the app is open (background
-  // is best-effort above). Started/stopped with auth.
+  // is best-effort above). Started/stopped with auth. Also register this device's
+  // push token so the always-on backend can notify us about AI tasks.
   useEffect(() => {
     if (!token) return;
     const stop = startAgentScheduler();
+    void registerPushToken();
     return stop;
   }, [token]);
 

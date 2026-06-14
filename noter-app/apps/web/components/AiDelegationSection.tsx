@@ -9,7 +9,13 @@ import type { AiTaskDelegation, AiTaskSource, Task } from '@repo/shared';
 import { API_PROVIDER_LIST } from '../services/ai/apiProviders';
 import { getDelegations, setDelegation, removeDelegation, getRunLog, type AgentRunLogEntry } from '../services/ai/agentDelegations';
 import { runAgentTaskNow } from '../services/ai/agentScheduler';
+import { graphqlRequest } from '../services/apiClient';
+import { serializeAiDelegation } from '@repo/shared';
 import { useStore } from '../stores/useStore';
+
+const UPDATE_TASK_MUT = 'mutation($id:String!,$input:TaskInput!){updateTask(id:$id,input:$input){_id}}';
+const syncBackend = (taskId: string, aiAgent: string) =>
+  graphqlRequest(UPDATE_TASK_MUT, { id: taskId, input: { aiAgent } }).catch(() => undefined);
 
 const accessLabel = (kind: string): string => ({
   note: 'Läste anteckning', task: 'Läste uppgift', list: 'Läste uppgiftslista',
@@ -34,8 +40,14 @@ export const AiDelegationSection: React.FC<{ task: Task }> = ({ task }) => {
 
   const persist = (next: AiTaskDelegation | null) => {
     setLocalDelegation(next);
-    if (next && next.assignee === 'ai') setDelegation(task._id, next, userId);
-    else removeDelegation(task._id, userId);
+    if (next && next.assignee === 'ai') {
+      setDelegation(task._id, next, userId);
+      // Mirror to the always-on backend when opted into server execution.
+      void syncBackend(task._id, next.runOnBackend ? serializeAiDelegation(next) : '');
+    } else {
+      removeDelegation(task._id, userId);
+      void syncBackend(task._id, '');
+    }
   };
   const patch = (p: Partial<AiTaskDelegation>) => { if (enabled) persist({ ...d, ...p }); };
 
@@ -97,6 +109,21 @@ export const AiDelegationSection: React.FC<{ task: Task }> = ({ task }) => {
           <label className="flex items-center justify-between text-sm">
             <span>Tillåt verktyg (skapa/läsa uppgifter)</span>
             <input type="checkbox" checked={d.toolUse !== false} onChange={(e) => patch({ toolUse: e.target.checked })} />
+          </label>
+          <label className="flex items-center justify-between text-sm">
+            <span>Kör på servern (always-on)</span>
+            <input type="checkbox" checked={!!d.runOnBackend} onChange={(e) => patch({ runOnBackend: e.target.checked })} data-testid="ai-delegate-run-on-backend" />
+          </label>
+          {d.source === 'api' && d.runOnBackend && (
+            <p className="text-[11px] text-red-600 dark:text-red-400">Serverkörning stödjer endast Hermes/lokal (servern saknar din API-nyckel). Välj Hermes-källa.</p>
+          )}
+          <label className="flex items-center justify-between text-sm">
+            <span>Notis när agenten startar</span>
+            <input type="checkbox" checked={!!d.notify?.onStart} onChange={(e) => patch({ notify: { ...(d.notify || {}), onStart: e.target.checked } })} />
+          </label>
+          <label className="flex items-center justify-between text-sm">
+            <span>Notis när agenten är klar</span>
+            <input type="checkbox" checked={d.notify?.onFinish !== false} onChange={(e) => patch({ notify: { ...(d.notify || {}), onFinish: e.target.checked } })} />
           </label>
 
           <button type="button" onClick={runNow} disabled={running} className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm disabled:opacity-50" data-testid="ai-delegate-run-now">

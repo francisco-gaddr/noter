@@ -15,6 +15,7 @@ import type { AiTaskDelegation, AiTaskSource, Task } from '@repo/shared';
 import { API_PROVIDER_LIST } from '@/services/ai/apiProviders';
 import { getDelegations, setDelegation, removeDelegation, getRunLog, type AgentRunLogEntry } from '@/services/ai/agentDelegations';
 import { runAgentTaskNow } from '@/services/ai/agentScheduler';
+import { syncDelegationToBackend, clearBackendDelegation } from '@/services/ai/agentBackendSync';
 
 const SOURCE_BUTTONS = [
   { value: 'api', label: 'API' },
@@ -52,8 +53,15 @@ export const AiDelegationSection: React.FC<{ task: Task }> = ({ task }) => {
 
   const persist = useCallback(async (next: AiTaskDelegation | null) => {
     setLocalDelegation(next);
-    if (next && next.assignee === 'ai') await setDelegation(task._id, next);
-    else await removeDelegation(task._id);
+    if (next && next.assignee === 'ai') {
+      await setDelegation(task._id, next);
+      // Mirror to the always-on backend when the user opts into server execution.
+      if (next.runOnBackend) await syncDelegationToBackend(task._id, next);
+      else await clearBackendDelegation(task._id);
+    } else {
+      await removeDelegation(task._id);
+      await clearBackendDelegation(task._id);
+    }
   }, [task._id]);
 
   const enabled = !!delegation && delegation.assignee === 'ai';
@@ -152,6 +160,23 @@ export const AiDelegationSection: React.FC<{ task: Task }> = ({ task }) => {
           <View style={[styles.row, { marginTop: 4 }]}>
             <Text>Tillåt verktyg (skapa/läsa uppgifter)</Text>
             <Switch value={d.toolUse !== false} onValueChange={(v) => patch({ toolUse: v })} />
+          </View>
+          <View style={[styles.row, { marginTop: 4 }]}>
+            <Text>Kör på servern (always-on)</Text>
+            <Switch value={!!d.runOnBackend} onValueChange={(v) => patch({ runOnBackend: v })} testID="ai-delegate-run-on-backend" />
+          </View>
+          {d.source === 'api' && d.runOnBackend ? (
+            <Text style={{ fontSize: 11, color: theme.colors.error }}>
+              Serverkörning stödjer endast Hermes/lokal (servern saknar din API-nyckel). Välj Hermes-källa.
+            </Text>
+          ) : null}
+          <View style={[styles.row, { marginTop: 4 }]}>
+            <Text>Notis när agenten startar</Text>
+            <Switch value={!!d.notify?.onStart} onValueChange={(v) => patch({ notify: { ...(d.notify || {}), onStart: v } })} />
+          </View>
+          <View style={[styles.row, { marginTop: 4 }]}>
+            <Text>Notis när agenten är klar</Text>
+            <Switch value={d.notify?.onFinish !== false} onValueChange={(v) => patch({ notify: { ...(d.notify || {}), onFinish: v } })} />
           </View>
 
           <Button
