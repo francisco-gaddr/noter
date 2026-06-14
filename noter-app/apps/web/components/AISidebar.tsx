@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { ChatMessage, HFModel, HFFile, Conversation, AIProject, normalizeToolArguments } from '@repo/ai';
-import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, mcpSettingsFromJson, mcpSettingsToJsonString, mergePresetProviders, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings } from '@repo/shared';
+import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, mcpSettingsFromJson, mcpSettingsToJsonString, mergePresetProviders, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings, CONTEXT_LEVELS, contextLevelConfig, summarizeToolPolicy, normalizeContextLevel, applyDelegationDefaults, serializeAiDelegation, type ContextLevel, type AiTaskSource, type AiTaskDelegation } from '@repo/shared';
+import { setDelegation as setLocalDelegation } from '../services/ai/agentDelegations';
 import { db } from '../services/db';
 import { v4 as uuidv4 } from 'uuid';
 import { useStore } from '../stores/useStore';
@@ -117,6 +118,9 @@ export const AISidebar = () => {
   const [enableEmojiPicker, setEnableEmojiPicker] = useState(true);
   const [enableAttachments, setEnableAttachments] = useState(true);
   const [enableToolUse, setEnableToolUse] = useState(true);
+  // How "complex" the chat is allowed to be: gates which tools + searches the model
+  // may use this conversation (minimal → just answer, deep → full tools + search).
+  const [chatContextLevel, setChatContextLevel] = useState<ContextLevel>('standard');
   const [collapsedThinking, setCollapsedThinking] = useState<Record<string, boolean>>({});
   const [collapsedTool, setCollapsedTool] = useState<Record<string, boolean>>({});
   const [emojiOpen, setEmojiOpen] = useState(false);
@@ -474,7 +478,10 @@ export const AISidebar = () => {
       
       const savedToolUse = await getStoredValue('aiToolUseEnabled');
       if (mounted && savedToolUse) setEnableToolUse(savedToolUse === 'true');
-      
+
+      const savedContextLevel = await getStoredValue('aiChatContextLevel');
+      if (mounted && savedContextLevel) setChatContextLevel(normalizeContextLevel(savedContextLevel));
+
       const savedWidth = await getStoredValue('aiSidebarWidth');
       if (mounted && savedWidth) {
         const parsed = Number(savedWidth);
@@ -623,6 +630,11 @@ export const AISidebar = () => {
     if (!settingsLoaded) return;
     setStoredValue('aiToolUseEnabled', String(enableToolUse));
   }, [enableToolUse, settingsLoaded]);
+
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    setStoredValue('aiChatContextLevel', chatContextLevel);
+  }, [chatContextLevel, settingsLoaded]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
@@ -1194,11 +1206,18 @@ export const AISidebar = () => {
   const buildHistory = (userMsg: ChatMessage) => {
     const maxChars = 12000;
     const projectPrompt = getActiveProject()?.systemPrompt || '';
-    const toolUseNotice = enableToolUse
-      ? 'Tool use: AKTIVERAT. Använd tool calls proaktivt när användaren vill skapa/uppdatera/lista/hämta/sammanfatta anteckningar eller uppgifter, samt för planering och påminnelser kopplade till dessa.'
+    const policy = contextLevelConfig(chatContextLevel);
+    const effectiveToolUse = enableToolUse && policy.allowReadTools;
+    const levelNotice = `Kontextnivå: ${policy.label} — ${policy.description} Tillåtet: ${summarizeToolPolicy(chatContextLevel, enableToolUse).join(', ')}.`;
+    const toolUseNotice = effectiveToolUse
+      ? `Tool use: AKTIVERAT. Använd tool calls proaktivt när användaren vill skapa/uppdatera/lista/hämta/sammanfatta anteckningar eller uppgifter, samt för planering och påminnelser kopplade till dessa.${policy.allowWriteTools ? '' : ' (Endast läs-/sökverktyg på denna nivå.)'}`
       : 'Tool use: AVSTÄNGT. Svara som vanlig chatt utan tool calls eller JSON‑format.';
-    const combinedPrompt = combineSystemPrompts([systemPrompt, toolUseNotice].filter(Boolean).join('\n\n'), projectPrompt);
-    const toolPrompt = enableToolUse ? toolSystemPrompt(getEnabledMcpServices()) : '';
+    // Self-delegation: let the user hand a task to the AI agent from chat.
+    const delegationNotice = effectiveToolUse
+      ? 'Självdelegering: om användaren uttryckligen ber dig schemalägga/ta dig an en uppgift själv (som AI-agent), anropa create_task med delegateToAi=true (lägg ev. en deadline via dueDate och extra styrning via aiInstructions). Då körs uppgiften senare av AI-agenten med nuvarande modell/källa. Vill användaren bara ha en vanlig uppgift till sig själv: create_task utan delegateToAi.'
+      : '';
+    const combinedPrompt = combineSystemPrompts([systemPrompt, levelNotice, toolUseNotice, delegationNotice].filter(Boolean).join('\n\n'), projectPrompt);
+    const toolPrompt = effectiveToolUse ? toolSystemPrompt(getEnabledMcpServices()) : '';
     const fullPrompt = [combinedPrompt, toolPrompt].filter(Boolean).join('\n\n');
     const systemMsg = fullPrompt
       ? ({ id: 'system', role: 'system', content: fullPrompt, createdAt: new Date().toISOString() } as ChatMessage)
@@ -1405,6 +1424,36 @@ export const AISidebar = () => {
     }
     const cfg = resolveApiProviderConfig(apiProvider);
     return { sendProvider: apiProvider, usageKey: apiProvider, apiKey: cfg.apiKey, model: cfg.model, baseUrl: cfg.baseUrl };
+  };
+
+  // Build an AI-task delegation from the CURRENT chat settings (source/provider/model/
+  // baseURL + context level + tool-use), so the chat can hand a task to the AI agent
+  // "using the model/source I'm chatting with right now" (the self-delegation flow).
+  const currentChatDelegationDefaults = () => {
+    if (!aiUseApiProviders) {
+      // Local engine (MLC / LM Studio) — runs on this device only.
+      return {
+        source: 'local' as AiTaskSource,
+        provider: aiProvider === 'lmstudio' ? 'lmstudio' : 'mlc',
+        model: aiProvider === 'lmstudio' ? lmSelectedModel : modelPath,
+        baseUrl: aiProvider === 'lmstudio' ? lmBaseUrl : undefined,
+        contextLevel: chatContextLevel,
+        toolUse: enableToolUse,
+        runOnBackend: false,
+      };
+    }
+    const eff = getEffectiveSendConfig();
+    const source: AiTaskSource = eff.sendProvider === 'hermes' ? 'hermes' : 'api';
+    return {
+      source,
+      provider: activeCustomId || eff.sendProvider,
+      model: eff.model,
+      baseUrl: eff.baseUrl,
+      contextLevel: chatContextLevel,
+      toolUse: enableToolUse,
+      // Hermes/local can run server-side; an API source can't (server has no key).
+      runOnBackend: false,
+    };
   };
 
   // Why the API config is incomplete (for pre-send validation + button disabling),
@@ -1838,7 +1887,8 @@ export const AISidebar = () => {
       '- delete_tasklist(id)',
       '- list_tasks(parentNoteId?, completed?)',
       '- get_task(id)',
-      '- create_task(title, description?, dueDate?, priority?, parentNoteId?, parentId?, recurrenceType?, recurrenceDays?, reminderEnabled?, reminderOffsetMinutes?)',
+      '- create_task(title, description?, dueDate?, priority?, parentNoteId?, parentId?, recurrenceType?, recurrenceDays?, reminderEnabled?, reminderOffsetMinutes?, delegateToAi?, aiInstructions?)',
+      '  (delegateToAi=true → uppgiften delegeras till AI-agenten och körs senare med nuvarande modell/källa; sätt dueDate som deadline. aiInstructions = extra styrning till agenten.)',
       '- update_task(id, updates)',
       '- delete_task(id)',
       '- mcp_list_tools(service)',
@@ -1849,12 +1899,14 @@ export const AISidebar = () => {
 
   const extractToolCalls = (text: string) => {
     const calls: Array<{ tool: string; arguments: Record<string, any> }> = [];
-    const allowedTools = new Set([
-      'list_notes', 'get_note', 'create_note', 'update_note', 'delete_note',
-      'list_projects', 'create_project', 'update_project', 'delete_project',
-      'list_tasklists', 'create_tasklist', 'update_tasklist', 'delete_tasklist',
-      'list_tasks', 'get_task', 'create_task', 'update_task', 'delete_task',
-      'mcp_list_tools', 'mcp_call_tool'
+    // The context level gates which tools the chat may run: minimal → none, otherwise
+    // read+search tools always, write/mutation tools only when the level permits.
+    const policy = contextLevelConfig(chatContextLevel);
+    const readTools = ['list_notes', 'get_note', 'list_projects', 'list_tasklists', 'list_tasks', 'get_task', 'mcp_list_tools', 'mcp_call_tool'];
+    const writeTools = ['create_note', 'update_note', 'delete_note', 'create_project', 'update_project', 'delete_project', 'create_tasklist', 'update_tasklist', 'delete_tasklist', 'create_task', 'update_task', 'delete_task'];
+    const allowedTools = new Set<string>([
+      ...(policy.allowReadTools ? readTools : []),
+      ...(policy.allowWriteTools ? writeTools : []),
     ]);
     const pushCall = (tool: string, args: unknown) => {
       if (!allowedTools.has(tool)) return;
@@ -2851,13 +2903,29 @@ export const AISidebar = () => {
       }
       case 'create_task': {
         const state = useStore.getState();
-        const input = (!args.parentNoteId && state.selectedTaskListId) ? { ...args, parentNoteId: state.selectedTaskListId } : args;
+        // Pull the agent-only fields out of the tool args so they don't leak into TaskInput.
+        const { delegateToAi, aiInstructions, ...taskArgs } = args as Record<string, any>;
+        const input = (!taskArgs.parentNoteId && state.selectedTaskListId) ? { ...taskArgs, parentNoteId: state.selectedTaskListId } : taskArgs;
         if (input.parentNoteId) {
           const { ensureReadableNote } = getAISecurityContext();
           ensureReadableNote(String(input.parentNoteId));
         }
-        const query = `mutation($input:TaskInput!){createTask(input:$input){_id title description dueDate completed priority parentNoteId parentId recurrenceType recurrenceDays reminderEnabled reminderOffsetMinutes createdAt updatedAt}}`;
-        return graphQLRequest(query, { input: withDefaultReminderForDueDate(withNormalizedDueDate(withDefaultPriority(input))) });
+        // Self-delegation: the user asked the agent to schedule a task for the AI agent
+        // itself. Build a delegation from the CURRENT chat settings (model/source/level)
+        // so it runs with "what I'm using right now", persist it on the task + locally.
+        let delegation: AiTaskDelegation | null = null;
+        if (delegateToAi) {
+          delegation = applyDelegationDefaults(currentChatDelegationDefaults());
+          if (typeof aiInstructions === 'string' && aiInstructions.trim()) delegation.instructions = aiInstructions.trim();
+          (input as any).aiAgent = serializeAiDelegation(delegation);
+        }
+        const query = `mutation($input:TaskInput!){createTask(input:$input){_id title description dueDate completed priority parentNoteId parentId recurrenceType recurrenceDays reminderEnabled reminderOffsetMinutes aiAgent createdAt updatedAt}}`;
+        const res = await graphQLRequest(query, { input: withDefaultReminderForDueDate(withNormalizedDueDate(withDefaultPriority(input))) });
+        // Mirror the delegation to the local encrypted map (decoupled from sync, the
+        // source of truth the schedulers/executors read), keyed by the new task id.
+        const newId = (res as any)?.createTask?._id;
+        if (delegation && newId) { try { setLocalDelegation(String(newId), delegation, getUserId()); } catch { /* best-effort */ } }
+        return res;
       }
       case 'update_task': {
         const { tasks, noteMap, unlockedIds } = getAISecurityContext();
@@ -3597,6 +3665,23 @@ export const AISidebar = () => {
                             </label>
                             <div className="mt-2 text-[11px] text-gray-600 dark:text-gray-300">
                               När detta är avstängt chattar assistenten bara och gör inga tool calls.
+                            </div>
+                            <div className="mt-3">
+                              <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-300">Kontextnivå (komplexitet)</label>
+                              <select
+                                className="w-full border rounded p-1.5 text-xs mt-1 dark:bg-gray-900 dark:border-gray-700"
+                                value={chatContextLevel}
+                                onChange={(e) => setChatContextLevel(normalizeContextLevel(e.target.value))}
+                                data-testid="chat-context-level"
+                              >
+                                {CONTEXT_LEVELS.map((l) => <option key={l} value={l}>{contextLevelConfig(l).label}</option>)}
+                              </select>
+                              <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">{contextLevelConfig(chatContextLevel).description}</p>
+                              <div className="flex flex-wrap gap-1 mt-1" data-testid="chat-tool-policy">
+                                {summarizeToolPolicy(chatContextLevel, enableToolUse).map((cap) => (
+                                  <span key={cap} className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">{cap}</span>
+                                ))}
+                              </div>
                             </div>
                           </div>
                         )}

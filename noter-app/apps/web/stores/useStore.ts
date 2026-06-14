@@ -359,7 +359,7 @@ interface StoreState {
   unlockNote: (id: string, password: string) => Promise<boolean>;
   deleteNote: (id: string) => Promise<void>;
   
-  createTask: (title: string, parentNoteId?: string, dueDate?: string | null, options?: { description?: string; priority?: 'low' | 'medium' | 'high'; recurrenceType?: 'none' | 'daily' | 'weekly'; recurrenceDays?: number[]; reminderEnabled?: boolean; reminderOffsetMinutes?: number | number[] }) => Promise<void>;
+  createTask: (title: string, parentNoteId?: string, dueDate?: string | null, options?: { description?: string; priority?: 'low' | 'medium' | 'high'; recurrenceType?: 'none' | 'daily' | 'weekly'; recurrenceDays?: number[]; reminderEnabled?: boolean; reminderOffsetMinutes?: number | number[] }) => Promise<Task | undefined>;
   updateTask: (id: string, data: UpdateTaskDto) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
   reorderTasks: (tasks: Task[]) => Promise<void>;
@@ -1408,6 +1408,7 @@ export const useStore = create<StoreState>((set, get) => ({
           }, 10000);
           db.saveTask(newTask);
           scheduleWebReminder(newTask);
+          return newTask;
       } catch (error: any) {
           // Offline creation
           const tempId = `temp-${Date.now()}`;
@@ -1438,6 +1439,7 @@ export const useStore = create<StoreState>((set, get) => ({
           }));
           await db.saveTask(tempTask, true);
           scheduleWebReminder(tempTask);
+          return tempTask;
       }
   },
 

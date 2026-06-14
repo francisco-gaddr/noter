@@ -414,7 +414,7 @@ export default function TaskList() {
         const reminderOffsets = Array.isArray(taskData.reminderOffsetMinutes)
           ? taskData.reminderOffsetMinutes
           : (typeof taskData.reminderOffsetMinutes === 'number' ? [taskData.reminderOffsetMinutes] : undefined);
-        await createTask(taskData.title, parentId, taskData.dueDate || null, {
+        return await createTask(taskData.title, parentId, taskData.dueDate || null, {
             description: taskData.description,
             priority: taskData.priority,
             recurrenceType: taskData.recurrenceType,

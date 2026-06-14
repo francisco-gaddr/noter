@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Task } from '@repo/shared';
+import { Task, applyDelegationDefaults, contextLevelConfig } from '@repo/shared';
 import { FaTimes, FaSave, FaTrash } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../stores/useStore';
 import { AiDelegationSection } from './AiDelegationSection';
+import { getDelegationDefaults, setDelegation as setLocalDelegation } from '../services/ai/agentDelegations';
+import { serializeAiDelegation } from '@repo/shared';
+import { graphqlRequest } from '../services/apiClient';
 
 interface TaskDetailModalProps {
   isOpen: boolean;
@@ -13,7 +16,7 @@ interface TaskDetailModalProps {
   defaultListId?: string | null;
   onUpdate: (id: string, updates: Partial<Task>) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
-  onCreate?: (task: Omit<Task, '_id' | 'createdAt' | 'updatedAt' | 'userId'>) => Promise<void>;
+  onCreate?: (task: Omit<Task, '_id' | 'createdAt' | 'updatedAt' | 'userId'>) => Promise<Task | void>;
 }
 
 export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
@@ -28,6 +31,11 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
 }) => {
   const { t } = useTranslation();
   const { notes } = useStore();
+  const user = useStore((s) => s.user) as any;
+  const userId: string | undefined = user?._id || user?.id || undefined;
+  // Delegate-at-creation: hand the new task to the AI agent immediately, seeded from
+  // the last delegation choice (full editing still available after it's created).
+  const [delegateOnCreate, setDelegateOnCreate] = useState(false);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<'low' | 'medium' | 'high'>('low');
@@ -186,7 +194,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                return isNaN(d.getTime()) ? null : d.toISOString();
              })()
            : null;
-         await onCreate({
+         const created = await onCreate({
             title,
             description,
             priority,
@@ -198,6 +206,15 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
             reminderEnabled,
             reminderOffsetMinutes: reminderEnabled ? (reminderOffsetMinutes.length > 0 ? reminderOffsetMinutes : [0]) : [0]
          });
+         // Attach the delegation now that the new task has an id (reuses the same local
+         // map + backend-sync path the edit flow uses).
+         if (delegateOnCreate && created && created._id) {
+           const delegation = applyDelegationDefaults(getDelegationDefaults(userId));
+           setLocalDelegation(created._id, delegation, userId);
+           if (delegation.runOnBackend) {
+             void graphqlRequest('mutation($id:String!,$input:TaskInput!){updateTask(id:$id,input:$input){_id}}', { id: created._id, input: { aiAgent: serializeAiDelegation(delegation) } }).catch(() => undefined);
+           }
+         }
       }
       onClose();
     } catch (error) {
@@ -442,7 +459,24 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
             </select>
           </div>
 
-          {task ? <AiDelegationSection task={task} /> : null}
+          {task ? <AiDelegationSection task={task} /> : (
+            <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+              <label className="flex items-center justify-between">
+                <span className="font-semibold text-gray-800 dark:text-gray-100">Delegera till AI-agenten direkt</span>
+                <input type="checkbox" checked={delegateOnCreate} onChange={(e) => setDelegateOnCreate(e.target.checked)} data-testid="ai-delegate-on-create" />
+              </label>
+              {delegateOnCreate ? (() => {
+                const d = applyDelegationDefaults(getDelegationDefaults(userId));
+                return (
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                    Använder senaste val: {d.source ?? 'api'}{d.model ? ` · ${d.model}` : ''} · {contextLevelConfig(d.contextLevel).label}. Sätt ett förfallodatum som deadline. Finjustera efter skapande.
+                  </p>
+                );
+              })() : (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">AI-agenten tar uppgiften vid förfallodatumet (senaste delegeringsval). Detaljer kan ändras efteråt.</p>
+              )}
+            </div>
+          )}
 
           <div className="flex justify-between pt-4 border-t border-gray-200 dark:border-gray-700 mt-4">
             {task ? (
