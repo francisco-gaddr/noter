@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { StyleSheet, View, FlatList, TextInput, KeyboardAvoidingView, Platform, ScrollView, Pressable, AppState, Linking } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Text, Button, useTheme, IconButton, List, ActivityIndicator, ProgressBar, Portal, Dialog, TextInput as PaperTextInput, Switch, Menu, Divider } from 'react-native-paper';
+import { Text, Button, useTheme, IconButton, List, ActivityIndicator, ProgressBar, Portal, Dialog, TextInput as PaperTextInput, Switch, Menu, Divider, Chip } from 'react-native-paper';
 import { useLocalSearchParams, useNavigation } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { MobileLlamaProvider } from '@/services/ai/provider';
@@ -31,7 +31,9 @@ import * as Clipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
-import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, safeDecrypt, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings, mcpSettingsFromJson, mcpSettingsToJsonString, mergePresetProviders, buildAttachmentContextBlock, summarizeAttachmentsForUi, imageDataUrls, MAX_ATTACHMENTS, type AiAttachment } from '@repo/shared';
+import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, safeDecrypt, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings, mcpSettingsFromJson, mcpSettingsToJsonString, mergePresetProviders, buildAttachmentContextBlock, summarizeAttachmentsForUi, imageDataUrls, MAX_ATTACHMENTS, CONTEXT_LEVELS, contextLevelConfig, summarizeToolPolicy, normalizeContextLevel, applyDelegationDefaults, serializeAiDelegation, type AiAttachment, type ContextLevel, type AiTaskSource, type AiTaskDelegation } from '@repo/shared';
+import { setDelegation as setLocalDelegation } from '@/services/ai/agentDelegations';
+import { syncDelegationToBackend } from '@/services/ai/agentBackendSync';
 import { pickAttachments } from '@/services/ai/attachments';
 
 const provider = new MobileLlamaProvider();
@@ -228,6 +230,9 @@ export default function AIScreen() {
   }, []);
   const [tokensPerSecond, setTokensPerSecond] = useState<number | null>(null);
   const [enableToolUse, setEnableToolUse] = useState(true);
+  // Chat complexity: gates which tools + searches the chat may use (minimal → just
+  // answer, deep → full tools + search). Mirrors the web AISidebar.
+  const [chatContextLevel, setChatContextLevel] = useState<ContextLevel>('standard');
   const [toolSettingsVisible, setToolSettingsVisible] = useState(false);
   const [userScopeKey, setUserScopeKey] = useState<string>('anon');
   const [collapsedTool, setCollapsedTool] = useState<Record<string, boolean>>({});
@@ -342,6 +347,16 @@ export default function AIScreen() {
   const activeApiKey = activeBinding.key;
   const activeApiModel = activeBinding.model;
   const activeBaseUrl = activeBinding.baseUrl;
+
+  // Build a delegation from the CURRENT chat settings so the chat can hand a task to
+  // the AI agent "with the model/source I'm using right now" (self-delegation flow).
+  const currentChatDelegationDefaults = () => {
+    if (!aiUseApiProviders) {
+      return { source: 'local' as AiTaskSource, provider: 'mlc', model: activeModel || undefined, contextLevel: chatContextLevel, toolUse: enableToolUse, runOnBackend: false };
+    }
+    const source: AiTaskSource = sendProviderId === 'hermes' ? 'hermes' : 'api';
+    return { source, provider: apiProvider, model: activeApiModel || undefined, baseUrl: activeBaseUrl, contextLevel: chatContextLevel, toolUse: enableToolUse, runOnBackend: false };
+  };
 
   // Usage / limits for the active provider+model (calls + tokens, today + month).
   const [usageSnapshot, setUsageSnapshot] = useState<UsageSnapshot | null>(null);
@@ -464,6 +479,8 @@ export default function AIScreen() {
       if (saved) setSystemPrompt(decrypt(saved));
       const savedToolUse = await AsyncStorage.getItem(`ai_tool_use_enabled_${scopeKey}`);
       if (savedToolUse !== null) setEnableToolUse(savedToolUse === 'true');
+      const savedContextLevel = await AsyncStorage.getItem(`ai_chat_context_level_${scopeKey}`);
+      if (savedContextLevel) setChatContextLevel(normalizeContextLevel(savedContextLevel));
       const savedLocalConvert = await AsyncStorage.getItem(`ai_local_convert_${scopeKey}`);
       if (savedLocalConvert !== null) setPreferLocalConversion(savedLocalConvert === 'true');
       const savedAttachmentsEnabled = await AsyncStorage.getItem(`ai_attachments_enabled_${scopeKey}`);
@@ -536,6 +553,11 @@ export default function AIScreen() {
     if (!userScopeKey) return;
     AsyncStorage.setItem(`ai_tool_use_enabled_${userScopeKey}`, enableToolUse ? 'true' : 'false');
   }, [enableToolUse, userScopeKey]);
+
+  useEffect(() => {
+    if (!userScopeKey) return;
+    AsyncStorage.setItem(`ai_chat_context_level_${userScopeKey}`, chatContextLevel);
+  }, [chatContextLevel, userScopeKey]);
 
   useEffect(() => {
     if (!userScopeKey) return;
@@ -1346,12 +1368,28 @@ export default function AIScreen() {
               return { task };
           }
           case 'create_task': {
-              if (args.parentNoteId) {
+              // Pull the agent-only fields out so they don't leak into TaskInput.
+              const { delegateToAi, aiInstructions, ...taskArgs } = args as Record<string, any>;
+              if (taskArgs.parentNoteId) {
                   const { ensureReadableNote } = getAISecurityContext();
-                  ensureReadableNote(String(args.parentNoteId));
+                  ensureReadableNote(String(taskArgs.parentNoteId));
               }
-              const query = `mutation($input:TaskInput!){createTask(input:$input){_id title description dueDate completed priority parentNoteId parentId recurrenceType recurrenceDays reminderEnabled reminderOffsetMinutes createdAt updatedAt}}`;
-              return graphQLRequest(query, { input: withDefaultReminderForDueDate(withNormalizedDueDate(withDefaultPriority(args))) });
+              // Self-delegation: hand the task to the AI agent using the CURRENT chat
+              // model/source/level so it runs later with "what I'm using right now".
+              let delegation: AiTaskDelegation | null = null;
+              if (delegateToAi) {
+                  delegation = applyDelegationDefaults(currentChatDelegationDefaults());
+                  if (typeof aiInstructions === 'string' && aiInstructions.trim()) delegation.instructions = aiInstructions.trim();
+                  (taskArgs as any).aiAgent = serializeAiDelegation(delegation);
+              }
+              const query = `mutation($input:TaskInput!){createTask(input:$input){_id title description dueDate completed priority parentNoteId parentId recurrenceType recurrenceDays reminderEnabled reminderOffsetMinutes aiAgent createdAt updatedAt}}`;
+              const res = await graphQLRequest(query, { input: withDefaultReminderForDueDate(withNormalizedDueDate(withDefaultPriority(taskArgs))) });
+              const newId = (res as any)?.createTask?._id;
+              if (delegation && newId) {
+                  try { await setLocalDelegation(String(newId), delegation); } catch { /* best-effort */ }
+                  if (delegation.runOnBackend) { try { await syncDelegationToBackend(String(newId), delegation); } catch { /* best-effort */ } }
+              }
+              return res;
           }
           case 'update_task': {
               const { tasks, noteMap, unlockedIds } = getAISecurityContext();
@@ -1401,8 +1439,12 @@ export default function AIScreen() {
   };
 
   const processToolCalls = async (conversationId: string, assistantId: string, assistantText: string, intentText: string) => {
-      if (!enableToolUse) return [];
-      const { calls, cleaned } = extractToolCalls(assistantText);
+      const policy = contextLevelConfig(chatContextLevel);
+      if (!enableToolUse || !policy.allowReadTools) return [];
+      const { calls: rawCalls, cleaned } = extractToolCalls(assistantText);
+      // Gate by context level: write/mutation tools only when the level permits.
+      const WRITE_TOOLS = new Set(['create_note', 'update_note', 'delete_note', 'create_project', 'update_project', 'delete_project', 'create_tasklist', 'update_tasklist', 'delete_tasklist', 'create_task', 'update_task', 'delete_task']);
+      const calls = policy.allowWriteTools ? rawCalls : rawCalls.filter((c) => !WRITE_TOOLS.has(c.tool));
       const newMessages: ChatMessage[] = [];
       if (cleaned !== assistantText) {
           setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: cleaned } : m));
@@ -1621,9 +1663,15 @@ export default function AIScreen() {
           .map((n: any) => ({ id: String(n._id), title: String(n.title || '') }));
         return { projects: pick('project'), taskLists: pick('task_list') };
       })();
-      const toolPrompt = enableToolUse ? buildToolSystemPrompt(API_URL.replace(/\/+$/, ''), getEnabledMcpServices(), toolContext) : '';
-      const toolUseNotice = buildToolUseNotice(enableToolUse);
-      const combinedPrompt = combineSystemPrompts([systemPrompt, toolUseNotice, toolPrompt].filter(Boolean).join('\n\n'), projectPrompt);
+      const policy = contextLevelConfig(chatContextLevel);
+      const effectiveToolUse = enableToolUse && policy.allowReadTools;
+      const toolPrompt = effectiveToolUse ? buildToolSystemPrompt(API_URL.replace(/\/+$/, ''), getEnabledMcpServices(), toolContext) : '';
+      const toolUseNotice = buildToolUseNotice(effectiveToolUse);
+      const levelNotice = `Kontextnivå: ${policy.label} — ${policy.description} Tillåtet: ${summarizeToolPolicy(chatContextLevel, enableToolUse).join(', ')}.${policy.allowWriteTools ? '' : ' (Endast läs-/sökverktyg på denna nivå.)'}`;
+      const delegationNotice = effectiveToolUse
+        ? 'Självdelegering: om användaren uttryckligen ber dig schemalägga/ta dig an en uppgift själv (som AI-agent), anropa create_task med delegateToAi=true (sätt dueDate som deadline, aiInstructions för extra styrning). Då körs uppgiften senare av AI-agenten med nuvarande modell/källa. Vanlig uppgift till användaren: create_task utan delegateToAi.'
+        : '';
+      const combinedPrompt = combineSystemPrompts([systemPrompt, levelNotice, toolUseNotice, delegationNotice, toolPrompt].filter(Boolean).join('\n\n'), projectPrompt);
       const systemMsg = combinedPrompt
         ? ({ id: 'system', role: 'system', content: combinedPrompt, createdAt: new Date().toISOString() } as ChatMessage)
         : null;
@@ -2304,6 +2352,22 @@ export default function AIScreen() {
             <Text style={{ marginTop: 8, color: theme.colors.onSurfaceVariant }}>
               {t('ai.toolUseHint')}
             </Text>
+            <Text style={{ marginTop: 16, fontWeight: '600' }}>Kontextnivå (komplexitet)</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+              {CONTEXT_LEVELS.map((l) => (
+                <Chip key={l} compact selected={chatContextLevel === l} onPress={() => setChatContextLevel(l)} testID={`chat-context-${l}`}>
+                  {contextLevelConfig(l).label}
+                </Chip>
+              ))}
+            </View>
+            <Text style={{ marginTop: 6, fontSize: 12, color: theme.colors.onSurfaceVariant }}>
+              {contextLevelConfig(chatContextLevel).description}
+            </Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 6 }} testID="chat-tool-policy">
+              {summarizeToolPolicy(chatContextLevel, enableToolUse).map((cap) => (
+                <Chip key={cap} compact textStyle={{ fontSize: 10 }}>{cap}</Chip>
+              ))}
+            </View>
           </Dialog.Content>
           <Dialog.Actions>
             <Button onPress={() => setToolSettingsVisible(false)}>{t('common.close')}</Button>

@@ -8,12 +8,14 @@ import { yupResolver } from '@hookform/resolvers/yup';
 import * as yup from 'yup';
 import { useStore } from '@/stores/useStore';
 import { useStore as useGlobalStore } from '@/stores/useStore';
-import { Note } from '@repo/shared';
+import { Note, applyDelegationDefaults, contextLevelConfig } from '@repo/shared';
 import { CreateTaskDto, UpdateTaskDto } from '@repo/shared';
 import { debounce } from 'lodash';
 import { useTranslation } from 'react-i18next';
 import { AiDelegationSection } from '@/components/AiDelegationSection';
 import { getReminderDefaultsForDueDate } from '@/services/tasks/reminderDefaults';
+import { getDelegationDefaults, setDelegation as setLocalDelegation } from '@/services/ai/agentDelegations';
+import { syncDelegationToBackend } from '@/services/ai/agentBackendSync';
 
 type FormData = {
   title: string;
@@ -47,6 +49,11 @@ export default function TaskEditorScreen() {
   
   const isNew = id === 'new';
   const existingTask = tasks.find(t => t._id === id);
+  // Delegate-at-creation: hand the new task to the AI agent immediately (seeded from
+  // the last delegation choice; full editing still available after it's created).
+  const [delegateOnCreate, setDelegateOnCreate] = useState(false);
+  const [delegateDefaults, setDelegateDefaults] = useState<ReturnType<typeof applyDelegationDefaults> | null>(null);
+  useEffect(() => { if (isNew) { getDelegationDefaults().then((d) => setDelegateDefaults(applyDelegationDefaults(d))).catch(() => {}); } }, [isNew]);
   const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
   const endOfWeek = (d: Date) => {
     const day = d.getDay(); // 0=Sun
@@ -210,7 +217,12 @@ export default function TaskEditorScreen() {
         };
         // await createTask to ensure optimistic update happens before nav
         // and to keep submitting state true
-        await createTask(dto);
+        const created = await createTask(dto);
+        if (delegateOnCreate && created?._id) {
+          const delegation = applyDelegationDefaults(await getDelegationDefaults());
+          try { await setLocalDelegation(created._id, delegation); } catch { /* best-effort */ }
+          if (delegation.runOnBackend) { try { await syncDelegationToBackend(created._id, delegation); } catch { /* best-effort */ } }
+        }
         router.back();
       } else {
         const dto: UpdateTaskDto = {
@@ -581,6 +593,23 @@ export default function TaskEditorScreen() {
         {!isNew && existingTask ? (
           <View style={styles.section}>
             <AiDelegationSection task={existingTask} />
+          </View>
+        ) : null}
+
+        {isNew ? (
+          <View style={styles.section}>
+            <Checkbox.Item
+              label="Delegera till AI-agenten direkt"
+              status={delegateOnCreate ? 'checked' : 'unchecked'}
+              onPress={() => setDelegateOnCreate((v) => !v)}
+              position="leading"
+              testID="ai-delegate-on-create"
+            />
+            <Text style={{ fontSize: 12, color: theme.colors.onSurfaceVariant, paddingHorizontal: 8 }}>
+              {delegateOnCreate && delegateDefaults
+                ? `Använder senaste val: ${delegateDefaults.source ?? 'api'}${delegateDefaults.model ? ` · ${delegateDefaults.model}` : ''} · ${contextLevelConfig(delegateDefaults.contextLevel).label}. Sätt ett förfallodatum som deadline. Finjustera efter skapande.`
+                : 'AI-agenten tar uppgiften vid förfallodatumet (senaste delegeringsval). Detaljer kan ändras efteråt.'}
+            </Text>
           </View>
         ) : null}
       </ScrollView>
