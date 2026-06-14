@@ -5,27 +5,41 @@ import Fuse from 'fuse.js';
 import { useStore } from '@/stores/useStore';
 import NoteList from '@/components/NoteList';
 import TaskList from '@/components/TaskList';
-import { Note, Task } from '@repo/shared';
+import { Note, Task, buildSecurityNoteMap, isReadableWithLocks } from '@repo/shared';
 import { HighlightedText } from '@/components/HighlightedText';
 
 export default function SearchScreen() {
   const { notes, tasks, updateTask } = useStore();
+  const unlockedProtectedNoteIds = useStore((s) => s.unlockedProtectedNoteIds);
   const theme = useTheme();
   const [searchQuery, setSearchQuery] = useState('');
 
+  // SECURITY: never index/search notes (or tasks) under a locked-and-not-unlocked
+  // folder — search must not be a side channel that reveals locked content.
+  const { readableNotes, readableTasks } = useMemo(() => {
+    const securityMap = buildSecurityNoteMap(notes as any);
+    const unlockedSet = new Set(unlockedProtectedNoteIds || []);
+    const rNotes = notes.filter((n) => isReadableWithLocks(n as any, securityMap as any, unlockedSet));
+    const rTasks = tasks.filter((t) => {
+      if (!t.parentNoteId) return true;
+      return isReadableWithLocks(securityMap.get(String(t.parentNoteId)) as any, securityMap as any, unlockedSet);
+    });
+    return { readableNotes: rNotes, readableTasks: rTasks };
+  }, [notes, tasks, unlockedProtectedNoteIds]);
+
   const noteFuse = useMemo(() => {
-    return new Fuse(notes, {
+    return new Fuse(readableNotes, {
       keys: ['title', 'content', 'tags'],
       threshold: 0.3,
     });
-  }, [notes]);
+  }, [readableNotes]);
 
   const taskFuse = useMemo(() => {
-    return new Fuse(tasks, {
+    return new Fuse(readableTasks, {
       keys: ['title', 'description'],
       threshold: 0.3,
     });
-  }, [tasks]);
+  }, [readableTasks]);
 
   const filteredNotes = useMemo(() => {
     if (!searchQuery) return [];

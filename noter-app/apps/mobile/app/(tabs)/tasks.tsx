@@ -7,7 +7,7 @@ import { useStore } from '@/stores/useStore';
 import TaskList from '@/components/TaskList';
 import { TaskBoard } from '@/components/TaskBoard';
 import { TaskTimeline } from '@/components/TaskTimeline';
-import { Task, priorityRank, isBlankTask, completedTasks as pickCompletedTasks } from '@repo/shared';
+import { Task, priorityRank, isBlankTask, completedTasks as pickCompletedTasks, buildSecurityNoteMap, isReadableWithLocks } from '@repo/shared';
 import { pushCalendarFeed } from '@/services/calendarSubscription';
 import { orderBy } from 'lodash';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -76,6 +76,7 @@ export default function TasksScreen() {
   const navigation = useNavigation();
   const theme = useTheme();
   const { tasks, notes, isLoading, fetchTasks, fetchNotes, updateTask, reorderTasks, createNote, updateNote, deleteNote, deleteTask } = useStore();
+  const unlockedProtectedNoteIds = useStore((s) => s.unlockedProtectedNoteIds);
 
   // Keep the external calendar feed (ICS subscription) live: push the latest task
   // projection whenever tasks change. No-op unless the user created a subscription.
@@ -213,9 +214,13 @@ export default function TasksScreen() {
   );
 
   const filteredTasks = useMemo(() => {
+    // SECURITY: never list a task whose parent list/project is locked-and-not-unlocked.
+    const securityMap = buildSecurityNoteMap(notes as any);
+    const unlockedSet = new Set(unlockedProtectedNoteIds || []);
+    const lockReadable = (t: Task) => !t.parentNoteId || isReadableWithLocks(securityMap.get(String(t.parentNoteId)) as any, securityMap as any, unlockedSet);
     // Hide completely-empty (titleless) tasks — junk from failed syncs should never
     // clutter the list; only tasks with real content show.
-    let result = tasks.filter(t => !isBlankTask(t) && (!selectedListId ? true : t.parentNoteId === selectedListId));
+    let result = tasks.filter(t => lockReadable(t) && !isBlankTask(t) && (!selectedListId ? true : t.parentNoteId === selectedListId));
 
     // Status Filter
     if (statusFilter === 'active') {
@@ -234,7 +239,7 @@ export default function TasksScreen() {
     }
 
     return result;
-  }, [tasks, selectedListId, statusFilter, filterDateRange]);
+  }, [tasks, notes, unlockedProtectedNoteIds, selectedListId, statusFilter, filterDateRange]);
 
   const sortedTasks = useMemo(() => {
     if (sortBy === 'custom') {
