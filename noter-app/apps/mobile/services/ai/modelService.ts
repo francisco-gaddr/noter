@@ -1,8 +1,10 @@
 import { HFFile, HFModel } from '@repo/ai';
 import { saveModelLocal, deleteModelLocal } from '@/services/database';
 import { v4 as uuidv4 } from 'uuid';
+import { Platform } from 'react-native';
 import { downloadCompiledModel, getModelDir, getPlatformTarget, stopModelDownload } from './ModelDownloader';
 import { requestModelConversion, getConversionStatus, getCompiledModelUrl } from './huggingface';
+import { canConvertLocally, convertGGUFToMLC } from './native/MLCModule';
 
 // Try to load RNFS safely
 let RNFS: any;
@@ -56,6 +58,41 @@ export const downloadModel = async (
     const exists = await RNFS.exists(modelDir);
     if (!exists) {
         options?.onStageChange?.('queued');
+
+        // On-device path: when the user opted into local conversion AND the native
+        // MLC converter is linked, download the raw GGUF and convert it to MLC
+        // format ON THE DEVICE — no server round-trip. The model then loads from
+        // modelDir for fully-local chat. (Falls back to the server path below if
+        // the converter isn't available, e.g. Expo Go or an older build.)
+        if (options?.preferLocalConversion && canConvertLocally() && RNFS) {
+            const target: 'iphone' | 'android' = Platform.OS === 'ios' ? 'iphone' : 'android';
+            const ggufPath = `${MODELS_DIR}${model.id.replace(/[^a-zA-Z0-9._-]/g, '_')}-${file.quantization || 'model'}.gguf`;
+            await RNFS.mkdir(MODELS_DIR).catch(() => {});
+            options?.onStageChange?.('downloading');
+            const dl = RNFS.downloadFile({
+                fromUrl: file.url,
+                toFile: ggufPath,
+                progressDivider: 5,
+                progress: (r: { bytesWritten: number; contentLength: number }) => {
+                    if (r.contentLength > 0) onProgress?.(Math.min(0.6, (r.bytesWritten / r.contentLength) * 0.6));
+                },
+            });
+            await dl.promise;
+            options?.onStageChange?.('converting_locally');
+            await convertGGUFToMLC(ggufPath, modelDir, file.quantization || 'Q4_K_M', target);
+            // The raw GGUF is no longer needed once compiled — reclaim the space.
+            await RNFS.unlink(ggufPath).catch(() => {});
+            onProgress?.(1);
+            options?.onStageChange?.('completed');
+
+            const filenameLocal = (file.quantization ? `${file.quantization}.zip` : 'model.zip');
+            await saveModelLocal({
+                id: uuidv4(), name: model.name, filename: filenameLocal, path: modelDir,
+                size: file.size, downloaded: true, quantization: file.quantization,
+            });
+            return modelDir;
+        }
+
         const { jobId } = await requestModelConversion({
             modelId: model.id,
             ggufUrl: file.url,
