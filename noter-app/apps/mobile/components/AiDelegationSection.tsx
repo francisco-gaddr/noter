@@ -37,37 +37,54 @@ const accessLabel = (kind: string): string => {
   }
 };
 
-export const AiDelegationSection: React.FC<{ task: Task }> = ({ task }) => {
+/**
+ * Two modes:
+ *  - bound mode `{ task }` — reads/writes the encrypted delegation map for that task
+ *    and can "Kör nu" + show the transparent run log.
+ *  - draft mode `{ draftValue, onDraftChange }` — fully controlled, no persistence (used
+ *    at task CREATION so the same editable controls appear, seeded from the last choice;
+ *    the parent persists the draft once the task exists).
+ */
+export const AiDelegationSection: React.FC<{
+  task?: Task;
+  draftValue?: AiTaskDelegation | null;
+  onDraftChange?: (d: AiTaskDelegation | null) => void;
+}> = ({ task, draftValue, onDraftChange }) => {
   const theme = useTheme();
+  const isDraft = !task;
   const allNotes = useStore((s) => s.notes) as any[];
   const projectFolders = (allNotes || []).filter((n) => normalizeNoteType(n.type) === 'project');
-  const [delegation, setLocalDelegation] = useState<AiTaskDelegation | null>(null);
+  const [delegation, setLocalDelegation] = useState<AiTaskDelegation | null>(isDraft ? (draftValue ?? null) : null);
   const [runLog, setRunLog] = useState<AgentRunLogEntry | null>(null);
   const [running, setRunning] = useState(false);
-  const [loaded, setLoaded] = useState(false);
+  const [loaded, setLoaded] = useState(isDraft);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
   const refresh = useCallback(async () => {
+    if (isDraft) { setLoaded(true); return; }
     const [map, logs] = await Promise.all([getDelegations(), getRunLog()]);
-    setLocalDelegation(map[task._id] ?? null);
-    setRunLog(logs[task._id] ?? null);
+    setLocalDelegation(map[task!._id] ?? null);
+    setRunLog(logs[task!._id] ?? null);
     setLoaded(true);
-  }, [task._id]);
+  }, [isDraft, task]);
 
   useEffect(() => { void refresh(); }, [refresh]);
+  // Keep local state in sync when the parent drives the draft value.
+  useEffect(() => { if (isDraft) setLocalDelegation(draftValue ?? null); }, [isDraft, draftValue]);
 
   const persist = useCallback(async (next: AiTaskDelegation | null) => {
     setLocalDelegation(next);
+    if (isDraft) { onDraftChange?.(next); return; }
     if (next && next.assignee === 'ai') {
-      await setDelegation(task._id, next);
+      await setDelegation(task!._id, next);
       // Mirror to the always-on backend when the user opts into server execution.
-      if (next.runOnBackend) await syncDelegationToBackend(task._id, next);
-      else await clearBackendDelegation(task._id);
+      if (next.runOnBackend) await syncDelegationToBackend(task!._id, next);
+      else await clearBackendDelegation(task!._id);
     } else {
-      await removeDelegation(task._id);
-      await clearBackendDelegation(task._id);
+      await removeDelegation(task!._id);
+      await clearBackendDelegation(task!._id);
     }
-  }, [task._id]);
+  }, [isDraft, task, onDraftChange]);
 
   const enabled = !!delegation && delegation.assignee === 'ai';
   const d: AiTaskDelegation = delegation ?? { assignee: 'user' };
@@ -106,6 +123,7 @@ export const AiDelegationSection: React.FC<{ task: Task }> = ({ task }) => {
       : API_PROVIDER_LIST.filter((p) => !p.configurableEndpoint);
 
   const runNow = async () => {
+    if (!task) return;
     setRunning(true);
     try {
       await runAgentTaskNow(task);
@@ -276,6 +294,11 @@ export const AiDelegationSection: React.FC<{ task: Task }> = ({ task }) => {
             </View>
           ) : null}
 
+          {isDraft ? (
+            <Text style={{ marginTop: 12, fontSize: 12, color: theme.colors.onSurfaceVariant }}>
+              Valen sparas på uppgiften när du skapar den. Sätt ett förfallodatum som deadline; agenten kör då. Du kan "Kör nu" och se körningsloggen efter att uppgiften skapats.
+            </Text>
+          ) : (
           <Button
             mode="contained"
             onPress={runNow}
@@ -287,8 +310,9 @@ export const AiDelegationSection: React.FC<{ task: Task }> = ({ task }) => {
           >
             {running ? 'Kör…' : 'Kör nu'}
           </Button>
+          )}
 
-          {d.status && d.status !== 'idle' ? (
+          {!isDraft && d.status && d.status !== 'idle' ? (
             <Text style={{ marginTop: 8, fontSize: 12, color: theme.colors.onSurfaceVariant }}>
               Status: {d.status}{d.lastRunAt ? ` · ${new Date(d.lastRunAt).toLocaleString('sv-SE')}` : ''}
             </Text>

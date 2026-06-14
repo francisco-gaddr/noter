@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { StyleSheet, View, Alert, ScrollView, Platform } from 'react-native';
+import { StyleSheet, View, Alert, ScrollView, Platform, KeyboardAvoidingView } from 'react-native';
 import { Appbar, TextInput, Button, SegmentedButtons, HelperText, useTheme, Checkbox, Text, Chip } from 'react-native-paper';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
@@ -8,13 +8,13 @@ import { yupResolver } from '@hookform/resolvers/yup';
 import * as yup from 'yup';
 import { useStore } from '@/stores/useStore';
 import { useStore as useGlobalStore } from '@/stores/useStore';
-import { Note, applyDelegationDefaults, contextLevelConfig, toggleEntityLink, normalizeNoteType, type EntityLink } from '@repo/shared';
+import { Note, toggleEntityLink, normalizeNoteType, type EntityLink, type AiTaskDelegation } from '@repo/shared';
 import { CreateTaskDto, UpdateTaskDto } from '@repo/shared';
 import { debounce } from 'lodash';
 import { useTranslation } from 'react-i18next';
 import { AiDelegationSection } from '@/components/AiDelegationSection';
 import { getReminderDefaultsForDueDate } from '@/services/tasks/reminderDefaults';
-import { getDelegationDefaults, setDelegation as setLocalDelegation } from '@/services/ai/agentDelegations';
+import { setDelegation as setLocalDelegation } from '@/services/ai/agentDelegations';
 import { syncDelegationToBackend } from '@/services/ai/agentBackendSync';
 
 type FormData = {
@@ -49,11 +49,10 @@ export default function TaskEditorScreen() {
   
   const isNew = id === 'new';
   const existingTask = tasks.find(t => t._id === id);
-  // Delegate-at-creation: hand the new task to the AI agent immediately (seeded from
-  // the last delegation choice; full editing still available after it's created).
-  const [delegateOnCreate, setDelegateOnCreate] = useState(false);
-  const [delegateDefaults, setDelegateDefaults] = useState<ReturnType<typeof applyDelegationDefaults> | null>(null);
-  useEffect(() => { if (isNew) { getDelegationDefaults().then((d) => setDelegateDefaults(applyDelegationDefaults(d))).catch(() => {}); } }, [isNew]);
+  // Delegate-at-creation: the same full editable delegation controls as the editor,
+  // shown as a controlled DRAFT. Toggling delegation on seeds the latest choices; the
+  // draft is persisted to the task once it's created.
+  const [draftDelegation, setDraftDelegation] = useState<AiTaskDelegation | null>(null);
   // Explicit graph links to other entities.
   const allTasks = useStore((s) => s.tasks);
   const [links, setLinks] = useState<EntityLink[]>([]);
@@ -224,10 +223,9 @@ export default function TaskEditorScreen() {
         // await createTask to ensure optimistic update happens before nav
         // and to keep submitting state true
         const created = await createTask(dto);
-        if (delegateOnCreate && created?._id) {
-          const delegation = applyDelegationDefaults(await getDelegationDefaults());
-          try { await setLocalDelegation(created._id, delegation); } catch { /* best-effort */ }
-          if (delegation.runOnBackend) { try { await syncDelegationToBackend(created._id, delegation); } catch { /* best-effort */ } }
+        if (draftDelegation?.assignee === 'ai' && created?._id) {
+          try { await setLocalDelegation(created._id, draftDelegation); } catch { /* best-effort */ }
+          if (draftDelegation.runOnBackend) { try { await syncDelegationToBackend(created._id, draftDelegation); } catch { /* best-effort */ } }
         }
         router.back();
       } else {
@@ -301,7 +299,12 @@ export default function TaskEditorScreen() {
         <Appbar.Action icon="check" onPress={handleSubmit(onSubmit)} disabled={isSubmitting || submitting} />
       </Appbar.Header>
 
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+      >
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: 320 }]} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive">
         <Controller
           control={control}
           name="title"
@@ -642,21 +645,11 @@ export default function TaskEditorScreen() {
 
         {isNew ? (
           <View style={styles.section}>
-            <Checkbox.Item
-              label="Delegera till AI-agenten direkt"
-              status={delegateOnCreate ? 'checked' : 'unchecked'}
-              onPress={() => setDelegateOnCreate((v) => !v)}
-              position="leading"
-              testID="ai-delegate-on-create"
-            />
-            <Text style={{ fontSize: 12, color: theme.colors.onSurfaceVariant, paddingHorizontal: 8 }}>
-              {delegateOnCreate && delegateDefaults
-                ? `Använder senaste val: ${delegateDefaults.source ?? 'api'}${delegateDefaults.model ? ` · ${delegateDefaults.model}` : ''} · ${contextLevelConfig(delegateDefaults.contextLevel).label}. Sätt ett förfallodatum som deadline. Finjustera efter skapande.`
-                : 'AI-agenten tar uppgiften vid förfallodatumet (senaste delegeringsval). Detaljer kan ändras efteråt.'}
-            </Text>
+            <AiDelegationSection draftValue={draftDelegation} onDraftChange={setDraftDelegation} />
           </View>
         ) : null}
       </ScrollView>
+      </KeyboardAvoidingView>
     </View>
   );
 }

@@ -2999,10 +2999,14 @@ export default function AIScreen() {
                       : { label: 'Verktyg', icon: 'tools', color: theme.colors.primary };
                     // Human one-liner ("Skapade uppgift: X", "Sökte…", "Anropade …")
                     // so the card is always informative — never empty.
-                    const summary = summarizeToolMessage(item.content).summary;
+                    const summary = summarizeToolMessage(item.content).summary || `Tool use · ${kind.label}`;
+                    // Body text with the "Tool call/result:" prefix stripped; falls back to
+                    // the summary so the box is never blank. Shown as a 2-line preview when
+                    // collapsed (so content is always visible) and in full when expanded.
+                    const bodyText = (item.content || '').replace(/^Tool (call|result|error):\s*/i, '').trim() || summary;
                     return (
                       <View style={[styles.messageRow, styles.rowLeft]}>
-                        <View style={[styles.toolCard, { borderColor: kind.color }]}>
+                        <View style={[styles.toolCard, { borderColor: kind.color, backgroundColor: theme.colors.surfaceVariant }]}>
                           <Pressable
                             style={styles.toolHeader}
                             onPress={() => setCollapsedTool(prev => ({ ...prev, [key]: !collapsed }))}
@@ -3012,16 +3016,18 @@ export default function AIScreen() {
                             <View style={styles.toolHeaderLeft}>
                               <FontAwesome5 name={kind.icon} size={14} color={kind.color} />
                               <Text style={[styles.toolTitle, { color: theme.colors.onSurface }]} numberOfLines={1}>
-                                {summary || `Tool use · ${kind.label}`}
+                                {summary}
                               </Text>
                             </View>
                             <FontAwesome5 name={collapsed ? 'chevron-down' : 'chevron-up'} size={12} color={theme.colors.onSurfaceVariant} />
                           </Pressable>
-                          {!collapsed && (
-                            <Text style={[styles.toolBody, { color: theme.colors.onSurfaceVariant }]}>
-                              {item.content}
-                            </Text>
-                          )}
+                          <Text
+                            style={[styles.toolBody, { color: theme.colors.onSurfaceVariant }]}
+                            numberOfLines={collapsed ? 2 : undefined}
+                            selectable={!collapsed}
+                          >
+                            {bodyText}
+                          </Text>
                         </View>
                       </View>
                     );
