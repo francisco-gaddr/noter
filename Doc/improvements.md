@@ -2,6 +2,15 @@
 
 Status: `agent/e2e-encryption-clean` · 2026-05-14 · reviewer: djup genomgång + implementation av `noter-app/`, `electron-noter/`, `packages/ai`, `packages/shared` och hela `Doc/`.
 
+## ⭐ Planerat nästa stort initiativ — Desktop: Electron → Tauri v2 (2026-06-14)
+
+Dokumentationen är **förberedd och exekveringsklar** så migreringen inte startar från noll:
+
+- **Beslut + motivering:** [`adr/0007-electron-vs-tauri.md`](adr/0007-electron-vs-tauri.md) — migrera, men gör en **1–2 veckors spike först** (rendera vår riktiga UI i WKWebView/WebView2/WebKitGTK + prototypa keyring-dataKey). Vinster: ~10–30× mindre installer, ~½ RAM; vår Next.js-static-UI följer med.
+- **Körguide (steg-för-steg, säkerhetsförst):** [`migrations/electron-to-tauri-runbook.md`](migrations/electron-to-tauri-runbook.md) — komplett **IPC-karta (45+ kanaler)** från verkliga `electron-noter/`, **secure-store-omdesignen som bevarar E2E** (keyring master-key + AES-GCM-blob; v3-dataKey aldrig i klartext; migrera via E2E-lösenord), **auto-update-brygga** för befintliga användare (minisign, Windows två-stegssignering), **3-webview QA-matris**, **§9 Säkerhetsgrind** som körs varje fas, fasplan med exit-gates, effort (~6–10 personveckor), rollback.
+- **Mål (icke förhandlingsbart):** all funktionalitet OCH säkerhet kvarstår — E2E-kryptering, locked-notes-invarianten och "inga klartextläckor utom opt-in-kalenderlänken" verifieras i §9 efter varje fas. `electron-noter/` förblir releasebar tills Tauri-bygget klarar §7 (QA) + §9 (säkerhet).
+- **Var börjar jag?** Läs ADR-0007 (5 min) → följ runbookens §1 (spike) → §10 (fasplan). Allt finns redan kartlagt; inget gissande.
+
 ## Statusuppdatering (2026-06-13 — offline-sync-kö)
 
 | # | Område | Status | Detalj |
