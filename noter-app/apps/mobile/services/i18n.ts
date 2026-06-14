@@ -165,6 +165,7 @@ const resources = {
         chatsTitle: 'Chats',
         noChats: 'No chats',
         newChatFallback: 'New chat',
+        localOnlyLabel: 'Local only (don’t sync to the cloud)',
         systemPromptPlaceholder: 'Write a system prompt...',
         toolUseTitle: 'Tool use',
         toolUseLabel: 'Allow tool use',
@@ -482,6 +483,7 @@ const resources = {
         chatsTitle: 'Chattar',
         noChats: 'Inga chattar',
         newChatFallback: 'Ny chatt',
+        localOnlyLabel: 'Endast lokalt (synka inte till molnet)',
         project: {
           createTitle: 'Nytt projekt',
           editTitle: 'Redigera projekt',
