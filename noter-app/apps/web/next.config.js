@@ -1,14 +1,29 @@
 /** @type {import('next').NextConfig} */
+
+// The same web app ships two ways:
+//  - SSR on the Raspberry Pi (dynamic API routes, security headers) — default.
+//  - A static export bundled into the Electron desktop app — when ELECTRON_EXPORT=1.
+// Next 16 removed `next export`; a static export is produced by `output: 'export'`
+// during `next build`. Static export can't serve the dynamic /api routes or set
+// HTTP headers, so we drop those only in export mode (the desktop app uses the
+// native mlc bridge + the remote backend, not the Next API routes).
+const isElectronExport = process.env.ELECTRON_EXPORT === '1';
+
 const nextConfig = {
-  // If the app is hosted at daylited.com/app, we need basePath set to /app
-  // But locally we might want it at root.
-  // We can use an env var, but for this specific fix requested by user, we can hardcode or default it.
-  // The user says "https://daylited.com/app/_next/...", so basePath must be /app.
+  // Hosted at daylited.com/app, and the Electron custom protocol serves /app too.
   basePath: '/app',
   assetPrefix: '/app',
-  // Trailing slash is often needed for subpath deployments to handle redirects correctly
+  // Trailing slash is needed for subpath + static-export directory routing.
   trailingSlash: true,
-  
+
+  ...(isElectronExport
+    ? {
+        output: 'export',
+        // No Next image optimizer in a static export.
+        images: { unoptimized: true },
+      }
+    : {}),
+
   env: {
     NEXT_PUBLIC_BUILD_TIMESTAMP: new Date().toISOString(),
     NEXT_PUBLIC_BUILD_ID: process.env.BUILD_ID || 'development-' + Math.floor(Math.random() * 10000),
@@ -16,36 +31,41 @@ const nextConfig = {
 
   serverExternalPackages: ['node-llama-cpp'],
 
-  // Increase max body size and response timeout for large AI model downloads
-  experimental: {
-    serverActions: {
-      bodySizeLimit: '10gb',
-    },
-  },
+  // Server Actions and custom headers require a server — omit them from the static
+  // export so `next build` doesn't reject `output: 'export'`.
+  ...(isElectronExport
+    ? {}
+    : {
+        // Increase max body size and response timeout for large AI model downloads
+        experimental: {
+          serverActions: {
+            bodySizeLimit: '10gb',
+          },
+        },
+        async headers() {
+          const csp = [
+            "default-src 'self' https: data: 'unsafe-inline' 'unsafe-eval'",
+            "connect-src 'self' https: http: wss: ws:",
+            "img-src 'self' https: data: blob:",
+            "style-src 'self' 'unsafe-inline' https:",
+            "font-src 'self' https: data:",
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:",
+            "worker-src 'self' blob:",
+            "object-src 'none'",
+            "base-uri 'self'",
+            "frame-ancestors 'self'",
+          ].join('; ');
 
-  async headers() {
-    const csp = [
-      "default-src 'self' https: data: 'unsafe-inline' 'unsafe-eval'",
-      "connect-src 'self' https: http: wss: ws:",
-      "img-src 'self' https: data: blob:",
-      "style-src 'self' 'unsafe-inline' https:",
-      "font-src 'self' https: data:",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https:",
-      "worker-src 'self' blob:",
-      "object-src 'none'",
-      "base-uri 'self'",
-      "frame-ancestors 'self'",
-    ].join('; ');
-
-    return [
-      {
-        source: '/:path*',
-        headers: [
-          { key: 'Content-Security-Policy', value: csp },
-        ],
-      },
-    ];
-  },
+          return [
+            {
+              source: '/:path*',
+              headers: [
+                { key: 'Content-Security-Policy', value: csp },
+              ],
+            },
+          ];
+        },
+      }),
 };
 
 export default nextConfig;

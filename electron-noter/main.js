@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, screen, nativeTheme, shell, crashReporter, dialog, clipboard, Notification, powerMonitor, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, screen, nativeTheme, shell, crashReporter, dialog, clipboard, Notification, powerMonitor, safeStorage, protocol } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -51,6 +51,65 @@ if (!gotSingleInstanceLock) {
     }
   });
 }
+
+// ---------- bundled-renderer protocol ----------
+// The renderer is a Next.js static export bundled under ./renderer with a `/app`
+// basePath. file:// can't resolve those absolute `/app/_next/...` URLs, so we
+// serve the bundle over a custom `app://` scheme: requests for `/app/...` map to
+// the renderer dir (the `/app` prefix stripped). Registered as a privileged,
+// secure, standard scheme so it behaves like https for fetch/CSP/service workers.
+const RENDERER_ROOT = path.join(__dirname, 'renderer');
+const APP_SCHEME = 'app';
+const APP_ORIGIN = `${APP_SCHEME}://noter`;
+const hasBundledRenderer = () => fs.existsSync(path.join(RENDERER_ROOT, 'index.html'));
+
+protocol.registerSchemesAsPrivileged([
+  { scheme: APP_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true } },
+]);
+
+const MIME_BY_EXT = {
+  '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css',
+  '.json': 'application/json', '.txt': 'text/plain', '.svg': 'image/svg+xml', '.png': 'image/png',
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp',
+  '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2', '.ttf': 'font/ttf',
+  '.map': 'application/json', '.wasm': 'application/wasm',
+};
+const mimeForPath = (p) => MIME_BY_EXT[path.extname(p).toLowerCase()] || 'application/octet-stream';
+
+// Resolve an incoming app:// pathname to a file inside RENDERER_ROOT (or null).
+const resolveRendererFile = (pathname) => {
+  let rel = decodeURIComponent(pathname || '/');
+  if (rel.startsWith('/app/')) rel = rel.slice('/app'.length); // /app/_next/x -> /_next/x
+  else if (rel === '/app') rel = '/';
+  if (rel === '' || rel === '/') rel = '/index.html';
+  const target = path.normalize(path.join(RENDERER_ROOT, rel));
+  // Path-traversal guard.
+  if (target !== RENDERER_ROOT && !target.startsWith(RENDERER_ROOT + path.sep)) return null;
+  if (fs.existsSync(target) && fs.statSync(target).isDirectory()) {
+    const idx = path.join(target, 'index.html');
+    return fs.existsSync(idx) ? idx : null;
+  }
+  if (fs.existsSync(target)) return target;
+  if (fs.existsSync(target + '.html')) return target + '.html';
+  return null;
+};
+
+const registerAppProtocol = () => {
+  protocol.handle(APP_SCHEME, async (request) => {
+    try {
+      const { pathname } = new URL(request.url);
+      let file = resolveRendererFile(pathname);
+      // SPA fallback: unknown client route -> shell index.html.
+      if (!file) file = path.join(RENDERER_ROOT, 'index.html');
+      if (!fs.existsSync(file)) return new Response('Not found', { status: 404 });
+      const data = await fs.promises.readFile(file);
+      return new Response(data, { headers: { 'content-type': mimeForPath(file) } });
+    } catch (err) {
+      console.error('[app-protocol] failed to serve', request.url, err && err.message);
+      return new Response('Internal error', { status: 500 });
+    }
+  });
+};
 
 // ---------- protocol registration ----------
 // Tell the OS we handle `noter://` URLs. On macOS the 'open-url' event below
@@ -583,7 +642,6 @@ const createWindow = () => {
     return win;
   }
 
-  const rendererIndex = path.join(__dirname, 'renderer', 'app', 'index.html');
   let recovering = false;
   const recoverRenderer = async () => {
     if (recovering || win.isDestroyed()) return;
@@ -601,8 +659,9 @@ const createWindow = () => {
 
   if (isDev) {
     win.loadURL(devUrl);
-  } else if (fs.existsSync(rendererIndex)) {
-    win.loadFile(rendererIndex);
+  } else if (hasBundledRenderer()) {
+    // Bundled static export served via the app:// scheme (handles the /app basePath).
+    win.loadURL(`${APP_ORIGIN}/app/`);
   } else {
     recoverRenderer();
   }
@@ -940,6 +999,8 @@ const setupApplicationMenu = () => {
 
 // ---------- app lifecycle ----------
 app.whenReady().then(() => {
+  // Serve the bundled static renderer over app:// before any window loads it.
+  try { registerAppProtocol(); } catch (err) { console.error('[app-protocol] register failed:', err && err.message); }
   setupCrashReporter();
   reconcileLoginItemOnBoot();
   if (process.platform === 'darwin' && readSettings().trayOnly === true) {
@@ -1279,9 +1340,8 @@ ipcMain.handle('note:open-window', async (_event, payload) => {
     win.once('ready-to-show', () => win.show());
     // For now we point each note window at the same renderer root + ship
     // the deeplink via IPC after did-finish-load.
-    const rendererIndex = path.join(__dirname, 'renderer', 'app', 'index.html');
-    if (fs.existsSync(rendererIndex)) {
-      win.loadFile(rendererIndex);
+    if (hasBundledRenderer()) {
+      win.loadURL(`${APP_ORIGIN}/app/`);
     } else if (process.env.ELECTRON_RENDERER_URL) {
       win.loadURL(process.env.ELECTRON_RENDERER_URL);
     }
