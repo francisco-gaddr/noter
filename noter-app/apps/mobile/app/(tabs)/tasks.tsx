@@ -8,7 +8,8 @@ import TaskList from '@/components/TaskList';
 import { TaskBoard } from '@/components/TaskBoard';
 import { TaskTimeline } from '@/components/TaskTimeline';
 import { Task, priorityRank, isBlankTask, completedTasks as pickCompletedTasks, buildSecurityNoteMap, isReadableWithLocks } from '@repo/shared';
-import { pushCalendarFeed } from '@/services/calendarSubscription';
+import { pushCalendarFeed, createCalendarSubscription, revokeCalendarSubscription, getCalendarUrl } from '@/services/calendarSubscription';
+import * as Clipboard from 'expo-clipboard';
 import { orderBy } from 'lodash';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SvgUri } from 'react-native-svg';
@@ -102,6 +103,9 @@ export default function TasksScreen() {
   // Edit List Dialog
   const [editListDialogVisible, setEditListDialogVisible] = useState(false);
   const [editingList, setEditingList] = useState<{id: string, title: string} | null>(null);
+  // Per-list calendar subscription (copy/deactivate a link for the selected list).
+  const [calMenuVisible, setCalMenuVisible] = useState(false);
+  const [calBusy, setCalBusy] = useState(false);
 
   // Filter State
   const [filterDialogVisible, setFilterDialogVisible] = useState(false);
@@ -340,6 +344,33 @@ export default function TasksScreen() {
     setEditListDialogVisible(true);
   };
 
+  const handleCopyListCalendar = async () => {
+    if (!selectedListId) return;
+    setCalBusy(true); setCalMenuVisible(false);
+    try {
+      let url = await getCalendarUrl(selectedListId);
+      if (!url) { const sub = await createCalendarSubscription(selectedListId); url = sub.url; }
+      if (url) {
+        await Clipboard.setStringAsync(url);
+        Alert.alert(
+          t('tasks.calendarCopiedTitle', 'Kalenderlänk kopierad'),
+          t('tasks.calendarCopiedBody', 'Klistra in i Google Kalender eller Kalender på Mac (Prenumerera via URL). Endast den här listans daterade uppgifter delas; uppdateras när du ändrar dem.'),
+        );
+      }
+    } catch (e: any) {
+      Alert.alert(t('common.error'), e?.message || 'Kunde inte skapa kalenderlänk.');
+    } finally {
+      setCalBusy(false);
+    }
+  };
+
+  const handleRevokeListCalendar = async () => {
+    if (!selectedListId) return;
+    setCalMenuVisible(false);
+    await revokeCalendarSubscription(selectedListId);
+    Alert.alert(t('tasks.calendarRevoked', 'Inaktiverad'), t('tasks.calendarRevokedBody', 'Kalenderlänken för den här listan är inaktiverad.'));
+  };
+
   const saveListTitle = async () => {
     if (editingList) {
         await updateNote(editingList.id, { title: editingList.title });
@@ -385,6 +416,24 @@ export default function TasksScreen() {
         headerTitle: 'Tasks',
         headerRight: () => (
           <View style={{ flexDirection: 'row' }}>
+             {/* Per-list calendar link — only meaningful when a specific list is selected. */}
+             {selectedListId ? (
+               <Menu
+                 visible={calMenuVisible}
+                 onDismiss={() => setCalMenuVisible(false)}
+                 anchor={
+                   <IconButton
+                     icon="calendar-export"
+                     onPress={() => { setCalMenuVisible(false); setTimeout(() => setCalMenuVisible(true), 0); }}
+                     disabled={calBusy}
+                     size={20}
+                   />
+                 }
+               >
+                 <Menu.Item leadingIcon="content-copy" onPress={handleCopyListCalendar} title={t('tasks.calendarCopyList', 'Kopiera kalenderlänk (denna lista)')} />
+                 <Menu.Item leadingIcon="calendar-remove" onPress={handleRevokeListCalendar} title={t('tasks.calendarRevokeList', 'Inaktivera kalenderlänk')} />
+               </Menu>
+             ) : null}
              <IconButton
               icon={filterDateRange.start || statusFilter !== 'all' ? "filter" : "filter-outline"}
               onPress={() => setFilterDialogVisible(true)}

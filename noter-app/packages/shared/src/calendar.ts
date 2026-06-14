@@ -55,16 +55,23 @@ export const buildCalendarProjection = (tasks: Task[]): CalendarFeedItem[] => {
  * invariant — a locked task's title must never leak, not even into the user's own
  * calendar feed. Tasks with no parent container are always included. Missing/empty
  * unlockedIds → locked tasks are excluded (the safe default).
+ *
+ * `opts.listId` scopes the feed: when set, only tasks in that task-list/project (by
+ * parentNoteId) are included — that's how a per-list calendar link works. Omit (or
+ * null/'all') for the all-tasks feed.
  */
 export const buildSafeCalendarProjection = (
   tasks: Task[],
   notes: SecurityNote[],
   unlockedIds: Iterable<string> = [],
+  opts: { listId?: string | null } = {},
 ): CalendarFeedItem[] => {
   const noteMap = buildSecurityNoteMap(notes || []);
   const ids = unlockedIds instanceof Set ? unlockedIds : new Set(unlockedIds);
+  const wantList = opts.listId && opts.listId !== 'all' ? String(opts.listId) : null;
   const safe = (tasks || []).filter((t) => {
     const parent = (t as any)?.parentNoteId;
+    if (wantList && String(parent || '') !== wantList) return false;
     if (!parent) return true;
     return isReadableWithLocks(noteMap.get(String(parent)), noteMap, ids);
   });

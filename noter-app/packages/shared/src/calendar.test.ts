@@ -37,6 +37,31 @@ describe('buildCalendarProjection', () => {
   });
 });
 
+describe('buildSafeCalendarProjection — list scope', () => {
+  const { buildSafeCalendarProjection } = require('./calendar');
+  const t = (over: any) => ({ _id: over._id, userId: 'u', title: over.title || 'T', completed: false, createdAt: '', updatedAt: '', ...over });
+  const tasks = [
+    t({ _id: 'a', dueDate: new Date(2026, 6, 1).toISOString(), parentNoteId: 'listX' }),
+    t({ _id: 'b', dueDate: new Date(2026, 6, 1).toISOString(), parentNoteId: 'listY' }),
+    t({ _id: 'c', dueDate: new Date(2026, 6, 1).toISOString() }), // no list
+  ];
+
+  it('with no listId includes all dated tasks', () => {
+    const items = buildSafeCalendarProjection(tasks, [], [], {});
+    expect(items.map((i: any) => i.uid).sort()).toEqual(['a', 'b', 'c']);
+  });
+
+  it('with a listId includes ONLY that list\'s tasks', () => {
+    const items = buildSafeCalendarProjection(tasks, [], [], { listId: 'listX' });
+    expect(items.map((i: any) => i.uid)).toEqual(['a']);
+  });
+
+  it("treats 'all' the same as no list", () => {
+    const items = buildSafeCalendarProjection(tasks, [], [], { listId: 'all' });
+    expect(items.length).toBe(3);
+  });
+});
+
 describe('generateIcs', () => {
   const now = new Date('2026-06-14T10:00:00.000Z');
 

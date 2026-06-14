@@ -16,14 +16,35 @@ to the backend feed. The public ICS endpoint serves that projection. This is opt
 the user is choosing to expose those fields to an external calendar (where they'd be
 plaintext anyway). Nothing else about the task is stored or served.
 
+## Scopes — all tasks AND per task-list (v1.4.0+)
+
+There can be **one feed for ALL dated tasks** plus **one feed per task-list/project**.
+Each scope has its own token/URL, so you can subscribe a specific list into a separate
+calendar. A feed's `listId` is `null` for the all-tasks feed, otherwise the task-list
+note id. Only tasks with a real **due date** are ever included; locked-folder tasks are
+excluded (`buildSafeCalendarProjection`).
+
+- Backend `CalendarFeed`: one doc per `(userId, listId)` (compound-unique). The legacy
+  per-user-unique index is dropped at startup by `reconcileCalendarFeedIndexes()` (prod
+  runs with autoIndex off), so multiple per-list feeds are allowed without a manual
+  migration.
+- UI: the **all** link lives in Settings → Kalender; **per-list** links are on the Tasks
+  screen when a specific list is selected (mobile: a 📅 menu in the header → Kopiera /
+  Inaktivera; web: 📅 + 🗑 buttons next to the view toggles).
+- The client keeps a local `scope→URL` map and `pushCalendarFeed()` updates **every**
+  active feed (all + each list) on task change.
+
 ## Shape
 
 ```text
 Client (has plaintext tasks)
-  buildCalendarProjection(tasks)  →  POST /api/calendar/subscription { items }   (mint token + seed)
-                                     PUT  /api/calendar/feed         { items }   (live updates, debounced on task change)
+  buildSafeCalendarProjection(tasks, notes, unlocked, { listId? })
+    POST /api/calendar/subscription { items, listId? }   (mint token + seed a scope)
+    PUT  /api/calendar/feed         { items, listId? }   (live update a scope)
+    DELETE /api/calendar/subscription { listId? }        (revoke a scope)
+    GET  /api/calendar/subscriptions                     (list this user's feeds)
 External calendar (Google/Apple)
-  GET  /api/calendar/<token>.ics   →  generateIcs(items)   (public, token-scoped; polled by the calendar app)
+  GET  /api/calendar/<token>.ics   →  generateIcs(items)   (public, token-scoped)
 ```
 
 - **`@repo/shared` `src/calendar.ts`** (pure, tested): `buildCalendarProjection(tasks)`

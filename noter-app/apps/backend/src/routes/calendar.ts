@@ -25,6 +25,14 @@ const buildUrl = (req: Request, token: string): string => {
   return `${base}/api/calendar/${token}.ics`;
 };
 
+// Normalise the scope: null = all-tasks feed; otherwise a task-list/project note id
+// (validated to a safe id shape). 'all' / '' / null all map to the all-tasks feed.
+const normalizeListId = (raw: unknown): string | null => {
+  const v = typeof raw === 'string' ? raw.trim() : '';
+  if (!v || v === 'all') return null;
+  return /^[A-Za-z0-9._:-]{1,128}$/.test(v) ? v : null;
+};
+
 const sanitizeItems = (raw: unknown): CalendarFeedItem[] => {
   if (!Array.isArray(raw)) return [];
   return raw
@@ -54,34 +62,55 @@ router.get('/:token.ics', async (req: Request, res: Response, next: NextFunction
   }
 });
 
-// Mint (or return existing) subscription URL for the authenticated user.
-router.post('/subscription', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+// List this user's calendar subscriptions (one per scope: all + each subscribed list).
+router.get('/subscriptions', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const userId = req.user?.userId;
     if (!userId) throw new UnauthorizedError('Not authenticated');
-    let feed = await CalendarFeed.findOne({ userId });
-    if (!feed) {
-      const token = crypto.randomBytes(24).toString('base64url');
-      feed = await CalendarFeed.create({ userId, token, items: sanitizeItems(req.body?.items), updatedAt: new Date() });
-    } else if (Array.isArray(req.body?.items)) {
-      feed.items = sanitizeItems(req.body.items);
-      feed.updatedAt = new Date();
-      await feed.save();
-    }
-    res.json({ url: buildUrl(req, feed.token), token: feed.token, count: feed.items.length });
+    const feeds = await CalendarFeed.find({ userId }).lean();
+    res.json({
+      subscriptions: feeds.map((f) => ({
+        listId: f.listId ?? null,
+        token: f.token,
+        url: buildUrl(req, f.token),
+        count: Array.isArray(f.items) ? f.items.length : 0,
+      })),
+    });
   } catch (error) {
     next(error);
   }
 });
 
-// Push the latest projection (live updates). 404 if not subscribed yet.
+// Mint (or return existing) subscription URL for a scope (listId null = all tasks).
+router.post('/subscription', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) throw new UnauthorizedError('Not authenticated');
+    const listId = normalizeListId(req.body?.listId);
+    let feed = await CalendarFeed.findOne({ userId, listId });
+    if (!feed) {
+      const token = crypto.randomBytes(24).toString('base64url');
+      feed = await CalendarFeed.create({ userId, listId, token, items: sanitizeItems(req.body?.items), updatedAt: new Date() });
+    } else if (Array.isArray(req.body?.items)) {
+      feed.items = sanitizeItems(req.body.items);
+      feed.updatedAt = new Date();
+      await feed.save();
+    }
+    res.json({ url: buildUrl(req, feed.token), token: feed.token, listId, count: feed.items.length });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Push the latest projection for a scope (live updates). 404 if not subscribed yet.
 router.put('/feed', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const userId = req.user?.userId;
     if (!userId) throw new UnauthorizedError('Not authenticated');
+    const listId = normalizeListId(req.body?.listId);
     const items = sanitizeItems(req.body?.items);
     const feed = await CalendarFeed.findOneAndUpdate(
-      { userId },
+      { userId, listId },
       { $set: { items, updatedAt: new Date() } },
       { new: true },
     );
@@ -89,19 +118,20 @@ router.put('/feed', authMiddleware, async (req: AuthRequest, res: Response, next
       res.status(404).json({ message: 'No subscription; create one first.' });
       return;
     }
-    res.json({ ok: true, count: items.length });
+    res.json({ ok: true, listId, count: items.length });
   } catch (error) {
     next(error);
   }
 });
 
-// Revoke: delete the token + feed. A later POST mints a fresh token.
+// Revoke a scope: delete that feed/token. listId omitted/'all' = the all-tasks feed.
 router.delete('/subscription', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
     const userId = req.user?.userId;
     if (!userId) throw new UnauthorizedError('Not authenticated');
-    await CalendarFeed.deleteOne({ userId });
-    res.json({ ok: true });
+    const listId = normalizeListId(req.body?.listId ?? req.query?.listId);
+    await CalendarFeed.deleteOne({ userId, listId });
+    res.json({ ok: true, listId });
   } catch (error) {
     next(error);
   }
