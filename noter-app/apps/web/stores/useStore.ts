@@ -655,15 +655,20 @@ export const useStore = create<StoreState>((set, get) => ({
         }));
     });
 
+    // Socket connection issues must NOT surface as the notes error banner — the app
+    // works fully over REST while the socket reconnects (it auto-retries forever).
+    // A transient `connect_error` (e.g. message "timeout") used to paint a scary red
+    // "timeout" in the sidebar; reflect connectivity via the offline indicator only.
     socket.off('connect_error');
-    socket.on('connect_error', (err: any) => {
-        set({ error: err?.message || 'Socket connection error' });
+    socket.on('connect_error', () => {
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) set({ isOffline: true });
     });
 
     socket.off('disconnect');
-    socket.on('disconnect', () => {
-        set({ error: 'Socket disconnected' });
-    });
+    socket.on('disconnect', () => { /* silent — socket.io auto-reconnects; REST still works */ });
+
+    socket.off('connect');
+    socket.on('connect', () => { set({ isOffline: false }); });
 
     // Change-stream fallback: any DB write the user owns emits cache:invalidate.
     // Coalesce bursts and refetch so AI-agent / other-device writes that didn't arrive

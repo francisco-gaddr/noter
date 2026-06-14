@@ -32,8 +32,16 @@ const authHeaders = (): Record<string, string> => {
   return { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
 };
 
-const readCache = (): Share[] => { try { return JSON.parse(localStorage.getItem(SHARES_CACHE) || '[]') || []; } catch { return []; } };
-const writeCache = (s: Share[]): void => { try { localStorage.setItem(SHARES_CACHE, JSON.stringify(s)); } catch { /* ignore */ } };
+// Only ever trust shares that carry a real shareId. A stale/legacy localStorage
+// entry (e.g. from the pre-redesign per-list feed format) with no shareId would
+// otherwise make pushCalendarFeed PUT to `/shares/undefined` → 404 "Delningen
+// finns inte". Prune them on read so they self-heal.
+const isValidShare = (s: any): s is Share => !!s && typeof s.shareId === 'string' && s.shareId.length > 0;
+const readCache = (): Share[] => {
+  try { return (JSON.parse(localStorage.getItem(SHARES_CACHE) || '[]') || []).filter(isValidShare); }
+  catch { return []; }
+};
+const writeCache = (s: Share[]): void => { try { localStorage.setItem(SHARES_CACHE, JSON.stringify((s || []).filter(isValidShare))); } catch { /* ignore */ } };
 
 /** Lock-safe projection for a share's set of lists (empty = all tasks). */
 const projectionFor = (listIds: string[]) => {
