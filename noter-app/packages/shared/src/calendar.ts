@@ -83,22 +83,32 @@ export const buildCalendarProjection = (tasks: Task[]): CalendarFeedItem[] => {
  * calendar feed. Tasks with no parent container are always included. Missing/empty
  * unlockedIds → locked tasks are excluded (the safe default).
  *
- * `opts.listId` scopes the feed: when set, only tasks in that task-list/project (by
- * parentNoteId) are included — that's how a per-list calendar link works. Omit (or
- * null/'all') for the all-tasks feed.
+ * Scope: a "delning" (share) covers a SET of task-lists. `opts.listIds` is that set —
+ * only tasks whose parentNoteId is in it are included. An empty/missing set means the
+ * all-tasks scope (every readable task). `opts.listId` is the legacy single-list form,
+ * still accepted (treated as a one-element set). Locked lists are always excluded.
  */
 export const buildSafeCalendarProjection = (
   tasks: Task[],
   notes: SecurityNote[],
   unlockedIds: Iterable<string> = [],
-  opts: { listId?: string | null } = {},
+  opts: { listId?: string | null; listIds?: string[] } = {},
 ): CalendarFeedItem[] => {
   const noteMap = buildSecurityNoteMap(notes || []);
   const ids = unlockedIds instanceof Set ? unlockedIds : new Set(unlockedIds);
-  const wantList = opts.listId && opts.listId !== 'all' ? String(opts.listId) : null;
+  const wantSet =
+    Array.isArray(opts.listIds) && opts.listIds.length
+      ? new Set(opts.listIds.map((x) => String(x)))
+      : opts.listId && opts.listId !== 'all'
+        ? new Set([String(opts.listId)])
+        : null;
   const safe = (tasks || []).filter((t) => {
     const parent = (t as any)?.parentNoteId;
-    if (wantList && String(parent || '') !== wantList) return false;
+    // A scoped share only includes tasks whose parent list is in the set. A task with
+    // no parent belongs only to the all-tasks scope, never to a list-set.
+    if (wantSet) {
+      if (!parent || !wantSet.has(String(parent))) return false;
+    }
     if (!parent) return true;
     return isReadableWithLocks(noteMap.get(String(parent)), noteMap, ids);
   });

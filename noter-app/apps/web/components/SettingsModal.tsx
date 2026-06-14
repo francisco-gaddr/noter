@@ -11,7 +11,7 @@ import { getDefaultHotkeys } from '../lib/hotkeys';
 import { enrollOrUnlockCrypto, changeCryptoPassword } from '../lib/crypto';
 import { AdminDashboard } from './AdminDashboard';
 import EmbeddingsSettings from './EmbeddingsSettings';
-import { createCalendarSubscription, getCalendarUrl, revokeCalendarSubscription, createDavCredential, revokeDavCredential, hasDavCredential, type DavCredential } from '../lib/calendarSubscription';
+import CalendarSharesSettings from './CalendarSharesSettings';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -38,56 +38,6 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     try { await syncOfflineChanges(); await Promise.all([fetchNotes(), fetchTasks()]); } finally { setSyncing(false); await refreshPending(); }
   };
 
-  // Calendar (ICS) subscription — paste the link into Google/Apple Calendar.
-  const [calendarUrl, setCalendarUrl] = React.useState<string | null>(null);
-  const [calendarBusy, setCalendarBusy] = React.useState(false);
-  const [calendarMsg, setCalendarMsg] = React.useState<string | null>(null);
-  React.useEffect(() => { if (isOpen) setCalendarUrl(getCalendarUrl()); }, [isOpen]);
-  const handleCreateOrCopyCalendar = async () => {
-    setCalendarBusy(true);
-    setCalendarMsg(null);
-    try {
-      let url = calendarUrl;
-      if (!url) {
-        const sub = await createCalendarSubscription();
-        url = sub.url;
-        setCalendarUrl(url);
-      }
-      try { await navigator.clipboard.writeText(url); setCalendarMsg('Länk kopierad — klistra in i din kalender (Prenumerera via URL).'); }
-      catch { setCalendarMsg(url); }
-    } catch (e: any) {
-      setCalendarMsg(e?.message || 'Kunde inte skapa kalenderlänk.');
-    } finally {
-      setCalendarBusy(false);
-    }
-  };
-  const handleRevokeCalendar = async () => {
-    await revokeCalendarSubscription();
-    setCalendarUrl(null);
-    setCalendarMsg('Kalenderlänken är inaktiverad.');
-  };
-
-  // CalDAV (two-way) — a revocable Basic-Auth credential for the all-tasks scope.
-  const [davCred, setDavCred] = React.useState<DavCredential | null>(null);
-  const [davActive, setDavActive] = React.useState(false);
-  const [davBusy, setDavBusy] = React.useState(false);
-  const [davMsg, setDavMsg] = React.useState<string | null>(null);
-  React.useEffect(() => { if (isOpen) setDavActive(hasDavCredential()); }, [isOpen]);
-  const handleEnableDav = async () => {
-    setDavBusy(true); setDavMsg(null);
-    try {
-      const cred = await createDavCredential(null, 'Alla uppgifter');
-      setDavCred(cred); setDavActive(true);
-      setDavMsg('CalDAV aktiverat. Spara lösenordet nu — det visas bara denna gång.');
-    } catch (e: any) { setDavMsg(e?.message || 'Kunde inte aktivera CalDAV.'); }
-    finally { setDavBusy(false); }
-  };
-  const handleRevokeDav = async () => {
-    await revokeDavCredential(null);
-    setDavCred(null); setDavActive(false);
-    setDavMsg('CalDAV är inaktiverat. Befintliga kopplingar slutar fungera direkt.');
-  };
-  const copyText = async (v: string, label?: string) => { try { await navigator.clipboard.writeText(v); setDavMsg(label ? `Kopierat: ${label}` : 'Kopierat.'); } catch { /* ignore */ } };
   const setActiveTab = useStore((s) => s.setActiveTab);
   const selectNote = useStore((s) => s.selectNote);
   const { t } = useTranslation();
@@ -211,85 +161,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           </div>
         </div>
 
-        <div className="mt-4">
-          <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">Kalender</h3>
-          <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-3">
-            <p className="text-xs text-gray-600 dark:text-gray-300 mb-2">
-              Prenumerera på dina uppgifter i Google Kalender eller Kalender på Mac. Endast titel + datum delas; uppdateras när du ändrar uppgifter.
-            </p>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleCreateOrCopyCalendar}
-                disabled={calendarBusy}
-                className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm disabled:opacity-50"
-                data-testid="settings-calendar-link"
-              >
-                {calendarBusy ? 'Arbetar…' : calendarUrl ? 'Kopiera kalenderlänk' : 'Skapa kalenderlänk'}
-              </button>
-              {calendarUrl ? (
-                <button
-                  type="button"
-                  onClick={handleRevokeCalendar}
-                  className="px-3 py-1.5 rounded border border-gray-300 dark:border-gray-700 text-sm"
-                >
-                  Inaktivera
-                </button>
-              ) : null}
-            </div>
-            {calendarMsg ? (
-              <p className="mt-2 text-xs text-gray-500 dark:text-gray-400 break-all">{calendarMsg}</p>
-            ) : null}
-          </div>
-        </div>
-
-        <div className="mt-4">
-          <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">CalDAV (två­vägs)</h3>
-          <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-3">
-            <p className="text-xs text-gray-600 dark:text-gray-300 mb-2">
-              Synka alla dina uppgifter med Påminnelser (Mac/iOS) eller Tasks.org (Android) — bockar du av en uppgift där, bockas den av här. Eget lösenord per koppling, aldrig ditt kontolösenord, och kan återkallas direkt. Endast titel + datum + status delas; låsta listor delas aldrig.
-            </p>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleEnableDav}
-                disabled={davBusy}
-                className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm disabled:opacity-50"
-                data-testid="settings-caldav-enable"
-              >
-                {davBusy ? 'Arbetar…' : davActive ? 'Skapa nytt lösenord' : 'Aktivera CalDAV'}
-              </button>
-              {davActive ? (
-                <button
-                  type="button"
-                  onClick={handleRevokeDav}
-                  className="px-3 py-1.5 rounded border border-gray-300 dark:border-gray-700 text-sm"
-                >
-                  Inaktivera
-                </button>
-              ) : null}
-            </div>
-            {davCred ? (
-              <div className="mt-3 space-y-1.5 text-xs">
-                {[
-                  ['Server-URL', davCred.serverUrl],
-                  ['Användarnamn', davCred.username],
-                  ['Lösenord (visas en gång)', davCred.password || ''],
-                ].map(([label, value]) => (
-                  <div key={label} className="flex items-center gap-2">
-                    <span className="w-40 shrink-0 text-gray-500 dark:text-gray-400">{label}</span>
-                    <code className="flex-1 break-all rounded bg-gray-100 dark:bg-gray-800 px-2 py-1">{value}</code>
-                    <button type="button" onClick={() => copyText(String(value), String(label))} className="px-2 py-1 rounded border border-gray-300 dark:border-gray-700">Kopiera</button>
-                  </div>
-                ))}
-                <p className="text-amber-600 dark:text-amber-400">Spara lösenordet nu — det kan inte visas igen. Förlorat lösenord? Skapa ett nytt.</p>
-              </div>
-            ) : null}
-            {davMsg ? (
-              <p className="mt-2 text-xs text-gray-500 dark:text-gray-400 break-all">{davMsg}</p>
-            ) : null}
-          </div>
-        </div>
+        <CalendarSharesSettings />
 
         <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
           <AdminDashboard />

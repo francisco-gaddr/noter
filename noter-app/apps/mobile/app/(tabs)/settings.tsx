@@ -17,8 +17,7 @@ import { hasActiveDataKey } from '@repo/shared';
 import { AdminDashboard } from '@/components/AdminDashboard';
 import { EmbeddingsSettings } from '@/components/EmbeddingsSettings';
 import * as Clipboard from 'expo-clipboard';
-import { createCalendarSubscription, getCalendarUrl, revokeCalendarSubscription, createDavCredential, revokeDavCredential, hasDavCredential, type DavCredential } from '@/services/calendarSubscription';
-import { CalDavCredentialDialog } from '@/components/CalDavCredentialDialog';
+import { CalendarSharesSettings } from '@/components/CalendarSharesSettings';
 
 export default function SettingsScreen() {
   const { t, i18n } = useTranslation();
@@ -49,76 +48,8 @@ export default function SettingsScreen() {
   }, []);
   useEffect(() => { void refreshPendingSync(); }, [refreshPendingSync, isSyncingOffline]);
 
-  // Calendar (ICS) subscription: paste the link into Google/Apple Calendar.
-  const [calendarUrl, setCalendarUrl] = useState<string | null>(null);
-  const [calendarBusy, setCalendarBusy] = useState(false);
-  useEffect(() => { void getCalendarUrl().then(setCalendarUrl).catch(() => {}); }, []);
-
-  const handleCreateOrCopyCalendar = async () => {
-    setCalendarBusy(true);
-    try {
-      let url = calendarUrl;
-      // (Re)create + seed with the latest tasks if we don't have a link yet.
-      if (!url) {
-        const sub = await createCalendarSubscription();
-        url = sub.url;
-        setCalendarUrl(url);
-      }
-      await Clipboard.setStringAsync(url);
-      Alert.alert(
-        t('settings.calendarCopiedTitle', 'Kalenderlänk kopierad'),
-        t('settings.calendarCopiedBody', 'Klistra in länken i Google Kalender eller Kalender på Mac (Prenumerera på kalender / Lägg till via URL). Uppgifter med datum visas där och uppdateras när du ändrar dem.'),
-      );
-    } catch (e: any) {
-      Alert.alert(t('common.error'), e?.message || 'Kunde inte skapa kalenderlänk.');
-    } finally {
-      setCalendarBusy(false);
-    }
-  };
-
-  const handleRevokeCalendar = async () => {
-    Alert.alert(
-      t('settings.calendarRevokeTitle', 'Inaktivera kalenderlänk'),
-      t('settings.calendarRevokeBody', 'Den gamla länken slutar fungera. Du kan skapa en ny när som helst.'),
-      [
-        { text: t('common.cancel', 'Avbryt'), style: 'cancel' },
-        {
-          text: t('settings.calendarRevoke', 'Inaktivera'), style: 'destructive',
-          onPress: async () => { await revokeCalendarSubscription(); setCalendarUrl(null); },
-        },
-      ],
-    );
-  };
-
-  // CalDAV (two-way) for the all-tasks scope. Revocable per-feed credential.
-  const [davActive, setDavActive] = useState(false);
-  const [davBusy, setDavBusy] = useState(false);
-  useEffect(() => { void hasDavCredential().then(setDavActive).catch(() => {}); }, []);
-  const [davCred, setDavCred] = useState<DavCredential | null>(null);
-  const [davDialogVisible, setDavDialogVisible] = useState(false);
-  const handleEnableDav = async () => {
-    setDavBusy(true);
-    try {
-      const cred = await createDavCredential(null, 'Alla uppgifter');
-      setDavActive(true);
-      setDavCred(cred);
-      setDavDialogVisible(true);
-    } catch (e: any) {
-      Alert.alert(t('common.error'), e?.message || 'Kunde inte aktivera CalDAV.');
-    } finally {
-      setDavBusy(false);
-    }
-  };
-  const handleRevokeDav = async () => {
-    Alert.alert(
-      t('settings.caldavRevokeTitle', 'Inaktivera CalDAV'),
-      t('settings.caldavRevokeBody', 'Alla befintliga CalDAV-kopplingar för alla uppgifter slutar fungera direkt.'),
-      [
-        { text: t('common.cancel', 'Avbryt'), style: 'cancel' },
-        { text: t('settings.caldavRevoke', 'Inaktivera'), style: 'destructive', onPress: async () => { await revokeDavCredential(null); setDavActive(false); } },
-      ],
-    );
-  };
+  // Calendar/CalDAV links live in the "Kalender & CalDAV — delningar" section
+  // (CalendarSharesSettings): one link/login per chosen set of lists.
 
   const handleSyncNow = async () => {
     await syncOfflineChanges();
@@ -512,42 +443,7 @@ export default function SettingsScreen() {
 
       <Divider />
 
-      <List.Section title={t('settings.calendarSection', 'Kalender')}>
-        <List.Item
-          title={calendarUrl ? t('settings.calendarCopy', 'Kopiera kalenderlänk') : t('settings.calendarCreate', 'Skapa kalenderlänk (prenumeration)')}
-          description={t('settings.calendarDesc', 'Prenumerera på dina uppgifter i Google Kalender eller Kalender på Mac. Endast titel + datum delas.')}
-          left={props => <List.Icon {...props} icon="calendar-export" />}
-          right={() => (calendarBusy ? <ActivityIndicator style={{ marginRight: 12 }} /> : undefined)}
-          onPress={calendarBusy ? undefined : handleCreateOrCopyCalendar}
-          disabled={calendarBusy}
-          rippleColor={touchRippleColor}
-        />
-        {calendarUrl ? (
-          <List.Item
-            title={t('settings.calendarRevoke', 'Inaktivera kalenderlänk')}
-            left={props => <List.Icon {...props} icon="calendar-remove" />}
-            onPress={handleRevokeCalendar}
-            rippleColor={touchRippleColor}
-          />
-        ) : null}
-        <List.Item
-          title={davActive ? t('settings.caldavRotate', 'CalDAV: skapa nytt lösenord') : t('settings.caldavCreate', 'Aktivera CalDAV (tvåvägs)')}
-          description={t('settings.caldavDesc', 'Synka uppgifter med Påminnelser (Mac/iOS) eller Tasks.org (Android) — bockar du av där, bockas det av här. Eget lösenord, kan återkallas direkt.')}
-          left={props => <List.Icon {...props} icon="sync" />}
-          right={() => (davBusy ? <ActivityIndicator style={{ marginRight: 12 }} /> : undefined)}
-          onPress={davBusy ? undefined : handleEnableDav}
-          disabled={davBusy}
-          rippleColor={touchRippleColor}
-        />
-        {davActive ? (
-          <List.Item
-            title={t('settings.caldavRevoke', 'Inaktivera CalDAV')}
-            left={props => <List.Icon {...props} icon="sync-off" />}
-            onPress={handleRevokeDav}
-            rippleColor={touchRippleColor}
-          />
-        ) : null}
-      </List.Section>
+      <CalendarSharesSettings />
 
       <Divider />
 
@@ -827,12 +723,6 @@ export default function SettingsScreen() {
           </Dialog.Actions>
         </Dialog>
       </Portal>
-      <CalDavCredentialDialog
-        visible={davDialogVisible}
-        credential={davCred}
-        scopeLabel="Alla uppgifter med datum (låsta listor delas aldrig)"
-        onDismiss={() => setDavDialogVisible(false)}
-      />
     </ScrollView>
   );
 }

@@ -101,7 +101,7 @@ const collectionTag = (feed: ICalendarFeed): string => {
 
 // --- prop maps -------------------------------------------------------------
 const displayNameFor = (feed: ICalendarFeed): string =>
-  feed.davDisplayName || (feed.listId ? 'Noter – Uppgiftslista' : 'Noter – Alla uppgifter');
+  feed.name || ((feed.listIds && feed.listIds.length) ? 'Noter – Uppgiftslista' : 'Noter – Alla uppgifter');
 
 const principalPropMap = (user: string): Record<string, string> => ({
   resourcetype: '<d:resourcetype><d:principal/><d:collection/></d:resourcetype>',
@@ -201,7 +201,7 @@ const enqueueMutation = async (
     id: randomBytes(8).toString('hex'),
     uid: String(m.uid).slice(0, 200),
     op: m.op,
-    listId: feed.listId ?? null,
+    listId: null,
     data: m.data,
     at: new Date(),
   };

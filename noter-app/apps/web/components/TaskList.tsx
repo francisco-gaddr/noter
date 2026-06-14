@@ -14,7 +14,6 @@ import { startOfDay, endOfDay, isWithinInterval, addDays, startOfWeek, endOfWeek
 import type { Identifier, XYCoord } from 'dnd-core';
 import Fuse from 'fuse.js';
 import { formatTaskDueLabel } from '../lib/formatTaskDue';
-import { createCalendarSubscription, getCalendarUrl, revokeCalendarSubscription, createDavCredential, revokeDavCredential, hasDavCredential, type DavCredential } from '../lib/calendarSubscription';
 
 const ItemType = 'TASK';
 
@@ -203,45 +202,8 @@ const TaskItem: React.FC<TaskItemProps> = ({
 export default function TaskList() {
     const { notes, tasks, fetchTasks, createTask, updateTask, deleteTask, reorderTasks, selectedTaskListId, updateNote, isLoading, searchQuery } = useStore();
     const [newTaskTitle, setNewTaskTitle] = useState('');
-    // Per-list calendar subscription (copy/deactivate a link for the selected list).
-    const [calMsg, setCalMsg] = useState<string | null>(null);
-    const [calBusy, setCalBusy] = useState(false);
-    const copyListCalendar = useCallback(async () => {
-        if (!selectedTaskListId) return;
-        setCalBusy(true); setCalMsg(null);
-        try {
-            let url = getCalendarUrl(selectedTaskListId);
-            if (!url) { const sub = await createCalendarSubscription(selectedTaskListId); url = sub.url; }
-            if (url) {
-                try { await navigator.clipboard.writeText(url); setCalMsg('Kalenderlänk kopierad — klistra in i din kalender (Prenumerera via URL). Endast denna listas daterade uppgifter.'); }
-                catch { setCalMsg(url); }
-            }
-        } catch (e: any) { setCalMsg(e?.message || 'Kunde inte skapa kalenderlänk.'); }
-        finally { setCalBusy(false); }
-    }, [selectedTaskListId]);
-    const revokeListCalendar = useCallback(async () => {
-        if (!selectedTaskListId) return;
-        await revokeCalendarSubscription(selectedTaskListId);
-        setCalMsg('Kalenderlänken för den här listan är inaktiverad.');
-    }, [selectedTaskListId]);
-    // Per-list CalDAV (two-way) credential.
-    const [davInfo, setDavInfo] = useState<DavCredential | null>(null);
-    const enableListDav = useCallback(async () => {
-        if (!selectedTaskListId) return;
-        setCalBusy(true); setCalMsg(null);
-        try {
-            const cred = await createDavCredential(selectedTaskListId, 'Noter-lista');
-            setDavInfo(cred);
-            setCalMsg('CalDAV aktiverat för listan. Spara lösenordet nedan — det visas bara en gång.');
-        } catch (e: any) { setCalMsg(e?.message || 'Kunde inte aktivera CalDAV.'); }
-        finally { setCalBusy(false); }
-    }, [selectedTaskListId]);
-    const revokeListDav = useCallback(async () => {
-        if (!selectedTaskListId) return;
-        await revokeDavCredential(selectedTaskListId);
-        setDavInfo(null);
-        setCalMsg('CalDAV för den här listan är inaktiverad.');
-    }, [selectedTaskListId]);
+    // Calendar/CalDAV links are managed centrally in Settings → "Kalender & CalDAV —
+    // delningar" (one link/login for any chosen set of lists), not per-list here.
     const [selectedTask, setSelectedTask] = useState<Task | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [newTaskDefaults, setNewTaskDefaults] = useState<{ dueDate: Date | null }>({ dueDate: null });
@@ -566,49 +528,6 @@ export default function TaskList() {
                         >
                             <FaCalendar />
                         </button>
-                        {selectedTaskListId ? (
-                            <>
-                                <div className="w-px h-6 bg-gray-300 dark:bg-gray-600 mx-1" />
-                                <button
-                                    onClick={copyListCalendar}
-                                    disabled={calBusy}
-                                    className="p-2 rounded text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-300 disabled:opacity-50"
-                                    title="Kopiera kalenderlänk för denna lista"
-                                    aria-label="Kopiera kalenderlänk för denna lista"
-                                >
-                                    <FaCalendar />
-                                </button>
-                                {getCalendarUrl(selectedTaskListId) ? (
-                                    <button
-                                        onClick={revokeListCalendar}
-                                        className="p-2 rounded text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400"
-                                        title="Inaktivera kalenderlänk"
-                                        aria-label="Inaktivera kalenderlänk"
-                                    >
-                                        <FaTrash />
-                                    </button>
-                                ) : null}
-                                <button
-                                    onClick={enableListDav}
-                                    disabled={calBusy}
-                                    className="p-2 rounded text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-300 text-xs font-semibold disabled:opacity-50"
-                                    title="CalDAV (tvåvägs) för denna lista — synka med Påminnelser/Tasks.org"
-                                    aria-label="Aktivera CalDAV för denna lista"
-                                >
-                                    {hasDavCredential(selectedTaskListId) ? 'CalDAV↻' : 'CalDAV'}
-                                </button>
-                                {hasDavCredential(selectedTaskListId) ? (
-                                    <button
-                                        onClick={revokeListDav}
-                                        className="p-2 rounded text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400 text-xs"
-                                        title="Inaktivera CalDAV för listan"
-                                        aria-label="Inaktivera CalDAV för listan"
-                                    >
-                                        ✕DAV
-                                    </button>
-                                ) : null}
-                            </>
-                        ) : null}
                         <div className="w-px h-6 bg-gray-300 dark:bg-gray-600 mx-1" />
                         <button
                             onClick={() => setShowFilters(!showFilters)}
@@ -632,21 +551,6 @@ export default function TaskList() {
                     </div>
                 </div>
 
-                {calMsg && (
-                    <div className="text-xs text-gray-500 dark:text-gray-400 break-all px-1 -mt-1">{calMsg}</div>
-                )}
-                {davInfo && (
-                    <div className="mx-1 mt-1 rounded border border-gray-200 dark:border-gray-700 p-2 text-xs space-y-1">
-                        {([['Server-URL', davInfo.serverUrl], ['Användarnamn', davInfo.username], ['Lösenord (en gång)', davInfo.password || '']] as [string, string][]).map(([label, value]) => (
-                            <div key={label} className="flex items-center gap-2">
-                                <span className="w-36 shrink-0 text-gray-500 dark:text-gray-400">{label}</span>
-                                <code className="flex-1 break-all rounded bg-gray-100 dark:bg-gray-800 px-2 py-0.5">{value}</code>
-                                <button onClick={() => { try { navigator.clipboard.writeText(value); setCalMsg(`Kopierat: ${label}`); } catch {} }} className="px-2 py-0.5 rounded border border-gray-300 dark:border-gray-700">Kopiera</button>
-                            </div>
-                        ))}
-                        <p className="text-amber-600 dark:text-amber-400">Endast denna listas uppgifter delas. Spara lösenordet — det visas inte igen.</p>
-                    </div>
-                )}
 
                 {showFilters && (
                     <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg border border-gray-200 dark:border-gray-700 space-y-3">
