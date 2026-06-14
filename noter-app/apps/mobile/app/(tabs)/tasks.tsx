@@ -8,6 +8,7 @@ import TaskList from '@/components/TaskList';
 import { TaskBoard } from '@/components/TaskBoard';
 import { TaskTimeline } from '@/components/TaskTimeline';
 import { Task, priorityRank, isBlankTask, completedTasks as pickCompletedTasks } from '@repo/shared';
+import { pushCalendarFeed } from '@/services/calendarSubscription';
 import { orderBy } from 'lodash';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SvgUri } from 'react-native-svg';
@@ -75,6 +76,14 @@ export default function TasksScreen() {
   const navigation = useNavigation();
   const theme = useTheme();
   const { tasks, notes, isLoading, fetchTasks, fetchNotes, updateTask, reorderTasks, createNote, updateNote, deleteNote, deleteTask } = useStore();
+
+  // Keep the external calendar feed (ICS subscription) live: push the latest task
+  // projection whenever tasks change. No-op unless the user created a subscription.
+  // Debounced so a burst of edits results in one push.
+  useEffect(() => {
+    const handle = setTimeout(() => { void pushCalendarFeed(tasks as any).catch(() => {}); }, 1500);
+    return () => clearTimeout(handle);
+  }, [tasks]);
 
   // Shared pull-to-refresh with haptic + min-spin + reentrancy guard.
   const { refreshing: pullRefreshing, onRefresh: onPullRefresh } = useRefreshControl(

@@ -16,6 +16,8 @@ import { enrollOrUnlockCrypto, changeCryptoPassword } from '@/services/crypto';
 import { hasActiveDataKey } from '@repo/shared';
 import { AdminDashboard } from '@/components/AdminDashboard';
 import { EmbeddingsSettings } from '@/components/EmbeddingsSettings';
+import * as Clipboard from 'expo-clipboard';
+import { createCalendarSubscription, getCachedCalendarUrl, revokeCalendarSubscription } from '@/services/calendarSubscription';
 
 export default function SettingsScreen() {
   const { t, i18n } = useTranslation();
@@ -45,6 +47,48 @@ export default function SettingsScreen() {
     try { setPendingSync((await getSyncQueue()).length); } catch { setPendingSync(null); }
   }, []);
   useEffect(() => { void refreshPendingSync(); }, [refreshPendingSync, isSyncingOffline]);
+
+  // Calendar (ICS) subscription: paste the link into Google/Apple Calendar.
+  const [calendarUrl, setCalendarUrl] = useState<string | null>(null);
+  const [calendarBusy, setCalendarBusy] = useState(false);
+  useEffect(() => { void getCachedCalendarUrl().then(setCalendarUrl).catch(() => {}); }, []);
+
+  const handleCreateOrCopyCalendar = async () => {
+    setCalendarBusy(true);
+    try {
+      let url = calendarUrl;
+      // (Re)create + seed with the latest tasks if we don't have a link yet.
+      if (!url) {
+        const tasks = useStore.getState().tasks || [];
+        const sub = await createCalendarSubscription(tasks as any);
+        url = sub.url;
+        setCalendarUrl(url);
+      }
+      await Clipboard.setStringAsync(url);
+      Alert.alert(
+        t('settings.calendarCopiedTitle', 'Kalenderlänk kopierad'),
+        t('settings.calendarCopiedBody', 'Klistra in länken i Google Kalender eller Kalender på Mac (Prenumerera på kalender / Lägg till via URL). Uppgifter med datum visas där och uppdateras när du ändrar dem.'),
+      );
+    } catch (e: any) {
+      Alert.alert(t('common.error'), e?.message || 'Kunde inte skapa kalenderlänk.');
+    } finally {
+      setCalendarBusy(false);
+    }
+  };
+
+  const handleRevokeCalendar = async () => {
+    Alert.alert(
+      t('settings.calendarRevokeTitle', 'Inaktivera kalenderlänk'),
+      t('settings.calendarRevokeBody', 'Den gamla länken slutar fungera. Du kan skapa en ny när som helst.'),
+      [
+        { text: t('common.cancel', 'Avbryt'), style: 'cancel' },
+        {
+          text: t('settings.calendarRevoke', 'Inaktivera'), style: 'destructive',
+          onPress: async () => { await revokeCalendarSubscription(); setCalendarUrl(null); },
+        },
+      ],
+    );
+  };
 
   const handleSyncNow = async () => {
     await syncOfflineChanges();
@@ -434,6 +478,28 @@ export default function SettingsScreen() {
           disabled={isOffline || isSyncingOffline}
           rippleColor={touchRippleColor}
         />
+      </List.Section>
+
+      <Divider />
+
+      <List.Section title={t('settings.calendarSection', 'Kalender')}>
+        <List.Item
+          title={calendarUrl ? t('settings.calendarCopy', 'Kopiera kalenderlänk') : t('settings.calendarCreate', 'Skapa kalenderlänk (prenumeration)')}
+          description={t('settings.calendarDesc', 'Prenumerera på dina uppgifter i Google Kalender eller Kalender på Mac. Endast titel + datum delas.')}
+          left={props => <List.Icon {...props} icon="calendar-export" />}
+          right={() => (calendarBusy ? <ActivityIndicator style={{ marginRight: 12 }} /> : undefined)}
+          onPress={calendarBusy ? undefined : handleCreateOrCopyCalendar}
+          disabled={calendarBusy}
+          rippleColor={touchRippleColor}
+        />
+        {calendarUrl ? (
+          <List.Item
+            title={t('settings.calendarRevoke', 'Inaktivera kalenderlänk')}
+            left={props => <List.Icon {...props} icon="calendar-remove" />}
+            onPress={handleRevokeCalendar}
+            rippleColor={touchRippleColor}
+          />
+        ) : null}
       </List.Section>
 
       <Divider />
