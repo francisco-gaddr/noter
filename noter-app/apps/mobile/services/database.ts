@@ -7,6 +7,58 @@ type LocalAIProject = AIProject & { localOnly?: boolean };
 
 const db = SQLite.openDatabaseSync('noter.db');
 
+// ---------------------------------------------------------------------------
+// Write serialization — the real fix for intermittent "database is locked".
+//
+// expo-sqlite shares one WAL connection. WAL allows many concurrent readers but
+// only ONE writer; a multi-statement `withTransactionAsync` is NOT exclusive, so
+// a concurrent write (a chat-message save, the sync queue, an offline flush) can
+// interleave between its BEGIN and COMMIT and SQLite returns SQLITE_BUSY /
+// "database is locked" even with busy_timeout set (the timeout doesn't apply when
+// a deferred read-txn is upgraded to a write). Fix per Expo docs (June 2026):
+//   1. WAL + busy_timeout (set in initDatabase).
+//   2. Use withExclusiveTransactionAsync for multi-statement transactions (BEGIN
+//      EXCLUSIVE respects busy_timeout; the non-exclusive variant does not).
+//   3. Route every runtime write through `run`/`exec`/`dbExclusiveTransaction`,
+//      which retry transient SQLITE_BUSY/locked with backoff so a brief contention
+//      window never surfaces to the user as a failed chat send.
+const isLockedError = (e: unknown): boolean =>
+  /lock|busy|SQLITE_BUSY/i.test(String((e as { message?: string })?.message ?? e));
+
+/**
+ * Run a write, retrying transient SQLITE_BUSY / "database is locked" with backoff.
+ * Composable/nestable (pure try-retry, no queue) so it is safe to use both on a
+ * single auto-commit statement AND on a whole exclusive transaction — and an
+ * inner write inside a transaction simply never hits BUSY (the txn holds the
+ * lock), so it runs once. This is the documented Expo fix together with WAL +
+ * busy_timeout + withExclusiveTransactionAsync.
+ */
+export const withBusyRetry = async <T>(fn: () => Promise<T>, attempts = 6): Promise<T> => {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      if (!isLockedError(e) || i === attempts - 1) throw e;
+      await new Promise((r) => setTimeout(r, 40 * (i + 1))); // 40,80,…,240ms backoff
+    }
+  }
+  throw lastErr;
+};
+
+/** Exclusive multi-statement transaction (no interleaving writes), retried on BUSY. */
+const dbExclusiveTransaction = (body: () => Promise<void>): Promise<void> =>
+  withBusyRetry(() => db.withExclusiveTransactionAsync(body));
+
+// Single-statement write helpers — use instead of db.runAsync / db.execAsync for
+// RUNTIME writes so a transient lock is retried instead of surfacing to the user.
+// Safe to call inside a dbExclusiveTransaction body too (the txn holds the lock,
+// so the inner statement runs once without retrying).
+const run = (sql: string, params?: SQLite.SQLiteBindValue[]): Promise<SQLite.SQLiteRunResult> =>
+  withBusyRetry(() => db.runAsync(sql, params ?? []));
+const exec = (sql: string): Promise<void> => withBusyRetry(() => db.execAsync(sql));
+
 const toIsoString = (value: unknown): string => {
   if (value instanceof Date) return value.toISOString();
   if (typeof value === 'string') return value;
@@ -335,13 +387,13 @@ export const initDatabase = async () => {
     const hash = computedDedupeKey ? hashText(computedDedupeKey) : null;
     if (hash) {
       if (seen.has(hash)) {
-        await db.runAsync('DELETE FROM sync_queue WHERE id = ?', [row.id]);
+        await run('DELETE FROM sync_queue WHERE id = ?', [row.id]);
         continue;
       }
       seen.add(hash);
     }
 
-    await db.runAsync(
+    await run(
       'UPDATE sync_queue SET action = ?, entity = ?, data = ?, timestamp = ?, dedupeKey = ?, dedupeKeyHash = ? WHERE id = ?',
       [
         encryptText(actionText),
@@ -382,7 +434,7 @@ export const saveNoteLocal = async (note: Note, isSynced: boolean = true) => {
   const encryptedLocked = encrypt(String(!!note.locked));
   const encryptedIsSynced = encryptText(isSynced ? '1' : '0');
 
-  await db.runAsync(
+  await run(
     `INSERT OR REPLACE INTO notes (_id, title, content, tags, createdAt, updatedAt, userId, clientId, type, parentId, noteOrder, icon, iconColor, locked, password, isSynced)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
@@ -413,7 +465,7 @@ export const saveNoteLocal = async (note: Note, isSynced: boolean = true) => {
  */
 export const saveNotesLocalBulk = async (notes: Note[], isSynced: boolean = true): Promise<void> => {
   if (!notes.length) return;
-  await db.withTransactionAsync(async () => {
+  await dbExclusiveTransaction(async () => {
     for (const note of notes) await saveNoteLocal(note, isSynced);
   });
 };
@@ -470,7 +522,7 @@ export const getNotesLocal = async (): Promise<Note[]> => {
 };
 
 export const deleteNoteLocal = async (id: string) => {
-  await db.runAsync('DELETE FROM notes WHERE _id = ?', [id]);
+  await run('DELETE FROM notes WHERE _id = ?', [id]);
 };
 
 export const saveTaskLocal = async (task: Task, isSynced: boolean = true) => {
@@ -500,7 +552,7 @@ export const saveTaskLocal = async (task: Task, isSynced: boolean = true) => {
       encryptedDueDate = encrypt(isoDate);
   }
 
-  await db.runAsync(
+  await run(
     `INSERT OR REPLACE INTO tasks (_id, title, description, priority, completed, dueDate, createdAt, updatedAt, userId, parentNoteId, parentId, position, recurrenceType, recurrenceDays, reminderEnabled, reminderOffsetMinutes, clientId, isSynced)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
@@ -529,7 +581,7 @@ export const saveTaskLocal = async (task: Task, isSynced: boolean = true) => {
 /** Persist many tasks in a single transaction (see saveNotesLocalBulk). */
 export const saveTasksLocalBulk = async (tasks: Task[], isSynced: boolean = true): Promise<void> => {
   if (!tasks.length) return;
-  await db.withTransactionAsync(async () => {
+  await dbExclusiveTransaction(async () => {
     for (const task of tasks) await saveTaskLocal(task, isSynced);
   });
 };
@@ -621,7 +673,7 @@ export const getTasksLocal = async (): Promise<Task[]> => {
 };
 
 export const deleteTaskLocal = async (id: string) => {
-  await db.runAsync('DELETE FROM tasks WHERE _id = ?', [id]);
+  await run('DELETE FROM tasks WHERE _id = ?', [id]);
 };
 
 /**
@@ -648,7 +700,7 @@ export const addToSyncQueue = async (action: string, entity: string, data: any) 
   const encryptedEntity = encryptText(entity);
   const encryptedDedupeKey = dedupeKey ? encryptText(dedupeKey) : null;
   const dedupeKeyHash = dedupeKey ? hashText(dedupeKey) : null;
-  await db.runAsync(
+  await run(
     `INSERT INTO sync_queue (action, entity, data, timestamp, dedupeKey, dedupeKeyHash)
      VALUES (?, ?, ?, ?, ?, ?)
      ON CONFLICT(dedupeKeyHash) DO UPDATE SET
@@ -685,12 +737,12 @@ export const getSyncQueue = async () => {
 };
 
 export const removeFromSyncQueue = async (id: number) => {
-  await db.runAsync('DELETE FROM sync_queue WHERE id = ?', [id]);
+  await run('DELETE FROM sync_queue WHERE id = ?', [id]);
 };
 
 /** Bump the retry counter for a queue item that failed transiently. Returns the new count. */
 export const incrementSyncAttempt = async (id: number): Promise<number> => {
-  await db.runAsync('UPDATE sync_queue SET attempts = COALESCE(attempts, 0) + 1 WHERE id = ?', [id]);
+  await run('UPDATE sync_queue SET attempts = COALESCE(attempts, 0) + 1 WHERE id = ?', [id]);
   const row = await db.getFirstAsync<any>('SELECT attempts FROM sync_queue WHERE id = ?', [id]);
   return Number(row?.attempts) || 0;
 };
@@ -707,7 +759,7 @@ export const saveConversationLocal = async (conversation: LocalConversation) => 
   const encryptedCreatedAt = encrypt(conversation.createdAt);
   const encryptedUpdatedAt = encrypt(conversation.updatedAt);
 
-  await db.runAsync(
+  await run(
     `INSERT OR REPLACE INTO conversations (id, title, model, projectId, icon, iconColor, localOnly, createdAt, updatedAt)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [conversation.id, encryptedTitle, encryptedModel, encryptedProjectId, encryptedIcon, encryptedIconColor, encryptedLocalOnly, encryptedCreatedAt, encryptedUpdatedAt]
@@ -731,7 +783,7 @@ export const getConversationsLocal = async (): Promise<LocalConversation[]> => {
 };
 
 export const deleteConversationLocal = async (id: string) => {
-  await db.runAsync('DELETE FROM conversations WHERE id = ?', [id]);
+  await run('DELETE FROM conversations WHERE id = ?', [id]);
 };
 
 export const saveMessageLocal = async (conversationId: string, message: Message) => {
@@ -742,7 +794,7 @@ export const saveMessageLocal = async (conversationId: string, message: Message)
   const encryptedToolCallId = message.toolCallId ? encrypt(message.toolCallId) : null;
   const encryptedCreatedAt = encrypt(message.createdAt ?? new Date().toISOString());
 
-  await db.runAsync(
+  await run(
     `INSERT OR REPLACE INTO messages (id, conversationId, role, content, toolCalls, toolCallId, createdAt)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [messageId, conversationId, encryptedRole, encryptedContent, encryptedToolCalls, encryptedToolCallId, encryptedCreatedAt]
@@ -779,7 +831,7 @@ export const saveModelLocal = async (model: AIModel) => {
   const encryptedSize = encrypt(String(model.size));
   const encryptedDownloaded = encrypt(String(model.downloaded));
 
-  await db.runAsync(
+  await run(
     `INSERT OR REPLACE INTO models (id, name, filename, path, size, quantization, downloaded)
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     [model.id, encryptedName, encryptedFilename, encryptedPath, encryptedSize, encryptedQuantization, encryptedDownloaded]
@@ -800,7 +852,7 @@ export const getModelsLocal = async (): Promise<AIModel[]> => {
 };
 
 export const deleteModelLocal = async (id: string) => {
-  await db.runAsync('DELETE FROM models WHERE id = ?', [id]);
+  await run('DELETE FROM models WHERE id = ?', [id]);
 };
 
 // AI Projects
@@ -814,7 +866,7 @@ export const saveProjectLocal = async (project: LocalAIProject, userId?: string)
   const encryptedCreatedAt = encrypt(project.createdAt);
   const encryptedUpdatedAt = encrypt(project.updatedAt);
   const encryptedUserId = userId ? encryptText(userId) : null;
-  await db.runAsync(
+  await run(
     `INSERT OR REPLACE INTO ai_projects (id, userId, name, systemPrompt, icon, iconColor, localOnly, createdAt, updatedAt)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [project.id, encryptedUserId, encryptedName, encryptedPrompt, encryptedIcon, encryptedIconColor, encryptedLocalOnly, encryptedCreatedAt, encryptedUpdatedAt]
@@ -839,28 +891,28 @@ export const getProjectsLocal = async (userId?: string): Promise<LocalAIProject[
 };
 
 export const deleteProjectLocal = async (id: string) => {
-  await db.runAsync('DELETE FROM ai_projects WHERE id = ?', [id]);
-  await db.runAsync('UPDATE conversations SET projectId = NULL WHERE projectId = ?', [id]);
+  await run('DELETE FROM ai_projects WHERE id = ?', [id]);
+  await run('UPDATE conversations SET projectId = NULL WHERE projectId = ?', [id]);
 };
 
 export const clearNotesLocal = async () => {
-  await db.runAsync('DELETE FROM notes');
+  await run('DELETE FROM notes');
 };
 
 export const clearTasksLocal = async () => {
-  await db.runAsync('DELETE FROM tasks');
+  await run('DELETE FROM tasks');
 };
 
 export const clearModelsLocal = async () => {
-  await db.runAsync('DELETE FROM models');
+  await run('DELETE FROM models');
 };
 
 export const clearProjectsLocal = async () => {
-  await db.runAsync('DELETE FROM ai_projects');
+  await run('DELETE FROM ai_projects');
 };
 
 export const clearSyncQueue = async () => {
-  await db.runAsync('DELETE FROM sync_queue');
+  await run('DELETE FROM sync_queue');
 };
 
 export const clearLocalData = async () => {
