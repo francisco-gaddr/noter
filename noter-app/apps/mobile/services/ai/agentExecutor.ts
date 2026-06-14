@@ -37,6 +37,7 @@ import { runAgentTask, type AgentAccess, type ChatMessage } from '@repo/ai';
 import { API_PROVIDERS, generateApiProviderResponse, type ApiProviderType } from './apiProviders';
 import { buildToolSystemPrompt, type ToolContainer } from './tooling';
 import { patchDelegation, setRunLogEntry } from './agentDelegations';
+import { recordToolUse } from './usageTracker';
 import { useStore } from '@/stores/useStore';
 
 const scopeKeyForToken = async (): Promise<string> => {
@@ -86,6 +87,8 @@ export const resolveModelConfig = async (delegation: AiTaskDelegation): Promise<
 
 /** A tool executor over the store (the agent's hands). Mirrors the chat tools. */
 const buildToolExecutor = () => async (tool: string, args: Record<string, any>): Promise<unknown> => {
+  // Statistics: count tool/skill calls made by the delegated agent too (not just chat).
+  void recordToolUse(tool);
   const store = useStore.getState();
   const allNotes: Note[] = Array.isArray(store.notes) ? store.notes : [];
   const tasks: Task[] = Array.isArray(store.tasks) ? store.tasks : [];

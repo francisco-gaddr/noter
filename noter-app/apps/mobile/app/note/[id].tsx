@@ -1,11 +1,11 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { StyleSheet, View, TextInput, Alert, KeyboardAvoidingView, Platform, Modal, ScrollView, Keyboard, Pressable, ActivityIndicator } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { Appbar, useTheme, Text, Menu, Button } from 'react-native-paper';
+import { Appbar, useTheme, Text, Menu, Button, Chip } from 'react-native-paper';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useStore } from '@/stores/useStore';
-import { CreateNoteDto, UpdateNoteDto } from '@repo/shared';
+import { CreateNoteDto, UpdateNoteDto, toggleEntityLink, type EntityLink } from '@repo/shared';
 import { RichEditor, RichToolbar, actions } from 'react-native-pell-rich-editor';
 import PasswordModal from '@/components/PasswordModal';
 import { tiptapJsonToHtml } from '@/utils/tiptap';
@@ -62,6 +62,9 @@ export default function NoteEditorScreen() {
   const [videoUrl, setVideoUrl] = useState('');
   const [showTagsModal, setShowTagsModal] = useState(false);
   const [tagsInput, setTagsInput] = useState('');
+  const [links, setLinks] = useState<EntityLink[]>([]);
+  const [linkQuery, setLinkQuery] = useState('');
+  const allTasks = useStore((s) => s.tasks);
 
   const [showProjectSelector, setShowProjectSelector] = useState(false);
   const [selectedParentId, setSelectedParentId] = useState<string | null>(null);
@@ -234,6 +237,8 @@ export default function NoteEditorScreen() {
 
   const openTagsModal = () => {
     setTagsInput(tags.join(', '));
+    setLinks(Array.isArray((existingNote as any)?.links) ? (existingNote as any).links : []);
+    setLinkQuery('');
     setShowTagsModal(true);
   };
 
@@ -243,7 +248,7 @@ export default function NoteEditorScreen() {
     setShowTagsModal(false);
     if (!isNew && id) {
       try {
-        await updateNote(id, { tags: nextTags });
+        await updateNote(id, { tags: nextTags, links } as any);
       } catch {}
     }
   };
@@ -757,6 +762,38 @@ export default function NoteEditorScreen() {
               onChangeText={setTagsInput}
               autoCapitalize="none"
             />
+            <Text variant="labelLarge" style={{ marginTop: 12 }}>Länka till andra (graf)</Text>
+            {links.length > 0 ? (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 }}>
+                {links.map((l) => {
+                  const tgt = (notes as any[]).find((n) => n._id === l.targetId) || (allTasks as any[]).find((tk) => tk._id === l.targetId);
+                  return <Chip key={l.targetId} compact onClose={() => setLinks((c) => toggleEntityLink(c, l.targetId))}>{(tgt?.title || l.targetId.slice(0, 6))}</Chip>;
+                })}
+              </View>
+            ) : null}
+            <TextInput
+              style={[styles.input, { color: theme.colors.onSurface, borderColor: theme.colors.outline, marginTop: 6 }]}
+              placeholder="Sök att länka…"
+              placeholderTextColor={theme.colors.onSurfaceDisabled}
+              value={linkQuery}
+              onChangeText={setLinkQuery}
+              autoCapitalize="none"
+            />
+            {linkQuery.trim() ? (
+              <ScrollView style={{ maxHeight: 160 }} keyboardShouldPersistTaps="handled">
+                {[
+                  ...(notes as any[]).map((n) => ({ id: n._id, label: n.title })),
+                  ...(allTasks as any[]).map((tk) => ({ id: tk._id, label: tk.title })),
+                ].filter((c) => c.id && c.id !== id && (c.label || '').toLowerCase().includes(linkQuery.toLowerCase())).slice(0, 20).map((c) => {
+                  const on = links.some((l) => l.targetId === c.id);
+                  return (
+                    <Button key={c.id} mode={on ? 'contained-tonal' : 'text'} compact onPress={() => setLinks((cur) => toggleEntityLink(cur, c.id))} style={{ justifyContent: 'flex-start' }}>
+                      {(c.label || '(namnlös)').slice(0, 30)}{on ? ' ✓' : ''}
+                    </Button>
+                  );
+                })}
+              </ScrollView>
+            ) : null}
             <View style={styles.modalButtons}>
               <Button onPress={() => setShowTagsModal(false)} style={{ marginRight: 8 }}>{t('common.cancel')}</Button>
               <Button mode="contained" onPress={handleSaveTags}>{t('common.save')}</Button>

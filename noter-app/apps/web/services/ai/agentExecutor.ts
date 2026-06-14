@@ -24,6 +24,7 @@ import { runAgentTask, type AgentAccess, type ChatMessage } from '@repo/ai';
 import { API_PROVIDERS, generateApiProviderResponse, type ApiProviderType } from './apiProviders';
 import { useStore } from '../../stores/useStore';
 import { patchDelegation, setRunLogEntry } from './agentDelegations';
+import { recordToolUse } from './usageTracker';
 
 const ls = (key: string): string | null => {
   try { return typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null; } catch { return null; }
@@ -51,6 +52,8 @@ export const resolveModelConfig = (delegation: AiTaskDelegation): ResolvedModelC
 };
 
 const buildToolExecutor = () => async (tool: string, args: Record<string, any>): Promise<unknown> => {
+  // Statistics: count tool/skill calls made by the delegated agent too (not just chat).
+  try { recordToolUse(tool); } catch { /* best-effort */ }
   const store = useStore.getState();
   const allNotes: Note[] = Array.isArray(store.notes) ? store.notes : [];
   const tasks: Task[] = Array.isArray(store.tasks) ? store.tasks : [];

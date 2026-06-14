@@ -5,6 +5,7 @@ import { createEditor, Descendant, Editor, Transforms, Text, Element as SlateEle
 import { Slate, Editable, withReact, useSlate, ReactEditor, useSlateStatic, useReadOnly } from 'slate-react';
 import { withHistory, HistoryEditor } from 'slate-history';
 import { useStore } from '../stores/useStore';
+import { EntityLinkPicker } from './EntityLinkPicker';
 import { debounce } from 'lodash';
 import { FaBold, FaItalic, FaUnderline, FaCode, FaListUl, FaListOl, FaQuoteRight, FaLock, FaUnlock, FaLink, FaImage, FaVideo, FaFilePdf, FaFileDownload, FaFileAlt, FaCheckSquare, FaTable, FaTags } from 'react-icons/fa';
 import * as FaIcons from 'react-icons/fa';
@@ -1766,6 +1767,15 @@ function NoteEditorContent() {
                 ref={tagsInputRef}
               />
             </div>
+            {selectedNote && (
+              <div className="mt-4">
+                <EntityLinkPicker
+                  selfId={selectedNote._id}
+                  links={((selectedNote as any).links as any[]) || []}
+                  onChange={(links) => updateNote(selectedNote._id, { links } as any)}
+                />
+              </div>
+            )}
             <div className="mt-6 flex justify-end gap-2">
               <button
                 className="px-4 py-2 rounded bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-100"
