@@ -40,6 +40,14 @@ jobs:
         run: npm run check-types
       - name: Core package tests (shared + ai)
         run: npx turbo run test --filter=@repo/shared --filter=@repo/ai
+      # Deterministic correctness gates for the features that kept regressing:
+      # CalDAV/calendar 2-way sync (incl. undated tasks) + note-type classification
+      # + share list selection. Kept SEPARATE from the flaky mobile suite so it can
+      # be BLOCKING — these must never silently break again.
+      - name: CalDAV/calendar 2-way + classification correctness (blocking)
+        run: |
+          (cd packages/shared && npx jest caldav calendar shareLists noteType)
+          (cd apps/backend && npx jest caldav)
       - name: No dead files (knip --include files)
         run: npm run knip:files
 
