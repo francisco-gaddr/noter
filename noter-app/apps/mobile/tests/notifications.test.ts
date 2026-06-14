@@ -58,7 +58,9 @@ describe('task notifications', () => {
     expect(mockScheduleNotificationAsync).toHaveBeenCalledTimes(3);
     const firstCall = mockScheduleNotificationAsync.mock.calls[0]?.[0];
     expect(firstCall.content.title).toBe(task.title);
-    expect(firstCall.content.body).toBe(task.description);
+    // Body is the reminder-offset label (e.g. "30 minuter innan förfallotid" / "Vid
+    // förfallotid"), not the task description.
+    expect(firstCall.content.body).toMatch(/förfallotid/);
   });
 
   it('cancels all scheduled reminders for a task', async () => {

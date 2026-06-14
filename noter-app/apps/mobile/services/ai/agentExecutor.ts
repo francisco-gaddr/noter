@@ -79,7 +79,8 @@ export const resolveModelConfig = async (delegation: AiTaskDelegation): Promise<
   const keyEnc = await SecureStore.getItemAsync(`ai_${providerId}_key_${scopeKey}`).catch(() => null);
   const apiKey = keyEnc ? safeDecrypt(keyEnc) || '' : '';
   const baseUrl = providerId === 'hermes'
-    ? (await AsyncStorage.getItem(`ai_hermes_base_url_${scopeKey}`)) || undefined
+    // Stored encrypted; safeDecrypt reads legacy plaintext transparently.
+    ? (safeDecrypt((await AsyncStorage.getItem(`ai_hermes_base_url_${scopeKey}`)) || '', '') || undefined)
     : undefined;
   const model = delegation.model || meta.defaultModels[0] || '';
   return { sendProvider: providerId as ApiProviderType, apiKey, baseUrl, model };

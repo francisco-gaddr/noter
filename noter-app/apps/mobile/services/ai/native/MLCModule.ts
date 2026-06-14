@@ -16,9 +16,35 @@ export async function loadModel(path: string) {
   return MLCModule.loadModel(path);
 }
 
+/**
+ * True only when a REAL on-device inference engine is linked (not the placeholder
+ * bridge). We trust the native capability report: a genuine build exposes
+ * `getLocalConversionCapabilities().engineAvailable === true`; the stub bridge lacks
+ * the method (→ false). This lets the chat path be honest instead of returning a fake
+ * "model reply" from the placeholder.
+ */
+export async function isLocalInferenceAvailable(): Promise<boolean> {
+  if (!MLCModule || typeof MLCModule.generate !== 'function') return false;
+  try {
+    const caps = await getLocalConversionCapabilities();
+    return !!caps.engineAvailable;
+  } catch {
+    return false;
+  }
+}
+
+/** Honest, actionable message when on-device inference isn't built into this app. */
+export const LOCAL_INFERENCE_UNAVAILABLE_MSG =
+  'På-enheten-inferens är inte tillgänglig i den här appbygget (den lokala MLC/llama-motorn är inte inlänkad). ' +
+  'Använd en Hermes-källa — din egen Ollama/LM Studio på Pi eller Mac — för lokal AI utan tredje part tills vidare.';
+
 export async function chat(prompt: string) {
   if (!MLCModule) {
       throw new Error("MLCModule not linked");
+  }
+  // Never return the placeholder bridge's canned string as if it were a real reply.
+  if (!(await isLocalInferenceAvailable())) {
+    throw new Error(LOCAL_INFERENCE_UNAVAILABLE_MSG);
   }
   return MLCModule.generate(prompt);
 }

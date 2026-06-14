@@ -96,3 +96,26 @@ jest.mock('expo-haptics', () => ({
 // so modules that import it (services/ai/apiProviders streaming) load under jest;
 // streaming itself isn't exercised in unit tests.
 jest.mock('expo/fetch', () => ({ fetch: jest.fn() }));
+
+// react-native-safe-area-context's NativeSafeAreaContext TurboModule spec throws at
+// import time under jest ("Cannot read properties of undefined (reading 'get')"),
+// which fails every suite that transitively imports a screen. A self-contained mock
+// (the pattern the library docs recommend for jest) avoids loading the native module.
+jest.mock('react-native-safe-area-context', () => {
+  const React = require('react');
+  const inset = { top: 0, right: 0, bottom: 0, left: 0 };
+  const frame = { x: 0, y: 0, width: 390, height: 844 };
+  const InsetsContext = React.createContext(inset);
+  const FrameContext = React.createContext(frame);
+  return {
+    SafeAreaProvider: ({ children }) => React.createElement(React.Fragment, null, children),
+    SafeAreaConsumer: InsetsContext.Consumer,
+    SafeAreaInsetsContext: InsetsContext,
+    SafeAreaFrameContext: FrameContext,
+    SafeAreaView: ({ children, ...props }) => React.createElement('View', props, children),
+    useSafeAreaInsets: () => inset,
+    useSafeAreaFrame: () => frame,
+    initialWindowMetrics: { insets: inset, frame },
+    withSafeAreaInsets: (Comp) => Comp,
+  };
+});

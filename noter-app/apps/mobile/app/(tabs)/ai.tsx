@@ -519,17 +519,19 @@ export default function AIScreen() {
           await SecureStore.setItemAsync(`ai_custom_providers_${scopeKey}`, encrypt(JSON.stringify(withPresets)));
         } catch {}
       }
-      const savedApiProvider = await AsyncStorage.getItem(`ai_api_provider_${scopeKey}`);
+      // Provider/model/base-url are stored encrypted; safeDecrypt reads any legacy
+      // plaintext value transparently (so existing installs keep working).
+      const savedApiProvider = safeDecrypt(await AsyncStorage.getItem(`ai_api_provider_${scopeKey}`) || '', '');
       if (savedApiProvider && (savedApiProvider in API_PROVIDERS || savedApiProvider.startsWith('custom_'))) setApiProvider(savedApiProvider);
-      const savedOpenRouterModel = await AsyncStorage.getItem(`ai_openrouter_model_${scopeKey}`);
+      const savedOpenRouterModel = safeDecrypt(await AsyncStorage.getItem(`ai_openrouter_model_${scopeKey}`) || '', '');
       if (savedOpenRouterModel) setOpenRouterModel(savedOpenRouterModel);
-      const savedGeminiModel = await AsyncStorage.getItem(`ai_gemini_model_${scopeKey}`);
+      const savedGeminiModel = safeDecrypt(await AsyncStorage.getItem(`ai_gemini_model_${scopeKey}`) || '', '');
       if (savedGeminiModel) setGeminiModel(savedGeminiModel);
-      const savedGroqModel = await AsyncStorage.getItem(`ai_groq_model_${scopeKey}`);
+      const savedGroqModel = safeDecrypt(await AsyncStorage.getItem(`ai_groq_model_${scopeKey}`) || '', '');
       if (savedGroqModel) setGroqModel(savedGroqModel);
-      const savedHermesModel = await AsyncStorage.getItem(`ai_hermes_model_${scopeKey}`);
+      const savedHermesModel = safeDecrypt(await AsyncStorage.getItem(`ai_hermes_model_${scopeKey}`) || '', '');
       if (savedHermesModel) setHermesModel(savedHermesModel);
-      const savedHermesBaseUrl = await AsyncStorage.getItem(`ai_hermes_base_url_${scopeKey}`);
+      const savedHermesBaseUrl = safeDecrypt(await AsyncStorage.getItem(`ai_hermes_base_url_${scopeKey}`) || '', '');
       if (savedHermesBaseUrl) setHermesBaseUrl(savedHermesBaseUrl);
       const openRouterKeyEnc = await SecureStore.getItemAsync(`ai_openrouter_key_${scopeKey}`);
       if (openRouterKeyEnc) setOpenRouterApiKey(safeDecrypt(openRouterKeyEnc) || '');
@@ -599,7 +601,9 @@ export default function AIScreen() {
 
   useEffect(() => {
     if (!userScopeKey) return;
-    AsyncStorage.setItem(`ai_api_provider_${userScopeKey}`, apiProvider);
+    // Provider/model choices are encrypted at rest too (not just keys) so nothing about
+    // the user's AI config sits in plaintext AsyncStorage on the device.
+    AsyncStorage.setItem(`ai_api_provider_${userScopeKey}`, apiProvider ? encrypt(apiProvider) : '');
   }, [apiProvider, userScopeKey]);
 
   // Custom providers (incl. their API keys) saved encrypted in SecureStore.
@@ -610,28 +614,28 @@ export default function AIScreen() {
 
   useEffect(() => {
     if (!userScopeKey) return;
-    AsyncStorage.setItem(`ai_openrouter_model_${userScopeKey}`, openRouterModel);
+    AsyncStorage.setItem(`ai_openrouter_model_${userScopeKey}`, openRouterModel ? encrypt(openRouterModel) : '');
   }, [openRouterModel, userScopeKey]);
 
   useEffect(() => {
     if (!userScopeKey) return;
-    AsyncStorage.setItem(`ai_gemini_model_${userScopeKey}`, geminiModel);
+    AsyncStorage.setItem(`ai_gemini_model_${userScopeKey}`, geminiModel ? encrypt(geminiModel) : '');
   }, [geminiModel, userScopeKey]);
 
   useEffect(() => {
     if (!userScopeKey) return;
-    AsyncStorage.setItem(`ai_groq_model_${userScopeKey}`, groqModel);
+    AsyncStorage.setItem(`ai_groq_model_${userScopeKey}`, groqModel ? encrypt(groqModel) : '');
   }, [groqModel, userScopeKey]);
 
   useEffect(() => {
     if (!userScopeKey) return;
-    AsyncStorage.setItem(`ai_hermes_model_${userScopeKey}`, hermesModel);
+    AsyncStorage.setItem(`ai_hermes_model_${userScopeKey}`, hermesModel ? encrypt(hermesModel) : '');
   }, [hermesModel, userScopeKey]);
 
   useEffect(() => {
     if (!userScopeKey) return;
-    // Base URL is not a secret (LAN address) → plain AsyncStorage like models.
-    AsyncStorage.setItem(`ai_hermes_base_url_${userScopeKey}`, hermesBaseUrl);
+    // The Hermes base URL is the user's own server address — encrypt it at rest too.
+    AsyncStorage.setItem(`ai_hermes_base_url_${userScopeKey}`, hermesBaseUrl ? encrypt(hermesBaseUrl) : '');
   }, [hermesBaseUrl, userScopeKey]);
 
   useEffect(() => {
