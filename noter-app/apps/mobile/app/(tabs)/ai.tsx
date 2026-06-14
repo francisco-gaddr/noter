@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { StyleSheet, View, FlatList, TextInput, KeyboardAvoidingView, Platform, ScrollView, Pressable, AppState, Linking } from 'react-native';
+import { StyleSheet, View, FlatList, TextInput, KeyboardAvoidingView, Platform, ScrollView, Pressable, AppState, Linking, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text, Button, useTheme, IconButton, List, ActivityIndicator, ProgressBar, Portal, Dialog, TextInput as PaperTextInput, Switch, Menu, Divider, Chip } from 'react-native-paper';
 import { useLocalSearchParams, useNavigation } from 'expo-router';
@@ -198,6 +198,7 @@ export default function AIScreen() {
   const theme = useTheme();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   // Offset = the stack header height so the composer lands exactly above the
   // keyboard (the KeyboardAvoidingView sits below the header).
   const headerOffset = insets.top + (Platform.OS === 'ios' ? 44 : 56);
@@ -2856,9 +2857,16 @@ export default function AIScreen() {
               </View>
             </ScrollView>
           )}
-          <Dialog visible={downloadDialogVisible} onDismiss={() => setDownloadDialogVisible(false)}>
+          {/* Near-fullscreen so the long HuggingFace model names + the list have room.
+              Each model name sits in its own horizontal scroller so the full id can be
+              read by swiping sideways even when it's far too long to fit. */}
+          <Dialog
+            visible={downloadDialogVisible}
+            onDismiss={() => setDownloadDialogVisible(false)}
+            style={{ height: Math.round(windowHeight * 0.9), marginVertical: 0, alignSelf: 'stretch', marginHorizontal: 12 }}
+          >
             <Dialog.Title>Hämta AI-modeller från HuggingFace</Dialog.Title>
-            <Dialog.Content>
+            <Dialog.Content style={{ flex: 1, paddingBottom: 0 }}>
               <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
                 <TextInput
                   style={[styles.input, { flex: 1, color: theme.colors.onSurface, borderColor: theme.colors.outline, borderWidth: 1, borderRadius: 4, padding: 8 }]}
@@ -2871,16 +2879,17 @@ export default function AIScreen() {
                 />
                 <Button mode="contained" onPress={handleSearch} loading={isSearching}>Search</Button>
               </View>
-              <ScrollView style={{ maxHeight: 340 }}>
+              <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 8 }}>
                 <View style={{ gap: 10 }}>
-                  {/* Compact rows: small text on its own line, small buttons, tight
-                      padding — so each model is clearly visible at a glance. */}
                   {searchResults.map((item) => (
                     <View key={item.id} style={{ borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.outline, paddingVertical: 8 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                         <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
-                          <Text numberOfLines={1} ellipsizeMode="middle" style={{ color: theme.colors.onSurface, fontWeight: '600', fontSize: 13 }}>{item.name}</Text>
-                          <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.colors.onSurfaceVariant, fontSize: 11 }}>
+                          {/* Horizontal scroll → swipe to read the full model name. */}
+                          <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                            <Text style={{ color: theme.colors.onSurface, fontWeight: '600', fontSize: 13 }}>{item.name}</Text>
+                          </ScrollView>
+                          <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.colors.onSurfaceVariant, fontSize: 11, marginTop: 2 }}>
                             {item.author}{formatSearchSize(searchSizes[item.id]) ? ` · ${formatSearchSize(searchSizes[item.id])}` : ''}
                           </Text>
                         </View>
