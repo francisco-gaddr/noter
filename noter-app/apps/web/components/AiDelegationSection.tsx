@@ -6,7 +6,7 @@
  */
 import React, { useEffect, useState, useCallback } from 'react';
 import type { AiTaskDelegation, AiTaskSource, Task, ContextLevel } from '@repo/shared';
-import { CONTEXT_LEVELS, contextLevelConfig, summarizeToolPolicy, applyDelegationDefaults, CREDITS_TO_TOKENS } from '@repo/shared';
+import { CONTEXT_LEVELS, contextLevelConfig, summarizeToolPolicy, applyDelegationDefaults, CREDITS_TO_TOKENS, normalizeNoteType } from '@repo/shared';
 import { API_PROVIDER_LIST } from '../services/ai/apiProviders';
 import { getDelegations, setDelegation, removeDelegation, getRunLog, getDelegationDefaults, type AgentRunLogEntry } from '../services/ai/agentDelegations';
 import { runAgentTaskNow } from '../services/ai/agentScheduler';
@@ -26,6 +26,8 @@ const accessLabel = (kind: string): string => ({
 export const AiDelegationSection: React.FC<{ task: Task }> = ({ task }) => {
   const user = useStore((s) => s.user) as any;
   const userId: string | undefined = user?._id || user?.id || undefined;
+  const allNotes = useStore((s) => s.notes) as any[];
+  const projectFolders = (allNotes || []).filter((n) => normalizeNoteType(n.type) === 'project');
   const [delegation, setLocalDelegation] = useState<AiTaskDelegation | null>(null);
   const [runLog, setRunLog] = useState<AgentRunLogEntry | null>(null);
   const [running, setRunning] = useState(false);
@@ -125,6 +127,28 @@ export const AiDelegationSection: React.FC<{ task: Task }> = ({ task }) => {
             <label className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-300">Extra instruktioner (valfritt)</label>
             <textarea className={inputCls} rows={2} value={d.instructions ?? ''} onChange={(e) => patch({ instructions: e.target.value })} />
           </div>
+          {projectFolders.length > 0 && (
+            <div>
+              <label className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-300">Minnesmappar (agenten läser dessa som minne)</label>
+              <div className="flex flex-wrap gap-1 mt-1" data-testid="ai-delegate-memory-folders">
+                {projectFolders.map((p) => {
+                  const ids = d.memoryProjectIds || [];
+                  const on = ids.includes(p._id);
+                  return (
+                    <button
+                      key={p._id}
+                      type="button"
+                      onClick={() => patch({ memoryProjectIds: on ? ids.filter((x) => x !== p._id) : [...ids, p._id] })}
+                      className={`text-[11px] px-2 py-0.5 rounded-full border ${on ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300'}`}
+                    >
+                      {(p.title || '(namnlös)').slice(0, 24)}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">Inga valda → projektet "AI-agent" används som minne. Agenten läser anteckningarna i valda mappar och planerar med uppgifter i deras listor.</p>
+            </div>
+          )}
           <div>
             <label className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-300">Kontextnivå</label>
             <select className={inputCls} value={d.contextLevel ?? 'standard'} onChange={(e) => patch({ contextLevel: e.target.value as ContextLevel })}>

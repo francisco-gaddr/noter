@@ -10,6 +10,9 @@ import {
   resolveTokenBudget,
   isOverRunBudget,
   contextLevelConfig,
+  collectAgentMemoryNotes,
+  renderAgentMemoryBlock,
+  AGENT_PLANNING_INSTRUCTIONS,
   type AiTaskDelegation,
   type Note,
   type Task,
@@ -18,8 +21,6 @@ import { runAgentTask, type AgentAccess, type ChatMessage } from '@repo/ai';
 import { API_PROVIDERS, generateApiProviderResponse, type ApiProviderType } from './apiProviders';
 import { useStore } from '../../stores/useStore';
 import { patchDelegation, setRunLogEntry } from './agentDelegations';
-
-const AGENT_MEMORY_PROJECT_TITLE = 'AI-agent';
 
 const ls = (key: string): string | null => {
   try { return typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null; } catch { return null; }
@@ -104,9 +105,7 @@ const buildAgentSystem = (task: Task, delegation: AiTaskDelegation): string => {
   const cl = contextLevelConfig(delegation.contextLevel);
   const fmt = (type: string) => !cl.includeContainers ? '(utelämnat — låg kontextnivå)'
     : (notes.filter((n) => normalizeNoteType(n.type) === type).slice(0, cl.maxContextItems).map((n) => `${n.title || '(namnlös)'} [id:${n._id}]`).join(', ') || '(inga)');
-  const memoryProject = notes.find((n) => normalizeNoteType(n.type) === 'project' && (n.title || '').trim().toLowerCase() === AGENT_MEMORY_PROJECT_TITLE.toLowerCase());
-  const memoryNotes = memoryProject ? notes.filter((n) => String(n.parentId) === String(memoryProject._id)) : [];
-  const memoryBlock = memoryNotes.length ? `\nMinnen/instruktioner/regler (projekt "${AGENT_MEMORY_PROJECT_TITLE}"):\n${memoryNotes.map((n) => `- ${n.title}: ${(n.content || '').slice(0, 600)}`).join('\n')}` : '';
+  const memoryBlock = renderAgentMemoryBlock(collectAgentMemoryNotes(notes, delegation));
   let tz = 'UTC'; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { /* keep */ }
   const levelHint = cl.level === 'minimal' ? 'KONTEXTNIVÅ minimal: svara direkt, läs inte databasen om det inte krävs.'
     : cl.level === 'fast' ? 'KONTEXTNIVÅ lätt: använd verktyg sparsamt, föredra snabba enkla steg.'
@@ -121,6 +120,7 @@ const buildAgentSystem = (task: Task, delegation: AiTaskDelegation): string => {
     `Projektmappar: ${fmt('project')}.`,
     `Uppgiftslistor: ${fmt('task_list')}.`,
     'Bocka av uppgiften (complete_task) när målet är klart. Du kan skapa framtida uppgifter åt dig själv (create_task med dueDate).',
+    AGENT_PLANNING_INSTRUCTIONS,
     memoryBlock,
     `\nDin uppgift: "${task.title}".`,
     task.description ? `Beskrivning: ${task.description}` : '',

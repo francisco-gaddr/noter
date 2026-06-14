@@ -35,6 +35,7 @@ export interface DelegationDefaults {
   runOnBackend?: boolean;
   budget?: AiTaskDelegation['budget'];
   notify?: AiTaskDelegation['notify'];
+  memoryProjectIds?: string[];
 }
 
 const num = (v: unknown): number | undefined => (Number.isFinite(v as number) ? Number(v) : undefined);
@@ -68,6 +69,7 @@ export const extractDelegationDefaults = (d?: AiTaskDelegation | null): Delegati
     notify: d.notify && typeof d.notify === 'object'
       ? { onStart: !!d.notify.onStart, onFinish: d.notify.onFinish !== false }
       : undefined,
+    memoryProjectIds: Array.isArray(d.memoryProjectIds) && d.memoryProjectIds.length ? [...d.memoryProjectIds] : undefined,
   };
 };
 
@@ -93,6 +95,9 @@ export const parseDelegationDefaults = (raw: unknown): DelegationDefaults | null
     toolUse: obj.toolUse === undefined ? undefined : !!obj.toolUse,
     contextLevel: ['minimal', 'fast', 'standard', 'deep'].includes(obj.contextLevel) ? obj.contextLevel : undefined,
     role: typeof obj.role === 'string' && obj.role.trim() ? obj.role.trim() : undefined,
+    memoryProjectIds: Array.isArray(obj.memoryProjectIds)
+      ? obj.memoryProjectIds.filter((x: unknown) => typeof x === 'string' && x)
+      : undefined,
     runOnBackend: obj.runOnBackend === undefined ? undefined : !!obj.runOnBackend,
     budget: cleanBudget(obj.budget),
     notify: obj.notify && typeof obj.notify === 'object'
@@ -116,6 +121,7 @@ export const applyDelegationDefaults = (defaults?: DelegationDefaults | null): A
   toolUse: defaults?.toolUse ?? true,
   contextLevel: defaults?.contextLevel,
   role: defaults?.role,
+  memoryProjectIds: defaults?.memoryProjectIds && defaults.memoryProjectIds.length ? [...defaults.memoryProjectIds] : undefined,
   runOnBackend: defaults?.runOnBackend ?? false,
   budget: cleanBudget(defaults?.budget),
   notify: defaults?.notify,

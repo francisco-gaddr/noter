@@ -12,7 +12,8 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Text, Switch, SegmentedButtons, TextInput as PaperTextInput, Button, useTheme, Divider, ActivityIndicator, Chip } from 'react-native-paper';
 import type { AiTaskDelegation, AiTaskSource, Task, ContextLevel } from '@repo/shared';
-import { CONTEXT_LEVELS, contextLevelConfig, summarizeToolPolicy, applyDelegationDefaults, CREDITS_TO_TOKENS } from '@repo/shared';
+import { CONTEXT_LEVELS, contextLevelConfig, summarizeToolPolicy, applyDelegationDefaults, CREDITS_TO_TOKENS, normalizeNoteType } from '@repo/shared';
+import { useStore } from '@/stores/useStore';
 import { API_PROVIDER_LIST } from '@/services/ai/apiProviders';
 import { getDelegations, setDelegation, removeDelegation, getRunLog, getDelegationDefaults, type AgentRunLogEntry } from '@/services/ai/agentDelegations';
 import { runAgentTaskNow } from '@/services/ai/agentScheduler';
@@ -38,6 +39,8 @@ const accessLabel = (kind: string): string => {
 
 export const AiDelegationSection: React.FC<{ task: Task }> = ({ task }) => {
   const theme = useTheme();
+  const allNotes = useStore((s) => s.notes) as any[];
+  const projectFolders = (allNotes || []).filter((n) => normalizeNoteType(n.type) === 'project');
   const [delegation, setLocalDelegation] = useState<AiTaskDelegation | null>(null);
   const [runLog, setRunLog] = useState<AgentRunLogEntry | null>(null);
   const [running, setRunning] = useState(false);
@@ -177,6 +180,26 @@ export const AiDelegationSection: React.FC<{ task: Task }> = ({ task }) => {
             dense
             style={{ marginTop: 8 }}
           />
+
+          {projectFolders.length > 0 ? (
+            <>
+              <Text style={styles.label}>Minnesmappar (agenten läser dessa som minne)</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4 }} testID="ai-delegate-memory-folders">
+                {projectFolders.map((p) => {
+                  const ids = d.memoryProjectIds || [];
+                  const on = ids.includes(p._id);
+                  return (
+                    <Chip key={p._id} compact selected={on} onPress={() => patch({ memoryProjectIds: on ? ids.filter((x) => x !== p._id) : [...ids, p._id] })}>
+                      {(p.title || '(namnlös)').slice(0, 20)}
+                    </Chip>
+                  );
+                })}
+              </View>
+              <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant, marginTop: 2 }}>
+                Inga valda → projektet "AI-agent" används. Agenten läser anteckningarna i valda mappar och planerar med uppgifter i deras listor.
+              </Text>
+            </>
+          ) : null}
 
           <Text style={styles.label}>Kontextnivå</Text>
           <SegmentedButtons

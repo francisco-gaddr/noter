@@ -16,7 +16,7 @@
  */
 import Task from '../models/Task';
 import Note from '../models/Note';
-import { encrypt, decrypt, parseAiDelegation, serializeAiDelegation, resolveMaxSteps, resolveTokenBudget, isOverRunBudget, type AiTaskDelegation } from '@repo/shared';
+import { encrypt, decrypt, parseAiDelegation, serializeAiDelegation, resolveMaxSteps, resolveTokenBudget, isOverRunBudget, AGENT_PLANNING_INSTRUCTIONS, type AiTaskDelegation } from '@repo/shared';
 import { runAgentTask, type ChatMessage } from '@repo/ai';
 import { sendPushToUser } from './expoPush';
 import logger from '../utils/logger';
@@ -195,6 +195,8 @@ const runOne = async (task: any, delegation: AiTaskDelegation, io?: Io): Promise
     'Verktyg: list_tasks, get_task, list_notes, list_projects, list_tasklists, get_note, create_task, update_task, complete_task, create_note, update_note.',
     `Aktuell tid (UTC): ${new Date().toISOString()}.`,
     'Bocka av uppgiften med complete_task när målet är klart. Du kan skapa framtida uppgifter åt dig själv (create_task med dueDate).',
+    AGENT_PLANNING_INSTRUCTIONS,
+    'Läs dina minnesmappar via list_notes/get_note (projektmappen "AI-agent" eller de mappar uppgiften anger) innan du planerar.',
     `Din uppgift: "${title}".`,
     dec(task.description) ? `Beskrivning: ${dec(task.description)}` : '',
     delegation.instructions ? `Extra instruktioner: ${delegation.instructions}` : '',

@@ -26,14 +26,15 @@ import {
   resolveTokenBudget,
   isOverRunBudget,
   contextLevelConfig,
+  collectAgentMemoryNotes,
+  renderAgentMemoryBlock,
+  AGENT_PLANNING_INSTRUCTIONS,
 } from '@repo/shared';
 import { runAgentTask, type AgentAccess, type ChatMessage } from '@repo/ai';
 import { API_PROVIDERS, generateApiProviderResponse, type ApiProviderType } from './apiProviders';
 import { buildToolSystemPrompt, type ToolContainer } from './tooling';
 import { patchDelegation, setRunLogEntry } from './agentDelegations';
 import { useStore } from '@/stores/useStore';
-
-const AGENT_MEMORY_PROJECT_TITLE = 'AI-agent';
 
 const scopeKeyForToken = async (): Promise<string> => {
   const token = await SecureStore.getItemAsync('token').catch(() => null);
@@ -147,12 +148,9 @@ const buildAgentSystem = (task: Task, delegation: AiTaskDelegation, baseUrl: str
     projects: cap(notes.filter((n) => normalizeNoteType(n.type) === 'project').map((n): ToolContainer => ({ id: n._id, title: n.title }))),
     taskLists: cap(notes.filter((n) => normalizeNoteType(n.type) === 'task_list').map((n): ToolContainer => ({ id: n._id, title: n.title }))),
   } : { projects: [], taskLists: [] };
-  // Agent memory: notes inside the "AI-agent" project act as memory/instructions/rules.
-  const memoryProject = notes.find((n) => normalizeNoteType(n.type) === 'project' && (n.title || '').trim().toLowerCase() === AGENT_MEMORY_PROJECT_TITLE.toLowerCase());
-  const memoryNotes = memoryProject ? notes.filter((n) => String(n.parentId) === String(memoryProject._id)) : [];
-  const memoryBlock = memoryNotes.length
-    ? `\n\nDina minnen/instruktioner/regler (från projektet "${AGENT_MEMORY_PROJECT_TITLE}"):\n${memoryNotes.map((n) => `- ${n.title}: ${(n.content || '').slice(0, 600)}`).join('\n')}`
-    : '';
+  // Agent memory: notes inside the configured memory project(s) — or the conventional
+  // "AI-agent" project — act as memory/instructions/index/rules.
+  const memoryBlock = renderAgentMemoryBlock(collectAgentMemoryNotes(notes, delegation));
   const toolPrompt = buildToolSystemPrompt(baseUrl, [], containers);
   const levelHint = cl.level === 'minimal'
     ? 'KONTEXTNIVÅ minimal: svara direkt, undvik att läsa databasen om det inte uttryckligen krävs.'
@@ -167,6 +165,7 @@ const buildAgentSystem = (task: Task, delegation: AiTaskDelegation, baseUrl: str
     'Arbeta i korta steg med tool calls. Läs bara det du behöver. Undvik upprepning.',
     'Bocka av uppgiften (complete_task / update_task completed=true) när målet är uppfyllt, annars planera nästa steg.',
     'Du kan skapa framtida uppgifter åt dig själv (create_task med dueDate) för uppföljning.',
+    AGENT_PLANNING_INSTRUCTIONS,
     toolPrompt,
     memoryBlock,
     `\nDin uppgift: "${task.title}".`,

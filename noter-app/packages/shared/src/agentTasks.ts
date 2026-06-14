@@ -33,6 +33,13 @@ export interface AiTaskDelegation {
   baseUrl?: string;
   /** Extra instructions beyond the task title/description. */
   instructions?: string;
+  /**
+   * Project-folder ids the agent treats as MEMORY: it reads every note inside them
+   * (md-style memory/instructions/index notes) into its context, and plans by creating
+   * tasks in their task-lists. Empty/undefined → fall back to the conventional
+   * "AI-agent" project. This is how an agent gets its own readable knowledge base.
+   */
+  memoryProjectIds?: string[];
   /** How much data/search the agent may use (minimal/fast/standard/deep). */
   contextLevel?: import('./contextLevels').ContextLevel;
   /**
@@ -116,6 +123,9 @@ export const parseAiDelegation = (raw: unknown): AiTaskDelegation | null => {
     localOnly: !!obj.localOnly,
     toolUse: obj.toolUse === undefined ? true : !!obj.toolUse,
     instructions: typeof obj.instructions === 'string' ? obj.instructions : undefined,
+    memoryProjectIds: Array.isArray(obj.memoryProjectIds)
+      ? obj.memoryProjectIds.filter((x: unknown) => typeof x === 'string' && x).map((x: string) => x)
+      : undefined,
     contextLevel: ['minimal', 'fast', 'standard', 'deep'].includes(obj.contextLevel) ? obj.contextLevel : undefined,
     role: typeof obj.role === 'string' ? obj.role : undefined,
     budget: obj.budget && typeof obj.budget === 'object'
