@@ -14,7 +14,7 @@ import { startOfDay, endOfDay, isWithinInterval, addDays, startOfWeek, endOfWeek
 import type { Identifier, XYCoord } from 'dnd-core';
 import Fuse from 'fuse.js';
 import { formatTaskDueLabel } from '../lib/formatTaskDue';
-import { createCalendarSubscription, getCalendarUrl, revokeCalendarSubscription, createDavCredential, revokeDavCredential, hasDavCredential, getDavServerUrl, type DavCredential } from '../lib/calendarSubscription';
+import { createCalendarSubscription, getCalendarUrl, revokeCalendarSubscription, createDavCredential, revokeDavCredential, hasDavCredential, type DavCredential } from '../lib/calendarSubscription';
 
 const ItemType = 'TASK';
 
@@ -637,7 +637,7 @@ export default function TaskList() {
                 )}
                 {davInfo && (
                     <div className="mx-1 mt-1 rounded border border-gray-200 dark:border-gray-700 p-2 text-xs space-y-1">
-                        {([['Server-URL', getDavServerUrl()], ['Användarnamn', davInfo.username], ['Lösenord (en gång)', davInfo.password || '']] as [string, string][]).map(([label, value]) => (
+                        {([['Server-URL', davInfo.serverUrl], ['Användarnamn', davInfo.username], ['Lösenord (en gång)', davInfo.password || '']] as [string, string][]).map(([label, value]) => (
                             <div key={label} className="flex items-center gap-2">
                                 <span className="w-36 shrink-0 text-gray-500 dark:text-gray-400">{label}</span>
                                 <code className="flex-1 break-all rounded bg-gray-100 dark:bg-gray-800 px-2 py-0.5">{value}</code>

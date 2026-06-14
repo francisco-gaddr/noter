@@ -11,7 +11,7 @@ import { getDefaultHotkeys } from '../lib/hotkeys';
 import { enrollOrUnlockCrypto, changeCryptoPassword } from '../lib/crypto';
 import { AdminDashboard } from './AdminDashboard';
 import EmbeddingsSettings from './EmbeddingsSettings';
-import { createCalendarSubscription, getCalendarUrl, revokeCalendarSubscription, createDavCredential, revokeDavCredential, hasDavCredential, getDavServerUrl, type DavCredential } from '../lib/calendarSubscription';
+import { createCalendarSubscription, getCalendarUrl, revokeCalendarSubscription, createDavCredential, revokeDavCredential, hasDavCredential, type DavCredential } from '../lib/calendarSubscription';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -272,7 +272,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             {davCred ? (
               <div className="mt-3 space-y-1.5 text-xs">
                 {[
-                  ['Server-URL', getDavServerUrl()],
+                  ['Server-URL', davCred.serverUrl],
                   ['Användarnamn', davCred.username],
                   ['Lösenord (visas en gång)', davCred.password || ''],
                 ].map(([label, value]) => (
