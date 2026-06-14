@@ -11,7 +11,7 @@ process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-jwt-secret';
 // Production mounts /dav BEFORE express.json (CalDAV bodies are XML/text); mirror that.
 const app = express();
 app.set('io', { to: () => ({ emit: () => undefined }) });
-app.use('/dav', caldavRouter);
+app.use('/api/dav', caldavRouter); // primary mount (rides the public /api/* edge route)
 app.use(express.json());
 app.use('/api/calendar', calendarRoutes);
 
@@ -26,7 +26,7 @@ describe('CalDAV bridge', () => {
   let mongoServer: MongoMemoryServer;
   let username = '';
   let password = '';
-  let collectionUrl = ''; // path-absolute /dav/<user>/cal/tasks/
+  let collectionUrl = ''; // path-absolute /api/dav/<user>/cal/tasks/
 
   beforeAll(async () => {
     mongoServer = await MongoMemoryServer.create();
@@ -50,33 +50,33 @@ describe('CalDAV bridge', () => {
     password = res.body.password;
     expect(username).toMatch(/^noter-[0-9a-f]{16}$/);
     expect(password).toHaveLength(32);
-    collectionUrl = `/dav/${username}/cal/tasks/`;
+    collectionUrl = `/api/dav/${username}/cal/tasks/`;
   });
 
   it('OPTIONS advertises CalDAV capabilities without auth', async () => {
-    const res = await request(app).options('/dav/');
+    const res = await request(app).options('/api/dav/');
     expect(res.status).toBe(204);
     expect(res.headers['dav']).toContain('calendar-access');
     expect(res.headers['allow']).toContain('PROPFIND');
   });
 
   it('rejects a request with no credentials (401 + WWW-Authenticate)', async () => {
-    const res = await (request(app) as any).propfind('/dav/').set('Depth', '0');
+    const res = await (request(app) as any).propfind('/api/dav/').set('Depth', '0');
     expect(res.status).toBe(401);
     expect(res.headers['www-authenticate']).toContain('Basic');
   });
 
   it('rejects a wrong password (401)', async () => {
-    const res = await (request(app) as any).propfind(`/dav/${username}/`).auth(username, 'wrong-pass').set('Depth', '0');
+    const res = await (request(app) as any).propfind(`/api/dav/${username}/`).auth(username, 'wrong-pass').set('Depth', '0');
     expect(res.status).toBe(401);
   });
 
   it('PROPFIND principal returns current-user-principal + calendar-home-set', async () => {
-    const res = await (request(app) as any).propfind(`/dav/${username}/`).auth(username, password).set('Depth', '0');
+    const res = await (request(app) as any).propfind(`/api/dav/${username}/`).auth(username, password).set('Depth', '0');
     expect(res.status).toBe(207);
     expect(res.text).toContain('current-user-principal');
     expect(res.text).toContain('calendar-home-set');
-    expect(res.text).toContain(`/dav/${username}/cal/`);
+    expect(res.text).toContain(`/api/dav/${username}/cal/`);
   });
 
   it('PROPFIND collection Depth:1 lists VTODO resources with etags', async () => {
@@ -142,7 +142,7 @@ describe('CalDAV bridge', () => {
 
   it('a credential cannot access another user\'s principal tree (403)', async () => {
     const res = await (request(app) as any)
-      .propfind('/dav/noter-deadbeefdeadbeef/')
+      .propfind('/api/dav/noter-deadbeefdeadbeef/')
       .auth(username, password)
       .set('Depth', '0');
     expect(res.status).toBe(403);
@@ -150,7 +150,7 @@ describe('CalDAV bridge', () => {
 
   it('revoking the credential immediately denies CalDAV access (401)', async () => {
     await request(app).delete('/api/calendar/dav').set(...AUTH).send({ listId: null });
-    const res = await (request(app) as any).propfind(`/dav/${username}/`).auth(username, password).set('Depth', '0');
+    const res = await (request(app) as any).propfind(`/api/dav/${username}/`).auth(username, password).set('Depth', '0');
     expect(res.status).toBe(401);
   });
 
@@ -172,9 +172,9 @@ describe('CalDAV bridge', () => {
     process.env.CALENDAR_CALDAV_ENABLED = '0';
     try {
       // The protocol channel goes fully dark (no auth prompt, just 404).
-      const opt = await request(app).options('/dav/');
+      const opt = await request(app).options('/api/dav/');
       expect(opt.status).toBe(404);
-      const pf = await (request(app) as any).propfind(`/dav/${username}/`).auth(username, password).set('Depth', '0');
+      const pf = await (request(app) as any).propfind(`/api/dav/${username}/`).auth(username, password).set('Depth', '0');
       expect(pf.status).toBe(404);
       // Minting a new credential is refused.
       const mint = await request(app).post('/api/calendar/dav').set(...AUTH).send({ listId: null });
@@ -208,7 +208,7 @@ describe('CalDAV bridge', () => {
       .send({ listId: 'list-abc', items: [{ uid: 'L1', title: 'Endast lista', start: '2026-07-03T00:00:00.000Z', allDay: true, completed: false }] });
     const lu = listRes.body.username;
     const lp = listRes.body.password;
-    const res = await (request(app) as any).propfind(`/dav/${lu}/cal/tasks/`).auth(lu, lp).set('Depth', '1');
+    const res = await (request(app) as any).propfind(`/api/dav/${lu}/cal/tasks/`).auth(lu, lp).set('Depth', '1');
     expect(res.text).toContain('L1.ics');
     expect(res.text).not.toContain('task-1.ics'); // the all-scope items must not leak in
   });

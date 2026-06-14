@@ -104,6 +104,10 @@ app.use(readinessGate);
 // header; the browser middleware below would mangle or short-circuit those. The
 // router does its own Basic-Auth, body parsing, and failure throttling.
 app.use('/.well-known/caldav', wellKnownCaldavHandler);
+// Primary mount under /api/dav — the public edge proxy already forwards /api/* to
+// this backend (WebDAV verbs included), so CalDAV works without a separate edge rule.
+// /dav is kept as a direct-access alias for setups that route it explicitly.
+app.use('/api/dav', caldavRouter);
 app.use('/dav', caldavRouter);
 
 const corsOptions: cors.CorsOptions = {

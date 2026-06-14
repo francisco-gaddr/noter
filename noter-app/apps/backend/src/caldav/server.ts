@@ -10,6 +10,7 @@ import {
 import CalendarFeed, { ICalendarFeed } from '../models/CalendarFeed';
 import { verifyDavPassword, parseBasicAuth } from './credentials';
 import { isCaldavEnabled } from '../config/calendarExposure';
+import { DAV_BASE } from './base';
 import {
   multistatus,
   responseXml,
@@ -79,12 +80,12 @@ const parseDavPath = (path: string): DavPath => {
   return { kind: 'unknown', user };
 };
 
-// --- hrefs (path-absolute, host-agnostic) ----------------------------------
-const principalHref = (user: string) => `/dav/${encodeURIComponent(user)}/`;
-const homeHref = (user: string) => `/dav/${encodeURIComponent(user)}/cal/`;
-const collectionHref = (user: string) => `/dav/${encodeURIComponent(user)}/cal/tasks/`;
+// --- hrefs (path-absolute, host-agnostic) — prefixed with the external DAV base ---
+const principalHref = (user: string) => `${DAV_BASE}/${encodeURIComponent(user)}/`;
+const homeHref = (user: string) => `${DAV_BASE}/${encodeURIComponent(user)}/cal/`;
+const collectionHref = (user: string) => `${DAV_BASE}/${encodeURIComponent(user)}/cal/tasks/`;
 const resourceHref = (user: string, uid: string) =>
-  `/dav/${encodeURIComponent(user)}/cal/tasks/${encodeURIComponent(uid)}.ics`;
+  `${DAV_BASE}/${encodeURIComponent(user)}/cal/tasks/${encodeURIComponent(uid)}.ics`;
 
 // --- collection change tokens ----------------------------------------------
 const djb2 = (s: string): string => {
@@ -457,5 +458,5 @@ caldavRouter.use(async (req: Request, res: Response): Promise<void> => {
  */
 export const wellKnownCaldavHandler = (_req: Request, res: Response): void => {
   if (!isCaldavEnabled()) { res.status(404).end(); return; }
-  res.redirect(301, '/dav/');
+  res.redirect(301, `${DAV_BASE}/`);
 };
