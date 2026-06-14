@@ -10,6 +10,13 @@ enheternas lokala lagring.
 > Det är den kuraterade kartan över *var* allt finns och *i vilken ordning* du ska läsa —
 > så du slipper gissa. Den här filen är översikten; `Doc/index.md` är navigeringen.
 
+> **⭐ Planerad migrering desktop Electron → Tauri:** beslut i
+> [`Doc/adr/0007-electron-vs-tauri.md`](Doc/adr/0007-electron-vs-tauri.md), och en
+> färdig, säkerhetsförst körguide i
+> [`Doc/migrations/electron-to-tauri-runbook.md`](Doc/migrations/electron-to-tauri-runbook.md)
+> (komplett IPC-karta, secure-store-omdesign med bevarad E2E-kryptering, auto-update-brygga,
+> webview-QA). Migreringen startar *inte* från noll.
+
 ---
 
 ## 🌟 Funktioner
