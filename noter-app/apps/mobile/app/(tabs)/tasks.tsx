@@ -81,7 +81,7 @@ export default function TasksScreen() {
   // projection whenever tasks change. No-op unless the user created a subscription.
   // Debounced so a burst of edits results in one push.
   useEffect(() => {
-    const handle = setTimeout(() => { void pushCalendarFeed(tasks as any).catch(() => {}); }, 1500);
+    const handle = setTimeout(() => { void pushCalendarFeed().catch(() => {}); }, 1500);
     return () => clearTimeout(handle);
   }, [tasks]);
 

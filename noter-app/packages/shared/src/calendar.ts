@@ -6,6 +6,7 @@
  * via generateIcs. Pure, dependency-free, testable.
  */
 import type { Task } from './types';
+import { buildSecurityNoteMap, isReadableWithLocks, type SecurityNote } from './locks';
 
 export interface CalendarFeedItem {
   uid: string;
@@ -46,6 +47,28 @@ export const buildCalendarProjection = (tasks: Task[]): CalendarFeedItem[] => {
     });
   }
   return out;
+};
+
+/**
+ * Lock-aware projection: like buildCalendarProjection, but FIRST drops any task whose
+ * parent note/list/project is locked-and-not-unlocked. This upholds the locked-notes
+ * invariant — a locked task's title must never leak, not even into the user's own
+ * calendar feed. Tasks with no parent container are always included. Missing/empty
+ * unlockedIds → locked tasks are excluded (the safe default).
+ */
+export const buildSafeCalendarProjection = (
+  tasks: Task[],
+  notes: SecurityNote[],
+  unlockedIds: Iterable<string> = [],
+): CalendarFeedItem[] => {
+  const noteMap = buildSecurityNoteMap(notes || []);
+  const ids = unlockedIds instanceof Set ? unlockedIds : new Set(unlockedIds);
+  const safe = (tasks || []).filter((t) => {
+    const parent = (t as any)?.parentNoteId;
+    if (!parent) return true;
+    return isReadableWithLocks(noteMap.get(String(parent)), noteMap, ids);
+  });
+  return buildCalendarProjection(safe);
 };
 
 const escapeText = (s: string): string =>

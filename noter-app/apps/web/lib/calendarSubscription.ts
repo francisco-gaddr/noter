@@ -7,9 +7,10 @@
  * the backend can't build the ICS itself — this opt-in bridge exposes only the
  * minimal calendar fields. The cached URL/flag lives in localStorage.
  */
-import { buildCalendarProjection, type Task } from '@repo/shared';
+import { buildSafeCalendarProjection } from '@repo/shared';
 import { getApiBaseUrl } from '../services/api';
 import { readStoredToken } from './authStorage';
+import { useStore } from '../stores/useStore';
 
 const URL_KEY = 'calendar_subscription_url';
 const SUBSCRIBED_KEY = 'calendar_subscribed';
@@ -29,8 +30,18 @@ const lsGet = (k: string): string | null => { try { return localStorage.getItem(
 const lsSet = (k: string, v: string): void => { try { localStorage.setItem(k, v); } catch { /* ignore */ } };
 const lsDel = (k: string): void => { try { localStorage.removeItem(k); } catch { /* ignore */ } };
 
-export const createCalendarSubscription = async (tasks: Task[]): Promise<CalendarSubscription> => {
-  const items = buildCalendarProjection(tasks);
+/**
+ * Build the projection from the live store, EXCLUDING tasks under locked notes/projects
+ * (the locked-notes invariant — a locked task's title must never leave the device, not
+ * even via the user's own calendar link). Only title + due date of unlocked, dated tasks.
+ */
+const safeProjection = () => {
+  const s: any = useStore.getState();
+  return buildSafeCalendarProjection(s.tasks || [], s.notes || [], s.unlockedProtectedNoteIds || []);
+};
+
+export const createCalendarSubscription = async (): Promise<CalendarSubscription> => {
+  const items = safeProjection();
   const res = await fetch(`${getApiBaseUrl()}/calendar/subscription`, {
     method: 'POST',
     headers: authHeaders(),
@@ -43,9 +54,9 @@ export const createCalendarSubscription = async (tasks: Task[]): Promise<Calenda
   return data;
 };
 
-export const pushCalendarFeed = async (tasks: Task[]): Promise<number> => {
+export const pushCalendarFeed = async (): Promise<number> => {
   if (!isCalendarSubscribed()) return 0;
-  const items = buildCalendarProjection(tasks);
+  const items = safeProjection();
   const res = await fetch(`${getApiBaseUrl()}/calendar/feed`, {
     method: 'PUT',
     headers: authHeaders(),

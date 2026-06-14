@@ -59,8 +59,7 @@ export default function SettingsScreen() {
       let url = calendarUrl;
       // (Re)create + seed with the latest tasks if we don't have a link yet.
       if (!url) {
-        const tasks = useStore.getState().tasks || [];
-        const sub = await createCalendarSubscription(tasks as any);
+        const sub = await createCalendarSubscription();
         url = sub.url;
         setCalendarUrl(url);
       }

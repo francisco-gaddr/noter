@@ -32,7 +32,7 @@ import * as Clipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { resolveAiSettingsScope } from '@/services/ai/settingsScope';
-import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, safeDecrypt, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings, mcpSettingsFromJson, mcpSettingsToJsonString, mergePresetProviders, buildAttachmentContextBlock, summarizeAttachmentsForUi, imageDataUrls, MAX_ATTACHMENTS, CONTEXT_LEVELS, contextLevelConfig, summarizeToolPolicy, normalizeContextLevel, applyDelegationDefaults, serializeAiDelegation, summarizeToolMessage, type AiAttachment, type ContextLevel, type AiTaskSource, type AiTaskDelegation } from '@repo/shared';
+import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, safeDecrypt, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings, mcpSettingsFromJson, mcpSettingsToJsonString, mergePresetProviders, buildAttachmentContextBlock, summarizeAttachmentsForUi, imageDataUrls, MAX_ATTACHMENTS, CONTEXT_LEVELS, contextLevelConfig, summarizeToolPolicy, normalizeContextLevel, applyDelegationDefaults, serializeAiDelegation, summarizeToolMessage, formatToolFields, type AiAttachment, type ContextLevel, type AiTaskSource, type AiTaskDelegation } from '@repo/shared';
 import { setDelegation as setLocalDelegation } from '@/services/ai/agentDelegations';
 import { syncDelegationToBackend } from '@/services/ai/agentBackendSync';
 import { pickAttachments } from '@/services/ai/attachments';
@@ -234,9 +234,9 @@ export default function AIScreen() {
   // Chat complexity: gates which tools + searches the chat may use (minimal → just
   // answer, deep → full tools + search). Mirrors the web AISidebar.
   const [chatContextLevel, setChatContextLevel] = useState<ContextLevel>('standard');
-  const [toolSettingsVisible, setToolSettingsVisible] = useState(false);
   const [toolUsageRows, setToolUsageRows] = useState<ToolUsageRow[]>([]);
-  useEffect(() => { if (toolSettingsVisible) { getToolUsageRows().then(setToolUsageRows).catch(() => {}); } }, [toolSettingsVisible]);
+  // AI-statistik now lives in the AI-instruktioner tab; load it when that opens.
+  useEffect(() => { if (settingsVisible && settingsTab === 'instructions') { getToolUsageRows().then(setToolUsageRows).catch(() => {}); } }, [settingsVisible, settingsTab]);
   const [userScopeKey, setUserScopeKey] = useState<string>('anon');
   const [collapsedTool, setCollapsedTool] = useState<Record<string, boolean>>({});
   const [collapsedThinking, setCollapsedThinking] = useState<Record<string, boolean>>({});
@@ -2283,34 +2283,6 @@ export default function AIScreen() {
             <Button mode="contained" onPress={confirmDeleteChat}>Ta bort</Button>
           </Dialog.Actions>
         </Dialog>
-        <Dialog visible={toolSettingsVisible} onDismiss={() => setToolSettingsVisible(false)}>
-          <Dialog.Title>AI-statistik</Dialog.Title>
-          <Dialog.Content>
-            {/* Tool-use + context-level moved to AI-instruktioner (single source of truth,
-                always valid). The current chat's active context level is shown for
-                reference; change it under Inställningar → AI-instruktioner. */}
-            <Text style={{ color: theme.colors.onSurfaceVariant }}>
-              Kontextnivå: {contextLevelConfig(chatContextLevel).label} · Verktyg: {enableToolUse ? 'på' : 'av'}
-            </Text>
-            <Text style={{ marginTop: 16, fontWeight: '600' }}>AI-statistik (verktyg)</Text>
-            <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant, marginBottom: 4 }}>idag · månad · totalt — lagras krypterat lokalt</Text>
-            {toolUsageRows.length === 0 ? (
-              <Text style={{ fontSize: 12, color: theme.colors.onSurfaceVariant }}>Inga verktygsanrop registrerade ännu.</Text>
-            ) : (
-              <View testID="ai-tool-stats">
-                {toolUsageRows.slice(0, 10).map((r) => (
-                  <View key={r.tool} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 1 }}>
-                    <Text style={{ fontSize: 12, flex: 1 }} numberOfLines={1}>{toolUsageLabel(r.tool)}</Text>
-                    <Text style={{ fontSize: 12, color: theme.colors.onSurfaceVariant }}>{r.countDay} · {r.countMonth} · {r.total}</Text>
-                  </View>
-                ))}
-              </View>
-            )}
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setToolSettingsVisible(false)}>{t('common.close')}</Button>
-          </Dialog.Actions>
-        </Dialog>
       </Portal>
       <IconPickerModal
         visible={projectIconPickerVisible}
@@ -2616,6 +2588,23 @@ export default function AIScreen() {
                   {t('ai.checkLocalEngine')}
                 </Button>
               </View>
+
+              {/* AI-statistik (moved here from the chat bottom-bar cog popup). */}
+              <Text style={{ marginTop: 16, fontWeight: '600', color: theme.colors.onSurface }}>AI-statistik (verktyg)</Text>
+              <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant, marginBottom: 4 }}>idag · månad · totalt — lagras krypterat lokalt</Text>
+              {toolUsageRows.length === 0 ? (
+                <Text style={{ fontSize: 12, color: theme.colors.onSurfaceVariant }}>Inga verktygsanrop registrerade ännu.</Text>
+              ) : (
+                <View testID="ai-tool-stats">
+                  {toolUsageRows.slice(0, 10).map((r) => (
+                    <View key={r.tool} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 1 }}>
+                      <Text style={{ fontSize: 12, flex: 1, color: theme.colors.onSurface }} numberOfLines={1}>{toolUsageLabel(r.tool)}</Text>
+                      <Text style={{ fontSize: 12, color: theme.colors.onSurfaceVariant }}>{r.countDay} · {r.countMonth} · {r.total}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+
               <View style={{ marginTop: 14, padding: 12, borderWidth: 1, borderColor: theme.colors.outline, borderRadius: 10 }}>
                 <Text variant="titleSmall" style={{ color: theme.colors.onSurface, marginBottom: 6 }}>MCP Integrationer</Text>
                 <Text style={{ color: theme.colors.onSurfaceVariant, marginBottom: 10 }}>
@@ -2911,6 +2900,9 @@ export default function AIScreen() {
                     // the summary so the box is never blank. Shown as a 2-line preview when
                     // collapsed (so content is always visible) and in full when expanded.
                     const bodyText = (item.content || '').replace(/^Tool (call|result|error):\s*/i, '').trim() || summary;
+                    // Readable "Label: value" rows from the tool arguments so the user
+                    // clearly sees WHAT was done + WHICH values were filled in.
+                    const fields = formatToolFields(item.content);
                     return (
                       <View style={[styles.messageRow, styles.rowLeft]}>
                         <View style={[styles.toolCard, { borderColor: kind.color, backgroundColor: theme.colors.surfaceVariant }]}>
@@ -2928,13 +2920,24 @@ export default function AIScreen() {
                             </View>
                             <FontAwesome5 name={collapsed ? 'chevron-down' : 'chevron-up'} size={12} color={theme.colors.onSurfaceVariant} />
                           </Pressable>
-                          <Text
-                            style={[styles.toolBody, { color: theme.colors.onSurfaceVariant }]}
-                            numberOfLines={collapsed ? 2 : undefined}
-                            selectable={!collapsed}
-                          >
-                            {bodyText}
-                          </Text>
+                          {!collapsed && fields.length > 0 ? (
+                            <View style={{ marginTop: 6, gap: 3 }}>
+                              {fields.map((f, fi) => (
+                                <View key={fi} style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+                                  <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.onSurface }}>{f.label}: </Text>
+                                  <Text style={{ fontSize: 12, color: theme.colors.onSurfaceVariant, flexShrink: 1 }} selectable>{f.value}</Text>
+                                </View>
+                              ))}
+                            </View>
+                          ) : (
+                            <Text
+                              style={[styles.toolBody, { color: theme.colors.onSurfaceVariant }]}
+                              numberOfLines={collapsed ? 2 : undefined}
+                              selectable={!collapsed}
+                            >
+                              {collapsed && fields.length > 0 ? fields.map((f) => `${f.label}: ${f.value}`).join(' · ') : bodyText}
+                            </Text>
+                          )}
                         </View>
                       </View>
                     );
@@ -3041,7 +3044,6 @@ export default function AIScreen() {
                 </ScrollView>
               ) : null}
               <View style={[styles.inputContainer, { backgroundColor: theme.colors.surface, borderTopColor: theme.colors.outline }]}>
-                <IconButton icon="cog" onPress={() => setToolSettingsVisible(true)} />
                 {attachmentsEnabled ? (
                   <IconButton icon="paperclip" onPress={handleAttach} disabled={loading} testID="ai-attach-button" />
                 ) : null}

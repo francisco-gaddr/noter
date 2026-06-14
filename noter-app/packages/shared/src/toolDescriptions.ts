@@ -114,6 +114,60 @@ export const describeTool = (tool: string, payload?: any): ToolGlance => {
   }
 };
 
+/** Field → friendly Swedish label for the readable tool-card rows. */
+const FIELD_LABELS: Record<string, string> = {
+  title: 'Titel', content: 'Innehåll', description: 'Beskrivning', dueDate: 'Förfaller',
+  priority: 'Prioritet', parentNoteId: 'Lista', parentId: 'Mapp', tags: 'Taggar',
+  completed: 'Klar', type: 'Typ', id: 'Id', service: 'Tjänst', toolName: 'Verktyg',
+  delegateToAi: 'Delegera till AI', aiInstructions: 'AI-instruktion', locked: 'Låst',
+  reminderEnabled: 'Påminnelse', reminderOffsetMinutes: 'Påminn (min)',
+  recurrenceType: 'Upprepning', recurrenceDays: 'Dagar', icon: 'Ikon', order: 'Ordning',
+  args: 'Argument', toolArgs: 'Argument',
+};
+
+const PRIORITY_LABEL: Record<string, string> = { low: 'Låg', medium: 'Medel', high: 'Hög' };
+
+const formatFieldValue = (key: string, v: unknown): string => {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'boolean') return v ? 'Ja' : 'Nej';
+  if (Array.isArray(v)) return v.map((x) => (typeof x === 'object' ? JSON.stringify(x) : String(x))).join(', ');
+  if (key === 'priority' && typeof v === 'string') return PRIORITY_LABEL[v] || v;
+  if ((key === 'dueDate' || key === 'date') && typeof v === 'string') {
+    const d = new Date(v);
+    if (!Number.isNaN(d.getTime())) {
+      try { return new Intl.DateTimeFormat('sv-SE', { dateStyle: 'medium', timeStyle: 'short' }).format(d); } catch { /* fall through */ }
+    }
+  }
+  if (typeof v === 'object') return JSON.stringify(v);
+  return String(v);
+};
+
+export interface ToolField { label: string; value: string; }
+
+/**
+ * Turn a stored tool message's arguments into readable "Label: value" rows so the
+ * card shows WHAT was done and WHICH values were filled in — instead of raw JSON.
+ * Unwraps an `args` level, maps known fields to Swedish labels, formats dates +
+ * priorities + booleans. Returns [] when there's nothing structured to show (the
+ * card then falls back to its raw body text).
+ */
+export const formatToolFields = (content: string): ToolField[] => {
+  const parsed = parseToolMessage(content);
+  const raw = parsed.payload;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
+  const obj = (raw.args && typeof raw.args === 'object' && !Array.isArray(raw.args)) ? raw.args : raw;
+  if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return [];
+  const rows: ToolField[] = [];
+  for (const [k, v] of Object.entries(obj as Record<string, unknown>)) {
+    if (k === 'args') continue;
+    const value = formatFieldValue(k, v);
+    if (!value) continue;
+    rows.push({ label: FIELD_LABELS[k] || k, value: value.length > 240 ? `${value.slice(0, 240)}…` : value });
+    if (rows.length >= 12) break;
+  }
+  return rows;
+};
+
 /** Short outcome line for a result message (e.g. how many entities were read). */
 export const describeToolResult = (tool: string, payload?: any): string => {
   const read = payload && Array.isArray(payload.entitiesRead) ? payload.entitiesRead.length : 0;

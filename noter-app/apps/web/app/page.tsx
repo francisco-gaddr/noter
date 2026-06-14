@@ -20,7 +20,7 @@ export default function Home() {
   // Keep the external calendar feed (ICS subscription) live: push the latest task
   // projection whenever tasks change. No-op unless the user created a subscription.
   useEffect(() => {
-    const handle = setTimeout(() => { void pushCalendarFeed((tasks || []) as any); }, 1500);
+    const handle = setTimeout(() => { void pushCalendarFeed(); }, 1500);
     return () => clearTimeout(handle);
   }, [tasks]);
   const [sidebarWidth, setSidebarWidth] = useState(256);

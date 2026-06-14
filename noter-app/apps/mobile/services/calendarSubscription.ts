@@ -8,8 +8,9 @@
  * are going to the external calendar anyway). The cached URL/flag is stored locally.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { buildCalendarProjection, type Task } from '@repo/shared';
+import { buildSafeCalendarProjection } from '@repo/shared';
 import { fetchWithAuth } from '@/services/api';
+import { useStore } from '@/stores/useStore';
 
 const URL_KEY = 'calendar_subscription_url';
 const SUBSCRIBED_KEY = 'calendar_subscribed';
@@ -20,9 +21,19 @@ export interface CalendarSubscription {
   count: number;
 }
 
-/** Create (or fetch existing) subscription and seed it with the current tasks. */
-export const createCalendarSubscription = async (tasks: Task[]): Promise<CalendarSubscription> => {
-  const items = buildCalendarProjection(tasks);
+/**
+ * Build the projection from the live store, EXCLUDING tasks under locked notes/projects
+ * (the locked-notes invariant — a locked task's title must never leave the device, not
+ * even via the user's own calendar link). Only title + due date of unlocked, dated tasks.
+ */
+const safeProjection = () => {
+  const s: any = useStore.getState();
+  return buildSafeCalendarProjection(s.tasks || [], s.notes || [], s.unlockedProtectedNoteIds || []);
+};
+
+/** Create (or fetch existing) subscription and seed it with the current (lock-safe) tasks. */
+export const createCalendarSubscription = async (): Promise<CalendarSubscription> => {
+  const items = safeProjection();
   const res = await fetchWithAuth('/calendar/subscription', {
     method: 'POST',
     body: JSON.stringify({ items }),
@@ -33,10 +44,10 @@ export const createCalendarSubscription = async (tasks: Task[]): Promise<Calenda
   return data;
 };
 
-/** Push the latest projection (live update). No-op if not subscribed. Returns count. */
-export const pushCalendarFeed = async (tasks: Task[]): Promise<number> => {
+/** Push the latest (lock-safe) projection. No-op if not subscribed. Returns count. */
+export const pushCalendarFeed = async (): Promise<number> => {
   if (!(await isCalendarSubscribed())) return 0;
-  const items = buildCalendarProjection(tasks);
+  const items = safeProjection();
   const res = await fetchWithAuth('/calendar/feed', {
     method: 'PUT',
     body: JSON.stringify({ items }),

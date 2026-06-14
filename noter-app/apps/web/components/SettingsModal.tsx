@@ -49,8 +49,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     try {
       let url = calendarUrl;
       if (!url) {
-        const tasks = useStore.getState().tasks || [];
-        const sub = await createCalendarSubscription(tasks as any);
+        const sub = await createCalendarSubscription();
         url = sub.url;
         setCalendarUrl(url);
       }
