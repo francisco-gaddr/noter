@@ -30,10 +30,13 @@ export interface MintedDavCredential {
   collectionUrl: string;
 }
 
+// Only trust shares with a real shareId — a legacy/corrupt cache entry without one
+// would make pushCalendarFeed PUT to `/shares/undefined` → 404. Prune on read/write.
+const isValidShare = (s: any): s is Share => !!s && typeof s.shareId === 'string' && s.shareId.length > 0;
 const readCache = async (): Promise<Share[]> => {
-  try { return JSON.parse((await AsyncStorage.getItem(SHARES_CACHE)) || '[]') || []; } catch { return []; }
+  try { return (JSON.parse((await AsyncStorage.getItem(SHARES_CACHE)) || '[]') || []).filter(isValidShare); } catch { return []; }
 };
-const writeCache = async (s: Share[]): Promise<void> => { await AsyncStorage.setItem(SHARES_CACHE, JSON.stringify(s)); };
+const writeCache = async (s: Share[]): Promise<void> => { await AsyncStorage.setItem(SHARES_CACHE, JSON.stringify((s || []).filter(isValidShare))); };
 
 const projectionFor = (listIds: string[]) => {
   const s: any = useStore.getState();
