@@ -9,6 +9,7 @@
  *     only `type === 'note'`.
  */
 import type { Note, Task } from './types';
+import { normalizeNoteType } from './noteType';
 
 /** Strip HTML tags + entities + whitespace; '' means visually empty. */
 const stripToText = (raw: string): string =>
@@ -39,13 +40,15 @@ export const noteContentIsEmpty = (content: unknown): boolean => {
   return stripToText(trimmed) === '';
 };
 
+// All three use the decrypt-aware normalizeNoteType so a still-encrypted `type`
+// (E2E locked / un-decrypted sync path) is classified correctly — otherwise a
+// project folder's ciphertext type reads as a plain note and leaks into the list.
 /** Project folder (a container, never shown among plain notes). */
-export const isProjectFolder = (note: Pick<Note, 'type'>): boolean => note.type === 'project';
+export const isProjectFolder = (note: Pick<Note, 'type'>): boolean => normalizeNoteType(note.type) === 'project';
 /** Task-list folder (a container for tasks). */
-export const isTaskListFolder = (note: Pick<Note, 'type'>): boolean => note.type === 'task_list';
+export const isTaskListFolder = (note: Pick<Note, 'type'>): boolean => normalizeNoteType(note.type) === 'task_list';
 /** Plain note (the only kind that belongs in the notes list). */
-export const isPlainNote = (note: Pick<Note, 'type'>): boolean =>
-  note.type === undefined || note.type === null || note.type === 'note';
+export const isPlainNote = (note: Pick<Note, 'type'>): boolean => normalizeNoteType(note.type) === 'note';
 
 /**
  * Completely-empty plain note: no title AND no visible content. Folders (project /

@@ -7,7 +7,7 @@ import { FaPlus, FaTrash, FaSort, FaChevronRight, FaChevronDown, FaFolder, FaFol
 import * as FaIcons from 'react-icons/fa';
 import Fuse from 'fuse.js';
 import { orderBy } from 'lodash';
-import { Note, safeDecrypt, isAnyCiphertext } from '@repo/shared';
+import { Note, normalizeNoteType } from '@repo/shared';
 import { IconPicker } from './IconPicker';
 import { CreateNodeModal } from './CreateNodeModal';
 import { ConfirmationModal } from './ConfirmationModal';
@@ -35,35 +35,6 @@ interface TreeNodeProps {
 type DragItem = { id: string; type: string };
 type NodeDropCollected = { isOver: boolean; canDrop: boolean };
 
-const normalizeNoteType = (value: unknown): string => {
-    if (typeof value !== 'string') return 'note';
-    // Defensive: if the type arrived still-encrypted (e.g. E2E locked so upstream
-    // safeDecrypt fell back to ciphertext), decrypt it here before classifying —
-    // otherwise a project folder's ciphertext type reads as a plain note and the
-    // folder wrongly shows up among notes.
-    let raw = value;
-    if (isAnyCiphertext(raw)) raw = safeDecrypt(raw, raw);
-    let normalized = raw.trim().toLowerCase();
-    while (
-      normalized.length >= 2 &&
-      (
-        (normalized.startsWith('"') && normalized.endsWith('"')) ||
-        (normalized.startsWith("'") && normalized.endsWith("'")) ||
-        (normalized.startsWith('`') && normalized.endsWith('`'))
-      )
-    ) {
-        normalized = normalized.slice(1, -1).trim();
-    }
-    normalized = normalized.replace(/\s+/g, '_');
-    normalized = normalized.replace(/-/g, '_');
-    if (normalized === 'projectfolder' || normalized === 'project_folder') return 'project';
-    if (normalized === 'tasklist' || normalized === 'task_list' || normalized === 'task-list') return 'task_list';
-    if (normalized.includes('task') && normalized.includes('list')) return 'task_list';
-    if (normalized.includes('project') || normalized.includes('folder')) return 'project';
-    if (normalized === 'folder') return 'project';
-    if (normalized === 'project' || normalized === 'note') return normalized;
-    return normalized || 'note';
-};
 
 const normalizeId = (value: unknown): string | null => {
     if (typeof value !== 'string') return null;

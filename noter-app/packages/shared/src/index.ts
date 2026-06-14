@@ -7,3 +7,4 @@ export * from './keyBootstrap';
 export * from './insights';
 export * from './aiAttachments';
 export * from './displayFilters';
+export * from './noteType';

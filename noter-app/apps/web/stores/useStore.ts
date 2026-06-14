@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Note, Task, UpdateTaskDto, User, decrypt, encrypt } from '@repo/shared';
+import { Note, Task, UpdateTaskDto, User, decrypt, encrypt, normalizeNoteType } from '@repo/shared';
 import { api, getApiBaseUrl, getUUID, setApiBaseUrl, setApiToken } from '../services/api';
 import { socket, connectSocket, disconnectSocket, setSocketToken } from '../services/socket';
 import { db } from '../services/db';
@@ -128,19 +128,9 @@ const parseNoteLocked = (value: unknown): boolean => {
   return false;
 };
 
-const normalizeNoteType = (value: unknown): string => {
-  if (typeof value !== 'string') return 'note';
-  let normalized = value.trim().toLowerCase();
-  if ((normalized.startsWith('"') && normalized.endsWith('"')) || (normalized.startsWith("'") && normalized.endsWith("'")) || (normalized.startsWith('`') && normalized.endsWith('`'))) {
-    normalized = normalized.slice(1, -1).trim();
-  }
-  normalized = normalized.replace(/\s+/g, '_');
-  if (normalized === 'task list') normalized = 'task_list';
-  if (normalized === 'folder') return 'project';
-  if (normalized === 'tasklist' || normalized === 'task-list') return 'task_list';
-  if (normalized === 'project' || normalized === 'task_list' || normalized === 'note') return normalized;
-  return normalized || 'note';
-};
+// normalizeNoteType now comes from @repo/shared (decrypt-aware single source of
+// truth) so the store classifies a still-encrypted project `type` correctly and
+// folders never leak into the notes list — see packages/shared/src/noteType.ts.
 
 const parseNoteDateValue = (value: unknown): string => {
   if (typeof value !== 'string') return new Date().toISOString();
