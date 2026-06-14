@@ -248,6 +248,11 @@ export default function AIScreen() {
   // auto-select-first-project logic override it — that's what made the selection jump when
   // navigating chat ↔ project list. Stored encrypted, scoped per user.
   const projectSelInitRef = useRef(false);
+  // Guards the persist effects below until the initial load has populated state. Without
+  // it, the moment userScopeKey is set the save effects fire with empty initial state and
+  // overwrite the stored keys/models/flags with '' — wiping them on every launch (this is
+  // why API keys "had to be re-entered" each time). Set true at the end of the load IIFE.
+  const settingsHydratedRef = useRef(false);
   const ALL_PROJECTS_SENTINEL = '__ALL__';
   // Clearly-visible press ripple for list rows in the AI section (parity with settings
   // rows). Stronger alpha so it's obvious which row was tapped on both iOS and Android.
@@ -560,28 +565,31 @@ export default function AIScreen() {
       }
       const resolvedMcpSettings = resolveMcpSettings(parsedMcpSettings, getMcpEnvValues());
       setMcpSettings(toEffectiveMcpUiSettings(resolvedMcpSettings));
+      // Hydration complete — only now may the persist effects write to storage, so they
+      // never clobber the just-loaded values with empty initial state.
+      settingsHydratedRef.current = true;
     })();
   }, []);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     AsyncStorage.setItem(`ai_tool_use_enabled_${userScopeKey}`, enableToolUse ? 'true' : 'false');
   }, [enableToolUse, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     AsyncStorage.setItem(`ai_chat_context_level_${userScopeKey}`, chatContextLevel);
   }, [chatContextLevel, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     AsyncStorage.setItem(`ai_attachments_enabled_${userScopeKey}`, attachmentsEnabled ? 'true' : 'false');
   }, [attachmentsEnabled, userScopeKey]);
 
   // Auto-save the system prompt locally (encrypted) as you type — debounced — so it
   // always persists without needing an explicit save tap.
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     const handle = setTimeout(() => {
       AsyncStorage.setItem(`ai_system_prompt_${userScopeKey}`, systemPrompt ? encrypt(systemPrompt) : '').catch(() => {});
     }, 400);
@@ -589,23 +597,23 @@ export default function AIScreen() {
   }, [systemPrompt, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     AsyncStorage.setItem(`ai_next_thread_local_only_${userScopeKey}`, nextThreadLocalOnly ? 'true' : 'false');
   }, [nextThreadLocalOnly, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     AsyncStorage.setItem(`ai_background_work_${userScopeKey}`, allowBackgroundAIWork ? 'true' : 'false');
     setAiBackgroundWorkEnabled(allowBackgroundAIWork).catch(() => {});
   }, [allowBackgroundAIWork, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     AsyncStorage.setItem(`ai_api_enabled_${userScopeKey}`, aiUseApiProviders ? 'true' : 'false');
   }, [aiUseApiProviders, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     // Provider/model choices are encrypted at rest too (not just keys) so nothing about
     // the user's AI config sits in plaintext AsyncStorage on the device.
     AsyncStorage.setItem(`ai_api_provider_${userScopeKey}`, apiProvider ? encrypt(apiProvider) : '');
@@ -613,58 +621,58 @@ export default function AIScreen() {
 
   // Custom providers (incl. their API keys) saved encrypted in SecureStore.
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     SecureStore.setItemAsync(`ai_custom_providers_${userScopeKey}`, customProviders.length ? encrypt(JSON.stringify(customProviders)) : '');
   }, [customProviders, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     AsyncStorage.setItem(`ai_openrouter_model_${userScopeKey}`, openRouterModel ? encrypt(openRouterModel) : '');
   }, [openRouterModel, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     AsyncStorage.setItem(`ai_gemini_model_${userScopeKey}`, geminiModel ? encrypt(geminiModel) : '');
   }, [geminiModel, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     AsyncStorage.setItem(`ai_groq_model_${userScopeKey}`, groqModel ? encrypt(groqModel) : '');
   }, [groqModel, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     AsyncStorage.setItem(`ai_hermes_model_${userScopeKey}`, hermesModel ? encrypt(hermesModel) : '');
   }, [hermesModel, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     // The Hermes base URL is the user's own server address — encrypt it at rest too.
     AsyncStorage.setItem(`ai_hermes_base_url_${userScopeKey}`, hermesBaseUrl ? encrypt(hermesBaseUrl) : '');
   }, [hermesBaseUrl, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     SecureStore.setItemAsync(`ai_openrouter_key_${userScopeKey}`, openRouterApiKey ? encrypt(openRouterApiKey) : '');
   }, [openRouterApiKey, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     SecureStore.setItemAsync(`ai_gemini_key_${userScopeKey}`, geminiApiKey ? encrypt(geminiApiKey) : '');
   }, [geminiApiKey, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     SecureStore.setItemAsync(`ai_groq_key_${userScopeKey}`, groqApiKey ? encrypt(groqApiKey) : '');
   }, [groqApiKey, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     SecureStore.setItemAsync(`ai_hermes_key_${userScopeKey}`, hermesApiKey ? encrypt(hermesApiKey) : '');
   }, [hermesApiKey, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     SecureStore.setItemAsync(`ai_mcp_settings_${userScopeKey}`, encrypt(JSON.stringify(mcpSettings)));
   }, [mcpSettings, userScopeKey]);
 
@@ -2276,31 +2284,14 @@ export default function AIScreen() {
           </Dialog.Actions>
         </Dialog>
         <Dialog visible={toolSettingsVisible} onDismiss={() => setToolSettingsVisible(false)}>
-          <Dialog.Title>{t('ai.toolUseTitle')}</Dialog.Title>
+          <Dialog.Title>AI-statistik</Dialog.Title>
           <Dialog.Content>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Text>{t('ai.toolUseLabel')}</Text>
-              <Switch value={enableToolUse} onValueChange={setEnableToolUse} />
-            </View>
-            <Text style={{ marginTop: 8, color: theme.colors.onSurfaceVariant }}>
-              {t('ai.toolUseHint')}
+            {/* Tool-use + context-level moved to AI-instruktioner (single source of truth,
+                always valid). The current chat's active context level is shown for
+                reference; change it under Inställningar → AI-instruktioner. */}
+            <Text style={{ color: theme.colors.onSurfaceVariant }}>
+              Kontextnivå: {contextLevelConfig(chatContextLevel).label} · Verktyg: {enableToolUse ? 'på' : 'av'}
             </Text>
-            <Text style={{ marginTop: 16, fontWeight: '600' }}>Kontextnivå (komplexitet)</Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
-              {CONTEXT_LEVELS.map((l) => (
-                <Chip key={l} compact selected={chatContextLevel === l} onPress={() => setChatContextLevel(l)} testID={`chat-context-${l}`}>
-                  {contextLevelConfig(l).label}
-                </Chip>
-              ))}
-            </View>
-            <Text style={{ marginTop: 6, fontSize: 12, color: theme.colors.onSurfaceVariant }}>
-              {contextLevelConfig(chatContextLevel).description}
-            </Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 6 }} testID="chat-tool-policy">
-              {summarizeToolPolicy(chatContextLevel, enableToolUse).map((cap) => (
-                <Chip key={cap} compact textStyle={{ fontSize: 10 }}>{cap}</Chip>
-              ))}
-            </View>
             <Text style={{ marginTop: 16, fontWeight: '600' }}>AI-statistik (verktyg)</Text>
             <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant, marginBottom: 4 }}>idag · månad · totalt — lagras krypterat lokalt</Text>
             {toolUsageRows.length === 0 ? (
@@ -2366,16 +2357,10 @@ export default function AIScreen() {
                 <Text style={{ color: theme.colors.onSurface }}>Använd API-baserad AI</Text>
                 <Switch value={aiUseApiProviders} onValueChange={setAiUseApiProviders} />
               </View>
-              <Text style={{ marginTop: 6, color: theme.colors.onSurfaceVariant }}>
-                När detta är på används en AI-källa (OpenRouter, Groq, Gemini eller din egen Hermes-agent på Mac/Pi). Annars används vald lokal modell.
-              </Text>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
                 <Text style={{ color: theme.colors.onSurface, flex: 1 }}>Tillåt filbilagor i chatten</Text>
                 <Switch value={attachmentsEnabled} onValueChange={setAttachmentsEnabled} />
               </View>
-              <Text style={{ marginTop: 2, fontSize: 12, color: theme.colors.onSurfaceVariant }}>
-                Textfiler (md, txt, json, kod) läses in i prompten. Bilder skickas till vision-modeller (t.ex. Gemini eller en vision-Hermes). PDF bifogas som referens. Max {MAX_ATTACHMENTS} filer.
-              </Text>
               {aiUseApiProviders ? (
                 <View style={{ marginTop: 12 }}>
                   <Text style={{ color: theme.colors.onSurface, marginBottom: 6 }}>API Provider</Text>
@@ -2599,16 +2584,28 @@ export default function AIScreen() {
                 <Text style={{ color: theme.colors.onSurface }}>{t('ai.toolUseLabel')}</Text>
                 <Switch value={enableToolUse} onValueChange={setEnableToolUse} />
               </View>
-              <Text style={{ marginTop: 6, color: theme.colors.onSurfaceVariant }}>
-                {t('ai.toolUseHint')}
+              {/* Context level moved here from the chat bottom-bar popup so it lives with
+                  the other AI instructions and applies globally. */}
+              <Text style={{ marginTop: 16, fontWeight: '600', color: theme.colors.onSurface }}>Kontextnivå (komplexitet)</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                {CONTEXT_LEVELS.map((l) => (
+                  <Chip key={l} compact selected={chatContextLevel === l} onPress={() => setChatContextLevel(l)} testID={`chat-context-${l}`}>
+                    {contextLevelConfig(l).label}
+                  </Chip>
+                ))}
+              </View>
+              <Text style={{ marginTop: 6, fontSize: 12, color: theme.colors.onSurfaceVariant }}>
+                {contextLevelConfig(chatContextLevel).description}
               </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 6 }} testID="chat-tool-policy">
+                {summarizeToolPolicy(chatContextLevel, enableToolUse).map((cap) => (
+                  <Chip key={cap} compact textStyle={{ fontSize: 10 }}>{cap}</Chip>
+                ))}
+              </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
                 <Text style={{ color: theme.colors.onSurface }}>{t('ai.backgroundWorkLabel')}</Text>
                 <Switch value={allowBackgroundAIWork} onValueChange={setAllowBackgroundAIWork} />
               </View>
-              <Text style={{ marginTop: 6, color: theme.colors.onSurfaceVariant }}>
-                {t('ai.backgroundWorkHint')}
-              </Text>
               {localEngineText ? (
                 <Text style={{ marginTop: 6, color: theme.colors.onSurfaceVariant }}>
                   {localEngineText}
