@@ -12,6 +12,7 @@ Den här mappen är arbetsdokumentationen för det aktiva workspace: `noter-app/
 
 | Fråga | Dokument |
 |------|----------|
+| Hur lägger jag till en förbättring säkert? | [`contributing.md`](./contributing.md) |
 | Vad är nuvarande arkitektur? | [`Overview.md`](./Overview.md) |
 | Vad återstår från senaste granskningen? | [`improvements.md`](./improvements.md) |
 | Hur ser nuvarande webb/mobile/backend-implementation ut? | [`Implementation.md`](./Implementation.md) |

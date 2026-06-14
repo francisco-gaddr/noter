@@ -2,7 +2,7 @@
   "expo": {
     "name": "Noter",
     "slug": "noter",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "noter",
@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.noter.app",
-      "buildNumber": "7",
+      "buildNumber": "8",
       "infoPlist": {
         "NSFaceIDUsageDescription": "Noter uses FaceID to unlock your secure notes.",
         "NSPhotoLibraryUsageDescription": "Noter beh\u00f6ver \u00e5tkomst till dina bilder f\u00f6r att bifoga dem till anteckningar.",
@@ -25,7 +25,7 @@
         "backgroundColor": "#FF6B40"
       },
       "package": "com.noter.app",
-      "versionCode": 8,
+      "versionCode": 9,
       "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "android.permission.USE_BIOMETRIC",

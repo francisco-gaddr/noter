@@ -17,6 +17,7 @@ ska öppna för en given fråga. Läs det här först, sedan den specifika filen
 
 | Jag vill … | Öppna |
 |------------|-------|
+| **Lägga till en förbättring säkert (kom-igång + checklista)** | [`contributing.md`](./contributing.md) ⭐ |
 | Förstå systemet på hög nivå | [`Overview.md`](./Overview.md) |
 | Se backend-API:t (rutter, auth, rate limits) | [`api-reference.md`](./api-reference.md) |
 | **Förbättra säkerhet/kryptering** | [`security/security-upgrade-playbook.md`](./security/security-upgrade-playbook.md) ⭐ |

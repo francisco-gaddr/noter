@@ -19,6 +19,22 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    version: '1.3.0',
+    build: '2026.06.14.2',
+    date: '2026-06-14',
+    security: 'security-hardening',
+    highlights: [
+      'Säkerhet: all WebSocket-trafik körs nu alltid över WSS (TLS) i produktion — klienterna tvingar upp publika anslutningar; LAN/localhost behåller sitt läge för lokal utveckling',
+      'Säkerhet: inloggningstoken (JWT) och cachat användarobjekt krypteras nu även i webbappens lagring; på mobilen krypteras även val av AI-leverantör/modell och egen serveradress lokalt (nycklar låg redan i säker lagring)',
+      'Graf: utforskaren ritar nu en riktig riktad graf med synliga kanter, pilar (flödesriktning) och färgförklaring — i både mobil och Electron',
+      'Semantisk sök: vektor- + textsökning (RRF) med krypterat index på enheten; låsta anteckningar indexeras aldrig',
+      'Admin & orkestrering: ny hopfällbar sektion med mätbar produktivitets- och AI-agentstatistik (paritet mobil/Electron)',
+      'Realtid: innehåll som AI-agenten skapar dyker upp direkt i alla appar via websockets — ingen omladdning behövs',
+      'Mobil: tool-use-korten visar alltid innehåll, länk-fältet döljs inte längre av tangentbordet, och delegering till AI vid skapande förifyller dina senaste val',
+      'Ärlighet: lokal på-enheten-modell ger nu ett tydligt besked när motorn inte är inbyggd i bygget (i stället för ett påhittat svar) och hänvisar till din egen Hermes-server',
+    ],
+  },
+  {
     version: '1.2.0',
     build: '2026.06.14.1',
     date: '2026-06-14',
