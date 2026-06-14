@@ -271,6 +271,19 @@ export default function AIScreen() {
   const [aiUseApiProviders, setAiUseApiProviders] = useState(false);
   const [apiProvider, setApiProvider] = useState<string>('openrouter');
   const [providerMenuVisible, setProviderMenuVisible] = useState(false);
+  // Paper Menu reliability: the anchor must OPEN only (never toggle), because a
+  // toggle races the Portal backdrop's dismiss and makes the dropdown need several
+  // taps / "stop working". A short guard after a dismiss also stops a propagated
+  // tap from immediately reopening the menu. See openMenuSafely/dismissMenuSafely.
+  const providerMenuGuardRef = useRef(0);
+  const modelMenuGuardRef = useRef(0);
+  const openMenuSafely = (guardRef: React.MutableRefObject<number>, setVisible: (v: boolean) => void) => {
+    if (Date.now() - guardRef.current > 250) setVisible(true);
+  };
+  const dismissMenuSafely = (guardRef: React.MutableRefObject<number>, setVisible: (v: boolean) => void) => {
+    guardRef.current = Date.now();
+    setVisible(false);
+  };
   // User-added custom providers (e.g. several Hermes/Ollama agents). Each is an
   // OpenAI-compatible endpoint reusing the Hermes send path. Persisted encrypted.
   const [customProviders, setCustomProviders] = useState<CustomProvider[]>([]);
@@ -2346,9 +2359,10 @@ export default function AIScreen() {
                   <Text style={{ color: theme.colors.onSurface, marginBottom: 6 }}>API Provider</Text>
                   <Menu
                     visible={providerMenuVisible}
-                    onDismiss={() => setProviderMenuVisible(false)}
+                    onDismiss={() => dismissMenuSafely(providerMenuGuardRef, setProviderMenuVisible)}
+                    anchorPosition="bottom"
                     anchor={
-                      <Button mode="outlined" onPress={() => setProviderMenuVisible((v) => !v)} testID="ai-provider-dropdown-button" icon="chevron-down" contentStyle={{ flexDirection: 'row-reverse' }}>
+                      <Button mode="outlined" onPress={() => openMenuSafely(providerMenuGuardRef, setProviderMenuVisible)} testID="ai-provider-dropdown-button" icon="chevron-down" contentStyle={{ flexDirection: 'row-reverse' }}>
                         {activeProviderMeta.label}
                       </Button>
                     }
@@ -2356,7 +2370,7 @@ export default function AIScreen() {
                     {API_PROVIDER_LIST.map((p) => (
                       <Menu.Item
                         key={p.id}
-                        onPress={() => { setApiProvider(p.id); setProviderMenuVisible(false); }}
+                        onPress={() => { setApiProvider(p.id); dismissMenuSafely(providerMenuGuardRef, setProviderMenuVisible); }}
                         title={p.label}
                         leadingIcon={apiProvider === p.id ? 'check' : undefined}
                       />
@@ -2365,7 +2379,7 @@ export default function AIScreen() {
                     {customProviders.map((c) => (
                       <Menu.Item
                         key={c.id}
-                        onPress={() => { setApiProvider(c.id); setProviderMenuVisible(false); }}
+                        onPress={() => { setApiProvider(c.id); dismissMenuSafely(providerMenuGuardRef, setProviderMenuVisible); }}
                         title={c.label}
                         leadingIcon={apiProvider === c.id ? 'check' : 'server-network'}
                       />
@@ -2373,7 +2387,7 @@ export default function AIScreen() {
                     <Divider />
                     <Menu.Item
                       onPress={() => {
-                        setProviderMenuVisible(false);
+                        dismissMenuSafely(providerMenuGuardRef, setProviderMenuVisible);
                         setNewProvider({ id: '', label: '', baseUrl: '', model: '', apiKey: '' });
                         setAddProviderDialogVisible(true);
                       }}
@@ -2433,9 +2447,10 @@ export default function AIScreen() {
                   {!customModelMode ? (
                     <Menu
                       visible={modelMenuVisible}
-                      onDismiss={() => setModelMenuVisible(false)}
+                      onDismiss={() => dismissMenuSafely(modelMenuGuardRef, setModelMenuVisible)}
+                      anchorPosition="bottom"
                       anchor={
-                        <Button mode="outlined" onPress={() => setModelMenuVisible((v) => !v)} testID="ai-model-dropdown-button" icon="chevron-down" contentStyle={{ flexDirection: 'row-reverse' }}>
+                        <Button mode="outlined" onPress={() => openMenuSafely(modelMenuGuardRef, setModelMenuVisible)} testID="ai-model-dropdown-button" icon="chevron-down" contentStyle={{ flexDirection: 'row-reverse' }}>
                           {activeBinding.model || 'Välj modell'}
                         </Button>
                       }
@@ -2443,14 +2458,14 @@ export default function AIScreen() {
                       {activeProviderMeta.defaultModels.map((m) => (
                         <Menu.Item
                           key={m}
-                          onPress={() => { activeBinding.setModel(m); setModelMenuVisible(false); }}
+                          onPress={() => { activeBinding.setModel(m); dismissMenuSafely(modelMenuGuardRef, setModelMenuVisible); }}
                           title={m}
                           leadingIcon={activeBinding.model === m ? 'check' : undefined}
                         />
                       ))}
                       <Divider />
                       <Menu.Item
-                        onPress={() => { setCustomModelMode(true); setModelMenuVisible(false); }}
+                        onPress={() => { setCustomModelMode(true); dismissMenuSafely(modelMenuGuardRef, setModelMenuVisible); }}
                         title="Egen modell-id…"
                         leadingIcon="pencil"
                       />
