@@ -6,6 +6,7 @@ import CalendarFeed from '../models/CalendarFeed';
 import { UnauthorizedError } from '../utils/httpErrors';
 import { genDavUser, genDavPassword, hashDavPassword } from '../caldav/credentials';
 import { isIcsEnabled, isCaldavEnabled } from '../config/calendarExposure';
+import { DAV_BASE } from '../caldav/base';
 
 /**
  * Calendar (ICS) subscription.
@@ -32,8 +33,8 @@ const buildUrl = (req: Request, token: string): string => `${baseHost(req)}/api/
 const buildDavUrls = (req: Request, davUser: string): { serverUrl: string; collectionUrl: string } => {
   const host = baseHost(req);
   return {
-    serverUrl: `${host}/dav/`,
-    collectionUrl: `${host}/dav/${encodeURIComponent(davUser)}/cal/tasks/`,
+    serverUrl: `${host}${DAV_BASE}/`,
+    collectionUrl: `${host}${DAV_BASE}/${encodeURIComponent(davUser)}/cal/tasks/`,
   };
 };
 

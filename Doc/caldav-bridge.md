@@ -68,21 +68,27 @@ Noter app  ──GET /api/calendar/mutations─┘  apply with user's key → ac
 
 ## HTTP API
 
-### CalDAV protocol (native clients) — mounted at `/dav`, Basic Auth
+### CalDAV protocol (native clients) — mounted at `/api/dav`, Basic Auth
 
-| Method      | Path                                   | Purpose |
-| ----------- | -------------------------------------- | ------- |
-| `OPTIONS`   | `/dav/…`                               | Advertise `DAV: 1, 2, 3, calendar-access` + `Allow` |
-| `PROPFIND`  | `/dav/<user>/`                         | Principal: `current-user-principal`, `calendar-home-set` |
-| `PROPFIND`  | `/dav/<user>/cal/`                     | Calendar-home; Depth:1 lists the one collection |
-| `PROPFIND`  | `/dav/<user>/cal/tasks/`               | Collection props; Depth:1 lists `VTODO` resources + etags |
-| `REPORT`    | `/dav/<user>/cal/tasks/`               | `calendar-query` / `calendar-multiget` / `sync-collection` → `VTODO` data |
-| `GET`       | `/dav/<user>/cal/tasks/<uid>.ics`      | One `VTODO` (+ `ETag`) |
-| `PUT`       | `/dav/<user>/cal/tasks/<uid>.ics`      | Enqueue an `upsert` (complete/edit/create) |
-| `DELETE`    | `/dav/<user>/cal/tasks/<uid>.ics`      | Enqueue a `delete` |
-| `PROPPATCH` | `/dav/<user>/cal/tasks/`               | 207 (collection props are read-only) |
+Served under **`/api/dav`** (configurable via `DAV_BASE_PATH`): the public edge proxy
+already forwards `/api/*` to this backend with all WebDAV verbs intact, so CalDAV works
+without a separate edge rule. (`/dav` is also mounted as a direct-access alias for
+setups that route it explicitly, but the client-facing URLs use `/api/dav`.)
 
-`/.well-known/caldav` → `301 /dav/` for client auto-discovery.
+| Method      | Path                                       | Purpose |
+| ----------- | ------------------------------------------ | ------- |
+| `OPTIONS`   | `/api/dav/…`                               | Advertise `DAV: 1, 2, 3, calendar-access` + `Allow` |
+| `PROPFIND`  | `/api/dav/<user>/`                         | Principal: `current-user-principal`, `calendar-home-set` |
+| `PROPFIND`  | `/api/dav/<user>/cal/`                     | Calendar-home; Depth:1 lists the one collection |
+| `PROPFIND`  | `/api/dav/<user>/cal/tasks/`               | Collection props; Depth:1 lists `VTODO` resources + etags |
+| `REPORT`    | `/api/dav/<user>/cal/tasks/`               | `calendar-query` / `calendar-multiget` / `sync-collection` → `VTODO` data |
+| `GET`       | `/api/dav/<user>/cal/tasks/<uid>.ics`      | One `VTODO` (+ `ETag`) |
+| `PUT`       | `/api/dav/<user>/cal/tasks/<uid>.ics`      | Enqueue an `upsert` (complete/edit/create) |
+| `DELETE`    | `/api/dav/<user>/cal/tasks/<uid>.ics`      | Enqueue a `delete` |
+| `PROPPATCH` | `/api/dav/<user>/cal/tasks/`               | 207 (collection props are read-only) |
+
+`/.well-known/caldav` → `301 /api/dav/` for auto-discovery (only when the edge routes
+`/.well-known/*`; clients given the full server URL below don't need it).
 
 ### Credential + mutation management (the Noter app) — `/api/calendar`, Bearer JWT
 
@@ -126,8 +132,9 @@ egress map + per-scope/per-user/network controls live in
 ## Client setup
 
 **Apple Reminders (macOS):** System Settings → Internet Accounts → Add Account → Add
-CalDAV Account → Manual → Server `https://<host>/dav/`, the username + password from
-the app. **Tasks.org (Android):** add a CalDAV account with the same three values.
+CalDAV Account → Manual → Server `https://<host>/api/dav/`, the username + password from
+the app. **Tasks.org (Android):** add a CalDAV account with the same three values. Use
+the full server URL the app shows you (it ends in `/api/dav/`), not the bare hostname.
 
 In Noter: **Settings → CalDAV** for the all-tasks scope, or the 📅/sync menu on the
 **Tasks** screen (with a list selected) for that one list. The password is shown once;

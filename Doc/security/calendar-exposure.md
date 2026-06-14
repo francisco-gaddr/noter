@@ -21,7 +21,7 @@ it is reachable **only** through the two calendar channels below.
 |---|------|-----------|-----------------|------|-----------|-------------|
 | 1 | Normal app sync — `POST/PUT /api/notes`, `/api/tasks`, GraphQL, `/api/ai/sync`, WSS `note:*`/`task:*` | client ⇄ server | **Ciphertext only** — server stores/echoes encrypted blobs | JWT (account) | **No — E2E** | (n/a; this is the encrypted backbone) |
 | 2 | **ICS feed** — `GET /api/calendar/:token.ics` | outward (public) | Projection of **enabled scopes**: title, due, completed (VEVENT) | **None** — 192-bit token in URL | **Yes** (opt-in) | `CALENDAR_ICS_ENABLED=0` |
-| 3 | **CalDAV** — `/dav/**`, `/.well-known/caldav` | outward, two-way | Projection of **one enabled scope**: title, due, status, description, priority (VTODO); writes enqueue intents | **Basic-Auth**, per-feed hashed secret | **Yes** (opt-in) | `CALENDAR_CALDAV_ENABLED=0` |
+| 3 | **CalDAV** — `/api/dav/**`, `/.well-known/caldav` | outward, two-way | Projection of **one enabled scope**: title, due, status, description, priority (VTODO); writes enqueue intents | **Basic-Auth**, per-feed hashed secret | **Yes** (opt-in) | `CALENDAR_CALDAV_ENABLED=0` |
 | 4 | Projection push / DAV mint — `POST /api/calendar/subscription`, `PUT /feed`, `POST /dav` | client → server | Writes the plaintext projection into `CalendarFeed.items` | JWT (account) | Yes (the source of 2 & 3) | same flags (mint/push refused 403) |
 | 5 | Mutation drain — `GET /api/calendar/mutations`, `POST /mutations/ack` | server → client | Transient write-back intents `{uid, op, data}` | JWT (account) | Yes (transient) | revoke the DAV credential (queue cleared) |
 | 6 | AI / agents | internal | **Cannot** read locked notes; cannot decrypt without the user key | — | No | see [`ai-locked-notes.md`](./ai-locked-notes.md) |
@@ -62,14 +62,14 @@ Set on the backend service (e.g. compose env) and restart:
 | Flag | Effect when `0`/`false`/`off` |
 |------|-------------------------------|
 | `CALENDAR_ICS_ENABLED=0` | `GET /:token.ics` → 404; creating/pushing ICS feeds → 403. Stored feeds untouched (instant re-enable). |
-| `CALENDAR_CALDAV_ENABLED=0` | `/dav/**` and `/.well-known/caldav` → 404 (channel fully dark, no auth prompt); minting a DAV credential → 403. Stored credentials untouched. |
+| `CALENDAR_CALDAV_ENABLED=0` | `/api/dav/**` and `/.well-known/caldav` → 404 (channel fully dark, no auth prompt); minting a DAV credential → 403. Stored credentials untouched. |
 
 Both default to **on**. Verify the live state via `GET /api/health/deep` →
 `calendarExposure: { ics, caldav }`. Disabling does **not** delete data — re-enabling is
 instant; to also remove the plaintext, purge (below).
 
 ### Network layer
-- Channels reach the backend only through nginx (`/api/`, `/dav/`, `/.well-known/caldav`).
+- Channels reach the backend only through nginx (`/api/` — which also carries `/api/dav/` — and `/.well-known/caldav`).
   Removing those `location` blocks from `apps/nginx/nginx.conf` blocks the channel at the
   edge regardless of the app flags — a second, independent shut-off.
 - All traffic is HTTPS (TLS terminated at the edge). The ICS token and CalDAV password are
