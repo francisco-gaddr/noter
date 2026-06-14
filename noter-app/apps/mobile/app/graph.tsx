@@ -42,6 +42,9 @@ export default function GraphScreen() {
   const [semanticIds, setSemanticIds] = useState<Set<string> | null>(null);
   const [semanticBusy, setSemanticBusy] = useState(false);
   const [semanticEnabled, setSemanticEnabled] = useState(false);
+  // One toggle to show/hide the type + relation filter rows so they don't crowd the view
+  // (especially the list view). Hidden by default; the active filters still apply.
+  const [filtersVisible, setFiltersVisible] = useState(false);
 
   const config: GraphConfig = useMemo(() => ({ include: [...kinds], relations: [...rels], deriveSiblings, deriveSameDue }), [kinds, rels, deriveSiblings, deriveSameDue]);
   const graph = useMemo(() => buildGraph(notes as any, tasks as any, config), [notes, tasks, config]);
@@ -107,6 +110,16 @@ export default function GraphScreen() {
         >
           Semantisk
         </Chip>
+        <Chip
+          compact
+          selected={filtersVisible}
+          icon={filtersVisible ? 'filter-minus' : 'filter-variant'}
+          onPress={() => setFiltersVisible((v) => !v)}
+          style={{ marginLeft: 6 }}
+          testID="graph-filters-toggle"
+        >
+          Filter
+        </Chip>
         {semantic && !semanticEnabled && (
           <Text style={{ marginLeft: 8, fontSize: 11, color: theme.colors.onSurfaceVariant, flex: 1 }}>
             Aktivera och indexera under Inställningar → Semantisk sök. Tills dess används endast textsökning.
@@ -122,6 +135,7 @@ export default function GraphScreen() {
         buttons={[{ value: 'graph', label: 'Graf', icon: 'graph' }, { value: 'list', label: 'Lista', icon: 'format-list-bulleted' }]}
       />
 
+      {filtersVisible && (<>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipRow} contentContainerStyle={{ paddingHorizontal: 8, gap: 6, alignItems: 'center' }}>
         {ALL_KINDS.map((k) => (
           <Chip key={k} selected={kinds.has(k)} onPress={() => toggle(kinds, k, setKinds)} compact icon={KIND_ICON[k]} testID={`graph-kind-${k}`}>
@@ -138,6 +152,7 @@ export default function GraphScreen() {
         <Chip compact selected={deriveSiblings} onPress={() => { setDeriveSiblings((v) => !v); setRels((s) => new Set(s).add('sibling')); }} testID="graph-derive-siblings">auto: samma mapp</Chip>
         <Chip compact selected={deriveSameDue} onPress={() => { setDeriveSameDue((v) => !v); setRels((s) => new Set(s).add('same_due')); }} testID="graph-derive-samedue">auto: samma datum</Chip>
       </ScrollView>
+      </>)}
 
       <Text style={{ paddingHorizontal: 12, paddingVertical: 4, color: theme.colors.onSurfaceVariant, fontSize: 12 }}>
         {graph.nodes.length} noder · {graph.edges.length} relationer

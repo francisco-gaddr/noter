@@ -244,6 +244,13 @@ export default function AIScreen() {
   // Projects
   const [projects, setProjects] = useState<LocalAIProject[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  // Once we've consulted the persisted project choice (incl. "All" = null), never let the
+  // auto-select-first-project logic override it — that's what made the selection jump when
+  // navigating chat ↔ project list. Stored encrypted, scoped per user.
+  const projectSelInitRef = useRef(false);
+  const ALL_PROJECTS_SENTINEL = '__ALL__';
+  // Visible press ripple for list rows in the AI section (parity with settings rows).
+  const ROW_RIPPLE = 'rgba(33, 150, 243, 0.22)';
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const [projectDialogVisible, setProjectDialogVisible] = useState(false);
   const [projectDialogMode, setProjectDialogMode] = useState<'create' | 'edit'>('edit');
@@ -477,6 +484,12 @@ export default function AIScreen() {
       // from the legacy token-hash scope so settings are never "forgotten".
       const scopeKey = await resolveAiSettingsScope();
       setUserScopeKey(scopeKey);
+      // Restore the remembered AI-project selection (encrypted) before any auto-select runs.
+      try {
+        const savedProj = safeDecrypt(await AsyncStorage.getItem(`ai_active_project_${scopeKey}`) || '', '');
+        if (savedProj) setActiveProjectId(savedProj === ALL_PROJECTS_SENTINEL ? null : savedProj);
+      } catch {}
+      projectSelInitRef.current = true;
       const saved = await AsyncStorage.getItem(`ai_system_prompt_${scopeKey}`);
       if (saved) setSystemPrompt(decrypt(saved));
       const savedToolUse = await AsyncStorage.getItem(`ai_tool_use_enabled_${scopeKey}`);
@@ -790,7 +803,7 @@ export default function AIScreen() {
           }
           const items = await getProjectsLocal(scopeKey);
           setProjects(items);
-          if (items.length > 0 && !activeProjectId) {
+          if (items.length > 0 && !activeProjectId && !projectSelInitRef.current) {
               setActiveProjectId(items[0].id);
           }
       } catch {}
@@ -810,7 +823,7 @@ export default function AIScreen() {
   const loadProjects = async (scopeKey?: string) => {
       let items = await getProjectsLocal(scopeKey);
       setProjects(items);
-      if (items.length > 0 && !activeProjectId) {
+      if (items.length > 0 && !activeProjectId && !projectSelInitRef.current) {
           setActiveProjectId(items[0].id);
       }
   };
@@ -1879,7 +1892,10 @@ export default function AIScreen() {
   };
 
   const handleSelectProject = (projectId: string | null) => {
+      projectSelInitRef.current = true;
       setActiveProjectId(projectId);
+      // Remember the choice locally (encrypted) so it survives chat ↔ list navigation + restarts.
+      AsyncStorage.setItem(`ai_active_project_${userScopeKey}`, encrypt(projectId ?? ALL_PROJECTS_SENTINEL)).catch(() => {});
   };
 
   const handleDeleteProject = async (projectId: string) => {
@@ -2221,6 +2237,8 @@ export default function AIScreen() {
               <List.Item
                 title={t('common.all')}
                 onPress={() => handleSelectProject(null)}
+                rippleColor={ROW_RIPPLE}
+                style={!activeProjectId ? { backgroundColor: theme.colors.secondaryContainer, borderRadius: 8 } : undefined}
                 left={() => <List.Icon icon="folder" />}
                 right={() => activeProjectId ? null : <List.Icon icon="check" />}
               />
@@ -2230,6 +2248,8 @@ export default function AIScreen() {
                   title={project.name}
                   onPress={() => handleSelectProject(project.id)}
                   onLongPress={() => openProjectDialog(project)}
+                  rippleColor={ROW_RIPPLE}
+                  style={activeProjectId === project.id ? { backgroundColor: theme.colors.secondaryContainer, borderRadius: 8 } : undefined}
                   left={() => (
                     project.icon ? (
                       <View style={{ justifyContent: 'center', marginLeft: 6 }}>
@@ -2256,6 +2276,8 @@ export default function AIScreen() {
                   <List.Item
                     key={conv.id}
                     title={conv.title || t('ai.newChatFallback')}
+                    rippleColor={ROW_RIPPLE}
+                    style={currentConversationId === conv.id ? { backgroundColor: theme.colors.secondaryContainer, borderRadius: 8 } : undefined}
                     onPress={() => {
                       loadChat(conv.id);
                       setSidebarVisible(false);

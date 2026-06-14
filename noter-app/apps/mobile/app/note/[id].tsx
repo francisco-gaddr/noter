@@ -524,7 +524,7 @@ export default function NoteEditorScreen() {
       <Appbar.Header
         statusBarHeight={insets.top}
         // Compact header so it doesn't steal vertical space from the note content.
-        style={{ height: insets.top + 44, paddingBottom: 0, paddingTop: 0, marginBottom: 0 }}
+        style={{ height: insets.top + 38, paddingBottom: 0, paddingTop: 0, marginBottom: 0 }}
       >
         <Appbar.BackAction onPress={() => router.back()} size={22} />
         {icon && (

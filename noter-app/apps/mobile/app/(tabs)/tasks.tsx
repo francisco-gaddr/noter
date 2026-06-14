@@ -489,14 +489,14 @@ export default function TasksScreen() {
       {insights.total > 0 ? (
         <View style={styles.insightsRow}>
           {insights.overdue > 0 && (
-            <Chip compact mode="flat" style={{ backgroundColor: theme.colors.errorContainer }} textStyle={{ fontSize: 12 }}>
+            <Chip compact mode="flat" style={[styles.insightChip, { backgroundColor: theme.colors.errorContainer }]} textStyle={{ fontSize: 11, lineHeight: 14 }}>
               {insights.overdue} försenade
             </Chip>
           )}
           {insights.dueToday > 0 && (
-            <Chip compact mode="flat" textStyle={{ fontSize: 12 }}>{insights.dueToday} idag</Chip>
+            <Chip compact mode="flat" style={styles.insightChip} textStyle={{ fontSize: 11, lineHeight: 14 }}>{insights.dueToday} idag</Chip>
           )}
-          <Chip compact mode="flat" textStyle={{ fontSize: 12 }}>{insights.active} aktiva</Chip>
+          <Chip compact mode="flat" style={styles.insightChip} textStyle={{ fontSize: 11, lineHeight: 14 }}>{insights.active} aktiva</Chip>
           <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginLeft: 'auto', alignSelf: 'center' }}>
             {Math.round(insights.completionRate * 100)}% klart
           </Text>
@@ -659,7 +659,7 @@ const styles = StyleSheet.create({
   },
   tabsContainer: {
     paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingVertical: 2,
     borderBottomWidth: 1,
     borderBottomColor: '#eee' // Light border for separation
   },
@@ -672,7 +672,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: 12,
-    paddingVertical: 3,
+    paddingVertical: 1,
+  },
+  insightChip: {
+    height: 24,
   },
   tabChip: {
     // Bigger touch target so the right list is reliably tapped (was ~32pt tall,
