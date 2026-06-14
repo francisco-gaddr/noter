@@ -1,4 +1,4 @@
-import { isAiTask, parseAiDelegation, serializeAiDelegation, selectDueAiTasks } from './agentTasks';
+import { isAiTask, parseAiDelegation, serializeAiDelegation, selectDueAiTasks, resolveMaxSteps, isOverRunBudget, AGENT_MAX_STEPS } from './agentTasks';
 import type { Task } from './types';
 
 const task = (over: Partial<Task>): Task => ({
@@ -28,6 +28,20 @@ describe('agentTasks delegation parsing', () => {
     const d = { assignee: 'ai' as const, source: 'api' as const, provider: 'groq', model: 'x', localOnly: true, toolUse: false };
     const parsed = parseAiDelegation(serializeAiDelegation(d));
     expect(parsed).toMatchObject(d);
+  });
+
+  it('resolves budget caps clamped to the hard limit', () => {
+    expect(resolveMaxSteps(null)).toBe(AGENT_MAX_STEPS);
+    expect(resolveMaxSteps({ assignee: 'ai', budget: { maxStepsPerRun: 3 } })).toBe(3);
+    expect(resolveMaxSteps({ assignee: 'ai', budget: { maxStepsPerRun: 999 } })).toBe(AGENT_MAX_STEPS); // clamped
+    expect(resolveMaxSteps({ assignee: 'ai', budget: { maxStepsPerRun: 0 } })).toBe(1); // floor 1
+    expect(isOverRunBudget({ assignee: 'ai', runCount: 5, budget: { maxRuns: 5 } })).toBe(true);
+    expect(isOverRunBudget({ assignee: 'ai', runCount: 2, budget: { maxRuns: 5 } })).toBe(false);
+  });
+
+  it('parses role + budget fields', () => {
+    const d = parseAiDelegation('{"assignee":"ai","role":"Planerare","budget":{"maxStepsPerRun":4,"maxRuns":10}}');
+    expect(d).toMatchObject({ role: 'Planerare', budget: { maxStepsPerRun: 4, maxRuns: 10 } });
   });
 
   it('parses backend-execution + notify fields', () => {

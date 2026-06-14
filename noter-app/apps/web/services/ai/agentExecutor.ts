@@ -6,7 +6,8 @@
 import {
   decrypt,
   normalizeNoteType,
-  AGENT_MAX_STEPS,
+  resolveMaxSteps,
+  isOverRunBudget,
   contextLevelConfig,
   type AiTaskDelegation,
   type Note,
@@ -111,7 +112,7 @@ const buildAgentSystem = (task: Task, delegation: AiTaskDelegation): string => {
     : cl.allowVectorSearch ? 'KONTEXTNIVÅ djup: grundliga sökningar tillåtna när det behövs.'
     : 'KONTEXTNIVÅ standard: verktyg vid behov, föredra billiga snabba steg.';
   return [
-    'Du är en autonom AI-agent som utför en delegerad uppgift åt användaren.',
+    delegation.role ? `Din roll: ${delegation.role}.` : 'Du är en autonom AI-agent som utför en delegerad uppgift åt användaren.',
     levelHint,
     'Arbeta i korta steg med tool calls i ```json {"tool","arguments"} ``` format. Wrappa ALDRIG fälten i en extra "args"-nivå.',
     'Verktyg: list_notes, get_note, list_projects, list_tasklists, list_tasks, get_task, create_note, update_note, create_task, update_task, complete_task, delete_task.',
@@ -154,7 +155,7 @@ export const runScheduledAgentTask = async (
   const result = await runAgentTask({
     system: buildAgentSystem(task, delegation),
     goal: `Utför uppgiften "${task.title}" nu och bocka av den när den är klar.`,
-    maxSteps: AGENT_MAX_STEPS,
+    maxSteps: resolveMaxSteps(delegation),
     deps: { invokeModel, executeTool: buildToolExecutor(), isAborted: opts.isAborted, onAccess: (a) => { accesses.push(a); opts.onAccess?.(a); } },
   });
 

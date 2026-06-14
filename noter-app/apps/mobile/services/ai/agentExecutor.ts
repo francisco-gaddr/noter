@@ -22,7 +22,8 @@ import {
   type Task,
   type AiTaskDelegation,
   type Note,
-  AGENT_MAX_STEPS,
+  resolveMaxSteps,
+  isOverRunBudget,
   contextLevelConfig,
 } from '@repo/shared';
 import { runAgentTask, type AgentAccess, type ChatMessage } from '@repo/ai';
@@ -160,7 +161,7 @@ const buildAgentSystem = (task: Task, delegation: AiTaskDelegation, baseUrl: str
         ? 'KONTEXTNIVÅ djup: du får göra grundliga sökningar när det behövs.'
         : 'KONTEXTNIVÅ standard: använd verktyg vid behov, föredra billiga snabba steg.';
   return [
-    'Du är en autonom AI-agent som utför en delegerad uppgift åt användaren.',
+    delegation.role ? `Din roll: ${delegation.role}.` : 'Du är en autonom AI-agent som utför en delegerad uppgift åt användaren.',
     levelHint,
     'Arbeta i korta steg med tool calls. Läs bara det du behöver. Undvik upprepning.',
     'Bocka av uppgiften (complete_task / update_task completed=true) när målet är uppfyllt, annars planera nästa steg.',
@@ -198,6 +199,12 @@ export const runScheduledAgentTask = async (
     await patchDelegation(task._id, patch).catch(() => {});
   };
 
+  // Budget guard: don't run a task past its allowed number of runs.
+  if (isOverRunBudget(delegation)) {
+    await persist({ status: 'done', result: 'Körbudget uppnådd.' });
+    return { ok: false, summary: 'Körbudget uppnådd', accesses: [], stopped: 'error' };
+  }
+
   await persist({ status: 'running', lastRunAt: new Date().toISOString(), runCount: (delegation.runCount || 0) + 1 });
 
   const config = await resolveModelConfig(delegation);
@@ -222,7 +229,7 @@ export const runScheduledAgentTask = async (
   const result = await runAgentTask({
     system,
     goal: `Utför uppgiften "${task.title}" nu och bocka av den när den är klar.`,
-    maxSteps: AGENT_MAX_STEPS,
+    maxSteps: resolveMaxSteps(delegation),
     deps: {
       invokeModel,
       executeTool: buildToolExecutor(),

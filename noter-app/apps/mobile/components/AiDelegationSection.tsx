@@ -146,6 +146,15 @@ export const AiDelegationSection: React.FC<{ task: Task }> = ({ task }) => {
 
           <PaperTextInput
             mode="outlined"
+            label="Roll/persona (valfritt, t.ex. Planerare)"
+            value={d.role ?? ''}
+            onChangeText={(v) => patch({ role: v })}
+            dense
+            style={{ marginTop: 8 }}
+            testID="ai-delegate-role"
+          />
+          <PaperTextInput
+            mode="outlined"
             label="Extra instruktioner (valfritt)"
             value={d.instructions ?? ''}
             onChangeText={(v) => patch({ instructions: v })}

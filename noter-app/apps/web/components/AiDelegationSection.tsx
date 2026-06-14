@@ -100,6 +100,10 @@ export const AiDelegationSection: React.FC<{ task: Task }> = ({ task }) => {
             <input className={inputCls} value={d.model ?? ''} onChange={(e) => patch({ model: e.target.value })} data-testid="ai-delegate-model" />
           </div>
           <div>
+            <label className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-300">Roll/persona (valfritt)</label>
+            <input className={inputCls} value={d.role ?? ''} onChange={(e) => patch({ role: e.target.value })} placeholder="t.ex. Planerare" data-testid="ai-delegate-role" />
+          </div>
+          <div>
             <label className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-300">Extra instruktioner (valfritt)</label>
             <textarea className={inputCls} rows={2} value={d.instructions ?? ''} onChange={(e) => patch({ instructions: e.target.value })} />
           </div>

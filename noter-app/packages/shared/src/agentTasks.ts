@@ -36,6 +36,20 @@ export interface AiTaskDelegation {
   /** How much data/search the agent may use (minimal/fast/standard/deep). */
   contextLevel?: import('./contextLevels').ContextLevel;
   /**
+   * Agent "role"/persona for this task — a short steer prepended to the system
+   * prompt (e.g. "Planerare", "Researcher"). Our own lightweight take on the
+   * agents-as-employees model popularised by the MIT-licensed paperclipai/paperclip
+   * orchestration project; implemented from scratch, not derived from their code.
+   */
+  role?: string;
+  /** Per-agent budget guard rails (caps how hard one task may work). */
+  budget?: {
+    /** Max steps in a single run (overrides AGENT_MAX_STEPS, clamped 1..AGENT_MAX_STEPS). */
+    maxStepsPerRun?: number;
+    /** Max total runs across the task's life (overrides AGENT_MAX_RUNS_PER_TASK). */
+    maxRuns?: number;
+  };
+  /**
    * Run on the always-on backend (Pi) instead of (only) the device. Opt-in. The
    * backend runs it at dueDate using the configured source/model — best for
    * Hermes/Ollama (the Pi reaches its own Ollama with no key). When false, only
@@ -90,6 +104,13 @@ export const parseAiDelegation = (raw: unknown): AiTaskDelegation | null => {
     toolUse: obj.toolUse === undefined ? true : !!obj.toolUse,
     instructions: typeof obj.instructions === 'string' ? obj.instructions : undefined,
     contextLevel: ['minimal', 'fast', 'standard', 'deep'].includes(obj.contextLevel) ? obj.contextLevel : undefined,
+    role: typeof obj.role === 'string' ? obj.role : undefined,
+    budget: obj.budget && typeof obj.budget === 'object'
+      ? {
+          maxStepsPerRun: Number.isFinite(obj.budget.maxStepsPerRun) ? Number(obj.budget.maxStepsPerRun) : undefined,
+          maxRuns: Number.isFinite(obj.budget.maxRuns) ? Number(obj.budget.maxRuns) : undefined,
+        }
+      : undefined,
     runOnBackend: !!obj.runOnBackend,
     notify: obj.notify && typeof obj.notify === 'object'
       ? { onStart: !!obj.notify.onStart, onFinish: obj.notify.onFinish === undefined ? true : !!obj.notify.onFinish }
@@ -142,3 +163,18 @@ export const selectDueAiTasks = (
 /** Cap on agent steps per run and total runs per task — runaway guards. */
 export const AGENT_MAX_STEPS = 12;
 export const AGENT_MAX_RUNS_PER_TASK = 25;
+
+/** Effective steps-per-run for a delegation, clamped to the hard cap. */
+export const resolveMaxSteps = (d?: AiTaskDelegation | null): number => {
+  const want = d?.budget?.maxStepsPerRun;
+  if (!Number.isFinite(want as number)) return AGENT_MAX_STEPS;
+  return Math.max(1, Math.min(AGENT_MAX_STEPS, Math.floor(want as number)));
+};
+
+/** True when a task has hit its run budget and must not run again. */
+export const isOverRunBudget = (d?: AiTaskDelegation | null): boolean => {
+  const cap = Number.isFinite(d?.budget?.maxRuns as number)
+    ? Math.max(1, Math.floor(d!.budget!.maxRuns as number))
+    : AGENT_MAX_RUNS_PER_TASK;
+  return (d?.runCount || 0) >= cap;
+};
