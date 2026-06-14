@@ -11,7 +11,7 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  buildGraph, neighborsOf, filterGraphByQuery, layoutGraph, sortGraphNodes,
+  buildGraph, neighborsOf, filterGraphByQuery, layoutGraph, sortGraphNodes, edgeGeometry,
   fulltextSearch, hybridSearch,
   RELATION_LABELS, NODE_KIND_LABELS, RELATION_COLORS, NODE_COLORS,
   type GraphNodeKind, type GraphRelation, type GraphConfig, type GraphSort,
@@ -75,6 +75,11 @@ export const GraphExplorer: React.FC<{ isOpen: boolean; onClose: () => void }> =
   }, [graph, query, semantic, semanticIds]);
   const selected = useMemo(() => (selectedId ? neighborsOf(graph, selectedId) : null), [graph, selectedId]);
   const layout = useMemo(() => layoutGraph(filtered, { width: 1100, height: 850 }), [filtered]);
+  const nodePos = useMemo(() => {
+    const m = new Map<string, { x: number; y: number; r: number }>();
+    layout.nodes.forEach((n) => m.set(n.id, { x: n.x, y: n.y, r: n.r }));
+    return m;
+  }, [layout]);
 
   if (!isOpen) return null;
 
@@ -151,6 +156,16 @@ export const GraphExplorer: React.FC<{ isOpen: boolean; onClose: () => void }> =
         {view === 'graph' && (
           <div className="relative flex-1 overflow-hidden bg-gray-50 dark:bg-gray-950" data-testid="graph-canvas">
             {filtered.nodes.length === 0 && <div className="absolute inset-0 flex items-center justify-center text-sm text-gray-500">Inga noder matchar filtret.</div>}
+            {filtered.nodes.length > 0 && (
+              <div className="absolute bottom-2 left-2 z-10 flex flex-wrap gap-x-3 gap-y-1 rounded-md bg-white/85 dark:bg-gray-900/85 px-2 py-1 text-[10px] shadow">
+                {ALL_RELS.filter((r) => rels.has(r)).map((r) => (
+                  <span key={r} className="flex items-center gap-1 text-gray-600 dark:text-gray-300">
+                    <span className="inline-block w-3 h-[3px] rounded" style={{ backgroundColor: RELATION_COLORS[r] || '#94a3b8' }} />
+                    {RELATION_LABELS[r]}
+                  </span>
+                ))}
+              </div>
+            )}
             {selected && (
               <div className="absolute top-2 right-2 w-64 max-h-[80%] overflow-y-auto bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3 z-10" data-testid="graph-detail-overlay">
                 <div className="text-xs uppercase tracking-wider text-gray-500">{NODE_KIND_LABELS[selected.node.kind]}</div>
@@ -171,15 +186,24 @@ export const GraphExplorer: React.FC<{ isOpen: boolean; onClose: () => void }> =
             )}
             <svg viewBox={`0 0 ${layout.width} ${layout.height}`} className="w-full h-full" preserveAspectRatio="xMidYMid meet">
               {layout.edges.map((e, i) => {
-                const a = layout.nodes.find((n) => n.id === e.source);
-                const b = layout.nodes.find((n) => n.id === e.target);
+                const a = nodePos.get(e.source);
+                const b = nodePos.get(e.target);
                 if (!a || !b) return null;
-                return <line key={`e-${i}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={RELATION_COLORS[e.rel] || '#cbd5e1'} strokeWidth={e.rel === 'sibling' || e.rel === 'same_due' ? 0.8 : 1.4} strokeOpacity={0.55} strokeDasharray={e.rel === 'same_due' || e.rel === 'sibling' ? '4 3' : undefined} />;
+                const geo = edgeGeometry(a.x, a.y, a.r, b.x, b.y, b.r, 9);
+                if (!geo) return null;
+                const color = RELATION_COLORS[e.rel] || '#94a3b8';
+                const dashed = e.rel === 'sibling' || e.rel === 'same_due';
+                return (
+                  <g key={`e-${i}`}>
+                    <line x1={geo.x1} y1={geo.y1} x2={geo.x2} y2={geo.y2} stroke={color} strokeWidth={dashed ? 1.2 : 2} strokeOpacity={0.85} strokeDasharray={dashed ? '5 4' : undefined} />
+                    <polygon points={geo.arrow} fill={color} fillOpacity={0.9} />
+                  </g>
+                );
               })}
               {layout.nodes.map((n) => (
                 <g key={n.id} transform={`translate(${n.x},${n.y})`} onClick={() => setSelectedId(n.id)} style={{ cursor: 'pointer' }}>
-                  <circle r={n.r} fill={NODE_COLORS[n.kind]} stroke={selectedId === n.id ? '#111827' : '#fff'} strokeWidth={selectedId === n.id ? 2.5 : 1} />
-                  <text x={n.r + 3} y={4} fontSize={11} className="fill-gray-700 dark:fill-gray-200">{(n.label || '').slice(0, 22)}</text>
+                  <circle r={n.r + (selectedId === n.id ? 2 : 0)} fill={NODE_COLORS[n.kind]} stroke={selectedId === n.id ? '#111827' : '#fff'} strokeWidth={selectedId === n.id ? 3 : 1.5} />
+                  <text x={0} y={n.r + 13} textAnchor="middle" fontSize={11} fontWeight={selectedId === n.id ? 700 : 400} className="fill-gray-700 dark:fill-gray-200">{(n.label || '').slice(0, 22)}</text>
                 </g>
               ))}
             </svg>

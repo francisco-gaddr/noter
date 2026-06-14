@@ -10,9 +10,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View, StyleSheet, FlatList, ScrollView, useWindowDimensions } from 'react-native';
 import { Stack, router } from 'expo-router';
 import { Text, Chip, Searchbar, List, Divider, useTheme, Button, SegmentedButtons } from 'react-native-paper';
-import Svg, { Line, Circle, G, Text as SvgText } from 'react-native-svg';
+import Svg, { Line, Circle, G, Polygon, Text as SvgText } from 'react-native-svg';
 import {
-  buildGraph, neighborsOf, filterGraphByQuery, layoutGraph, sortGraphNodes,
+  buildGraph, neighborsOf, filterGraphByQuery, layoutGraph, sortGraphNodes, edgeGeometry,
   fulltextSearch, hybridSearch,
   RELATION_LABELS, NODE_KIND_LABELS, RELATION_COLORS, NODE_COLORS,
   type GraphNodeKind, type GraphRelation, type GraphConfig, type GraphSort,
@@ -76,6 +76,11 @@ export default function GraphScreen() {
   const selected = useMemo(() => (selectedId ? neighborsOf(graph, selectedId) : null), [graph, selectedId]);
   const canvas = Math.max(280, width - 16);
   const layout = useMemo(() => layoutGraph(filtered, { width: canvas, height: canvas }), [filtered, canvas]);
+  const nodePos = useMemo(() => {
+    const m = new Map<string, { x: number; y: number; r: number }>();
+    layout.nodes.forEach((n) => m.set(n.id, { x: n.x, y: n.y, r: n.r }));
+    return m;
+  }, [layout]);
 
   const toggle = <T,>(set: Set<T>, value: T, apply: (s: Set<T>) => void) => {
     const next = new Set(set);
@@ -158,26 +163,45 @@ export default function GraphScreen() {
       ) : null}
 
       {view === 'graph' ? (
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ alignItems: 'center', padding: 8 }} maximumZoomScale={3} minimumZoomScale={1}>
+        <>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, maxHeight: 28 }} contentContainerStyle={{ paddingHorizontal: 10, gap: 10, alignItems: 'center' }}>
+            {ALL_RELS.filter((r) => rels.has(r)).map((r) => (
+              <View key={r} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <View style={{ width: 12, height: 3, borderRadius: 2, backgroundColor: RELATION_COLORS[r] || '#cbd5e1' }} />
+                <Text style={{ fontSize: 10, color: theme.colors.onSurfaceVariant }}>{RELATION_LABELS[r]}</Text>
+              </View>
+            ))}
+          </ScrollView>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ alignItems: 'center', padding: 8 }} maximumZoomScale={3} minimumZoomScale={1}>
           {filtered.nodes.length === 0 ? (
             <Text style={{ padding: 16, color: theme.colors.onSurfaceVariant }}>Inga noder matchar filtret.</Text>
           ) : (
             <Svg width={canvas} height={canvas} testID="graph-canvas">
               {layout.edges.map((e, i) => {
-                const a = layout.nodes.find((n) => n.id === e.source);
-                const b = layout.nodes.find((n) => n.id === e.target);
+                const a = nodePos.get(e.source);
+                const b = nodePos.get(e.target);
                 if (!a || !b) return null;
-                return <Line key={`e-${i}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={RELATION_COLORS[e.rel] || '#cbd5e1'} strokeWidth={e.rel === 'sibling' || e.rel === 'same_due' ? 0.8 : 1.4} strokeOpacity={0.55} />;
+                const geo = edgeGeometry(a.x, a.y, a.r, b.x, b.y, b.r, 8);
+                if (!geo) return null;
+                const color = RELATION_COLORS[e.rel] || '#94a3b8';
+                const dashed = e.rel === 'sibling' || e.rel === 'same_due';
+                return (
+                  <G key={`e-${i}`}>
+                    <Line x1={geo.x1} y1={geo.y1} x2={geo.x2} y2={geo.y2} stroke={color} strokeWidth={dashed ? 1.2 : 2} strokeOpacity={0.85} strokeDasharray={dashed ? '4 3' : undefined} />
+                    <Polygon points={geo.arrow} fill={color} fillOpacity={0.9} />
+                  </G>
+                );
               })}
               {layout.nodes.map((n) => (
                 <G key={n.id} onPress={() => setSelectedId(n.id)}>
-                  <Circle cx={n.x} cy={n.y} r={n.r} fill={NODE_COLORS[n.kind]} stroke={selectedId === n.id ? '#111827' : '#ffffff'} strokeWidth={selectedId === n.id ? 2.5 : 1} />
-                  <SvgText x={n.x + n.r + 2} y={n.y + 3} fontSize={8} fill={theme.colors.onSurface}>{(n.label || '').slice(0, 16)}</SvgText>
+                  <Circle cx={n.x} cy={n.y} r={n.r + (selectedId === n.id ? 2 : 0)} fill={NODE_COLORS[n.kind]} stroke={selectedId === n.id ? theme.colors.onSurface : '#ffffff'} strokeWidth={selectedId === n.id ? 3 : 1.5} />
+                  <SvgText x={n.x} y={n.y + n.r + 11} fontSize={9} fontWeight={selectedId === n.id ? '700' : '400'} fill={theme.colors.onSurface} textAnchor="middle">{(n.label || '').slice(0, 18)}</SvgText>
                 </G>
               ))}
             </Svg>
           )}
-        </ScrollView>
+          </ScrollView>
+        </>
       ) : (
         <FlatList
           data={sortGraphNodes(filtered, sort)}

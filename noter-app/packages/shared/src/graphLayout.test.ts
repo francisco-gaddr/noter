@@ -1,4 +1,4 @@
-import { layoutGraph, RELATION_COLORS, NODE_COLORS } from './graphLayout';
+import { layoutGraph, edgeGeometry, RELATION_COLORS, NODE_COLORS } from './graphLayout';
 import { buildGraph } from './graphModel';
 import type { Note, Task } from './types';
 
@@ -35,5 +35,22 @@ describe('layoutGraph', () => {
 
   it('handles an empty graph', () => {
     expect(layoutGraph({ nodes: [], edges: [] }).nodes).toEqual([]);
+  });
+});
+
+describe('edgeGeometry (directed edges)', () => {
+  it('trims to node borders and builds an arrowhead at the target', () => {
+    // Horizontal edge from (0,0) r=10 to (100,0) r=10.
+    const g = edgeGeometry(0, 0, 10, 100, 0, 10, 7)!;
+    expect(g.x1).toBeCloseTo(10); // starts at source border
+    expect(g.y1).toBeCloseTo(0);
+    // line ends short of the target border (border at x=90, minus arrow length 7)
+    expect(g.x2).toBeCloseTo(83);
+    // arrowhead tip sits at the target border
+    expect(g.arrow.startsWith('90,0')).toBe(true);
+    expect(g.mx).toBeGreaterThan(10);
+  });
+  it('returns null for zero-length edges', () => {
+    expect(edgeGeometry(5, 5, 10, 5, 5, 10)).toBeNull();
   });
 });
