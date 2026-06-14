@@ -34,6 +34,10 @@ export default function TabLayout() {
         // Hide the bottom tab bar while the keyboard is up so the chat composer can
         // sit directly above the keyboard (no tab bar wedged in between, no clipping).
         tabBarHideOnKeyboard: true,
+        // Freeze inactive tabs so a store/socket update (e.g. a note created on
+        // another screen) doesn't re-render the off-screen tabs — switching tabs
+        // then only pays for the screen you're actually moving to.
+        freezeOnBlur: true,
       }}
       // Subtle haptic on every tab switch. Gated on reduceMotion as a proxy
       // for the user's preference for subdued feedback — they're separate

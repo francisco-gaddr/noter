@@ -20,7 +20,9 @@ import IconPickerModal from '@/components/IconPickerModal';
 import { EditListDialog } from '@/components/EditListDialog';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 
-const ListAvatar = ({ uri }: { uri?: string }) => {
+// Memoized so list chips don't re-render every avatar when only selectedListId
+// changes (a key cause of jank when switching task-lists).
+const ListAvatar = React.memo(({ uri }: { uri?: string }) => {
   const [failed, setFailed] = useState(false);
   const theme = useTheme();
 
@@ -37,7 +39,8 @@ const ListAvatar = ({ uri }: { uri?: string }) => {
   }
 
   return <SvgUri uri={uri} width={18} height={18} onError={() => setFailed(true)} />;
-};
+});
+ListAvatar.displayName = 'ListAvatar';
 
 const STORAGE_KEY_LIST = 'last_selected_list_id';
 const STORAGE_KEY_VIEW = 'last_view_mode';
@@ -656,7 +659,7 @@ const styles = StyleSheet.create({
   },
   tabsContainer: {
     paddingHorizontal: 8,
-    paddingVertical: 2,
+    paddingVertical: 4,
     borderBottomWidth: 1,
     borderBottomColor: '#eee' // Light border for separation
   },
@@ -672,7 +675,11 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   tabChip: {
-    marginHorizontal: 4
+    // Bigger touch target so the right list is reliably tapped (was ~32pt tall,
+    // 4pt apart → frequent mis-taps). 44pt min + more spacing.
+    marginHorizontal: 6,
+    minHeight: 44,
+    justifyContent: 'center',
   },
   fab: {
     position: 'absolute',

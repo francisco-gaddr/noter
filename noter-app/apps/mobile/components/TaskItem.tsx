@@ -18,7 +18,7 @@ interface TaskItemProps {
   showDragHandle?: boolean;
 }
 
-export const TaskItem: React.FC<TaskItemProps> = ({
+const TaskItemComponent: React.FC<TaskItemProps> = ({
   task,
   onToggleComplete,
   onDelete,
@@ -157,6 +157,12 @@ export const TaskItem: React.FC<TaskItemProps> = ({
     </Swipeable>
   );
 };
+
+// Memoized so a task row only re-renders when its own task/handlers change, not
+// on every list re-render (e.g. switching the selected list or toggling another
+// task) — a major source of mobile list jank.
+export const TaskItem = React.memo(TaskItemComponent);
+TaskItem.displayName = 'TaskItem';
 
 const styles = StyleSheet.create({
   itemContainer: {
