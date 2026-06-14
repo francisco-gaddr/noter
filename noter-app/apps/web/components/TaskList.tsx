@@ -432,6 +432,25 @@ export default function TaskList() {
         await updateTask(task._id, { completed });
     }
 
+    // Completed tasks in the current scope (selected list, or all lists when none
+    // is selected) — drives the "Rensa klara (N)" batch-clear button.
+    const completedInScope = useMemo(
+        () => tasks.filter(t => t.completed && (!selectedTaskListId ? true : t.parentNoteId === selectedTaskListId)),
+        [tasks, selectedTaskListId]
+    );
+
+    const handleClearCompleted = async () => {
+        if (completedInScope.length === 0) return;
+        const scopeText = selectedTaskListId ? ' i den här listan' : '';
+        if (!confirm(`Ta bort ${completedInScope.length} klara uppgifter${scopeText}? Detta går inte att ångra.`)) return;
+        // Snapshot ids first; deleteTask mutates the store as it goes.
+        const ids = completedInScope.map(t => t._id);
+        for (const id of ids) {
+            // eslint-disable-next-line no-await-in-loop
+            await deleteTask(id);
+        }
+    };
+
     const cyclePriority = async (task: Task) => {
         const priorities: ('low' | 'medium' | 'high')[] = ['low', 'medium', 'high'];
         const currentIndex = priorities.indexOf(task.priority);
@@ -514,6 +533,18 @@ export default function TaskList() {
                         >
                             <FaFilter />
                         </button>
+                        {completedInScope.length > 0 && (
+                            <button
+                                onClick={handleClearCompleted}
+                                className="flex items-center gap-1 px-2 py-2 rounded text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400"
+                                title={`Rensa ${completedInScope.length} klara uppgifter${selectedTaskListId ? ' i listan' : ''}`}
+                                aria-label="Rensa klara uppgifter"
+                                data-testid="clear-completed-tasks"
+                            >
+                                <FaTrash />
+                                <span className="text-xs font-medium">Rensa klara ({completedInScope.length})</span>
+                            </button>
+                        )}
                     </div>
                 </div>
 
