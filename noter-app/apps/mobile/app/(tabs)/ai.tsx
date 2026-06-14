@@ -30,7 +30,7 @@ import { v4 as uuidv4 } from 'uuid';
 import * as Clipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
-import * as Crypto from 'expo-crypto';
+import { resolveAiSettingsScope } from '@/services/ai/settingsScope';
 import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, safeDecrypt, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings, mcpSettingsFromJson, mcpSettingsToJsonString, mergePresetProviders, buildAttachmentContextBlock, summarizeAttachmentsForUi, imageDataUrls, MAX_ATTACHMENTS, CONTEXT_LEVELS, contextLevelConfig, summarizeToolPolicy, normalizeContextLevel, applyDelegationDefaults, serializeAiDelegation, type AiAttachment, type ContextLevel, type AiTaskSource, type AiTaskDelegation } from '@repo/shared';
 import { setDelegation as setLocalDelegation } from '@/services/ai/agentDelegations';
 import { syncDelegationToBackend } from '@/services/ai/agentBackendSync';
@@ -470,10 +470,9 @@ export default function AIScreen() {
   useEffect(() => {
     loadModels();
     (async () => {
-      const token = await SecureStore.getItemAsync('token');
-      const scopeKey = token
-        ? await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, token)
-        : 'anon';
+      // Stable per-user scope (survives JWT rotation on re-login) + one-time migration
+      // from the legacy token-hash scope so settings are never "forgotten".
+      const scopeKey = await resolveAiSettingsScope();
       setUserScopeKey(scopeKey);
       const saved = await AsyncStorage.getItem(`ai_system_prompt_${scopeKey}`);
       if (saved) setSystemPrompt(decrypt(saved));
