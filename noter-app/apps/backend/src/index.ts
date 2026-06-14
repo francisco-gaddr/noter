@@ -17,6 +17,8 @@ import taskRoutes from './routes/tasks';
 import authRoutes from './routes/auth';
 import aiModelRoutes from './routes/aiModels';
 import aiSyncRoutes from './routes/aiSync';
+import pushRoutes from './routes/push';
+import { runDueBackendAgentTasks } from './services/backendAgentRunner';
 import mcpRoutes from './routes/mcp';
 import healthDeepRoutes from './routes/healthDeep';
 import adminRoutes from './routes/admin';
@@ -459,6 +461,7 @@ app.use('/api/notes', authMiddleware, conditionalGet(), idempotency(), auditLog(
 app.use('/api/tasks', authMiddleware, conditionalGet(), idempotency(), auditLog(), taskRoutes);
 app.use('/api/ai/models', aiModelRoutes);
 app.use('/api/ai/sync', authMiddleware, aiSyncBodyLimit, aiSyncRoutes);
+app.use('/api/push', authMiddleware, pushRoutes);
 app.use('/api/mcp', apiSensitiveLimiter, authMiddleware, mcpRoutes);
 app.use('/api/admin', apiSensitiveLimiter, authMiddleware, adminRoutes);
 app.use('/api/graphql', apiSensitiveLimiter);
@@ -584,6 +587,17 @@ const startServer = async () => {
             await mongoose.connection.db?.collection('_instances').deleteMany({ lastSeen: { $lt: cutoff } });
           } catch (err) {
             logger.warn('cron.instances-cleanup failed', { error: (err as Error)?.message });
+          }
+        });
+
+        // Always-on AI-agent runner: every minute, run any delegated AI tasks that
+        // are due and opted into backend execution (Hermes/local sources). The Pi
+        // executes them without any device open and pushes start/finish notices.
+        scheduleCron('ai-agent-runner', { kind: 'interval', everyMs: 60_000, jitterMs: 5_000 }, async () => {
+          try {
+            await runDueBackendAgentTasks(app.get('io'));
+          } catch (err) {
+            logger.warn('cron.ai-agent-runner failed', { error: (err as Error)?.message });
           }
         });
       } catch (err) {

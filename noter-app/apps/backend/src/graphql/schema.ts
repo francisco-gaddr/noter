@@ -81,6 +81,7 @@ const TaskType = new GraphQLObjectType({
     recurrenceDays: { type: new GraphQLList(GraphQLString) },
     reminderEnabled: { type: GraphQLBoolean },
     reminderOffsetMinutes: { type: GraphQLString },
+    aiAgent: { type: GraphQLString },
     createdAt: { type: GraphQLString },
     updatedAt: { type: GraphQLString },
   }
@@ -120,6 +121,7 @@ const TaskInput = new GraphQLInputObjectType({
     recurrenceDays: { type: new GraphQLList(GraphQLString) },
     reminderEnabled: { type: GraphQLBoolean },
     reminderOffsetMinutes: { type: GraphQLString },
+    aiAgent: { type: GraphQLString },
     clientId: { type: GraphQLString },
     createdAt: { type: GraphQLString },
     updatedAt: { type: GraphQLString },
@@ -160,6 +162,7 @@ const toTask = (task: any) => ({
   recurrenceDays: task.recurrenceDays ? decryptText(task.recurrenceDays).split(',') : [],
   reminderEnabled: decryptBool(task.reminderEnabled),
   reminderOffsetMinutes: task.reminderOffsetMinutes ? decryptText(task.reminderOffsetMinutes) : null,
+  aiAgent: task.aiAgent ? decryptText(task.aiAgent) : null,
   createdAt: decryptText(task.createdAt),
   updatedAt: decryptText(task.updatedAt),
 });
@@ -329,6 +332,7 @@ const MutationType = new GraphQLObjectType({
           recurrenceDays: input.recurrenceDays ? encryptText(input.recurrenceDays.join(',')) : '',
           reminderEnabled: encryptText(String(!!input.reminderEnabled)),
           reminderOffsetMinutes: input.reminderOffsetMinutes ? encryptText(input.reminderOffsetMinutes) : '',
+          aiAgent: input.aiAgent ? encryptText(input.aiAgent) : '',
           createdAt: encryptText(input.createdAt || new Date().toISOString()),
           updatedAt: encryptText(input.updatedAt || new Date().toISOString()),
         });
@@ -359,6 +363,7 @@ const MutationType = new GraphQLObjectType({
         if (input.recurrenceDays !== undefined) update.recurrenceDays = input.recurrenceDays ? encryptText(input.recurrenceDays.join(',')) : '';
         if (input.reminderEnabled !== undefined) update.reminderEnabled = encryptText(String(!!input.reminderEnabled));
         if (input.reminderOffsetMinutes !== undefined) update.reminderOffsetMinutes = input.reminderOffsetMinutes ? encryptText(input.reminderOffsetMinutes) : '';
+        if (input.aiAgent !== undefined) update.aiAgent = input.aiAgent ? encryptText(input.aiAgent) : '';
         if (input.createdAt !== undefined) update.createdAt = encryptText(input.createdAt || new Date().toISOString());
         if (input.updatedAt !== undefined) update.updatedAt = encryptText(input.updatedAt || new Date().toISOString());
 

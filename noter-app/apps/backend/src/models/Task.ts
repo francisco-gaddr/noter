@@ -34,6 +34,10 @@ const TaskSchema: Schema = new Schema({
   recurrenceDays: { type: String, default: '' },
   reminderEnabled: { type: String, default: '' },
   reminderOffsetMinutes: { type: String, default: '' },
+  // Encrypted JSON of the AI delegation (assignee/source/model/runOnBackend/notify).
+  // Encrypted with the service key (server-readable) so the backend agent runner
+  // can execute it; only synced when the user opts a task into backend execution.
+  aiAgent: { type: String, default: '' },
   createdAt: { type: String, default: '' }, // Encrypted timestamp
   updatedAt: { type: String, default: '' }, // Encrypted timestamp
 }, {

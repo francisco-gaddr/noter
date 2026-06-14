@@ -29,8 +29,24 @@ export interface AiTaskDelegation {
   localOnly?: boolean;
   /** Allow the agent to use tools (create/update/read notes+tasks, search). */
   toolUse?: boolean;
+  /** Base URL for source='hermes' (self-hosted Ollama/LM Studio). */
+  baseUrl?: string;
   /** Extra instructions beyond the task title/description. */
   instructions?: string;
+  /**
+   * Run on the always-on backend (Pi) instead of (only) the device. Opt-in. The
+   * backend runs it at dueDate using the configured source/model — best for
+   * Hermes/Ollama (the Pi reaches its own Ollama with no key). When false, only
+   * the foreground device schedulers run it.
+   */
+  runOnBackend?: boolean;
+  /** Push-notification preferences for this AI task. */
+  notify?: {
+    /** Notify when the agent starts the task. */
+    onStart?: boolean;
+    /** Notify when the agent finishes (default true for AI tasks). */
+    onFinish?: boolean;
+  };
   /** Execution state, updated by the runner. */
   status?: AgentStatus;
   /** ISO timestamp of the last run attempt. */
@@ -67,9 +83,14 @@ export const parseAiDelegation = (raw: unknown): AiTaskDelegation | null => {
     source,
     provider: typeof obj.provider === 'string' ? obj.provider : undefined,
     model: typeof obj.model === 'string' ? obj.model : undefined,
+    baseUrl: typeof obj.baseUrl === 'string' ? obj.baseUrl : undefined,
     localOnly: !!obj.localOnly,
     toolUse: obj.toolUse === undefined ? true : !!obj.toolUse,
     instructions: typeof obj.instructions === 'string' ? obj.instructions : undefined,
+    runOnBackend: !!obj.runOnBackend,
+    notify: obj.notify && typeof obj.notify === 'object'
+      ? { onStart: !!obj.notify.onStart, onFinish: obj.notify.onFinish === undefined ? true : !!obj.notify.onFinish }
+      : undefined,
     status: ['idle', 'scheduled', 'running', 'done', 'error'].includes(obj.status) ? obj.status : 'idle',
     lastRunAt: typeof obj.lastRunAt === 'string' ? obj.lastRunAt : undefined,
     result: typeof obj.result === 'string' ? obj.result : undefined,
