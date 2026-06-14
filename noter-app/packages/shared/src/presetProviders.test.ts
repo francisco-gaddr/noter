@@ -1,16 +1,18 @@
 import { getPresetCustomProviders, mergePresetProviders } from './presetProviders';
 
 describe('preset providers (exclusive per user)', () => {
-  it('returns the Hermes presets for prrincefranspadi only', () => {
-    const presets = getPresetCustomProviders('prrincefranspadi');
-    expect(presets.map((p) => p.id)).toEqual(['preset-hermes-pi-ollama', 'preset-hermes-mac-lmstudio']);
-    expect(presets[0].baseUrl).toBe('http://100.64.0.2:11434');
-    expect(presets[1].baseUrl).toBe('http://192.168.50.10:1234');
+  it('returns the Hermes presets for princefranspadi (canonical) and the legacy alias', () => {
+    for (const name of ['princefranspadi', 'prrincefranspadi']) {
+      const presets = getPresetCustomProviders(name);
+      expect(presets.map((p) => p.id)).toEqual(['preset-hermes-pi-ollama', 'preset-hermes-mac-lmstudio']);
+      expect(presets[0].baseUrl).toBe('http://100.64.0.2:11434');
+      expect(presets[1].baseUrl).toBe('http://192.168.50.10:1234');
+    }
   });
 
   it('matches case-insensitively and via email local part', () => {
-    expect(getPresetCustomProviders('PrrinceFranspadi')).toHaveLength(2);
-    expect(getPresetCustomProviders('prrincefranspadi@example.com')).toHaveLength(2);
+    expect(getPresetCustomProviders('PrinceFranspadi')).toHaveLength(2);
+    expect(getPresetCustomProviders('princefranspadi@example.com')).toHaveLength(2);
   });
 
   it('returns nothing for any other user (not default for others)', () => {

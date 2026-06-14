@@ -10,6 +10,7 @@ export * from './displayFilters';
 export * from './noteType';
 export * from './presetProviders';
 export * from './agentTasks';
+export * from './delegationDefaults';
 export * from './contextLevels';
 export * from './cleanup';
 export * from './graphModel';

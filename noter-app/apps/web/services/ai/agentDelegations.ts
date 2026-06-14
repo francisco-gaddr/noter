@@ -4,11 +4,16 @@
  * this device (encrypted in localStorage), decoupled from the synced task, so a
  * sync round-trip can't strip it. Keep the two in sync.
  */
-import { encrypt, decrypt, parseAiDelegation, type AiTaskDelegation, type Task } from '@repo/shared';
+import {
+  encrypt, decrypt, parseAiDelegation,
+  extractDelegationDefaults, parseDelegationDefaults,
+  type AiTaskDelegation, type DelegationDefaults, type Task,
+} from '@repo/shared';
 
 const scope = (userId?: string | null) => (userId ? `:${userId}` : '');
 const delKey = (userId?: string | null) => `aiTaskDelegations${scope(userId)}`;
 const logKey = (userId?: string | null) => `aiTaskRunLog${scope(userId)}`;
+const defaultsKey = (userId?: string | null) => `aiDelegationDefaults${scope(userId)}`;
 
 export type DelegationMap = Record<string, AiTaskDelegation>;
 export interface AgentAccessRecord { kind: string; id?: string; title?: string; at: string }
@@ -50,7 +55,14 @@ export const setDelegation = (taskId: string, delegation: AiTaskDelegation, user
   const map = getDelegations(userId);
   map[taskId] = delegation;
   writeJson(delKey(userId), map);
+  // Remember this choice as the default for the next task the user delegates.
+  const defaults = extractDelegationDefaults(delegation);
+  if (defaults) writeJson(defaultsKey(userId), defaults);
 };
+
+/** The last delegation choice the user made (model/source/budget/…), or null. */
+export const getDelegationDefaults = (userId?: string | null): DelegationDefaults | null =>
+  parseDelegationDefaults(readJson<unknown>(defaultsKey(userId), null));
 
 export const patchDelegation = (taskId: string, patch: Partial<AiTaskDelegation>, userId?: string | null): AiTaskDelegation | null => {
   const map = getDelegations(userId);

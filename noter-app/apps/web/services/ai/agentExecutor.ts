@@ -7,6 +7,7 @@ import {
   decrypt,
   normalizeNoteType,
   resolveMaxSteps,
+  resolveTokenBudget,
   isOverRunBudget,
   contextLevelConfig,
   type AiTaskDelegation,
@@ -156,11 +157,13 @@ export const runScheduledAgentTask = async (
     system: buildAgentSystem(task, delegation),
     goal: `Utför uppgiften "${task.title}" nu och bocka av den när den är klar.`,
     maxSteps: resolveMaxSteps(delegation),
+    tokenBudget: resolveTokenBudget(delegation),
     deps: { invokeModel, executeTool: buildToolExecutor(), isAborted: opts.isAborted, onAccess: (a) => { accesses.push(a); opts.onAccess?.(a); } },
   });
 
   const ok = result.stopped === 'done';
-  const summary = (result.finalText || '').slice(0, 500) || `Avslutad (${result.stopped}).`;
+  const budgetNote = result.stopped === 'budget' ? ` (tokenbudget nådd, ~${result.tokensUsed} tokens)` : '';
+  const summary = ((result.finalText || '').slice(0, 500) || `Avslutad (${result.stopped}).`) + budgetNote;
   persist({ status: ok ? 'done' : 'error', result: summary });
   setRunLogEntry(task._id, { at: new Date().toISOString(), stopped: result.stopped, summary, accesses: accesses.map((a) => ({ kind: a.kind, id: a.id, title: a.title, at: a.at })) }, opts.userId);
   return { ok, summary, accesses, stopped: result.stopped };

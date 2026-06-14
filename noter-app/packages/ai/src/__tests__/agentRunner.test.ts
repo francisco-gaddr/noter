@@ -87,4 +87,29 @@ describe('runAgentTask', () => {
     });
     expect(result.stopped).toBe('aborted');
   });
+
+  it('reports estimated tokens used and stops on the token budget', async () => {
+    // A model that always calls a distinct tool (never naturally stops), with a tiny
+    // token budget so the loop must stop on 'budget' after the first allowed step.
+    let n = 0;
+    const result = await runAgentTask({
+      system: 'a fairly long system prompt '.repeat(20),
+      goal: 'g',
+      tokenBudget: 50,
+      deps: baseDeps({ invokeModel: async () => `\`\`\`json\n{"tool":"list_tasks","arguments":{"n":${n++}}}\n\`\`\`` }),
+    });
+    expect(result.stopped).toBe('budget');
+    expect(result.tokensUsed).toBeGreaterThan(0);
+  });
+
+  it('always allows at least one step even with a near-zero budget', async () => {
+    const result = await runAgentTask({
+      system: 'sys',
+      goal: 'g',
+      tokenBudget: 1,
+      deps: baseDeps({ invokeModel: async () => 'plain answer, no tools' }),
+    });
+    expect(result.stopped).toBe('done');
+    expect(result.tokensUsed).toBeGreaterThan(0);
+  });
 });

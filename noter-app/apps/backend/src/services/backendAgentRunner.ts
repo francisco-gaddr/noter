@@ -16,7 +16,7 @@
  */
 import Task from '../models/Task';
 import Note from '../models/Note';
-import { encrypt, decrypt, parseAiDelegation, serializeAiDelegation, resolveMaxSteps, isOverRunBudget, type AiTaskDelegation } from '@repo/shared';
+import { encrypt, decrypt, parseAiDelegation, serializeAiDelegation, resolveMaxSteps, resolveTokenBudget, isOverRunBudget, type AiTaskDelegation } from '@repo/shared';
 import { runAgentTask, type ChatMessage } from '@repo/ai';
 import { sendPushToUser } from './expoPush';
 import logger from '../utils/logger';
@@ -207,9 +207,11 @@ const runOne = async (task: any, delegation: AiTaskDelegation, io?: Io): Promise
       system,
       goal: `Utför uppgiften "${title}" nu och bocka av den när den är klar.`,
       maxSteps: resolveMaxSteps(delegation),
+      tokenBudget: resolveTokenBudget(delegation),
       deps: { invokeModel: buildInvokeModel(delegation), executeTool: buildToolExecutor(userId, io) },
     });
-    outcome = { ok: result.stopped === 'done', summary: (result.finalText || '').slice(0, 400) || `Avslutad (${result.stopped}).`, stopped: result.stopped };
+    const budgetNote = result.stopped === 'budget' ? ` (tokenbudget nådd, ~${result.tokensUsed} tokens)` : '';
+    outcome = { ok: result.stopped === 'done', summary: ((result.finalText || '').slice(0, 400) || `Avslutad (${result.stopped}).`) + budgetNote, stopped: result.stopped };
   } catch (err) {
     outcome = { ok: false, summary: `Fel: ${(err as Error)?.message || err}`, stopped: 'error' };
   }

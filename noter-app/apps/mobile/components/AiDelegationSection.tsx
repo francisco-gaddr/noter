@@ -12,9 +12,9 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Text, Switch, SegmentedButtons, TextInput as PaperTextInput, Button, useTheme, Divider, ActivityIndicator } from 'react-native-paper';
 import type { AiTaskDelegation, AiTaskSource, Task, ContextLevel } from '@repo/shared';
-import { CONTEXT_LEVELS, contextLevelConfig } from '@repo/shared';
+import { CONTEXT_LEVELS, contextLevelConfig, applyDelegationDefaults, CREDITS_TO_TOKENS } from '@repo/shared';
 import { API_PROVIDER_LIST } from '@/services/ai/apiProviders';
-import { getDelegations, setDelegation, removeDelegation, getRunLog, type AgentRunLogEntry } from '@/services/ai/agentDelegations';
+import { getDelegations, setDelegation, removeDelegation, getRunLog, getDelegationDefaults, type AgentRunLogEntry } from '@/services/ai/agentDelegations';
 import { runAgentTaskNow } from '@/services/ai/agentScheduler';
 import { syncDelegationToBackend, clearBackendDelegation } from '@/services/ai/agentBackendSync';
 
@@ -42,6 +42,7 @@ export const AiDelegationSection: React.FC<{ task: Task }> = ({ task }) => {
   const [runLog, setRunLog] = useState<AgentRunLogEntry | null>(null);
   const [running, setRunning] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const refresh = useCallback(async () => {
     const [map, logs] = await Promise.all([getDelegations(), getRunLog()]);
@@ -70,17 +71,31 @@ export const AiDelegationSection: React.FC<{ task: Task }> = ({ task }) => {
 
   const toggle = (on: boolean) => {
     if (on) {
-      const firstProvider = API_PROVIDER_LIST[0];
-      void persist({
-        assignee: 'ai', source: 'api', provider: firstProvider?.id, model: firstProvider?.defaultModels[0],
-        localOnly: false, toolUse: true, status: 'idle', runCount: 0,
-      });
+      // Seed from the user's LAST delegation choice so the next task is one tap.
+      void (async () => {
+        const seeded = applyDelegationDefaults(await getDelegationDefaults());
+        if (!seeded.provider && seeded.source !== 'local') {
+          const fp = providersForSource(seeded.source)[0];
+          seeded.provider = fp?.id;
+          if (!seeded.model) seeded.model = fp?.defaultModels[0];
+        }
+        await persist(seeded);
+      })();
     } else {
       void persist(null);
     }
   };
 
   const patch = (p: Partial<AiTaskDelegation>) => { if (enabled) void persist({ ...d, ...p }); };
+
+  // Budget patch helper (drop a field when cleared/zero so "no cap" stays no cap).
+  const patchBudget = (key: 'maxStepsPerRun' | 'maxRuns' | 'maxTokens' | 'maxCredits', raw: string) => {
+    const n = Number(raw);
+    const next = { ...(d.budget || {}) } as Record<string, number>;
+    if (raw.trim() === '' || !Number.isFinite(n) || n <= 0) delete next[key];
+    else next[key] = Math.floor(n);
+    patch({ budget: Object.keys(next).length ? (next as AiTaskDelegation['budget']) : undefined });
+  };
 
   const providersForSource = (source?: AiTaskSource) =>
     source === 'hermes'
@@ -199,6 +214,39 @@ export const AiDelegationSection: React.FC<{ task: Task }> = ({ task }) => {
             <Text>Notis när agenten är klar</Text>
             <Switch value={d.notify?.onFinish !== false} onValueChange={(v) => patch({ notify: { ...(d.notify || {}), onFinish: v } })} />
           </View>
+
+          <Button
+            mode="text"
+            compact
+            onPress={() => setShowAdvanced((v) => !v)}
+            style={{ marginTop: 8, alignSelf: 'flex-start' }}
+            testID="ai-delegate-advanced-toggle"
+          >
+            {showAdvanced ? 'Dölj budget & gränser' : 'Budget & gränser (avancerat)'}
+          </Button>
+          {showAdvanced ? (
+            <View style={styles.logBox} testID="ai-delegate-budget">
+              <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant, marginBottom: 6 }}>
+                Frivilliga tak — lämna tomt för inget tak. Krediter ≈ {CREDITS_TO_TOKENS} tokens/kredit.
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <PaperTextInput mode="outlined" label="Tokens/körning" keyboardType="number-pad" dense style={{ flex: 1 }}
+                  value={d.budget?.maxTokens != null ? String(d.budget.maxTokens) : ''}
+                  onChangeText={(v) => patchBudget('maxTokens', v)} testID="ai-delegate-max-tokens" />
+                <PaperTextInput mode="outlined" label="Krediter/körning" keyboardType="number-pad" dense style={{ flex: 1 }}
+                  value={d.budget?.maxCredits != null ? String(d.budget.maxCredits) : ''}
+                  onChangeText={(v) => patchBudget('maxCredits', v)} testID="ai-delegate-max-credits" />
+              </View>
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                <PaperTextInput mode="outlined" label="Max steg (≤12)" keyboardType="number-pad" dense style={{ flex: 1 }}
+                  value={d.budget?.maxStepsPerRun != null ? String(d.budget.maxStepsPerRun) : ''}
+                  onChangeText={(v) => patchBudget('maxStepsPerRun', v)} />
+                <PaperTextInput mode="outlined" label="Max körningar" keyboardType="number-pad" dense style={{ flex: 1 }}
+                  value={d.budget?.maxRuns != null ? String(d.budget.maxRuns) : ''}
+                  onChangeText={(v) => patchBudget('maxRuns', v)} />
+              </View>
+            </View>
+          ) : null}
 
           <Button
             mode="contained"

@@ -6,9 +6,9 @@
  */
 import React, { useEffect, useState, useCallback } from 'react';
 import type { AiTaskDelegation, AiTaskSource, Task, ContextLevel } from '@repo/shared';
-import { CONTEXT_LEVELS, contextLevelConfig } from '@repo/shared';
+import { CONTEXT_LEVELS, contextLevelConfig, applyDelegationDefaults, CREDITS_TO_TOKENS } from '@repo/shared';
 import { API_PROVIDER_LIST } from '../services/ai/apiProviders';
-import { getDelegations, setDelegation, removeDelegation, getRunLog, type AgentRunLogEntry } from '../services/ai/agentDelegations';
+import { getDelegations, setDelegation, removeDelegation, getRunLog, getDelegationDefaults, type AgentRunLogEntry } from '../services/ai/agentDelegations';
 import { runAgentTaskNow } from '../services/ai/agentScheduler';
 import { graphqlRequest } from '../services/apiClient';
 import { serializeAiDelegation } from '@repo/shared';
@@ -29,6 +29,7 @@ export const AiDelegationSection: React.FC<{ task: Task }> = ({ task }) => {
   const [delegation, setLocalDelegation] = useState<AiTaskDelegation | null>(null);
   const [runLog, setRunLog] = useState<AgentRunLogEntry | null>(null);
   const [running, setRunning] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const refresh = useCallback(() => {
     setLocalDelegation(getDelegations(userId)[task._id] ?? null);
@@ -57,9 +58,26 @@ export const AiDelegationSection: React.FC<{ task: Task }> = ({ task }) => {
 
   const toggle = (on: boolean) => {
     if (on) {
-      const fp = providersForSource('api')[0];
-      persist({ assignee: 'ai', source: 'api', provider: fp?.id, model: fp?.defaultModels[0], localOnly: false, toolUse: true, status: 'idle', runCount: 0 });
+      // Seed the new delegation from the user's LAST delegation choice (model,
+      // source, context level, budget, …) so giving the next task to the AI is one
+      // tap. Falls back to a sensible cold default when nothing is saved yet.
+      const seeded = applyDelegationDefaults(getDelegationDefaults(userId));
+      if (!seeded.provider && seeded.source !== 'local') {
+        const fp = providersForSource(seeded.source)[0];
+        seeded.provider = fp?.id;
+        if (!seeded.model) seeded.model = fp?.defaultModels[0];
+      }
+      persist(seeded);
     } else persist(null);
+  };
+
+  // Budget patch helpers (drop a field when cleared/zero so "no cap" stays no cap).
+  const patchBudget = (key: 'maxStepsPerRun' | 'maxRuns' | 'maxTokens' | 'maxCredits', raw: string) => {
+    const n = Number(raw);
+    const next = { ...(d.budget || {}) };
+    if (raw.trim() === '' || !Number.isFinite(n) || n <= 0) delete (next as Record<string, number>)[key];
+    else (next as Record<string, number>)[key] = Math.floor(n);
+    patch({ budget: Object.keys(next).length ? next : undefined });
   };
 
   const runNow = async () => {
@@ -137,6 +155,29 @@ export const AiDelegationSection: React.FC<{ task: Task }> = ({ task }) => {
             <span>Notis när agenten är klar</span>
             <input type="checkbox" checked={d.notify?.onFinish !== false} onChange={(e) => patch({ notify: { ...(d.notify || {}), onFinish: e.target.checked } })} />
           </label>
+
+          <button type="button" onClick={() => setShowAdvanced((v) => !v)} className="text-xs font-semibold text-blue-600 dark:text-blue-400" data-testid="ai-delegate-advanced-toggle">
+            {showAdvanced ? '▾ Dölj budget & gränser' : '▸ Budget & gränser (avancerat)'}
+          </button>
+          {showAdvanced && (
+            <div className="space-y-2 p-2 rounded border border-gray-200 dark:border-gray-700" data-testid="ai-delegate-budget">
+              <p className="text-[11px] text-gray-500 dark:text-gray-400">Frivilliga tak — lämna tomt för inget tak. Tokenbudget mäter ungefärlig token-förbrukning per körning; krediter ≈ {CREDITS_TO_TOKENS} tokens/kredit.</p>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="text-xs">Token-budget/körning
+                  <input type="number" min={0} className={inputCls} value={d.budget?.maxTokens ?? ''} onChange={(e) => patchBudget('maxTokens', e.target.value)} placeholder="t.ex. 4000" data-testid="ai-delegate-max-tokens" />
+                </label>
+                <label className="text-xs">Kredit-budget/körning
+                  <input type="number" min={0} className={inputCls} value={d.budget?.maxCredits ?? ''} onChange={(e) => patchBudget('maxCredits', e.target.value)} placeholder="t.ex. 4" data-testid="ai-delegate-max-credits" />
+                </label>
+                <label className="text-xs">Max steg/körning
+                  <input type="number" min={1} max={12} className={inputCls} value={d.budget?.maxStepsPerRun ?? ''} onChange={(e) => patchBudget('maxStepsPerRun', e.target.value)} placeholder="≤ 12" />
+                </label>
+                <label className="text-xs">Max körningar totalt
+                  <input type="number" min={1} className={inputCls} value={d.budget?.maxRuns ?? ''} onChange={(e) => patchBudget('maxRuns', e.target.value)} placeholder="≤ 25" />
+                </label>
+              </div>
+            </div>
+          )}
 
           <button type="button" onClick={runNow} disabled={running} className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm disabled:opacity-50" data-testid="ai-delegate-run-now">
             {running ? 'Kör…' : '▶ Kör nu'}

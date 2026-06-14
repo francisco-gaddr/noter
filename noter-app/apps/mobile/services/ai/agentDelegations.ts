@@ -10,7 +10,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
-import { encrypt, safeDecrypt, parseAiDelegation, type AiTaskDelegation, type Task } from '@repo/shared';
+import {
+  encrypt, safeDecrypt, parseAiDelegation,
+  extractDelegationDefaults, parseDelegationDefaults,
+  type AiTaskDelegation, type DelegationDefaults, type Task,
+} from '@repo/shared';
 
 let cachedScope: string | null = null;
 const scopeKey = async (): Promise<string> => {
@@ -20,6 +24,7 @@ const scopeKey = async (): Promise<string> => {
   return cachedScope;
 };
 const storageKey = (scope: string) => `ai_task_delegations_${scope}`;
+const defaultsStorageKey = (scope: string) => `ai_delegation_defaults_${scope}`;
 
 export type DelegationMap = Record<string, AiTaskDelegation>;
 
@@ -52,6 +57,22 @@ export const setDelegation = async (taskId: string, delegation: AiTaskDelegation
   const map = await getDelegations();
   map[taskId] = delegation;
   await writeAll(map);
+  // Remember this choice as the default for the next task the user delegates.
+  const defaults = extractDelegationDefaults(delegation);
+  if (defaults) {
+    try { await AsyncStorage.setItem(defaultsStorageKey(await scopeKey()), encrypt(JSON.stringify(defaults))); } catch { /* best-effort */ }
+  }
+};
+
+/** The last delegation choice the user made (model/source/budget/…), or null. */
+export const getDelegationDefaults = async (): Promise<DelegationDefaults | null> => {
+  try {
+    const raw = await AsyncStorage.getItem(defaultsStorageKey(await scopeKey()));
+    if (!raw) return null;
+    return parseDelegationDefaults(safeDecrypt(raw, raw));
+  } catch {
+    return null;
+  }
 };
 
 export const patchDelegation = async (taskId: string, patch: Partial<AiTaskDelegation>): Promise<AiTaskDelegation | null> => {

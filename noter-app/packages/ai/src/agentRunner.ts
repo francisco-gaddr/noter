@@ -41,7 +41,7 @@ export interface AgentStep {
   toolCalls: AgentToolCall[];
 }
 
-export type AgentStopReason = 'done' | 'maxSteps' | 'loop' | 'error' | 'aborted';
+export type AgentStopReason = 'done' | 'maxSteps' | 'loop' | 'error' | 'aborted' | 'budget';
 
 export interface AgentRunResult {
   steps: AgentStep[];
@@ -49,7 +49,12 @@ export interface AgentRunResult {
   toolCalls: AgentToolCall[];
   accesses: AgentAccess[];
   stopped: AgentStopReason;
+  /** Estimated tokens consumed across all model calls this run (for budgeting/usage). */
+  tokensUsed: number;
 }
+
+/** Coarse token estimate (~4 chars/token) — no tokenizer dependency, good enough for budget guards. */
+export const estimateTokens = (text: string): number => Math.ceil((text || '').length / 4);
 
 export interface AgentRunDeps {
   /** Call the chosen model with the running message list, return its text. */
@@ -109,9 +114,12 @@ export const runAgentTask = async (params: {
   deps: AgentRunDeps;
   maxSteps?: number;
   history?: ChatMessage[];
+  /** Soft token cap for this run; the loop stops before a call that would exceed it. */
+  tokenBudget?: number;
 }): Promise<AgentRunResult> => {
   const { system, goal, deps } = params;
   const maxSteps = params.maxSteps ?? 12;
+  const tokenBudget = params.tokenBudget && params.tokenBudget > 0 ? params.tokenBudget : undefined;
   const nowIso = () => (deps.now ? deps.now() : new Date().toISOString());
 
   const messages: ChatMessage[] = [
@@ -126,9 +134,15 @@ export const runAgentTask = async (params: {
   const seenSignatures = new Set<string>();
   let finalText = '';
   let stopped: AgentStopReason = 'done';
+  let tokensUsed = 0;
 
   for (let i = 0; i < maxSteps; i += 1) {
     if (deps.isAborted?.()) { stopped = 'aborted'; break; }
+
+    // Token budget: stop before a call we estimate would exceed the cap (but always
+    // allow the first call so a tiny budget still does one step of useful work).
+    const promptTokens = messages.reduce((sum, m) => sum + estimateTokens(m.content), 0);
+    if (tokenBudget && i > 0 && tokensUsed + promptTokens > tokenBudget) { stopped = 'budget'; break; }
 
     let assistant: string;
     try {
@@ -138,6 +152,7 @@ export const runAgentTask = async (params: {
       stopped = 'error';
       break;
     }
+    tokensUsed += promptTokens + estimateTokens(assistant);
     finalText = assistant;
 
     const calls = parseAgentToolCalls(assistant);
@@ -201,5 +216,5 @@ export const runAgentTask = async (params: {
     if (last && last.toolCalls.length > 0) stopped = 'maxSteps';
   }
 
-  return { steps, finalText, toolCalls: allToolCalls, accesses, stopped };
+  return { steps, finalText, toolCalls: allToolCalls, accesses, stopped, tokensUsed };
 };

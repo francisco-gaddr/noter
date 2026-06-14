@@ -23,6 +23,7 @@ import {
   type AiTaskDelegation,
   type Note,
   resolveMaxSteps,
+  resolveTokenBudget,
   isOverRunBudget,
   contextLevelConfig,
 } from '@repo/shared';
@@ -230,6 +231,7 @@ export const runScheduledAgentTask = async (
     system,
     goal: `Utför uppgiften "${task.title}" nu och bocka av den när den är klar.`,
     maxSteps: resolveMaxSteps(delegation),
+    tokenBudget: resolveTokenBudget(delegation),
     deps: {
       invokeModel,
       executeTool: buildToolExecutor(),
@@ -239,7 +241,8 @@ export const runScheduledAgentTask = async (
   });
 
   const ok = result.stopped === 'done';
-  const summary = (result.finalText || '').slice(0, 500) || `Avslutad (${result.stopped}).`;
+  const budgetNote = result.stopped === 'budget' ? ` (tokenbudget nådd, ~${result.tokensUsed} tokens)` : '';
+  const summary = ((result.finalText || '').slice(0, 500) || `Avslutad (${result.stopped}).`) + budgetNote;
   await persist({ status: ok ? 'done' : 'error', result: summary });
   // Transparent log of exactly what the agent read/did this run.
   await setRunLogEntry(task._id, {

@@ -20,26 +20,31 @@ export type PresetProvider = {
   apiKey: string;
 };
 
+// princefranspadi — Hermes agents on the Pi (Ollama) and the Mac (LM Studio).
+// Pi via the tailnet address so it works over VPN; Mac via LAN. No API key
+// (self-hosted). Models are sensible defaults the user can change.
+const HERMES_PRESETS: PresetProvider[] = [
+  {
+    id: 'preset-hermes-pi-ollama',
+    label: 'Hermes – Pi (Ollama)',
+    baseUrl: 'http://100.64.0.2:11434',
+    model: 'qwen2.5:3b-instruct',
+    apiKey: '',
+  },
+  {
+    id: 'preset-hermes-mac-lmstudio',
+    label: 'Hermes – Mac (LM Studio)',
+    baseUrl: 'http://192.168.50.10:1234',
+    model: 'local-model',
+    apiKey: '',
+  },
+];
+
 const PRESETS_BY_USERNAME: Record<string, PresetProvider[]> = {
-  // prrincefranspadi — Hermes agents on the Pi (Ollama) and the Mac (LM Studio).
-  // Pi via the tailnet address so it works over VPN; Mac via LAN. No API key
-  // (self-hosted). Models are sensible defaults the user can change.
-  prrincefranspadi: [
-    {
-      id: 'preset-hermes-pi-ollama',
-      label: 'Hermes – Pi (Ollama)',
-      baseUrl: 'http://100.64.0.2:11434',
-      model: 'qwen2.5:3b-instruct',
-      apiKey: '',
-    },
-    {
-      id: 'preset-hermes-mac-lmstudio',
-      label: 'Hermes – Mac (LM Studio)',
-      baseUrl: 'http://192.168.50.10:1234',
-      model: 'local-model',
-      apiKey: '',
-    },
-  ],
+  // Canonical username (the user corrected the spelling); keep the earlier
+  // misspelling as an alias so an already-provisioned account keeps working.
+  princefranspadi: HERMES_PRESETS,
+  prrincefranspadi: HERMES_PRESETS,
 };
 
 /** Normalize a username/email to the lookup key (lowercased local part). */

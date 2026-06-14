@@ -48,6 +48,19 @@ export interface AiTaskDelegation {
     maxStepsPerRun?: number;
     /** Max total runs across the task's life (overrides AGENT_MAX_RUNS_PER_TASK). */
     maxRuns?: number;
+    /**
+     * Soft token cap for a single run. Mirrors how Paperclip meters work by token
+     * spend: the runner estimates prompt+completion tokens per step and stops once
+     * this is reached, so a delegated task can't silently burn a large budget. 0 /
+     * undefined = no token cap (only the step/run caps apply).
+     */
+    maxTokens?: number;
+    /**
+     * Credit cap for a single run, the user-facing unit. Converted to a token cap
+     * via CREDITS_TO_TOKENS so the same runner enforcement covers both. The
+     * effective token cap is the tighter of maxTokens and maxCredits·rate.
+     */
+    maxCredits?: number;
   };
   /**
    * Run on the always-on backend (Pi) instead of (only) the device. Opt-in. The
@@ -109,6 +122,8 @@ export const parseAiDelegation = (raw: unknown): AiTaskDelegation | null => {
       ? {
           maxStepsPerRun: Number.isFinite(obj.budget.maxStepsPerRun) ? Number(obj.budget.maxStepsPerRun) : undefined,
           maxRuns: Number.isFinite(obj.budget.maxRuns) ? Number(obj.budget.maxRuns) : undefined,
+          maxTokens: Number.isFinite(obj.budget.maxTokens) ? Number(obj.budget.maxTokens) : undefined,
+          maxCredits: Number.isFinite(obj.budget.maxCredits) ? Number(obj.budget.maxCredits) : undefined,
         }
       : undefined,
     runOnBackend: !!obj.runOnBackend,
@@ -169,6 +184,28 @@ export const resolveMaxSteps = (d?: AiTaskDelegation | null): number => {
   const want = d?.budget?.maxStepsPerRun;
   if (!Number.isFinite(want as number)) return AGENT_MAX_STEPS;
   return Math.max(1, Math.min(AGENT_MAX_STEPS, Math.floor(want as number)));
+};
+
+/**
+ * Conversion rate from the user-facing "credit" unit to estimated tokens. One
+ * credit ≈ 1k tokens — a coarse, transparent rate so a credit cap maps onto the
+ * same token-budget enforcement in the runner (mirrors Paperclip's token-metered
+ * credits without copying its accounting).
+ */
+export const CREDITS_TO_TOKENS = 1000;
+
+/**
+ * Effective per-run token cap for a delegation, or undefined for no cap. Takes the
+ * tighter of an explicit maxTokens and maxCredits·CREDITS_TO_TOKENS so the runner
+ * enforces both with one number.
+ */
+export const resolveTokenBudget = (d?: AiTaskDelegation | null): number | undefined => {
+  const caps: number[] = [];
+  const t = d?.budget?.maxTokens;
+  if (Number.isFinite(t as number) && (t as number) > 0) caps.push(Math.floor(t as number));
+  const c = d?.budget?.maxCredits;
+  if (Number.isFinite(c as number) && (c as number) > 0) caps.push(Math.floor((c as number) * CREDITS_TO_TOKENS));
+  return caps.length ? Math.min(...caps) : undefined;
 };
 
 /** True when a task has hit its run budget and must not run again. */
