@@ -64,7 +64,21 @@ Defaults är valda för säkerhet + integritet + prestanda och verifierade som r
 
 Paritet i inställningar (båda apparna): språk, tema, auto-lås, E2E-aktivering + lösenordsbyte, **manuell synk ("Synka nu" + pending + offline-status)**, backend-URL, AI-leverantör/modell/nycklar, system-prompt, kontextnivå, verktygsanvändning, MCP-konfiguration, nästa-tråd-endast-lokalt, semantisk sök (`EmbeddingsSettings`).
 
-## 5. Verifiering
+## 5. Transport- & krypteringsstatus (WSS + E2E i alla ändar)
+
+| Yta | Status | Hur |
+|---|---|---|
+| WebSocket-transport | **WSS i produktion** | TLS termineras i kanten; nginx proxar `/socket.io/` med Upgrade-headers; CSP `connect-src` tillåter endast `https:`/`wss:`. Klienterna kör dessutom `enforceSecureSocketUrl` (delad, testad) som uppgraderar `ws→wss`/`http→https` för alla publika hostar — LAN/localhost/tailnet (100.64/10) behåller sitt schema för lokal dev. |
+| Socket-payloads (på tråden) | Krypterade | Backend emittar de lagrade (krypterade) note/task-dokumenten; klienten materialiserar/dekrypterar. Ingen plaintext på tråden. |
+| Server-DB at rest | Krypterat | `isEncryptedPayload`-write-guard; title/content/description/tags/links/datum osv. lagras som ciphertext. |
+| Klient at rest (web) | Krypterat | Notes/tasks (IndexedDB), AI-inställningar/nycklar, embeddings, usage — alla via `encrypt`/`safeDecrypt`. **JWT + cachat user-objekt krypteras nu också at rest** (`apps/web/lib/authStorage.ts`) för att stoppa generiska localStorage-skrapare. |
+| Klient at rest (mobil) | Krypterat | SQLite-fält via `encrypt`; hemligheter i SecureStore; delegations/usage i AsyncStorage via `encrypt`. |
+
+**Medvetna server-läsbara gränser (dokumenterade, ej läckor):**
+- `task.aiAgent`-delegeringen krypteras med tjänstenyckeln så Pi-agent-runnern kan **köra** uppgiften (servern saknar din E2E-nyckel men måste kunna läsa instruktionen för att utföra den). Endast delegeringsmetadata, aldrig låst innehåll.
+- GraphQL-query-vägen (AI tool-use mot backend) dekrypterar server-side per autentiserad anropare — det är så backend-agenten kan agera. Chatt-/sync-vägen är fortsatt E2E.
+
+## 6. Verifiering
 
 - Delad svit: `packages/shared` — 24 sviter, alla gröna (inkl. nya `insights`-tester för produktivitet + agentstatistik).
 - `tsc --noEmit` rent på web + mobil; `next build` + Electron statisk export gröna.
