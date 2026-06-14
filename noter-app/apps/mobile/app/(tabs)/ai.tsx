@@ -31,7 +31,7 @@ import * as Clipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { resolveAiSettingsScope } from '@/services/ai/settingsScope';
-import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, safeDecrypt, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings, mcpSettingsFromJson, mcpSettingsToJsonString, mergePresetProviders, buildAttachmentContextBlock, summarizeAttachmentsForUi, imageDataUrls, MAX_ATTACHMENTS, CONTEXT_LEVELS, contextLevelConfig, summarizeToolPolicy, normalizeContextLevel, applyDelegationDefaults, serializeAiDelegation, type AiAttachment, type ContextLevel, type AiTaskSource, type AiTaskDelegation } from '@repo/shared';
+import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, safeDecrypt, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings, mcpSettingsFromJson, mcpSettingsToJsonString, mergePresetProviders, buildAttachmentContextBlock, summarizeAttachmentsForUi, imageDataUrls, MAX_ATTACHMENTS, CONTEXT_LEVELS, contextLevelConfig, summarizeToolPolicy, normalizeContextLevel, applyDelegationDefaults, serializeAiDelegation, summarizeToolMessage, type AiAttachment, type ContextLevel, type AiTaskSource, type AiTaskDelegation } from '@repo/shared';
 import { setDelegation as setLocalDelegation } from '@/services/ai/agentDelegations';
 import { syncDelegationToBackend } from '@/services/ai/agentBackendSync';
 import { pickAttachments } from '@/services/ai/attachments';
@@ -2978,8 +2978,9 @@ export default function AIScreen() {
                       : item.content.startsWith('Tool call:')
                       ? { label: 'Anrop', icon: 'play-circle', color: theme.colors.primary }
                       : { label: 'Verktyg', icon: 'tools', color: theme.colors.primary };
-                    // Compact one-line summary for the collapsed header.
-                    const summary = item.content.replace(/^Tool (call|result|error):\s*/, '').replace(/\s+/g, ' ').slice(0, 48);
+                    // Human one-liner ("Skapade uppgift: X", "Sökte…", "Anropade …")
+                    // so the card is always informative — never empty.
+                    const summary = summarizeToolMessage(item.content).summary;
                     return (
                       <View style={[styles.messageRow, styles.rowLeft]}>
                         <View style={[styles.toolCard, { borderColor: kind.color }]}>
@@ -2987,12 +2988,12 @@ export default function AIScreen() {
                             style={styles.toolHeader}
                             onPress={() => setCollapsedTool(prev => ({ ...prev, [key]: !collapsed }))}
                             accessibilityRole="button"
-                            accessibilityLabel={`Tool use ${kind.label}`}
+                            accessibilityLabel={`Tool use ${kind.label}: ${summary}`}
                           >
                             <View style={styles.toolHeaderLeft}>
                               <FontAwesome5 name={kind.icon} size={14} color={kind.color} />
                               <Text style={[styles.toolTitle, { color: theme.colors.onSurface }]} numberOfLines={1}>
-                                Tool use · {kind.label}{collapsed && summary ? ` — ${summary}` : ''}
+                                {summary || `Tool use · ${kind.label}`}
                               </Text>
                             </View>
                             <FontAwesome5 name={collapsed ? 'chevron-down' : 'chevron-up'} size={12} color={theme.colors.onSurfaceVariant} />

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { ChatMessage, HFModel, HFFile, Conversation, AIProject, normalizeToolArguments } from '@repo/ai';
-import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, mcpSettingsFromJson, mcpSettingsToJsonString, mergePresetProviders, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings, CONTEXT_LEVELS, contextLevelConfig, summarizeToolPolicy, normalizeContextLevel, applyDelegationDefaults, serializeAiDelegation, type ContextLevel, type AiTaskSource, type AiTaskDelegation } from '@repo/shared';
+import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, mcpSettingsFromJson, mcpSettingsToJsonString, mergePresetProviders, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings, CONTEXT_LEVELS, contextLevelConfig, summarizeToolPolicy, normalizeContextLevel, applyDelegationDefaults, serializeAiDelegation, summarizeToolMessage, type ContextLevel, type AiTaskSource, type AiTaskDelegation } from '@repo/shared';
 import { setDelegation as setLocalDelegation } from '../services/ai/agentDelegations';
 import { db } from '../services/db';
 import { v4 as uuidv4 } from 'uuid';
@@ -3496,11 +3496,10 @@ export const AISidebar = () => {
                       const info = parseToolMessage(msg.content);
                       const toolCollapsed = collapsedTool[key] ?? true;
                       const iconSvg = toolIcons[info.tool] || toolIcons.list_notes;
-                      const label = info.kind === 'call'
-                        ? `Tool call: ${info.tool}`
-                        : info.kind === 'result'
-                          ? `Tool result: ${info.tool}`
-                          : `Tool error: ${info.tool}`;
+                      // Human one-liner ("Skapade uppgift: X", "Sökte…", "Anropade …")
+                      // so the card is always informative at a glance — never empty.
+                      const glance = summarizeToolMessage(msg.content);
+                      const label = glance.summary;
                       const status = getToolStatus(info);
                       const statusIcon = toolStatusIcons[status.tone] || toolStatusIcons.info;
                       return (
