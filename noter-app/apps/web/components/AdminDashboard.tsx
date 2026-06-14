@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { useStore } from '../stores/useStore';
+import { AdminCleanup } from './AdminCleanup';
 import { computeTaskInsights, computeNoteInsights } from '@repo/shared';
 import { getApiBaseUrl } from '../services/api';
 
@@ -122,6 +123,8 @@ export const AdminDashboard: React.FC = () => {
           <Stat label="Uppgiftslistor" value={noteInsights.taskLists} />
         </div>
       </div>
+
+      <AdminCleanup />
     </div>
   );
 };

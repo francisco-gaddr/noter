@@ -14,6 +14,7 @@ import { clearLocalData, clearNotesLocal, clearTasksLocal, clearModelsLocal, cle
 import { deleteModel as deleteModelFile } from '@/services/ai/modelService';
 import { enrollOrUnlockCrypto, changeCryptoPassword } from '@/services/crypto';
 import { hasActiveDataKey } from '@repo/shared';
+import { AdminCleanup } from '@/components/AdminCleanup';
 
 export default function SettingsScreen() {
   const { t, i18n } = useTranslation();
@@ -514,6 +515,14 @@ export default function SettingsScreen() {
 
       <Divider />
 
+      <List.Section title="Admin & städning">
+        <View style={{ paddingHorizontal: 16 }}>
+          <AdminCleanup />
+        </View>
+      </List.Section>
+
+      <Divider />
+
       <List.Section title={t('common.account')}>
         <List.Item
           title={t('common.logout')}
@@ -522,7 +531,7 @@ export default function SettingsScreen() {
           rippleColor={touchRippleColor}
         />
       </List.Section>
-      
+
       <View style={styles.version}>
          <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceDisabled }}>
             {t('common.version')}: {String(appVersion)}
