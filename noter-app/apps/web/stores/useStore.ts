@@ -7,6 +7,7 @@ import deepmerge from 'deepmerge';
 import { uniqBy } from 'lodash';
 import CryptoJS from 'crypto-js';
 import { buildSecurityNoteMap, findBlockingLockedAncestor } from '../services/ai/security';
+import { forgetSessionCrypto } from '../lib/crypto';
 
 let networkListenersReady = false;
 
@@ -535,6 +536,10 @@ export const useStore = create<StoreState>((set, get) => ({
     setElectronToken(null);
     setElectronUser(null);
     disconnectSocket();
+    // End the E2E session: wipe the in-memory + sessionStorage data key so the
+    // next user (or a left-open machine) can't decrypt without re-entering the
+    // password. The key never left the browser; logout makes that explicit.
+    try { forgetSessionCrypto(); } catch { /* best-effort */ }
     set({ user: null, token: null, notes: [], tasks: [], selectedNoteId: null, selectedTaskListId: null, isAppLocked: false, unlockedProtectedNoteIds: [] });
   },
 
