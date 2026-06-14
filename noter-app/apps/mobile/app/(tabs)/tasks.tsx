@@ -323,7 +323,11 @@ export default function TasksScreen() {
     if (completedInScope.length === 0) return;
     Alert.alert(
       t('tasks.clearCompletedTitle', 'Rensa klara uppgifter'),
-      t('tasks.clearCompletedBody', `Ta bort ${completedInScope.length} klara uppgifter${selectedListId ? ' i den här listan' : ''}? Detta går inte att ångra.`),
+      t('tasks.clearCompletedBody', {
+        count: completedInScope.length,
+        scope: selectedListId ? t('tasks.clearCompletedScopeList', ' i den här listan') : '',
+        defaultValue: `Ta bort ${completedInScope.length} klara uppgifter${selectedListId ? ' i den här listan' : ''}? Detta går inte att ångra.`,
+      }),
       [
         { text: t('common.cancel', 'Avbryt'), style: 'cancel' },
         {
