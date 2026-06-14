@@ -42,6 +42,19 @@ const nextConfig = {
             bodySizeLimit: '10gb',
           },
         },
+        // CalDAV/CardDAV auto-discovery (RFC 6764). The public edge routes everything
+        // outside /api to this web app, so the well-known bootstrap that Apple
+        // Reminders/Calendar require lands here. Redirect it (301) to the CalDAV
+        // context path, which is served by the backend under /api/dav. Without this,
+        // macOS/iOS abort account setup before ever trying the explicit server URL
+        // (Android/DAVx5 skips well-known and works regardless). basePath:false so it
+        // matches the bare host path, not /app/.well-known.
+        async redirects() {
+          return [
+            { source: '/.well-known/caldav', destination: '/api/dav/', basePath: false, statusCode: 301 },
+            { source: '/.well-known/carddav', destination: '/api/dav/', basePath: false, statusCode: 301 },
+          ];
+        },
         async headers() {
           const csp = [
             "default-src 'self' https: data: 'unsafe-inline' 'unsafe-eval'",
