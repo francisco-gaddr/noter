@@ -32,6 +32,9 @@ nästa lediga.
 | 0002 | [MCP intent classification](0002-mcp-intent.md) | Accepted |
 | 0003 | [GraphQL trusted documents](0003-graphql-trusted-documents.md) | Accepted |
 | 0004 | [En offline-sync-kö (SQLite) med latest-wins-dedupe](0004-offline-sync-queue.md) | Accepted |
+| 0005 | [Schemalagda AI-agentuppgifter](0005-scheduled-ai-agent-tasks.md) | Accepted |
+| 0006 | [Kunskapsgraf + sök](0006-knowledge-graph-and-search.md) | Accepted |
+| 0007 | [Desktop Electron → Tauri (beslut: vänta/spike)](0007-electron-vs-tauri.md) — körguide: [`migrations/electron-to-tauri-runbook.md`](../migrations/electron-to-tauri-runbook.md) | Accepted |
 
 Lägg till nya rader sorterat på nummer.
 

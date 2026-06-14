@@ -71,6 +71,15 @@ ska öppna för en given fråga. Läs det här först, sedan den specifika filen
 
 Status 2026-06-13. Uppdatera den här listan när poster blir klara.
 
+**⭐ Stort planerat initiativ — Desktop Electron → Tauri v2:**
+- [ ] Migrera desktop-appen till Tauri v2. **Allt är redan kartlagt** så det inte startar
+      från noll: beslut i [`adr/0007-electron-vs-tauri.md`](adr/0007-electron-vs-tauri.md),
+      exekveringsklar körguide i
+      [`migrations/electron-to-tauri-runbook.md`](migrations/electron-to-tauri-runbook.md)
+      (komplett IPC-karta, secure-store-omdesign med **bevarad E2E**, auto-update-brygga,
+      3-webview QA, §9 säkerhetsgrind per fas). Börja med spike (§1) → fasplan (§10).
+      Krav: all funktionalitet + säkerhet kvarstår. Se även [`improvements.md`](improvements.md).
+
 **AI-chatt (mobil):**
 - [x] Filbilagor i chatten: textfiler (md/txt/json/kod) läses in i prompten via
       `@repo/shared` `aiAttachments`; PDF bifogas som referens-placeholder.
