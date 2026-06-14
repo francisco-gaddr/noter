@@ -1,4 +1,5 @@
 import { io, Socket } from 'socket.io-client';
+import { enforceSecureSocketUrl } from '@repo/shared';
 import { API_URL } from './api';
 
 const stripApiSuffix = (url: string) => url.replace(/\/api\/?$/, '');
@@ -36,7 +37,9 @@ export const initSocket = (token?: string | null) => {
     return socket;
   }
   
-  const baseUrl = resolveSocketBaseUrl(API_URL);
+  // Force WSS for any public host (LAN/localhost/tailnet keep their scheme) so production
+  // WebSocket traffic is always TLS even if the configured base URL is plain-HTTP.
+  const baseUrl = enforceSecureSocketUrl(resolveSocketBaseUrl(API_URL));
 
   console.log('Connecting socket to:', baseUrl);
 

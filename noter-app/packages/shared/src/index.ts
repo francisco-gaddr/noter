@@ -20,6 +20,7 @@ export * from './vectorSearch';
 export * from './embeddings';
 export * from './embeddingsClient';
 export * from './vectorStore';
+export * from './socketSecurity';
 export * from './entityLinks';
 export * from './toolDescriptions';
 export * from './toolUsage';
