@@ -424,7 +424,10 @@ export default function SidebarTree() {
       const cached = readableCache.get(note._id);
       if (cached !== undefined) return cached;
       const blocking = findBlockingLockedAncestor(note as any, securityMap as any, unlockedSet as any);
-      const readable = !blocking || blocking._id === note._id;
+      // SECURITY: show a locked PROJECT folder itself (so the user can tap to unlock),
+      // but NEVER a locked note or a child of a locked folder. The old check
+      // `blocking._id === note._id` also exposed a directly-locked *note*.
+      const readable = !blocking || (blocking._id === note._id && (note as any).type === 'project');
       readableCache.set(note._id, readable);
       return readable;
     };

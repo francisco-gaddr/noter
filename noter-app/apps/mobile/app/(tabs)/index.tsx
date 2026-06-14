@@ -9,7 +9,7 @@ import ProjectSelector from '@/components/ProjectSelector';
 import IconPickerModal from '@/components/IconPickerModal';
 import { SvgUri } from 'react-native-svg';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
-import { Note, isBlankNote } from '@repo/shared';
+import { Note, isBlankNote, buildSecurityNoteMap, isReadableWithLocks } from '@repo/shared';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { parseSettings } from '@/services/storage';
 import { SkeletonRow } from '@/components/Skeleton';
@@ -91,6 +91,7 @@ export default function NotesScreen() {
   const navigation = useNavigation();
   const theme = useTheme();
   const { notes, isLoading, error, fetchNotes, viewMode, setViewMode, activeProjectId, updateNote, reorderNotes, deleteNote } = useStore();
+  const unlockedProtectedNoteIds = useStore((s) => s.unlockedProtectedNoteIds);
 
   // Standardised pull-to-refresh: haptic on initiation, minimum 350ms spinner
   // so a fast-cached response doesn't flicker the UI, reentrancy-guarded so
@@ -260,7 +261,15 @@ export default function NotesScreen() {
   }, [navigation, viewMode, setViewMode, sortMenuVisible, sortOrder, sortBy, activeProjectId, activeProject]);
 
   const sortedNotes = useMemo(() => {
+    // SECURITY (hard guarantee): a note whose ancestor project/folder is locked-and-not-
+    // unlocked must NEVER appear in the all-notes list — not even masked. We filter by the
+    // CURRENT unlock state here (defense-in-depth on top of the store's materialise mask),
+    // so a stale decrypted cache or a re-locked folder can't leak. To unlock, open the
+    // folder and enter its password.
+    const securityMap = buildSecurityNoteMap(notes as any);
+    const unlockedSet = new Set(unlockedProtectedNoteIds || []);
     let filtered = notes.filter((n) => {
+      if (!isReadableWithLocks(n as any, securityMap as any, unlockedSet)) return false;
       const type = normalizeNoteType((n as any).type);
       // Only plain notes with real content — folders and completely-empty notes
       // (junk from failed syncs) never appear in the notes list.
@@ -299,7 +308,7 @@ export default function NotesScreen() {
     }
 
     return filtered;
-  }, [notes, activeProjectId, viewMode]);
+  }, [notes, activeProjectId, viewMode, unlockedProtectedNoteIds]);
 
   const handleCreateNote = () => {
     router.push({

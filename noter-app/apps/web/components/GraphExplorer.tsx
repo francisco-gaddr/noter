@@ -12,7 +12,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   buildGraph, neighborsOf, filterGraphByQuery, layoutGraph, sortGraphNodes, edgeGeometry,
-  fulltextSearch, hybridSearch,
+  fulltextSearch, hybridSearch, buildSecurityNoteMap, isReadableWithLocks,
   RELATION_LABELS, NODE_KIND_LABELS, RELATION_COLORS, NODE_COLORS,
   type GraphNodeKind, type GraphRelation, type GraphConfig, type GraphSort,
 } from '@repo/shared';
@@ -25,10 +25,20 @@ const ALL_RELS: GraphRelation[] = ['in_project', 'in_list', 'subtask', 'linked',
 const KIND_ICON: Record<GraphNodeKind, string> = { project: '📁', task_list: '✓', note: '📝', task: '◻︎' };
 
 export const GraphExplorer: React.FC<{ isOpen: boolean; onClose: () => void }> = ({ isOpen, onClose }) => {
-  const notes = useStore((s) => s.notes);
-  const tasks = useStore((s) => s.tasks);
+  const allNotes = useStore((s) => s.notes);
+  const allTasks = useStore((s) => s.tasks);
+  const unlockedProtectedNoteIds = useStore((s) => s.unlockedProtectedNoteIds);
   const selectNote = useStore((s) => s.selectNote);
   const setActiveTab = useStore((s) => s.setActiveTab);
+
+  // SECURITY: never graph locked-folder notes/tasks (would reveal titles/relations).
+  const { notes, tasks } = useMemo(() => {
+    const securityMap = buildSecurityNoteMap(allNotes as any);
+    const unlockedSet = new Set(unlockedProtectedNoteIds || []);
+    const rNotes = (allNotes || []).filter((n: any) => isReadableWithLocks(n, securityMap as any, unlockedSet));
+    const rTasks = (allTasks || []).filter((t: any) => !t.parentNoteId || isReadableWithLocks(securityMap.get(String(t.parentNoteId)) as any, securityMap as any, unlockedSet));
+    return { notes: rNotes, tasks: rTasks };
+  }, [allNotes, allTasks, unlockedProtectedNoteIds]);
 
   const [kinds, setKinds] = useState<Set<GraphNodeKind>>(new Set(ALL_KINDS));
   const [rels, setRels] = useState<Set<GraphRelation>>(new Set(['in_project', 'in_list', 'subtask', 'linked'] as GraphRelation[]));

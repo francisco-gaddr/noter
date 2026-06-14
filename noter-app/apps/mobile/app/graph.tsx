@@ -19,7 +19,7 @@ import Animated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-na
 import Svg, { Line, Circle, G, Polygon, Text as SvgText } from 'react-native-svg';
 import {
   buildGraph, neighborsOf, filterGraphByQuery, layoutGraph, sortGraphNodes, edgeGeometry,
-  fulltextSearch, hybridSearch,
+  fulltextSearch, hybridSearch, buildSecurityNoteMap, isReadableWithLocks,
   RELATION_LABELS, NODE_KIND_LABELS, RELATION_COLORS, NODE_COLORS,
   type GraphNodeKind, type GraphRelation, type GraphConfig, type GraphSort,
 } from '@repo/shared';
@@ -43,8 +43,19 @@ const LABEL_LENS: { key: string; label: string; len: number }[] = [
 
 export default function GraphScreen() {
   const theme = useTheme();
-  const notes = useStore((s) => s.notes);
-  const tasks = useStore((s) => s.tasks);
+  const allNotes = useStore((s) => s.notes);
+  const allTasks = useStore((s) => s.tasks);
+  const unlockedProtectedNoteIds = useStore((s) => s.unlockedProtectedNoteIds);
+
+  // SECURITY: never put locked-folder notes/tasks into the graph (it would reveal their
+  // titles/relations). Filter to readable by the current unlock state before buildGraph.
+  const { notes, tasks } = useMemo(() => {
+    const securityMap = buildSecurityNoteMap(allNotes as any);
+    const unlockedSet = new Set(unlockedProtectedNoteIds || []);
+    const rNotes = (allNotes || []).filter((n: any) => isReadableWithLocks(n, securityMap as any, unlockedSet));
+    const rTasks = (allTasks || []).filter((t: any) => !t.parentNoteId || isReadableWithLocks(securityMap.get(String(t.parentNoteId)) as any, securityMap as any, unlockedSet));
+    return { notes: rNotes, tasks: rTasks };
+  }, [allNotes, allTasks, unlockedProtectedNoteIds]);
 
   const { width } = useWindowDimensions();
   const [kinds, setKinds] = useState<Set<GraphNodeKind>>(new Set(ALL_KINDS));
