@@ -53,7 +53,11 @@ export interface ICalendarFeed extends Document {
 const ItemSchema = new Schema<ICalendarItem>({
   uid: { type: String, required: true },
   title: { type: String, default: '' },
-  start: { type: String, required: true },
+  // NOT required: an undated task (a VTODO with no due date) has an empty `start`.
+  // Mongoose rejects '' for a required String, which made saving a projection that
+  // contained any undated task throw — 500ing the WHOLE share push so nothing synced.
+  // Undated to-dos are valid; they render as a VTODO without DUE.
+  start: { type: String, default: '' },
   allDay: { type: Boolean, default: true },
   completed: { type: Boolean, default: false },
   description: { type: String, default: '' },
