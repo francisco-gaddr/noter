@@ -90,15 +90,21 @@ setups that route it explicitly, but the client-facing URLs use `/api/dav`.)
 `/.well-known/caldav` → `301 /api/dav/` for auto-discovery (only when the edge routes
 `/.well-known/*`; clients given the full server URL below don't need it).
 
-### Credential + mutation management (the Noter app) — `/api/calendar`, Bearer JWT
+### Share + mutation management (the Noter app) — `/api/calendar`, Bearer JWT
 
-| Method   | Path                          | Body / notes |
-| -------- | ----------------------------- | ------------ |
-| `POST`   | `/api/calendar/dav`           | `{ listId?, displayName?, items? }` → `{ username, password (once), serverUrl, collectionUrl }` |
-| `GET`    | `/api/calendar/dav`           | List DAV-enabled scopes (never the password) |
-| `DELETE` | `/api/calendar/dav`           | `{ listId? }` → revoke that scope's credential |
-| `GET`    | `/api/calendar/mutations`     | Pending write-backs for the client to apply |
-| `POST`   | `/api/calendar/mutations/ack` | `{ ids: [...] }` → remove applied mutations |
+A **share ("delning")** covers a SET of task-lists (`listIds`; empty = all tasks) under
+one ICS link + one CalDAV credential. Managed in Settings.
+
+| Method   | Path                                   | Body / notes |
+| -------- | -------------------------------------- | ------------ |
+| `GET`    | `/api/calendar/shares`                 | List the user's shares (id, name, listIds, icsUrl, dav) |
+| `POST`   | `/api/calendar/shares`                 | `{ name, listIds, items? }` → create a share |
+| `PUT`    | `/api/calendar/shares/:shareId`        | `{ name?, listIds?, items? }` → rename/re-scope + push projection |
+| `DELETE` | `/api/calendar/shares/:shareId`        | Delete the share (ICS + CalDAV) |
+| `POST`   | `/api/calendar/shares/:shareId/dav`    | Mint/rotate the CalDAV credential → `{ username, password (once), serverUrl, collectionUrl }` |
+| `DELETE` | `/api/calendar/shares/:shareId/dav`    | Revoke the share's CalDAV credential |
+| `GET`    | `/api/calendar/mutations`              | Pending write-backs for the client to apply |
+| `POST`   | `/api/calendar/mutations/ack`          | `{ ids: [...] }` → remove applied mutations |
 
 ## Database schema (`CalendarFeed`)
 

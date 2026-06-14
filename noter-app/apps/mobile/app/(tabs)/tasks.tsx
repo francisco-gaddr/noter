@@ -8,9 +8,7 @@ import TaskList from '@/components/TaskList';
 import { TaskBoard } from '@/components/TaskBoard';
 import { TaskTimeline } from '@/components/TaskTimeline';
 import { Task, priorityRank, isBlankTask, completedTasks as pickCompletedTasks, buildSecurityNoteMap, isReadableWithLocks } from '@repo/shared';
-import { pushCalendarFeed, createCalendarSubscription, revokeCalendarSubscription, getCalendarUrl, drainCalendarMutations, createDavCredential, revokeDavCredential, type DavCredential } from '@/services/calendarSubscription';
-import { CalDavCredentialDialog } from '@/components/CalDavCredentialDialog';
-import * as Clipboard from 'expo-clipboard';
+import { pushCalendarFeed, drainCalendarMutations } from '@/services/calendarSubscription';
 import { orderBy } from 'lodash';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SvgUri } from 'react-native-svg';
@@ -114,8 +112,6 @@ export default function TasksScreen() {
   const [editListDialogVisible, setEditListDialogVisible] = useState(false);
   const [editingList, setEditingList] = useState<{id: string, title: string} | null>(null);
   // Per-list calendar subscription (copy/deactivate a link for the selected list).
-  const [calMenuVisible, setCalMenuVisible] = useState(false);
-  const [calBusy, setCalBusy] = useState(false);
 
   // Filter State
   const [filterDialogVisible, setFilterDialogVisible] = useState(false);
@@ -354,58 +350,8 @@ export default function TasksScreen() {
     setEditListDialogVisible(true);
   };
 
-  const handleCopyListCalendar = async () => {
-    if (!selectedListId) return;
-    setCalBusy(true); setCalMenuVisible(false);
-    try {
-      let url = await getCalendarUrl(selectedListId);
-      if (!url) { const sub = await createCalendarSubscription(selectedListId); url = sub.url; }
-      if (url) {
-        await Clipboard.setStringAsync(url);
-        Alert.alert(
-          t('tasks.calendarCopiedTitle', 'Kalenderlänk kopierad'),
-          t('tasks.calendarCopiedBody', 'Klistra in i Google Kalender eller Kalender på Mac (Prenumerera via URL). Endast den här listans daterade uppgifter delas; uppdateras när du ändrar dem.'),
-        );
-      }
-    } catch (e: any) {
-      Alert.alert(t('common.error'), e?.message || 'Kunde inte skapa kalenderlänk.');
-    } finally {
-      setCalBusy(false);
-    }
-  };
-
-  const handleRevokeListCalendar = async () => {
-    if (!selectedListId) return;
-    setCalMenuVisible(false);
-    await revokeCalendarSubscription(selectedListId);
-    Alert.alert(t('tasks.calendarRevoked', 'Inaktiverad'), t('tasks.calendarRevokedBody', 'Kalenderlänken för den här listan är inaktiverad.'));
-  };
-
-  // Per-list CalDAV (two-way). Mints a revocable credential and shows it ONCE in a
-  // dialog where each field (server/username/password) has its own copy button.
-  const [davCred, setDavCred] = useState<DavCredential | null>(null);
-  const [davDialogVisible, setDavDialogVisible] = useState(false);
-  const handleEnableListDav = async () => {
-    if (!selectedListId) return;
-    setCalMenuVisible(false);
-    setCalBusy(true);
-    try {
-      const cred = await createDavCredential(selectedListId, 'Noter-lista');
-      setDavCred(cred);
-      setDavDialogVisible(true);
-    } catch (e: any) {
-      Alert.alert(t('common.error'), e?.message || 'Kunde inte aktivera CalDAV.');
-    } finally {
-      setCalBusy(false);
-    }
-  };
-
-  const handleRevokeListDav = async () => {
-    if (!selectedListId) return;
-    setCalMenuVisible(false);
-    await revokeDavCredential(selectedListId);
-    Alert.alert(t('tasks.caldavRevoked', 'CalDAV inaktiverad'), t('tasks.caldavRevokedBody', 'CalDAV-kopplingen för den här listan slutar fungera direkt.'));
-  };
+  // Calendar/CalDAV links are managed centrally in Settings → "Kalender & CalDAV —
+  // delningar" (one link/login for any chosen set of lists), not per-list here.
 
   const saveListTitle = async () => {
     if (editingList) {
@@ -452,27 +398,6 @@ export default function TasksScreen() {
         headerTitle: 'Tasks',
         headerRight: () => (
           <View style={{ flexDirection: 'row' }}>
-             {/* Per-list calendar link — only meaningful when a specific list is selected. */}
-             {selectedListId ? (
-               <Menu
-                 visible={calMenuVisible}
-                 onDismiss={() => setCalMenuVisible(false)}
-                 anchor={
-                   <IconButton
-                     icon="calendar-export"
-                     onPress={() => { setCalMenuVisible(false); setTimeout(() => setCalMenuVisible(true), 0); }}
-                     disabled={calBusy}
-                     size={20}
-                   />
-                 }
-               >
-                 <Menu.Item leadingIcon="content-copy" onPress={handleCopyListCalendar} title={t('tasks.calendarCopyList', 'Kopiera kalenderlänk (denna lista)')} />
-                 <Menu.Item leadingIcon="calendar-remove" onPress={handleRevokeListCalendar} title={t('tasks.calendarRevokeList', 'Inaktivera kalenderlänk')} />
-                 <Divider />
-                 <Menu.Item leadingIcon="sync" onPress={handleEnableListDav} title={t('tasks.caldavEnableList', 'Aktivera CalDAV (tvåvägs)')} />
-                 <Menu.Item leadingIcon="sync-off" onPress={handleRevokeListDav} title={t('tasks.caldavRevokeList', 'Inaktivera CalDAV')} />
-               </Menu>
-             ) : null}
              <IconButton
               icon={filterDateRange.start || statusFilter !== 'all' ? "filter" : "filter-outline"}
               onPress={() => setFilterDialogVisible(true)}
@@ -728,12 +653,6 @@ export default function TasksScreen() {
           />
         )}
       </Portal>
-      <CalDavCredentialDialog
-        visible={davDialogVisible}
-        credential={davCred}
-        scopeLabel="Endast den här uppgiftslistan delas"
-        onDismiss={() => setDavDialogVisible(false)}
-      />
     </View>
   );
 }

@@ -60,6 +60,16 @@ describe('buildSafeCalendarProjection — list scope', () => {
     const items = buildSafeCalendarProjection(tasks, [], [], { listId: 'all' });
     expect(items.length).toBe(3);
   });
+
+  it('with listIds includes the UNION of those lists only', () => {
+    const items = buildSafeCalendarProjection(tasks, [], [], { listIds: ['listX', 'listY'] });
+    expect(items.map((i: any) => i.uid).sort()).toEqual(['a', 'b']); // not 'c' (no list)
+  });
+
+  it('with an empty listIds set falls back to all tasks', () => {
+    const items = buildSafeCalendarProjection(tasks, [], [], { listIds: [] });
+    expect(items.length).toBe(3);
+  });
 });
 
 describe('generateIcs', () => {

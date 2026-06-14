@@ -1,20 +1,17 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
 /**
- * Calendar subscription feed.
+ * Calendar/CalDAV SHARE ("delning").
  *
- * Task titles + due dates are END-TO-END ENCRYPTED at rest, so the server can't
- * read them to build an ICS. Instead the client (which has plaintext) pushes a
- * minimal projection here that the public ICS endpoint serves. This is opt-in:
- * the user chooses to expose these fields so an external calendar (Google/Apple)
- * can subscribe — that data inherently leaves the device to the calendar service.
- * Nothing else about the task is stored.
+ * A share is a user-named collection that covers a SET of task-lists (or all tasks),
+ * exposed under ONE ICS calendar link (token) AND ONE CalDAV credential (davUser +
+ * hashed secret). The user manages shares in Settings — pick one list, several, or all.
  *
- * The SAME projection also backs the CalDAV bridge (read/write tasks as VTODO from
- * Tasks.org / Apple Reminders). CalDAV write-back can't touch the encrypted Task
- * directly, so an incoming completion/delete is recorded as a `pendingMutations`
- * intent (non-sensitive: uid + op) that the client drains and applies with the
- * user's key, then re-pushes the projection. See routes/calendar.ts + caldav/.
+ * Task titles/dates are END-TO-END ENCRYPTED at rest, so the server can't read them.
+ * The client pushes a minimal, lock-aware plaintext projection (the union of the
+ * share's lists) into `items`; the public ICS endpoint + the CalDAV bridge serve that.
+ * CalDAV write-backs that can't touch ciphertext are recorded as `pendingMutations` for
+ * the client to apply with the user's key. See routes/calendar.ts + caldav/.
  */
 export interface ICalendarItem {
   uid: string;
@@ -22,50 +19,34 @@ export interface ICalendarItem {
   start: string;   // ISO date/datetime
   allDay: boolean;
   completed?: boolean;
-  /** Optional plaintext notes (VTODO DESCRIPTION). Opt-in, lock-aware (client-filtered). */
   description?: string;
-  /** RFC 5545 PRIORITY 0–9 (0 = none). */
-  priority?: number;
+  priority?: number; // RFC 5545 PRIORITY 0–9
 }
 
-/**
- * A pending CalDAV write-back the client must apply to the real (encrypted) task.
- * Only non-sensitive intent is stored — never plaintext task content beyond what
- * the user already opted to expose in the projection.
- */
 export interface ICalendarMutation {
-  id: string;                 // random id, used for ack
-  uid: string;                // task uid (the projection/clientId/_id)
-  op: 'upsert' | 'delete';    // upsert covers complete/uncomplete/edit/create
-  listId: string | null;      // scope the mutation came through
-  /** Plaintext intent the client applies with the user's key (then re-pushes). */
-  data?: {
-    summary?: string;
-    description?: string;
-    due?: string | null;
-    priority?: number;
-    completed?: boolean;
-  };
+  id: string;
+  uid: string;
+  op: 'upsert' | 'delete';
+  listId: string | null; // kept for diagnostics; shares carry listIds
+  data?: { summary?: string; description?: string; due?: string | null; priority?: number; completed?: boolean };
   at: Date;
 }
 
 export interface ICalendarFeed extends Document {
   userId: string;
-  /** Scope: null = all dated tasks; otherwise a task-list/project note id. */
-  listId: string | null;
+  /** Stable per-user id for this share (routing key; not a secret). */
+  shareId: string;
+  /** User-chosen display name ("Jobb", "Alla uppgifter", …). */
+  name: string;
+  /** Task-list/project note ids this share covers. Empty = all tasks. */
+  listIds: string[];
   token: string;
   items: ICalendarItem[];
   updatedAt: Date;
-  // --- CalDAV credential (separate, hashed secret; the ICS `token` is unchanged) ---
-  /** Public Basic-Auth username for CalDAV (non-secret lookup key). Unset = CalDAV off. */
   davUser?: string | null;
-  /** SHA-256 of the CalDAV password. The password itself is shown once and never stored. */
   davTokenHash?: string | null;
-  /** Plaintext collection display-name the user chose (the list's real name is encrypted). */
-  davDisplayName?: string | null;
   davCreatedAt?: Date | null;
   davLastSeenAt?: Date | null;
-  /** Pending CalDAV write-backs awaiting client application. */
   pendingMutations?: ICalendarMutation[];
 }
 
@@ -90,26 +71,22 @@ const MutationSchema = new Schema<ICalendarMutation>({
 
 const CalendarFeedSchema = new Schema<ICalendarFeed>({
   userId: { type: String, required: true, index: true },
-  listId: { type: String, default: null },
+  shareId: { type: String, required: true },
+  name: { type: String, default: '' },
+  listIds: { type: [String], default: [] },
   token: { type: String, required: true, unique: true, index: true },
   items: { type: [ItemSchema], default: [] },
   updatedAt: { type: Date, default: Date.now },
   davUser: { type: String, default: null },
   davTokenHash: { type: String, default: null },
-  davDisplayName: { type: String, default: null },
   davCreatedAt: { type: Date, default: null },
   davLastSeenAt: { type: Date, default: null },
   pendingMutations: { type: [MutationSchema], default: [] },
 });
 
-// One feed per (user, scope). listId null = the all-tasks feed. Replaces the old
-// userId-unique index (one feed/user) — see reconcileCalendarFeedIndexes() which drops
-// the legacy `userId_1` index at startup so multiple per-list feeds are allowed.
-CalendarFeedSchema.index({ userId: 1, listId: 1 }, { unique: true });
-// CalDAV Basic-Auth looks a feed up by its davUser. PARTIAL-unique on string values
-// only — NOT sparse: davUser defaults to `null`, and a sparse index still indexes
-// null (it only skips MISSING fields), so two DAV-disabled feeds (davUser:null) would
-// collide. The partial filter indexes solely feeds that actually have a string davUser.
+// One share per (user, shareId). The CalDAV Basic-Auth looks a share up by davUser
+// (sparse/partial-unique over string values only — DAV-disabled shares have null).
+CalendarFeedSchema.index({ userId: 1, shareId: 1 }, { unique: true });
 CalendarFeedSchema.index(
   { davUser: 1 },
   { unique: true, partialFilterExpression: { davUser: { $type: 'string' } } },
@@ -118,24 +95,23 @@ CalendarFeedSchema.index(
 const CalendarFeed = mongoose.model<ICalendarFeed>('CalendarFeed', CalendarFeedSchema);
 
 /**
- * Migrate the calendarfeeds indexes in place: drop the legacy unique `userId_1` index
- * (which would block a second per-list feed for the same user) and ensure the new
- * compound unique index exists, plus the sparse-unique davUser index for CalDAV.
- * Idempotent + best-effort; safe to call on every boot. Needed because production
- * runs with autoIndex off.
+ * Reconcile calendarfeeds indexes at boot (prod runs autoIndex off): drop the legacy
+ * per-list unique index, ensure the share-based + davUser indexes exist. Idempotent,
+ * best-effort. The v1.6 share redesign starts feeds from scratch, so the old
+ * `userId_1_listId_1` index is removed.
  */
 export const reconcileCalendarFeedIndexes = async (): Promise<void> => {
   try {
     const existing = await CalendarFeed.collection.indexes().catch(() => [] as any[]);
-    if (Array.isArray(existing) && existing.some((i: any) => i.name === 'userId_1')) {
-      await CalendarFeed.collection.dropIndex('userId_1').catch(() => {});
-    }
-    await CalendarFeed.collection.createIndex({ userId: 1, listId: 1 }, { unique: true }).catch(() => {});
-    // Drop any earlier sparse `davUser_1` (it would reject a 2nd davUser:null feed),
-    // then create the correct partial-unique index over string davUser values only.
-    if (Array.isArray(existing) && existing.some((i: any) => i.name === 'davUser_1')) {
-      await CalendarFeed.collection.dropIndex('davUser_1').catch(() => {});
-    }
+    const drop = (name: string) => {
+      if (Array.isArray(existing) && existing.some((i: any) => i.name === name)) {
+        return CalendarFeed.collection.dropIndex(name).catch(() => {});
+      }
+      return Promise.resolve();
+    };
+    await drop('userId_1'); // very old single-feed-per-user
+    await drop('userId_1_listId_1'); // per-list (pre-share)
+    await CalendarFeed.collection.createIndex({ userId: 1, shareId: 1 }, { unique: true }).catch(() => {});
     await CalendarFeed.collection
       .createIndex({ davUser: 1 }, { unique: true, partialFilterExpression: { davUser: { $type: 'string' } } })
       .catch(() => {});
