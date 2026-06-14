@@ -3,6 +3,7 @@ import { Task } from '@repo/shared';
 import { FaTimes, FaSave, FaTrash } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../stores/useStore';
+import { AiDelegationSection } from './AiDelegationSection';
 
 interface TaskDetailModalProps {
   isOpen: boolean;
@@ -440,6 +441,8 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
               ))}
             </select>
           </div>
+
+          {task ? <AiDelegationSection task={task} /> : null}
 
           <div className="flex justify-between pt-4 border-t border-gray-200 dark:border-gray-700 mt-4">
             {task ? (

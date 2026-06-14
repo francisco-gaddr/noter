@@ -16,6 +16,7 @@ import { shouldStopToolIteration, toToolCallKeys, toToolIterationSignature } fro
 import { ApiProviderType, API_PROVIDERS, API_PROVIDER_LIST, resolveChatCompletionsUrl, streamApiProviderResponse } from '../services/ai/apiProviders';
 import { getUsageSnapshot, recordUsage, type UsageSnapshot } from '../services/ai/usageTracker';
 import { pullAiSync, pushAiSync } from '../services/ai/sync';
+import { startAgentScheduler } from '../services/ai/agentScheduler';
 import { connectSocket, socket } from '../services/socket';
 import { buildSecurityNoteMap, isReadableWithLocks } from '../services/ai/security';
 
@@ -359,6 +360,14 @@ export const AISidebar = () => {
       PLAYWRIGHT_CHANNEL: env.NEXT_PUBLIC_PLAYWRIGHT_CHANNEL ?? env.PLAYWRIGHT_CHANNEL,
     };
   };
+
+  // Start the AI-task scheduler while signed in (Electron/web is always-on, so
+  // delegated tasks run reliably at their dueDate). Stopped on sign-out.
+  useEffect(() => {
+    if (!token) return;
+    const stop = startAgentScheduler();
+    return stop;
+  }, [token]);
 
   useEffect(() => {
     // Load settings once on mount (or when user logs in/isElectron known)
