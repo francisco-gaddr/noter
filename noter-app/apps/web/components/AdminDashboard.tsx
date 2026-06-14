@@ -3,8 +3,10 @@
 import React from 'react';
 import { useStore } from '../stores/useStore';
 import { AdminCleanup } from './AdminCleanup';
-import { computeTaskInsights, computeNoteInsights } from '@repo/shared';
+import { computeTaskInsights, computeNoteInsights, toolUsageLabel, type ToolUsageRow } from '@repo/shared';
 import { getApiBaseUrl } from '../services/api';
+import { getToolUsageRows, getAllUsageRows } from '../services/ai/usageTracker';
+import type { UsageSnapshot } from '../services/ai/usageTracker';
 
 interface AdminOverview {
   server: { version: string; securityLevel: string; uptimeSec: number; node: string; env: string };
@@ -50,6 +52,12 @@ export const AdminDashboard: React.FC = () => {
 
   const taskInsights = React.useMemo(() => computeTaskInsights(tasks as any, new Date()), [tasks]);
   const noteInsights = React.useMemo(() => computeNoteInsights(notes as any), [notes]);
+  const [toolRows, setToolRows] = React.useState<ToolUsageRow[]>([]);
+  const [usageRows, setUsageRows] = React.useState<UsageSnapshot[]>([]);
+  const refreshAiStats = React.useCallback(() => {
+    try { setToolRows(getToolUsageRows()); setUsageRows(getAllUsageRows()); } catch { /* local metrics */ }
+  }, []);
+  React.useEffect(() => { refreshAiStats(); }, [refreshAiStats]);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -122,6 +130,37 @@ export const AdminDashboard: React.FC = () => {
           <Stat label="Projekt" value={noteInsights.projects} />
           <Stat label="Uppgiftslistor" value={noteInsights.taskLists} />
         </div>
+      </div>
+
+      <div data-testid="admin-ai-stats">
+        <div className="flex items-center justify-between mb-1">
+          <div className="text-xs font-medium text-gray-500 dark:text-gray-400">AI-användning (denna enhet, krypterat lokalt)</div>
+          <button type="button" onClick={refreshAiStats} className="text-[11px] text-blue-600 dark:text-blue-400">Uppdatera</button>
+        </div>
+        {usageRows.length === 0 && toolRows.length === 0 ? (
+          <p className="text-xs text-gray-500 dark:text-gray-400">Ingen AI-användning registrerad ännu.</p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-2 bg-white dark:bg-gray-800">
+              <div className="text-[11px] font-semibold text-gray-600 dark:text-gray-300 mb-1">Verktyg/skills (idag · månad · totalt)</div>
+              {toolRows.length === 0 ? <p className="text-[11px] text-gray-400">Inga verktygsanrop ännu.</p> : toolRows.slice(0, 12).map((r) => (
+                <div key={r.tool} className="flex justify-between text-[11px] py-0.5">
+                  <span className="text-gray-700 dark:text-gray-200 truncate">{toolUsageLabel(r.tool)}</span>
+                  <span className="text-gray-500 dark:text-gray-400 ml-2 tabular-nums">{r.countDay} · {r.countMonth} · {r.total}</span>
+                </div>
+              ))}
+            </div>
+            <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-2 bg-white dark:bg-gray-800">
+              <div className="text-[11px] font-semibold text-gray-600 dark:text-gray-300 mb-1">Tokens per modell (idag · månad)</div>
+              {usageRows.length === 0 ? <p className="text-[11px] text-gray-400">Inga API-anrop ännu.</p> : usageRows.slice(0, 12).map((u) => (
+                <div key={`${u.provider}:${u.model}`} className="flex justify-between text-[11px] py-0.5">
+                  <span className="text-gray-700 dark:text-gray-200 truncate">{u.provider} · {u.model}</span>
+                  <span className="text-gray-500 dark:text-gray-400 ml-2 tabular-nums">{u.tokensDay.toLocaleString('sv-SE')} · {u.tokensMonth.toLocaleString('sv-SE')}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       <AdminCleanup />

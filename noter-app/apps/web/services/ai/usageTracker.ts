@@ -10,9 +10,33 @@
  * a clock or storage; the IO wrapper (recordUsage/getUsageSnapshot) adds the
  * localStorage layer.
  */
+import { encrypt, safeDecrypt, applyToolUsage, toolUsageSummary, type ToolUsageState, type ToolUsageRow } from '@repo/shared';
 import type { ApiProviderType } from './apiProviders';
 
 const STORAGE_KEY = 'ai_usage_v1';
+const TOOL_STORAGE_KEY = 'ai_tool_usage_v1';
+
+// Usage state is stored ENCRYPTED at rest (defence-in-depth; parity with the rest of
+// the AI local store). safeDecrypt transparently reads any legacy plaintext value.
+const readEncryptedJson = <T>(key: string, fallback: T): T => {
+  try {
+    if (typeof localStorage === 'undefined') return fallback;
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(safeDecrypt(raw, raw) || 'null');
+    return parsed && typeof parsed === 'object' ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
+};
+const writeEncryptedJson = (key: string, value: unknown): void => {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(key, encrypt(JSON.stringify(value)));
+  } catch {
+    /* best-effort */
+  }
+};
 
 export interface UsageRecord {
   day: string; // YYYY-MM-DD
@@ -87,16 +111,7 @@ const todayParts = (now: Date): { day: string; month: string } => {
   return { day: iso.slice(0, 10), month: iso.slice(0, 7) };
 };
 
-const readState = (): UsageState => {
-  try {
-    if (typeof localStorage === 'undefined') return {};
-    const raw = localStorage.getItem(STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : {};
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
-};
+const readState = (): UsageState => readEncryptedJson<UsageState>(STORAGE_KEY, {});
 
 /** Record a successful API call. Non-fatal on failure (best-effort metrics). */
 export const recordUsage = (
@@ -111,10 +126,47 @@ export const recordUsage = (
     const state = readState();
     const key = usageKey(provider, model);
     state[key] = applyUsage(state[key], tokens, day, month);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    writeEncryptedJson(STORAGE_KEY, state);
   } catch {
     /* metrics are best-effort */
   }
+};
+
+/** Record one AI tool/skill call (e.g. create_task, mcp_call_tool). Best-effort, encrypted. */
+export const recordToolUse = (tool: string, now: Date = new Date()): void => {
+  try {
+    if (!tool || typeof localStorage === 'undefined') return;
+    const { day, month } = todayParts(now);
+    const state = readEncryptedJson<ToolUsageState>(TOOL_STORAGE_KEY, {});
+    state[tool] = applyToolUsage(state[tool], day, month);
+    writeEncryptedJson(TOOL_STORAGE_KEY, state);
+  } catch {
+    /* best-effort */
+  }
+};
+
+/** Sorted per-tool usage rows (most-used first) for the admin statistics panel. */
+export const getToolUsageRows = (now: Date = new Date()): ToolUsageRow[] => {
+  const { day, month } = todayParts(now);
+  return toolUsageSummary(readEncryptedJson<ToolUsageState>(TOOL_STORAGE_KEY, {}), day, month);
+};
+
+/** All provider/model usage rows (for the admin token/calls table). */
+export const getAllUsageRows = (now: Date = new Date()): UsageSnapshot[] => {
+  const { day, month } = todayParts(now);
+  const state = readState();
+  return Object.entries(state).map(([k, rec]) => {
+    const [provider, model] = k.split('::');
+    return {
+      day, month,
+      callsDay: rec.day === day ? rec.callsDay : 0,
+      tokensDay: rec.day === day ? rec.tokensDay : 0,
+      callsMonth: rec.month === month ? rec.callsMonth : 0,
+      tokensMonth: rec.month === month ? rec.tokensMonth : 0,
+      provider, model,
+      limit: PROVIDER_LIMITS[provider as ApiProviderType] ?? { callsPerDay: null, tokensPerDay: null },
+    };
+  });
 };
 
 /** Snapshot for one provider/model, with day/month buckets reset if stale. */

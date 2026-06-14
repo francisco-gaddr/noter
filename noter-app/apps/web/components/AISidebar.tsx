@@ -15,7 +15,7 @@ import { getApiBaseUrl } from '../services/api';
 import { resolveAuthToken as apiResolveAuthToken, resolveGraphqlUrl as apiResolveGraphqlUrl, graphqlRequest as apiGraphqlRequest } from '../services/apiClient';
 import { shouldStopToolIteration, toToolCallKeys, toToolIterationSignature } from '../services/ai/toolChain';
 import { ApiProviderType, API_PROVIDERS, API_PROVIDER_LIST, resolveChatCompletionsUrl, streamApiProviderResponse } from '../services/ai/apiProviders';
-import { getUsageSnapshot, recordUsage, type UsageSnapshot } from '../services/ai/usageTracker';
+import { getUsageSnapshot, recordUsage, recordToolUse, type UsageSnapshot } from '../services/ai/usageTracker';
 import { pullAiSync, pushAiSync } from '../services/ai/sync';
 import { startAgentScheduler } from '../services/ai/agentScheduler';
 import { connectSocket, socket } from '../services/socket';
@@ -296,7 +296,11 @@ export const AISidebar = () => {
       const value = await (window as any).mlc.getSetting(key);
       return value ?? null;
     }
-    return localStorage.getItem(key);
+    const raw = localStorage.getItem(key);
+    if (raw == null) return null;
+    // Sensitive values (tokens/keys/passwords) are stored ENCRYPTED in the browser.
+    if (isSensitiveSettingKey(key)) { try { return decrypt(raw) || raw; } catch { return raw; } }
+    return raw;
   };
 
   const isSensitiveSettingKey = (key: string) => {
@@ -320,7 +324,8 @@ export const AISidebar = () => {
       }
     }
     if (value === null) localStorage.removeItem(key);
-    else localStorage.setItem(key, value);
+    // Sensitive values (tokens/keys/passwords) must never sit in plaintext localStorage.
+    else localStorage.setItem(key, sensitive ? encrypt(value) : value);
   };
 
   const getMcpEnvValues = (): Record<string, string | undefined> => {
@@ -2777,6 +2782,8 @@ export const AISidebar = () => {
   };
 
   const executeToolCall = async (tool: string, rawArgs: Record<string, any>, intentText: string) => {
+    // Statistics: count every tool/skill the AI invokes (for the admin usage panel).
+    try { recordToolUse(tool); } catch { /* best-effort */ }
     // Some models double-wrap fields under a stray `args`/`input` key, which makes
     // GraphQL reject the mutation ("Field args is not defined by type TaskInput").
     // Flatten to the TaskInput/NoteInput shape before doing anything.

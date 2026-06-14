@@ -17,7 +17,8 @@ import { buildToolSystemPrompt, extractToolCalls } from '@/services/ai/tooling';
 import { extractThinking } from '@/services/ai/thinking';
 import { shouldStopToolIteration, toToolCallKeys, toToolIterationSignature } from '@/services/ai/toolChain';
 import { generateApiProviderResponse, streamApiProviderResponse, API_PROVIDERS, API_PROVIDER_LIST, type ApiProviderType } from '@/services/ai/apiProviders';
-import { recordUsage, getUsageSnapshot, type UsageSnapshot } from '@/services/ai/usageTracker';
+import { recordUsage, getUsageSnapshot, recordToolUse, getToolUsageRows, type UsageSnapshot } from '@/services/ai/usageTracker';
+import { toolUsageLabel, type ToolUsageRow } from '@repo/shared';
 import { pullAiSync, pushAiSync } from '@/services/ai/sync';
 import { initSocket, getSocket } from '@/services/socket';
 import { buildSecurityNoteMap, isReadableWithLocks } from '@/services/ai/security';
@@ -234,6 +235,8 @@ export default function AIScreen() {
   // answer, deep → full tools + search). Mirrors the web AISidebar.
   const [chatContextLevel, setChatContextLevel] = useState<ContextLevel>('standard');
   const [toolSettingsVisible, setToolSettingsVisible] = useState(false);
+  const [toolUsageRows, setToolUsageRows] = useState<ToolUsageRow[]>([]);
+  useEffect(() => { if (toolSettingsVisible) { getToolUsageRows().then(setToolUsageRows).catch(() => {}); } }, [toolSettingsVisible]);
   const [userScopeKey, setUserScopeKey] = useState<string>('anon');
   const [collapsedTool, setCollapsedTool] = useState<Record<string, boolean>>({});
   const [collapsedThinking, setCollapsedThinking] = useState<Record<string, boolean>>({});
@@ -1240,6 +1243,8 @@ export default function AIScreen() {
   };
 
   const executeToolCall = async (tool: string, rawArgs: Record<string, any>, intentText: string) => {
+      // Statistics: count every tool/skill the AI invokes (for the usage panel).
+      void recordToolUse(tool);
       // Some models double-wrap fields under a stray `args`/`input` key, which makes
       // GraphQL reject the mutation ("Field args is not defined by type TaskInput").
       // Flatten to the TaskInput/NoteInput shape before doing anything.
@@ -2367,6 +2372,20 @@ export default function AIScreen() {
                 <Chip key={cap} compact textStyle={{ fontSize: 10 }}>{cap}</Chip>
               ))}
             </View>
+            <Text style={{ marginTop: 16, fontWeight: '600' }}>AI-statistik (verktyg)</Text>
+            <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant, marginBottom: 4 }}>idag · månad · totalt — lagras krypterat lokalt</Text>
+            {toolUsageRows.length === 0 ? (
+              <Text style={{ fontSize: 12, color: theme.colors.onSurfaceVariant }}>Inga verktygsanrop registrerade ännu.</Text>
+            ) : (
+              <View testID="ai-tool-stats">
+                {toolUsageRows.slice(0, 10).map((r) => (
+                  <View key={r.tool} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 1 }}>
+                    <Text style={{ fontSize: 12, flex: 1 }} numberOfLines={1}>{toolUsageLabel(r.tool)}</Text>
+                    <Text style={{ fontSize: 12, color: theme.colors.onSurfaceVariant }}>{r.countDay} · {r.countMonth} · {r.total}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
           </Dialog.Content>
           <Dialog.Actions>
             <Button onPress={() => setToolSettingsVisible(false)}>{t('common.close')}</Button>
