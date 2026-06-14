@@ -16,7 +16,7 @@
  */
 import Task from '../models/Task';
 import Note from '../models/Note';
-import { encrypt, decrypt, parseAiDelegation, serializeAiDelegation, resolveMaxSteps, resolveTokenBudget, isOverRunBudget, AGENT_PLANNING_INSTRUCTIONS, type AiTaskDelegation } from '@repo/shared';
+import { encrypt, decrypt, parseAiDelegation, serializeAiDelegation, resolveMaxSteps, resolveTokenBudget, isOverRunBudget, AGENT_PLANNING_INSTRUCTIONS, AGENT_LOCK_POLICY, buildSecurityNoteMap, isReadableWithLocks, type SecurityNote, type AiTaskDelegation } from '@repo/shared';
 import { runAgentTask, type ChatMessage } from '@repo/ai';
 import { sendPushToUser } from './expoPush';
 import logger from '../utils/logger';
@@ -67,27 +67,64 @@ const noteType = (n: any): string => {
   return t === 'project' || t === 'task_list' ? t : 'note';
 };
 
+/**
+ * SECURITY: the always-on backend runs the agent with NO unlock session, so it must
+ * never read or decrypt a locked note (or a note inside a locked folder). Build a lock
+ * map from the raw (still-encrypted) `locked`/`password` fields — parseLockedFlag inside
+ * the shared helper service-decrypts the flag — and treat every locked note as
+ * permanently unreadable (unlockedIds is empty here, by design).
+ */
+const loadNoteSecurityMap = async (userId: string): Promise<Map<string, SecurityNote>> => {
+  const rows = await Note.find({ userId }).select('+password').lean();
+  const secNotes: SecurityNote[] = rows.map((n: any) => ({
+    _id: String(n._id),
+    parentId: n.parentId ? String(n.parentId) : null,
+    locked: n.locked,
+    password: n.password,
+    type: noteType(n),
+  }));
+  return buildSecurityNoteMap(secNotes);
+};
+
 /** Server-side tool executor over the Mongoose models, scoped to one user. */
 const buildToolExecutor = (userId: string, io: Io) => {
   const emit = (event: string, payload: unknown) => { try { io?.to?.(`user:${userId}`)?.emit?.(event, payload); } catch { /* best-effort */ } };
   return async (tool: string, args: Record<string, any>): Promise<unknown> => {
     switch (tool) {
       case 'list_tasks': {
+        const secMap = await loadNoteSecurityMap(userId);
         const tasks = await Task.find({ userId }).limit(200).lean();
-        return { tasks: tasks.map((t) => ({ _id: String(t._id), title: dec(t.title), completed: decBool(t.completed), dueDate: dec(t.dueDate), priority: dec(t.priority), parentNoteId: t.parentNoteId ? String(t.parentNoteId) : null })) };
+        // Drop any task whose parent list/project is locked.
+        const readable = tasks.filter((t) => !t.parentNoteId || isReadableWithLocks(secMap.get(String(t.parentNoteId)), secMap));
+        return { tasks: readable.map((t) => ({ _id: String(t._id), title: dec(t.title), completed: decBool(t.completed), dueDate: dec(t.dueDate), priority: dec(t.priority), parentNoteId: t.parentNoteId ? String(t.parentNoteId) : null })) };
       }
       case 'get_task': {
+        const secMap = await loadNoteSecurityMap(userId);
         const t = await Task.findOne({ _id: args.id, userId }).lean();
+        if (t && t.parentNoteId && !isReadableWithLocks(secMap.get(String(t.parentNoteId)), secMap)) {
+          return { task: null, error: 'Uppgiften tillhör en låst lista och kan inte läsas.' };
+        }
         return { task: t ? { _id: String(t._id), title: dec(t.title), description: dec(t.description), completed: decBool(t.completed), dueDate: dec(t.dueDate) } : null };
       }
       case 'list_notes':
       case 'list_projects':
       case 'list_tasklists': {
         const wanted = tool === 'list_projects' ? 'project' : tool === 'list_tasklists' ? 'task_list' : 'note';
+        const secMap = await loadNoteSecurityMap(userId);
         const notes = await Note.find({ userId }).limit(200).lean();
-        return { notes: notes.filter((n) => noteType(n) === wanted).map((n) => ({ id: String(n._id), title: dec(n.title) })) };
+        return {
+          notes: notes
+            .filter((n) => noteType(n) === wanted)
+            .filter((n) => isReadableWithLocks(secMap.get(String(n._id)), secMap)) // SECURITY: exclude locked
+            .map((n) => ({ id: String(n._id), title: dec(n.title) })),
+        };
       }
       case 'get_note': {
+        const secMap = await loadNoteSecurityMap(userId);
+        // SECURITY: refuse BEFORE decrypting content — locked notes stay encrypted.
+        if (!isReadableWithLocks(secMap.get(String(args.id)), secMap)) {
+          return { note: null, error: 'Anteckningen är låst och kan inte läsas eller avkrypteras av AI-agenten.' };
+        }
         const n = await Note.findOne({ _id: args.id, userId }).lean();
         return { note: n ? { _id: String(n._id), title: dec(n.title), content: dec(n.content) } : null };
       }
@@ -191,6 +228,7 @@ const runOne = async (task: any, delegation: AiTaskDelegation, io?: Io): Promise
 
   const system = [
     delegation.role ? `Din roll: ${delegation.role}.` : 'Du är en autonom AI-agent som kör på en alltid-på-server och utför en delegerad uppgift.',
+    AGENT_LOCK_POLICY,
     'Arbeta i korta steg med tool calls i ```json {"tool","arguments"} ``` format. Wrappa ALDRIG fälten i en extra "args"-nivå.',
     'Verktyg: list_tasks, get_task, list_notes, list_projects, list_tasklists, get_note, create_task, update_task, complete_task, create_note, update_note.',
     `Aktuell tid (UTC): ${new Date().toISOString()}.`,

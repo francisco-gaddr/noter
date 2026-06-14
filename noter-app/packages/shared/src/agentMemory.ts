@@ -8,6 +8,7 @@
 import type { Note } from './types';
 import type { AiTaskDelegation } from './agentTasks';
 import { normalizeNoteType } from './noteType';
+import { buildSecurityNoteMap, isReadableWithLocks } from './locks';
 
 /** Conventional fallback memory project when none is explicitly configured. */
 export const AGENT_MEMORY_PROJECT_TITLE = 'AI-agent';
@@ -39,14 +40,18 @@ export const collectAgentMemoryNotes = (
   notes: Note[],
   delegation?: AiTaskDelegation | null,
   maxNotes = 40,
+  unlockedIds: Set<string> = new Set(),
 ): AgentMemoryNote[] => {
   const projectIds = new Set(selectAgentMemoryProjectIds(notes, delegation));
   if (projectIds.size === 0) return [];
+  // SECURITY: never surface a locked note (or a note inside a locked folder) as memory.
+  const noteMap = buildSecurityNoteMap((notes || []) as any[]);
   const out: AgentMemoryNote[] = [];
   for (const n of notes || []) {
     if (n.deleted === true || n.deleted === 'true') continue;
     if (!n.parentId || !projectIds.has(String(n.parentId))) continue;
     if (normalizeNoteType(n.type) !== 'note') continue; // memory entries are notes, not sub-folders/lists
+    if (!isReadableWithLocks(n as any, noteMap, unlockedIds)) continue; // skip locked
     out.push({ id: String(n._id), title: (n.title || '').trim() || '(namnlös)', content: (n.content || ''), projectId: String(n.parentId) });
     if (out.length >= maxNotes) break;
   }

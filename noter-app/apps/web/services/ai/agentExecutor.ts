@@ -13,6 +13,9 @@ import {
   collectAgentMemoryNotes,
   renderAgentMemoryBlock,
   AGENT_PLANNING_INSTRUCTIONS,
+  AGENT_LOCK_POLICY,
+  buildSecurityNoteMap,
+  isReadableWithLocks,
   type AiTaskDelegation,
   type Note,
   type Task,
@@ -49,23 +52,37 @@ export const resolveModelConfig = (delegation: AiTaskDelegation): ResolvedModelC
 
 const buildToolExecutor = () => async (tool: string, args: Record<string, any>): Promise<unknown> => {
   const store = useStore.getState();
-  const notes: Note[] = Array.isArray(store.notes) ? store.notes : [];
+  const allNotes: Note[] = Array.isArray(store.notes) ? store.notes : [];
   const tasks: Task[] = Array.isArray(store.tasks) ? store.tasks : [];
+  // SECURITY: the agent may only ever see UNLOCKED notes. Build the lock map from the
+  // store's unlocked set and hard-filter every read (independent of store masking).
+  const unlockedIds = new Set<string>((store as any).unlockedProtectedNoteIds || []);
+  const noteMap = buildSecurityNoteMap(allNotes as any[]);
+  const readable = (n: Note) => isReadableWithLocks(n as any, noteMap, unlockedIds);
+  const notes: Note[] = allNotes.filter(readable);
   const byType = (type: string) => notes.filter((n) => normalizeNoteType(n.type) === type);
+  // A task tied to a locked list/project is also off-limits.
+  const taskReadable = (t: Task) => !t.parentNoteId || isReadableWithLocks(noteMap.get(String(t.parentNoteId)) as any, noteMap, unlockedIds);
 
   switch (tool) {
     case 'list_notes':
       return { notes: notes.filter((n) => normalizeNoteType(n.type) === 'note' && (args.parentId ? String(n.parentId) === String(args.parentId) : true)) };
-    case 'get_note':
-      return { note: notes.find((n) => n._id === args.id) ?? null };
+    case 'get_note': {
+      const n = allNotes.find((x) => x._id === args.id);
+      if (n && !readable(n)) return { note: null, error: 'Anteckningen är låst och kan inte läsas av AI-agenten.' };
+      return { note: n ?? null };
+    }
     case 'list_projects':
       return { projects: byType('project').map((n) => ({ id: n._id, title: n.title })) };
     case 'list_tasklists':
       return { taskLists: byType('task_list').map((n) => ({ id: n._id, title: n.title })) };
     case 'list_tasks':
-      return { tasks: tasks.filter((t) => (args.parentNoteId ? String(t.parentNoteId) === String(args.parentNoteId) : true) && (typeof args.completed === 'boolean' ? !!t.completed === args.completed : true)) };
-    case 'get_task':
-      return { task: tasks.find((t) => t._id === args.id) ?? null };
+      return { tasks: tasks.filter((t) => taskReadable(t) && (args.parentNoteId ? String(t.parentNoteId) === String(args.parentNoteId) : true) && (typeof args.completed === 'boolean' ? !!t.completed === args.completed : true)) };
+    case 'get_task': {
+      const t = tasks.find((x) => x._id === args.id);
+      if (t && !taskReadable(t)) return { task: null, error: 'Uppgiften tillhör en låst lista och kan inte läsas.' };
+      return { task: t ?? null };
+    }
     case 'create_note':
     case 'create_project':
     case 'create_tasklist': {
@@ -101,11 +118,16 @@ const buildToolExecutor = () => async (tool: string, args: Record<string, any>):
 };
 
 const buildAgentSystem = (task: Task, delegation: AiTaskDelegation): string => {
-  const notes: Note[] = Array.isArray(useStore.getState().notes) ? useStore.getState().notes : [];
+  const store = useStore.getState();
+  const allNotes: Note[] = Array.isArray(store.notes) ? store.notes : [];
+  // SECURITY: never inject locked containers/memory into the prompt.
+  const unlockedIds = new Set<string>((store as any).unlockedProtectedNoteIds || []);
+  const noteMap = buildSecurityNoteMap(allNotes as any[]);
+  const notes: Note[] = allNotes.filter((n) => isReadableWithLocks(n as any, noteMap, unlockedIds));
   const cl = contextLevelConfig(delegation.contextLevel);
   const fmt = (type: string) => !cl.includeContainers ? '(utelämnat — låg kontextnivå)'
     : (notes.filter((n) => normalizeNoteType(n.type) === type).slice(0, cl.maxContextItems).map((n) => `${n.title || '(namnlös)'} [id:${n._id}]`).join(', ') || '(inga)');
-  const memoryBlock = renderAgentMemoryBlock(collectAgentMemoryNotes(notes, delegation));
+  const memoryBlock = renderAgentMemoryBlock(collectAgentMemoryNotes(notes, delegation, 40, unlockedIds));
   let tz = 'UTC'; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { /* keep */ }
   const levelHint = cl.level === 'minimal' ? 'KONTEXTNIVÅ minimal: svara direkt, läs inte databasen om det inte krävs.'
     : cl.level === 'fast' ? 'KONTEXTNIVÅ lätt: använd verktyg sparsamt, föredra snabba enkla steg.'
@@ -113,6 +135,7 @@ const buildAgentSystem = (task: Task, delegation: AiTaskDelegation): string => {
     : 'KONTEXTNIVÅ standard: verktyg vid behov, föredra billiga snabba steg.';
   return [
     delegation.role ? `Din roll: ${delegation.role}.` : 'Du är en autonom AI-agent som utför en delegerad uppgift åt användaren.',
+    AGENT_LOCK_POLICY,
     levelHint,
     'Arbeta i korta steg med tool calls i ```json {"tool","arguments"} ``` format. Wrappa ALDRIG fälten i en extra "args"-nivå.',
     'Verktyg: list_notes, get_note, list_projects, list_tasklists, list_tasks, get_task, create_note, update_note, create_task, update_task, complete_task, delete_task.',

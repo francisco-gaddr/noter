@@ -8,6 +8,7 @@ export * from './insights';
 export * from './aiAttachments';
 export * from './displayFilters';
 export * from './noteType';
+export * from './locks';
 export * from './presetProviders';
 export * from './agentTasks';
 export * from './delegationDefaults';
