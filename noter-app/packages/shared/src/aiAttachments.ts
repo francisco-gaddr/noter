@@ -76,16 +76,50 @@ export const attachmentKindLabel = (att: Pick<AiAttachment, 'name' | 'mimeType'>
   return 'fil';
 };
 
+/**
+ * True when we have readable text for this attachment: either a text-like file, or
+ * a binary (e.g. PDF) whose text was already extracted by the platform layer and put
+ * on `att.text` (e.g. via pdfjs on web/Electron). This is the single gate the rest of
+ * the pipeline — model context AND graph-note storage — keys off of.
+ */
+export const hasReadableText = (att: AiAttachment): boolean =>
+  typeof att.text === 'string' && att.text.trim().length > 0 &&
+  (isTextLikeAttachment(att) || att.mimeType.toLowerCase() === 'application/pdf' || extensionOf(att.name || '') === 'pdf');
+
+/** Truncate text to the per-attachment cap with an honest "…[avkortad]" marker. */
+const capText = (text: string): string =>
+  text.length <= MAX_ATTACHMENT_CHARS
+    ? text
+    : `${text.slice(0, MAX_ATTACHMENT_CHARS)}\n…[avkortad: ${text.length - MAX_ATTACHMENT_CHARS} tecken till]`;
+
 /** Extract the text a model should see for one attachment (truncated + annotated). */
 export const extractAttachmentText = (att: AiAttachment): string => {
-  if (isTextLikeAttachment(att) && typeof att.text === 'string') {
-    const trimmed = att.text;
-    if (trimmed.length <= MAX_ATTACHMENT_CHARS) return trimmed;
-    return `${trimmed.slice(0, MAX_ATTACHMENT_CHARS)}\n…[avkortad: ${trimmed.length - MAX_ATTACHMENT_CHARS} tecken till]`;
-  }
+  if (hasReadableText(att)) return capText(att.text as string);
   // Binary / unreadable here — give the model a clear, honest placeholder.
   const kind = attachmentKindLabel(att);
   return `[${kind} bifogad: "${att.name}" – innehållet kunde inte läsas som text på enheten]`;
+};
+
+/**
+ * Turn an uploaded file into a graph-DB note so the AI can read it later (it becomes
+ * a searchable node the agent's read/search tools see), not just one-shot chat
+ * context. Returns the note shape ({ title, content }) or null when the file has no
+ * readable text (binary we couldn't extract) — the caller then keeps it as chat-only.
+ *
+ * `title` is the file name; `content` is the (capped) extracted text with a small
+ * provenance header so the user/agent knows it came from an upload. PDF text flows
+ * through here once the platform has populated `att.text`.
+ */
+export interface GraphFileNote { title: string; content: string; sourceName: string; mimeType: string }
+export const attachmentToGraphNote = (att: AiAttachment): GraphFileNote | null => {
+  if (!hasReadableText(att)) return null;
+  const header = `Uppladdad fil: ${att.name}${att.mimeType ? ` (${att.mimeType})` : ''}`;
+  return {
+    title: att.name || 'Uppladdad fil',
+    content: `${header}\n\n${capText(att.text as string)}`,
+    sourceName: att.name,
+    mimeType: att.mimeType || '',
+  };
 };
 
 /**

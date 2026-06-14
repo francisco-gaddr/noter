@@ -1,4 +1,7 @@
 import {
+  hasReadableText,
+  attachmentToGraphNote,
+  extractAttachmentText,
   isTextLikeAttachment,
   isImageAttachment,
   imageDataUrls,
@@ -105,5 +108,34 @@ describe('aiAttachments', () => {
     ]);
     expect(chips[0]).toBe('a.md · 2 kB');
     expect(chips[1]).toBe('b.txt');
+  });
+
+  describe('hasReadableText + attachmentToGraphNote (file → graph DB)', () => {
+    it('treats a text file with text as readable and converts it to a note', () => {
+      const att = { name: 'spec.md', mimeType: 'text/markdown', text: '# Titel\nInnehåll' };
+      expect(hasReadableText(att)).toBe(true);
+      const node = attachmentToGraphNote(att)!;
+      expect(node.title).toBe('spec.md');
+      expect(node.content).toContain('Uppladdad fil: spec.md');
+      expect(node.content).toContain('# Titel');
+    });
+
+    it('treats a PDF as readable once the platform extracted its text', () => {
+      const pdf = { name: 'rapport.pdf', mimeType: 'application/pdf', text: 'Extraherad PDF-text' };
+      expect(hasReadableText(pdf)).toBe(true);
+      expect(extractAttachmentText(pdf)).toContain('Extraherad PDF-text');
+      expect(attachmentToGraphNote(pdf)!.content).toContain('Extraherad PDF-text');
+    });
+
+    it('returns null for a PDF without extracted text (kept chat-only, honest placeholder)', () => {
+      const pdf = { name: 'scan.pdf', mimeType: 'application/pdf' };
+      expect(hasReadableText(pdf)).toBe(false);
+      expect(attachmentToGraphNote(pdf)).toBeNull();
+      expect(extractAttachmentText(pdf)).toContain('kunde inte läsas');
+    });
+
+    it('returns null for an empty/whitespace-only text', () => {
+      expect(attachmentToGraphNote({ name: 'x.txt', mimeType: 'text/plain', text: '   ' })).toBeNull();
+    });
   });
 });

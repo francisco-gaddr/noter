@@ -69,6 +69,29 @@ to the entity screen (the deep-link router already exists on both platforms).
   a heavy new dependency on the Pi. Decision gated on a footprint spike (the Pi is
   resource-constrained — see the deploy memory).
 
+### Phase 3b — uploaded files as graph nodes (foundation DONE)
+
+Uploaded files (text docs + PDF) should become **graph-DB nodes the AI can read**,
+not just one-shot chat context, so they participate in search + the agent's
+read/search tools.
+
+`@repo/shared/aiAttachments`:
+- `hasReadableText(att)` — the single gate: a text-like file with text, OR a binary
+  (PDF) whose text the platform already extracted onto `att.text`.
+- `attachmentToGraphNote(att)` → `{ title, content, sourceName, mimeType }` or null —
+  turns a readable file into a note (a graph node) with a provenance header; null
+  when there's no readable text (kept chat-only with an honest placeholder).
+- `extractAttachmentText` now keys off `hasReadableText`, so extracted PDF text flows
+  through the same path as text docs. Pure + unit-tested.
+
+Text documents work end-to-end today (read as UTF-8 → note → searchable + agent
+context). **PDF text extraction** is the one platform-specific piece left: the
+chosen library is `pdfjs-dist` (Apache-2.0) for web/Electron — dynamically imported
+client-side so it never touches the Next export/SSR build — and a WebView-hosted
+`pdfjs` or a native module on mobile (gated on a perf/size spike, like the graph
+view). Once a platform populates `att.text` for a PDF, the shared layer already
+stores it in the graph and the agent reads it with no further changes.
+
 ### Phase 4 — productivity statistics & self-tuning (next)
 
 Build on the existing `insights` + the graph stats: per-user and per-agent
