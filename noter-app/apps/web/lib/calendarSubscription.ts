@@ -1,77 +1,90 @@
 /**
- * Calendar (ICS) subscription client (web + Electron).
- *
- * Mirrors the mobile service: mints a tokenized subscription URL to paste into
- * Google/Apple Calendar and pushes a plaintext projection of the user's tasks
- * (title + due date) to the backend feed. Task data is E2E-encrypted at rest, so
- * the backend can't build the ICS itself — this opt-in bridge exposes only the
- * minimal calendar fields. The cached URL/flag lives in localStorage.
+ * Calendar (ICS) subscription client (web + Electron) — a feed for ALL tasks AND
+ * per-task-list feeds, each with its own tokenized URL. Mirrors the mobile service.
+ * Task data is E2E-encrypted at rest, so the backend can't build the ICS itself; this
+ * opt-in bridge exposes only the minimal calendar fields (title + due date), lock-aware.
  */
 import { buildSafeCalendarProjection } from '@repo/shared';
 import { getApiBaseUrl } from '../services/api';
 import { readStoredToken } from './authStorage';
 import { useStore } from '../stores/useStore';
 
-const URL_KEY = 'calendar_subscription_url';
-const SUBSCRIBED_KEY = 'calendar_subscribed';
+const MAP_KEY = 'calendar_subscriptions_v2';
+const LEGACY_URL_KEY = 'calendar_subscription_url';
+const LEGACY_FLAG_KEY = 'calendar_subscribed';
 
-export interface CalendarSubscription {
-  url: string;
-  token: string;
-  count: number;
-}
+export const ALL_SCOPE = 'all';
+
+export interface CalendarSubscription { url: string; token?: string; listId: string | null; count?: number }
+
+const scopeKey = (listId?: string | null): string => (!listId || listId === ALL_SCOPE ? ALL_SCOPE : String(listId));
 
 const authHeaders = (): Record<string, string> => {
   const token = (() => { try { return readStoredToken(); } catch { return null; } })();
   return { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) };
 };
 
-const lsGet = (k: string): string | null => { try { return localStorage.getItem(k); } catch { return null; } };
-const lsSet = (k: string, v: string): void => { try { localStorage.setItem(k, v); } catch { /* ignore */ } };
-const lsDel = (k: string): void => { try { localStorage.removeItem(k); } catch { /* ignore */ } };
+const readMap = (): Record<string, string> => {
+  try {
+    const raw = localStorage.getItem(MAP_KEY);
+    if (raw) return JSON.parse(raw) || {};
+    const legacy = localStorage.getItem(LEGACY_URL_KEY);
+    return legacy ? { [ALL_SCOPE]: legacy } : {};
+  } catch { return {}; }
+};
+const writeMap = (map: Record<string, string>): void => { try { localStorage.setItem(MAP_KEY, JSON.stringify(map)); } catch { /* ignore */ } };
 
-/**
- * Build the projection from the live store, EXCLUDING tasks under locked notes/projects
- * (the locked-notes invariant — a locked task's title must never leave the device, not
- * even via the user's own calendar link). Only title + due date of unlocked, dated tasks.
- */
-const safeProjection = () => {
+const safeProjection = (listId?: string | null) => {
   const s: any = useStore.getState();
-  return buildSafeCalendarProjection(s.tasks || [], s.notes || [], s.unlockedProtectedNoteIds || []);
+  return buildSafeCalendarProjection(s.tasks || [], s.notes || [], s.unlockedProtectedNoteIds || [], {
+    listId: listId && listId !== ALL_SCOPE ? listId : null,
+  });
 };
 
-export const createCalendarSubscription = async (): Promise<CalendarSubscription> => {
-  const items = safeProjection();
+export const createCalendarSubscription = async (listId?: string | null): Promise<CalendarSubscription> => {
+  const items = safeProjection(listId);
   const res = await fetch(`${getApiBaseUrl()}/calendar/subscription`, {
     method: 'POST',
     headers: authHeaders(),
-    body: JSON.stringify({ items }),
+    body: JSON.stringify({ items, listId: scopeKey(listId) === ALL_SCOPE ? null : scopeKey(listId) }),
   });
   if (!res.ok) throw new Error(`Kunde inte skapa kalenderlänk (HTTP ${res.status})`);
   const data = (await res.json()) as CalendarSubscription;
-  lsSet(URL_KEY, data.url);
-  lsSet(SUBSCRIBED_KEY, 'true');
+  if (data?.url) { const map = readMap(); map[scopeKey(listId)] = data.url; writeMap(map); }
   return data;
 };
 
+/** Push the latest lock-safe projection to EVERY active subscription. */
 export const pushCalendarFeed = async (): Promise<number> => {
-  if (!isCalendarSubscribed()) return 0;
-  const items = safeProjection();
-  const res = await fetch(`${getApiBaseUrl()}/calendar/feed`, {
-    method: 'PUT',
+  const map = readMap();
+  const scopes = Object.keys(map);
+  if (scopes.length === 0) return 0;
+  let pushed = 0;
+  for (const sc of scopes) {
+    const items = safeProjection(sc);
+    const res = await fetch(`${getApiBaseUrl()}/calendar/feed`, {
+      method: 'PUT',
+      headers: authHeaders(),
+      body: JSON.stringify({ items, listId: sc === ALL_SCOPE ? null : sc }),
+    }).catch(() => null);
+    if (res && res.ok) pushed += 1;
+  }
+  return pushed;
+};
+
+export const revokeCalendarSubscription = async (listId?: string | null): Promise<void> => {
+  const sc = scopeKey(listId);
+  await fetch(`${getApiBaseUrl()}/calendar/subscription`, {
+    method: 'DELETE',
     headers: authHeaders(),
-    body: JSON.stringify({ items }),
-  }).catch(() => null);
-  if (!res || !res.ok) return 0;
-  const data = await res.json().catch(() => ({ count: items.length }));
-  return data?.count ?? items.length;
+    body: JSON.stringify({ listId: sc === ALL_SCOPE ? null : sc }),
+  }).catch(() => {});
+  const map = readMap();
+  delete map[sc];
+  writeMap(map);
+  if (sc === ALL_SCOPE) { try { localStorage.removeItem(LEGACY_URL_KEY); localStorage.removeItem(LEGACY_FLAG_KEY); } catch { /* ignore */ } }
 };
 
-export const revokeCalendarSubscription = async (): Promise<void> => {
-  await fetch(`${getApiBaseUrl()}/calendar/subscription`, { method: 'DELETE', headers: authHeaders() }).catch(() => {});
-  lsDel(URL_KEY);
-  lsDel(SUBSCRIBED_KEY);
-};
-
-export const getCachedCalendarUrl = (): string | null => lsGet(URL_KEY);
-export const isCalendarSubscribed = (): boolean => lsGet(SUBSCRIBED_KEY) === 'true';
+export const getCalendarSubscriptions = (): Record<string, string> => readMap();
+export const getCalendarUrl = (listId?: string | null): string | null => readMap()[scopeKey(listId)] || null;
+export const isCalendarSubscribed = (listId?: string | null): boolean => Boolean(readMap()[scopeKey(listId)]);

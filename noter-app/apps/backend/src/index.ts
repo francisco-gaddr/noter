@@ -17,6 +17,7 @@ import taskRoutes from './routes/tasks';
 import authRoutes from './routes/auth';
 import aiModelRoutes from './routes/aiModels';
 import calendarRoutes from './routes/calendar';
+import { reconcileCalendarFeedIndexes } from './models/CalendarFeed';
 import aiSyncRoutes from './routes/aiSync';
 import pushRoutes from './routes/push';
 import { runDueBackendAgentTasks } from './services/backendAgentRunner';
@@ -573,6 +574,11 @@ const startServer = async () => {
       });
       console.log('Connected to MongoDB');
       logger.info('Connected to MongoDB');
+      // Migrate calendarfeeds: drop the legacy userId-unique index so per-list feeds
+      // are allowed, ensure the (userId, listId) compound unique. Idempotent.
+      reconcileCalendarFeedIndexes().catch((err) => {
+        logger.warn('calendarfeed index reconcile failed', { error: (err as Error)?.message });
+      });
       startChangeStreamInvalidator(io).catch((err) => {
         logger.warn('changeStream startup failed', { error: (err as Error)?.message });
       });

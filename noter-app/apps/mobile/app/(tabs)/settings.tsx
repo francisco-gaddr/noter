@@ -17,7 +17,7 @@ import { hasActiveDataKey } from '@repo/shared';
 import { AdminDashboard } from '@/components/AdminDashboard';
 import { EmbeddingsSettings } from '@/components/EmbeddingsSettings';
 import * as Clipboard from 'expo-clipboard';
-import { createCalendarSubscription, getCachedCalendarUrl, revokeCalendarSubscription } from '@/services/calendarSubscription';
+import { createCalendarSubscription, getCalendarUrl, revokeCalendarSubscription } from '@/services/calendarSubscription';
 
 export default function SettingsScreen() {
   const { t, i18n } = useTranslation();
@@ -51,7 +51,7 @@ export default function SettingsScreen() {
   // Calendar (ICS) subscription: paste the link into Google/Apple Calendar.
   const [calendarUrl, setCalendarUrl] = useState<string | null>(null);
   const [calendarBusy, setCalendarBusy] = useState(false);
-  useEffect(() => { void getCachedCalendarUrl().then(setCalendarUrl).catch(() => {}); }, []);
+  useEffect(() => { void getCalendarUrl().then(setCalendarUrl).catch(() => {}); }, []);
 
   const handleCreateOrCopyCalendar = async () => {
     setCalendarBusy(true);

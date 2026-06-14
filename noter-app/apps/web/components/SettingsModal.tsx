@@ -11,7 +11,7 @@ import { getDefaultHotkeys } from '../lib/hotkeys';
 import { enrollOrUnlockCrypto, changeCryptoPassword } from '../lib/crypto';
 import { AdminDashboard } from './AdminDashboard';
 import EmbeddingsSettings from './EmbeddingsSettings';
-import { createCalendarSubscription, getCachedCalendarUrl, revokeCalendarSubscription } from '../lib/calendarSubscription';
+import { createCalendarSubscription, getCalendarUrl, revokeCalendarSubscription } from '../lib/calendarSubscription';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -42,7 +42,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [calendarUrl, setCalendarUrl] = React.useState<string | null>(null);
   const [calendarBusy, setCalendarBusy] = React.useState(false);
   const [calendarMsg, setCalendarMsg] = React.useState<string | null>(null);
-  React.useEffect(() => { if (isOpen) setCalendarUrl(getCachedCalendarUrl()); }, [isOpen]);
+  React.useEffect(() => { if (isOpen) setCalendarUrl(getCalendarUrl()); }, [isOpen]);
   const handleCreateOrCopyCalendar = async () => {
     setCalendarBusy(true);
     setCalendarMsg(null);
