@@ -2,9 +2,10 @@
 
 import { useTheme } from 'next-themes';
 import { useEffect, useState } from 'react';
-import { FaMoon, FaSun, FaSearch, FaSignOutAlt, FaCog, FaIndent, FaThLarge } from 'react-icons/fa';
+import { FaMoon, FaSun, FaSearch, FaSignOutAlt, FaCog, FaIndent, FaThLarge, FaProjectDiagram } from 'react-icons/fa';
 import { useStore } from '../stores/useStore';
 import SettingsModal from './SettingsModal';
+import GraphExplorer from './GraphExplorer';
 import { useTranslation } from 'react-i18next';
 
 export default function Navbar({ onToggleSidebar, isSidebarCollapsed }: { onToggleSidebar?: () => void; isSidebarCollapsed?: boolean }) {
@@ -12,6 +13,7 @@ export default function Navbar({ onToggleSidebar, isSidebarCollapsed }: { onTogg
   const [mounted, setMounted] = useState(false);
   const { searchQuery, setSearchQuery, logout, user, activeTab, isOffline, setActiveTab, selectNote } = useStore();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isGraphOpen, setIsGraphOpen] = useState(false);
   const [hideOfflineIndicator, setHideOfflineIndicator] = useState(false);
   const { t } = useTranslation();
 
@@ -134,6 +136,15 @@ export default function Navbar({ onToggleSidebar, isSidebarCollapsed }: { onTogg
           <FaThLarge aria-hidden="true" />
         </a>
         <button
+          onClick={() => setIsGraphOpen(true)}
+          className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"
+          title={t('navbar.graphTitle', { defaultValue: 'Utforska grafen' })}
+          aria-label={t('navbar.graphTitle', { defaultValue: 'Utforska grafen' })}
+          data-testid="navbar-graph-button"
+        >
+          <FaProjectDiagram aria-hidden="true" />
+        </button>
+        <button
           onClick={() => setIsSettingsOpen(true)}
           className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800"
           title={t('navbar.settingsTitle')}
@@ -161,6 +172,7 @@ export default function Navbar({ onToggleSidebar, isSidebarCollapsed }: { onTogg
       {isSettingsOpen && (
         <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
       )}
+      <GraphExplorer isOpen={isGraphOpen} onClose={() => setIsGraphOpen(false)} />
     </nav>
   );
 }

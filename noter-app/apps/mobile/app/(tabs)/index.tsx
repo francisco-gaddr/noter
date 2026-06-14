@@ -201,6 +201,11 @@ export default function NotesScreen() {
             onPress={() => router.push('/(tabs)/search')}
           />
           <IconButton
+            icon="graph-outline"
+            onPress={() => router.push('/graph')}
+            testID="open-graph-explorer"
+          />
+          <IconButton
             icon="cog"
             onPress={() => router.push('/(tabs)/settings')}
           />

@@ -125,6 +125,73 @@ export const buildGraph = (notes: Note[], tasks: Task[], config?: GraphConfig): 
   return { nodes, edges };
 };
 
+/** Human labels for the relation kinds (Swedish UI). */
+export const RELATION_LABELS: Record<GraphRelation, string> = {
+  in_project: 'i projektmapp',
+  in_list: 'i lista',
+  subtask: 'deluppgift av',
+};
+
+/** Human labels for the node kinds (Swedish UI). */
+export const NODE_KIND_LABELS: Record<GraphNodeKind, string> = {
+  note: 'Anteckning',
+  project: 'Projektmapp',
+  task_list: 'Uppgiftslista',
+  task: 'Uppgift',
+};
+
+export interface GraphNeighborhood {
+  node: GraphNode;
+  /** Edges where this node is the source (its parent/relation target). */
+  outgoing: { edge: GraphEdge; node: GraphNode }[];
+  /** Edges where this node is the target (its children/dependents). */
+  incoming: { edge: GraphEdge; node: GraphNode }[];
+}
+
+/**
+ * The neighbourhood of one node — what it connects to (outgoing) and what connects
+ * to it (incoming) — so the explore view can show a node's relations clearly. Edges
+ * to/from missing nodes are skipped.
+ */
+export const neighborsOf = (graph: GraphData, nodeId: string): GraphNeighborhood | null => {
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const node = byId.get(nodeId);
+  if (!node) return null;
+  const outgoing: GraphNeighborhood['outgoing'] = [];
+  const incoming: GraphNeighborhood['incoming'] = [];
+  for (const edge of graph.edges) {
+    if (edge.source === nodeId) {
+      const other = byId.get(edge.target);
+      if (other) outgoing.push({ edge, node: other });
+    } else if (edge.target === nodeId) {
+      const other = byId.get(edge.source);
+      if (other) incoming.push({ edge, node: other });
+    }
+  }
+  return { node, outgoing, incoming };
+};
+
+/**
+ * Filter an already-built graph by a free-text query over node labels. Keeps a node
+ * if it matches, plus any node directly connected to a match (one hop) so relations
+ * stay visible. Returns the original graph for an empty query. Pure.
+ */
+export const filterGraphByQuery = (graph: GraphData, query: string): GraphData => {
+  const q = (query || '').trim().toLowerCase();
+  if (!q) return graph;
+  const direct = new Set(graph.nodes.filter((n) => n.label.toLowerCase().includes(q)).map((n) => n.id));
+  if (direct.size === 0) return { nodes: [], edges: [] };
+  const keep = new Set(direct);
+  for (const e of graph.edges) {
+    if (direct.has(e.source)) keep.add(e.target);
+    if (direct.has(e.target)) keep.add(e.source);
+  }
+  return {
+    nodes: graph.nodes.filter((n) => keep.has(n.id)),
+    edges: graph.edges.filter((e) => keep.has(e.source) && keep.has(e.target)),
+  };
+};
+
 // ---------------------------------------------------------------------------
 // Fast fulltext search — the "blixtsnabb" baseline (the cheapest search rung).
 // Vector/GraphRAG layers fuse with this via RRF later (see ADR 0006).

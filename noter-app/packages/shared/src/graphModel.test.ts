@@ -1,4 +1,4 @@
-import { buildGraph, fulltextSearch } from './graphModel';
+import { buildGraph, fulltextSearch, neighborsOf, filterGraphByQuery } from './graphModel';
 import type { Note, Task } from './types';
 
 const note = (o: Partial<Note>): Note => ({ _id: o._id ?? 'n', userId: 'u', title: '', content: '', tags: [], locked: false, createdAt: '', updatedAt: '', ...o });
@@ -33,6 +33,27 @@ describe('buildGraph', () => {
   it('respects the include config (tasks excluded)', () => {
     const g = buildGraph(notes, tasks, { include: ['project', 'task_list', 'note'] });
     expect(g.nodes.some((n) => n.kind === 'task')).toBe(false);
+  });
+
+  it('neighborsOf returns incoming + outgoing relations of a node', () => {
+    const g = buildGraph(notes, tasks);
+    const nb = neighborsOf(g, 'list')!;
+    expect(nb.node.id).toBe('list');
+    // list → proj (outgoing, in_project), taskA/taskB → list (incoming, in_list)
+    expect(nb.outgoing.map((o) => o.node.id)).toContain('proj');
+    expect(nb.incoming.map((i) => i.node.id).sort()).toEqual(['taskA', 'taskB']);
+    expect(neighborsOf(g, 'missing')).toBeNull();
+  });
+
+  it('filterGraphByQuery keeps matches plus their direct neighbours', () => {
+    const g = buildGraph(notes, tasks);
+    const f = filterGraphByQuery(g, 'lista'); // matches the "Lista" task_list
+    const ids = f.nodes.map((n) => n.id);
+    expect(ids).toContain('list');
+    expect(ids).toContain('proj'); // one hop out
+    expect(ids).toContain('taskA'); // one hop in
+    expect(filterGraphByQuery(g, '')).toBe(g); // empty query → original
+    expect(filterGraphByQuery(g, 'zzz').nodes).toEqual([]); // no match → empty
   });
 });
 
