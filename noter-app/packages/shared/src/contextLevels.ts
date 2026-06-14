@@ -64,3 +64,26 @@ export const contextLevelConfig = (level?: ContextLevel | string | null): Contex
 /** Normalize an arbitrary value to a valid ContextLevel (default standard). */
 export const normalizeContextLevel = (value?: unknown): ContextLevel =>
   CONTEXT_LEVELS.includes(value as ContextLevel) ? (value as ContextLevel) : DEFAULT_CONTEXT_LEVEL;
+
+/**
+ * Short, human list of which capabilities a level grants — so the UI can show, in
+ * plain terms, how "simple" vs "complex" a given context level makes the agent (the
+ * single knob that scales the agent from a one-line answer to full system search).
+ * `toolUse=false` (the per-task master switch) hard-disables read/write tools
+ * regardless of level, which this reflects.
+ */
+export const summarizeToolPolicy = (
+  level?: ContextLevel | string | null,
+  toolUse = true,
+): string[] => {
+  const c = contextLevelConfig(level);
+  const caps: string[] = [];
+  if (c.allowReadTools && toolUse) caps.push('Läsa anteckningar/uppgifter');
+  if (c.allowWriteTools && toolUse) caps.push('Skapa/ändra uppgifter');
+  if (c.allowFulltextSearch) caps.push('Fritextsök');
+  if (c.allowWebSearch) caps.push('Webbsök');
+  if (c.allowVectorSearch) caps.push('Vektor/graf-sök');
+  if (c.includeContainers) caps.push('Mappar/listor i kontext');
+  if (caps.length === 0) caps.push('Endast svara (inga verktyg)');
+  return caps;
+};

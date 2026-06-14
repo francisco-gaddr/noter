@@ -6,7 +6,7 @@
  */
 import React, { useEffect, useState, useCallback } from 'react';
 import type { AiTaskDelegation, AiTaskSource, Task, ContextLevel } from '@repo/shared';
-import { CONTEXT_LEVELS, contextLevelConfig, applyDelegationDefaults, CREDITS_TO_TOKENS } from '@repo/shared';
+import { CONTEXT_LEVELS, contextLevelConfig, summarizeToolPolicy, applyDelegationDefaults, CREDITS_TO_TOKENS } from '@repo/shared';
 import { API_PROVIDER_LIST } from '../services/ai/apiProviders';
 import { getDelegations, setDelegation, removeDelegation, getRunLog, getDelegationDefaults, type AgentRunLogEntry } from '../services/ai/agentDelegations';
 import { runAgentTaskNow } from '../services/ai/agentScheduler';
@@ -131,6 +131,11 @@ export const AiDelegationSection: React.FC<{ task: Task }> = ({ task }) => {
               {CONTEXT_LEVELS.map((l) => <option key={l} value={l}>{contextLevelConfig(l).label}</option>)}
             </select>
             <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">{contextLevelConfig(d.contextLevel).description}</p>
+            <div className="flex flex-wrap gap-1 mt-1" data-testid="ai-delegate-tool-policy">
+              {summarizeToolPolicy(d.contextLevel, d.toolUse !== false).map((cap) => (
+                <span key={cap} className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300">{cap}</span>
+              ))}
+            </div>
           </div>
           <label className="flex items-center justify-between text-sm">
             <span>Endast lokalt (synka inte)</span>

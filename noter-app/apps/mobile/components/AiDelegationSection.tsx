@@ -10,9 +10,9 @@
  */
 import React, { useEffect, useState, useCallback } from 'react';
 import { View, StyleSheet } from 'react-native';
-import { Text, Switch, SegmentedButtons, TextInput as PaperTextInput, Button, useTheme, Divider, ActivityIndicator } from 'react-native-paper';
+import { Text, Switch, SegmentedButtons, TextInput as PaperTextInput, Button, useTheme, Divider, ActivityIndicator, Chip } from 'react-native-paper';
 import type { AiTaskDelegation, AiTaskSource, Task, ContextLevel } from '@repo/shared';
-import { CONTEXT_LEVELS, contextLevelConfig, applyDelegationDefaults, CREDITS_TO_TOKENS } from '@repo/shared';
+import { CONTEXT_LEVELS, contextLevelConfig, summarizeToolPolicy, applyDelegationDefaults, CREDITS_TO_TOKENS } from '@repo/shared';
 import { API_PROVIDER_LIST } from '@/services/ai/apiProviders';
 import { getDelegations, setDelegation, removeDelegation, getRunLog, getDelegationDefaults, type AgentRunLogEntry } from '@/services/ai/agentDelegations';
 import { runAgentTaskNow } from '@/services/ai/agentScheduler';
@@ -188,6 +188,11 @@ export const AiDelegationSection: React.FC<{ task: Task }> = ({ task }) => {
           <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant, marginTop: 2 }}>
             {contextLevelConfig(d.contextLevel).description}
           </Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 }} testID="ai-delegate-tool-policy">
+            {summarizeToolPolicy(d.contextLevel, d.toolUse !== false).map((cap) => (
+              <Chip key={cap} compact textStyle={{ fontSize: 10 }}>{cap}</Chip>
+            ))}
+          </View>
 
           <View style={[styles.row, { marginTop: 10 }]}>
             <Text>Endast lokalt (synka inte)</Text>

@@ -1,4 +1,4 @@
-import { contextLevelConfig, normalizeContextLevel, CONTEXT_LEVELS, DEFAULT_CONTEXT_LEVEL } from './contextLevels';
+import { contextLevelConfig, normalizeContextLevel, summarizeToolPolicy, CONTEXT_LEVELS, DEFAULT_CONTEXT_LEVEL } from './contextLevels';
 
 describe('contextLevels', () => {
   it('minimal allows nothing — just answer', () => {
@@ -21,5 +21,23 @@ describe('contextLevels', () => {
     expect(contextLevelConfig('bogus').level).toBe('standard');
     expect(normalizeContextLevel('bogus')).toBe(DEFAULT_CONTEXT_LEVEL);
     expect(normalizeContextLevel('deep')).toBe('deep');
+  });
+
+  describe('summarizeToolPolicy', () => {
+    it('minimal grants no tools — just answer', () => {
+      expect(summarizeToolPolicy('minimal')).toEqual(['Endast svara (inga verktyg)']);
+    });
+
+    it('deep lists the full set including web + vector/graph search', () => {
+      const caps = summarizeToolPolicy('deep');
+      expect(caps).toEqual(expect.arrayContaining(['Webbsök', 'Vektor/graf-sök', 'Skapa/ändra uppgifter']));
+    });
+
+    it('toolUse=false hard-disables read/write tools but leaves search', () => {
+      const caps = summarizeToolPolicy('standard', false);
+      expect(caps).not.toContain('Skapa/ändra uppgifter');
+      expect(caps).not.toContain('Läsa anteckningar/uppgifter');
+      expect(caps).toContain('Fritextsök');
+    });
   });
 });
