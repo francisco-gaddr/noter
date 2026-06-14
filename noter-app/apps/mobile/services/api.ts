@@ -196,10 +196,10 @@ export async function register(username: string, password: string) {
 
 export async function fetchWithAuth(
   endpoint: string,
-  options: (RequestInit & { skipUnauthorized?: boolean }) = {}
+  options: (RequestInit & { skipUnauthorized?: boolean; timeoutMs?: number }) = {}
 ) {
   const url = `${API_URL}${endpoint}`;
-  const { skipUnauthorized, ...fetchOptions } = options;
+  const { skipUnauthorized, timeoutMs: timeoutOverride, ...fetchOptions } = options;
   
   // If no token in memory, try to get from SecureStore (fallback/recovery)
   if (!authToken) {
@@ -257,7 +257,12 @@ export async function fetchWithAuth(
   for (let attempt = 0; attempt < maxRetries; attempt += 1) {
     try {
       logDebug(`[API] Requesting: ${options.method || 'GET'} ${url}`);
-      const timeoutMs = 15000;
+      // Mutations (POST/PUT/DELETE) hit a slower path on the Pi (encrypt + DB write +
+      // decrypt + socket emit), so they get a longer default timeout than reads. Callers
+      // can override per-request. 15s was too aggressive and produced "AbortError".
+      const method = String(options.method || 'GET').toUpperCase();
+      const isMutation = method !== 'GET' && method !== 'HEAD';
+      const timeoutMs = timeoutOverride ?? (isMutation ? 30000 : 15000);
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), timeoutMs);
       let response: Response;
@@ -343,7 +348,15 @@ export async function fetchWithAuth(
         message.toLowerCase().includes('network error') ||
         message.toLowerCase().includes('failed to fetch');
 
-      const shouldRetry = attempt < maxRetries - 1 && (isNetworkError || status >= 500);
+      // A timeout fires controller.abort() → DOMException 'AbortError'. Treat it as a
+      // transient (the server may just be slow) and retry with backoff instead of failing
+      // the whole operation — that's what caused "Create Note Aborted" on the first slow call.
+      const isAbort =
+        error?.name === 'AbortError' ||
+        message.toLowerCase().includes('abort') ||
+        message.toLowerCase().includes('operation was aborted');
+
+      const shouldRetry = attempt < maxRetries - 1 && (isNetworkError || isAbort || status >= 500);
       if (shouldRetry) {
         const delay = computeDelay(attempt);
         await new Promise((r) => setTimeout(r, delay));
@@ -355,6 +368,8 @@ export async function fetchWithAuth(
 1. You are on the same Wi-Fi.
 2. The server is running.
 3. The API URL is correct (Settings > API URL).`;
+      } else if (isAbort) {
+        message = 'Tidsgräns nåddes mot servern. Försök igen — om det återkommer, kontrollera nätverket/serveradressen.';
       }
 
       logDebug(

@@ -802,8 +802,11 @@ export const saveMessageLocal = async (conversationId: string, message: Message)
 };
 
 export const getMessagesLocal = async (conversationId: string): Promise<Message[]> => {
-  const result = await db.getAllAsync<any>('SELECT * FROM messages WHERE conversationId = ? ORDER BY createdAt ASC', [conversationId]);
-  return result.map((row: any) => {
+  // createdAt is stored ENCRYPTED, so `ORDER BY createdAt` would sort by ciphertext
+  // (random per the AES-GCM IV) — that's why message order flipped. Use rowid (insertion
+  // order) as the reliable base, then stable-sort by the DECRYPTED timestamp below.
+  const result = await db.getAllAsync<any>('SELECT * FROM messages WHERE conversationId = ? ORDER BY rowid ASC', [conversationId]);
+  const mapped = result.map((row: any) => {
     let toolCalls = undefined;
     if (row.toolCalls) {
       try {
@@ -819,6 +822,16 @@ export const getMessagesLocal = async (conversationId: string): Promise<Message[
       createdAt: safeDecrypt(row.createdAt, row.createdAt)
     };
   });
+  // Stable sort (Array.sort is stable) by real timestamp; equal/invalid timestamps keep
+  // insertion (rowid) order, so the newest message is always last (bottom of the chat).
+  return mapped
+    .map((m, i) => ({ m, i, t: Date.parse(m.createdAt) }))
+    .sort((a, b) => {
+      const at = Number.isNaN(a.t) ? a.i : a.t;
+      const bt = Number.isNaN(b.t) ? b.i : b.t;
+      return at - bt || a.i - b.i;
+    })
+    .map((x) => x.m);
 };
 
 // AI Models
