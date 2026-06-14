@@ -10,11 +10,11 @@ import React, { useMemo, useState } from 'react';
 import { View, StyleSheet, FlatList, ScrollView, useWindowDimensions } from 'react-native';
 import { Stack, router } from 'expo-router';
 import { Text, Chip, Searchbar, List, Divider, useTheme, Button, SegmentedButtons } from 'react-native-paper';
-import Svg, { Line, Circle, G } from 'react-native-svg';
+import Svg, { Line, Circle, G, Text as SvgText } from 'react-native-svg';
 import {
-  buildGraph, neighborsOf, filterGraphByQuery, layoutGraph,
+  buildGraph, neighborsOf, filterGraphByQuery, layoutGraph, sortGraphNodes,
   RELATION_LABELS, NODE_KIND_LABELS, RELATION_COLORS, NODE_COLORS,
-  type GraphNodeKind, type GraphRelation, type GraphConfig,
+  type GraphNodeKind, type GraphRelation, type GraphConfig, type GraphSort,
 } from '@repo/shared';
 import { useStore } from '@/stores/useStore';
 
@@ -33,6 +33,7 @@ export default function GraphScreen() {
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [view, setView] = useState<'graph' | 'list'>('graph');
+  const [sort, setSort] = useState<GraphSort>('connections');
   const [deriveSiblings, setDeriveSiblings] = useState(false);
   const [deriveSameDue, setDeriveSameDue] = useState(false);
 
@@ -121,6 +122,7 @@ export default function GraphScreen() {
               {layout.nodes.map((n) => (
                 <G key={n.id} onPress={() => setSelectedId(n.id)}>
                   <Circle cx={n.x} cy={n.y} r={n.r} fill={NODE_COLORS[n.kind]} stroke={selectedId === n.id ? '#111827' : '#ffffff'} strokeWidth={selectedId === n.id ? 2.5 : 1} />
+                  <SvgText x={n.x + n.r + 2} y={n.y + 3} fontSize={8} fill={theme.colors.onSurface}>{(n.label || '').slice(0, 16)}</SvgText>
                 </G>
               ))}
             </Svg>
@@ -128,10 +130,18 @@ export default function GraphScreen() {
         </ScrollView>
       ) : (
         <FlatList
-          data={filtered.nodes}
+          data={sortGraphNodes(filtered, sort)}
           keyExtractor={(n) => n.id}
           testID="graph-node-list"
           ItemSeparatorComponent={Divider}
+          ListHeaderComponent={
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 8, paddingVertical: 6, gap: 6, alignItems: 'center' }}>
+              <Text style={{ fontSize: 12, color: theme.colors.onSurfaceVariant }}>Sortera:</Text>
+              <Chip compact selected={sort === 'connections'} onPress={() => setSort('connections')}>Flest kopplingar</Chip>
+              <Chip compact selected={sort === 'label'} onPress={() => setSort('label')}>Namn</Chip>
+              <Chip compact selected={sort === 'kind'} onPress={() => setSort('kind')}>Typ</Chip>
+            </ScrollView>
+          }
           ListEmptyComponent={<Text style={{ padding: 16, color: theme.colors.onSurfaceVariant }}>Inga noder matchar filtret.</Text>}
           renderItem={({ item }) => (
             <List.Item

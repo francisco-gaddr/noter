@@ -1,4 +1,4 @@
-import { buildGraph, fulltextSearch, neighborsOf, filterGraphByQuery } from './graphModel';
+import { buildGraph, fulltextSearch, neighborsOf, filterGraphByQuery, sortGraphNodes } from './graphModel';
 import type { Note, Task } from './types';
 
 const note = (o: Partial<Note>): Note => ({ _id: o._id ?? 'n', userId: 'u', title: '', content: '', tags: [], locked: false, createdAt: '', updatedAt: '', ...o });
@@ -83,6 +83,16 @@ describe('buildGraph', () => {
   it('does not derive sibling/same-due edges by default', () => {
     const ns = [note({ _id: 'proj', title: 'P', type: 'project' }), note({ _id: 'a', parentId: 'proj' }), note({ _id: 'b', parentId: 'proj' })];
     expect(buildGraph(ns, []).edges.some((e) => e.rel === 'sibling')).toBe(false);
+  });
+
+  it('sortGraphNodes orders by label / kind / connections', () => {
+    const g = buildGraph(notes, tasks);
+    expect(sortGraphNodes(g, 'label').map((n) => n.label)).toEqual([...g.nodes.map((n) => n.label)].sort((a, b) => a.localeCompare(b, 'sv')));
+    // by kind: project first, task last
+    const byKind = sortGraphNodes(g, 'kind');
+    expect(byKind[0].kind).toBe('project');
+    // by connections: the list (hub of taskA/taskB + project) ranks at/near the top
+    expect(sortGraphNodes(g, 'connections')[0].id).toBe('list');
   });
 
   it('filterGraphByQuery keeps matches plus their direct neighbours', () => {

@@ -11,9 +11,9 @@
  */
 import React, { useMemo, useState } from 'react';
 import {
-  buildGraph, neighborsOf, filterGraphByQuery, layoutGraph,
+  buildGraph, neighborsOf, filterGraphByQuery, layoutGraph, sortGraphNodes,
   RELATION_LABELS, NODE_KIND_LABELS, RELATION_COLORS, NODE_COLORS,
-  type GraphNodeKind, type GraphRelation, type GraphConfig,
+  type GraphNodeKind, type GraphRelation, type GraphConfig, type GraphSort,
 } from '@repo/shared';
 import { useStore } from '../stores/useStore';
 
@@ -33,6 +33,7 @@ export const GraphExplorer: React.FC<{ isOpen: boolean; onClose: () => void }> =
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [view, setView] = useState<'graph' | 'list'>('graph');
+  const [sort, setSort] = useState<GraphSort>('connections');
   const [deriveSiblings, setDeriveSiblings] = useState(false);
   const [deriveSameDue, setDeriveSameDue] = useState(false);
 
@@ -137,10 +138,19 @@ export const GraphExplorer: React.FC<{ isOpen: boolean; onClose: () => void }> =
           </div>
         )}
 
-        <div className={`${view === 'graph' ? 'hidden' : 'flex'} flex-1 overflow-hidden`}>
+        <div className={`${view === 'graph' ? 'hidden' : 'flex flex-col'} flex-1 overflow-hidden`}>
+          <div className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-200 dark:border-gray-700 text-xs">
+            <span className="text-gray-500">Sortera:</span>
+            <select className="border rounded p-1 text-xs dark:bg-gray-800 dark:border-gray-700" value={sort} onChange={(e) => setSort(e.target.value as GraphSort)} data-testid="graph-sort">
+              <option value="connections">Flest kopplingar</option>
+              <option value="label">Namn (A–Ö)</option>
+              <option value="kind">Typ</option>
+            </select>
+          </div>
+          <div className="flex flex-1 overflow-hidden">
           <ul className="w-1/2 overflow-y-auto border-r border-gray-200 dark:border-gray-700" data-testid="graph-node-list">
             {filtered.nodes.length === 0 && <li className="p-3 text-sm text-gray-500">Inga noder matchar filtret.</li>}
-            {filtered.nodes.map((n) => (
+            {sortGraphNodes(filtered, sort).map((n) => (
               <li key={n.id}>
                 <button
                   onClick={() => setSelectedId(n.id)}
@@ -193,6 +203,7 @@ export const GraphExplorer: React.FC<{ isOpen: boolean; onClose: () => void }> =
                 )}
               </div>
             )}
+          </div>
           </div>
         </div>
       </div>

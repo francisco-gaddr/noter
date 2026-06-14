@@ -194,6 +194,30 @@ export const buildGraph = (notes: Note[], tasks: Task[], config?: GraphConfig): 
   return { nodes, edges };
 };
 
+export type GraphSort = 'label' | 'kind' | 'connections';
+
+const KIND_RANK: Record<GraphNodeKind, number> = { project: 0, task_list: 1, note: 2, task: 3 };
+
+/** Sort graph nodes for the list view: by label (A→Ö), kind, or connection count (desc). */
+export const sortGraphNodes = (graph: GraphData, by: GraphSort): GraphNode[] => {
+  const degree = new Map<string, number>();
+  if (by === 'connections') {
+    for (const e of graph.edges) {
+      degree.set(e.source, (degree.get(e.source) || 0) + 1);
+      degree.set(e.target, (degree.get(e.target) || 0) + 1);
+    }
+  }
+  const nodes = [...graph.nodes];
+  if (by === 'connections') {
+    nodes.sort((a, b) => (degree.get(b.id) || 0) - (degree.get(a.id) || 0) || a.label.localeCompare(b.label, 'sv'));
+  } else if (by === 'kind') {
+    nodes.sort((a, b) => KIND_RANK[a.kind] - KIND_RANK[b.kind] || a.label.localeCompare(b.label, 'sv'));
+  } else {
+    nodes.sort((a, b) => a.label.localeCompare(b.label, 'sv'));
+  }
+  return nodes;
+};
+
 /** Human labels for the relation kinds (Swedish UI). */
 export const RELATION_LABELS: Record<GraphRelation, string> = {
   in_project: 'i projektmapp',
