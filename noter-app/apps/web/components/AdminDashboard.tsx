@@ -94,8 +94,8 @@ export const AdminDashboard: React.FC = () => {
         </button>
       </div>
 
-      <div>
-        <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Server</div>
+      <details open>
+        <summary className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 cursor-pointer select-none">Server</summary>
         {error ? (
           <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
         ) : (
@@ -108,20 +108,20 @@ export const AdminDashboard: React.FC = () => {
             <Stat label="Miljö" value={overview?.server.env ?? '—'} />
           </div>
         )}
-      </div>
+      </details>
 
-      <div>
-        <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Konto (på servern)</div>
+      <details open>
+        <summary className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 cursor-pointer select-none">Konto (på servern)</summary>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           <Stat label="Anteckningar" value={overview?.counts.notes ?? '—'} />
           <Stat label="Uppgifter" value={overview?.counts.tasks ?? '—'} />
           <Stat label="AI-trådar" value={overview?.counts.aiConversations ?? '—'} />
           <Stat label="AI-meddelanden" value={overview?.counts.aiMessages ?? '—'} />
         </div>
-      </div>
+      </details>
 
-      <div>
-        <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Uppgiftsinsikter (denna enhet)</div>
+      <details>
+        <summary className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 cursor-pointer select-none">Uppgiftsinsikter (denna enhet)</summary>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <Stat label="Aktiva" value={taskInsights.active} />
           <Stat label="Förfallna" value={taskInsights.overdue} tone={taskInsights.overdue > 0 ? 'warn' : 'default'} />
@@ -132,11 +132,11 @@ export const AdminDashboard: React.FC = () => {
           <Stat label="Projekt" value={noteInsights.projects} />
           <Stat label="Uppgiftslistor" value={noteInsights.taskLists} />
         </div>
-      </div>
+      </details>
 
-      <div data-testid="admin-ai-stats">
-        <div className="flex items-center justify-between mb-1">
-          <div className="text-xs font-medium text-gray-500 dark:text-gray-400">AI-användning (denna enhet, krypterat lokalt)</div>
+      <details data-testid="admin-ai-stats">
+        <summary className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 cursor-pointer select-none">AI-användning (denna enhet, krypterat lokalt)</summary>
+        <div className="flex justify-end mb-1">
           <button type="button" onClick={refreshAiStats} className="text-[11px] text-blue-600 dark:text-blue-400">Uppdatera</button>
         </div>
         {usageRows.length === 0 && toolRows.length === 0 ? (
@@ -163,10 +163,10 @@ export const AdminDashboard: React.FC = () => {
             </div>
           </div>
         )}
-      </div>
+      </details>
 
-      <div data-testid="admin-productivity">
-        <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Produktivitet (mätbar, denna enhet)</div>
+      <details data-testid="admin-productivity">
+        <summary className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 cursor-pointer select-none">Produktivitet (mätbar, denna enhet)</summary>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <Stat label="Klara 7 dgr" value={productivity.completedLast7} tone="ok" />
           <Stat label="Klara 30 dgr" value={productivity.completedLast30} />
@@ -186,11 +186,11 @@ export const AdminDashboard: React.FC = () => {
             );
           })}
         </div>
-      </div>
+      </details>
 
       {agentStats.delegated > 0 && (
-        <div data-testid="admin-orchestration">
-          <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">AI-orkestrering (delegerade uppgifter)</div>
+        <details data-testid="admin-orchestration">
+          <summary className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 cursor-pointer select-none">AI-orkestrering (delegerade uppgifter)</summary>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <Stat label="Delegerade" value={agentStats.delegated} />
             <Stat label="Klara (AI)" value={agentStats.completedByAi} tone="ok" />
@@ -212,7 +212,7 @@ export const AdminDashboard: React.FC = () => {
               ))}
             </div>
           )}
-        </div>
+        </details>
       )}
 
       <AdminCleanup />

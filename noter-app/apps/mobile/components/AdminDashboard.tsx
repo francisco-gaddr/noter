@@ -8,7 +8,7 @@
  * the settings ScrollView — nothing is cut off.
  */
 import React from 'react';
-import { View, StyleSheet } from 'react-native';
+import { View, StyleSheet, Pressable } from 'react-native';
 import { Text, Button, useTheme, ActivityIndicator } from 'react-native-paper';
 import {
   computeTaskInsights, computeNoteInsights, computeProductivityStats, computeAgentStats,
@@ -44,11 +44,6 @@ const Stat: React.FC<{ label: string; value: React.ReactNode; tone?: 'ok' | 'war
       <Text style={{ fontSize: 16, fontWeight: '700', color }}>{value}</Text>
     </View>
   );
-};
-
-const SectionTitle: React.FC<{ children: string }> = ({ children }) => {
-  const theme = useTheme();
-  return <Text style={{ fontSize: 12, fontWeight: '600', color: theme.colors.onSurfaceVariant, marginTop: 12, marginBottom: 4 }}>{children}</Text>;
 };
 
 export const AdminDashboard: React.FC = () => {
@@ -89,6 +84,18 @@ export const AdminDashboard: React.FC = () => {
 
   const maxPerDay = Math.max(1, ...productivity.perDay.map((d) => d.completed));
 
+  // Collapsible sections so the user can show/hide each part. Server + cleanup open by
+  // default; the heavier stat blocks start collapsed to keep it tidy.
+  const [closed, setClosed] = React.useState<Record<string, boolean>>({
+    insights: true, productivity: true, orchestration: true, usage: true,
+  });
+  const head = (id: string, title: string) => (
+    <Pressable onPress={() => setClosed((c) => ({ ...c, [id]: !c[id] }))} style={styles.sectionHead} accessibilityRole="button">
+      <Text style={{ fontSize: 12, fontWeight: '600', color: theme.colors.onSurfaceVariant }}>{title}</Text>
+      <Text style={{ fontSize: 12, color: theme.colors.onSurfaceVariant }}>{closed[id] ? '▸' : '▾'}</Text>
+    </Pressable>
+  );
+
   return (
     <View>
       <View style={styles.rowBetween}>
@@ -98,8 +105,8 @@ export const AdminDashboard: React.FC = () => {
         </Button>
       </View>
 
-      <SectionTitle>Server</SectionTitle>
-      {error ? (
+      {head('server', 'Server')}
+      {!closed.server && (error ? (
         <Text style={{ fontSize: 12, color: theme.colors.error }}>{error}</Text>
       ) : !overview && loading ? (
         <ActivityIndicator style={{ alignSelf: 'flex-start', marginVertical: 6 }} />
@@ -112,17 +119,20 @@ export const AdminDashboard: React.FC = () => {
           <Stat label="Node" value={overview?.server.node ?? '—'} />
           <Stat label="Miljö" value={overview?.server.env ?? '—'} />
         </View>
-      )}
+      ))}
 
-      <SectionTitle>Konto (på servern)</SectionTitle>
+      {head('konto', 'Konto (på servern)')}
+      {!closed.konto && (
       <View style={styles.grid}>
         <Stat label="Anteckningar" value={overview?.counts.notes ?? '—'} />
         <Stat label="Uppgifter" value={overview?.counts.tasks ?? '—'} />
         <Stat label="AI-trådar" value={overview?.counts.aiConversations ?? '—'} />
         <Stat label="AI-meddelanden" value={overview?.counts.aiMessages ?? '—'} />
       </View>
+      )}
 
-      <SectionTitle>Uppgiftsinsikter (denna enhet)</SectionTitle>
+      {head('insights', 'Uppgiftsinsikter (denna enhet)')}
+      {!closed.insights && (
       <View style={styles.grid}>
         <Stat label="Aktiva" value={taskInsights.active} />
         <Stat label="Förfallna" value={taskInsights.overdue} tone={taskInsights.overdue > 0 ? 'warn' : 'default'} />
@@ -133,8 +143,10 @@ export const AdminDashboard: React.FC = () => {
         <Stat label="Projekt" value={noteInsights.projects} />
         <Stat label="Listor" value={noteInsights.taskLists} />
       </View>
+      )}
 
-      <SectionTitle>Produktivitet (mätbar)</SectionTitle>
+      {head('productivity', 'Produktivitet (mätbar)')}
+      {!closed.productivity && (<>
       <View style={styles.grid}>
         <Stat label="Klara 7 dgr" value={productivity.completedLast7} tone="ok" />
         <Stat label="Klara 30 dgr" value={productivity.completedLast30} />
@@ -151,10 +163,12 @@ export const AdminDashboard: React.FC = () => {
           </View>
         ))}
       </View>
+      </>)}
 
       {agentStats.delegated > 0 && (
         <>
-          <SectionTitle>AI-orkestrering (delegerade uppgifter)</SectionTitle>
+          {head('orchestration', 'AI-orkestrering (delegerade uppgifter)')}
+          {!closed.orchestration && (<>
           <View style={styles.grid}>
             <Stat label="Delegerade" value={agentStats.delegated} />
             <Stat label="Klara (AI)" value={agentStats.completedByAi} tone="ok" />
@@ -176,11 +190,12 @@ export const AdminDashboard: React.FC = () => {
               ))}
             </View>
           )}
+          </>)}
         </>
       )}
 
-      <SectionTitle>AI-användning (denna enhet, krypterat lokalt)</SectionTitle>
-      {usageRows.length === 0 && toolRows.length === 0 ? (
+      {head('usage', 'AI-användning (denna enhet, krypterat lokalt)')}
+      {!closed.usage && (usageRows.length === 0 && toolRows.length === 0 ? (
         <Text style={{ fontSize: 12, color: theme.colors.onSurfaceVariant }}>Ingen AI-användning registrerad ännu.</Text>
       ) : (
         <>
@@ -207,7 +222,7 @@ export const AdminDashboard: React.FC = () => {
             </View>
           )}
         </>
-      )}
+      ))}
 
       <AdminCleanup />
     </View>
@@ -216,6 +231,7 @@ export const AdminDashboard: React.FC = () => {
 
 const styles = StyleSheet.create({
   rowBetween: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  sectionHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, marginBottom: 4, paddingVertical: 2 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   stat: { borderWidth: 1, borderRadius: 8, padding: 8, minWidth: '30%', flexGrow: 1 },
   chart: { flexDirection: 'row', alignItems: 'flex-end', gap: 4, height: 56, marginTop: 8 },
