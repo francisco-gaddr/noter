@@ -862,7 +862,7 @@ export default function SidebarTree() {
                 </div>
             </div>
             
-            <div className="flex-1 overflow-auto p-2" style={{ contentVisibility: 'auto' }}>
+            <div className="flex-1 overflow-auto p-2">
                 {searchQuery || viewMode === 'list' ? (
                     <ul className="space-y-1" role="list" aria-label={t('aria.notesList')}>
                         {(searchQuery ? flatFilteredNotes : sortedFlatNotes).slice(0, 500).map(note => (

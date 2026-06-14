@@ -1017,7 +1017,7 @@ export const useStore = create<StoreState>((set, get) => ({
         return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
       };
 
-      const encryptedNotes = await withTimeout(api.fetchNotes(), 8000);
+      const encryptedNotes = await withTimeout(api.fetchNotes(), 20000);
       const safeEncryptedNotes = Array.isArray(encryptedNotes) ? encryptedNotes : [];
       const notes = materializeNotesFromEncrypted(safeEncryptedNotes as any, new Set(get().unlockedProtectedNoteIds));
       logElectronDataDebug('fetchNotes-server-loaded', {
@@ -1089,7 +1089,12 @@ export const useStore = create<StoreState>((set, get) => ({
         message: error?.message || 'unknown-error',
         name: error?.name || 'Error',
       });
-      set({ error: error.message, isLoading: false });
+      // The local-DB notes are already on screen (set above). A slow/offline server
+      // fetch (e.g. a timeout against the Pi on a large encrypted list) must NOT
+      // replace that with a blocking error banner — only surface an error if we have
+      // nothing to show at all.
+      const hasData = get().notes.length > 0;
+      set({ error: hasData ? null : error.message, isLoading: false });
     }
   },
 
@@ -1166,7 +1171,10 @@ export const useStore = create<StoreState>((set, get) => ({
         
         tasks.forEach(scheduleWebReminder);
     } catch (error: any) {
-        set({ error: error.message, isLoading: false });
+        // Cached tasks are already shown; don't replace them with an error banner on
+        // a slow/offline server fetch. Only surface the error if we have no tasks.
+        const hasData = get().tasks.length > 0;
+        set({ error: hasData ? null : error.message, isLoading: false });
     }
   },
 

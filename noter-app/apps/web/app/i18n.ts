@@ -22,7 +22,11 @@ const resources = {
         toggleTheme: 'Toggle theme',
         logout: 'Logout',
         offlineIndicator: 'Offline',
-        hideOfflineIndicator: 'Hide offline indicator'
+        hideOfflineIndicator: 'Hide offline indicator',
+        graphTitle: 'Explore the graph',
+        hubTitle: 'Daylited Hub — all tools & services',
+        showSidebar: 'Show sidebar',
+        hideSidebar: 'Hide sidebar'
       },
 
 
@@ -31,6 +35,9 @@ const resources = {
         title: 'Settings',
         close: 'Close',
         autoLockTimeout: 'Auto Lock Timeout'
+      },
+      note: {
+        enterPassword: 'Enter password'
       },
       project: {
         label: 'Project Folder',
@@ -44,7 +51,11 @@ const resources = {
         newList: 'New List',
         createTask: 'Create task',
         addChild: 'Add child note',
-        deleteNote: 'Delete note'
+        deleteNote: 'Delete note',
+        delete: 'Delete',
+        edit: 'Edit',
+        editList: 'Edit list',
+        editNote: 'Edit note'
       },
       view: {
         switchToList: 'Switch to List View',
@@ -56,7 +67,11 @@ const resources = {
         newest: 'Newest First',
         oldest: 'Oldest First',
         titleAsc: 'Title A-Z',
-        titleDesc: 'Title Z-A'
+        titleDesc: 'Title Z-A',
+        updatedDesc: 'Recently updated',
+        updatedAsc: 'Oldest updated',
+        createdDesc: 'Recently created',
+        createdAsc: 'Oldest created'
       },
       list: { noNotes: 'No notes yet. Click + to add one.', allTasks: 'All tasks' },
       common: {
@@ -71,7 +86,16 @@ const resources = {
         priority: 'Priority',
         dueDate: 'Due date',
         completed: 'Completed',
-        processing: 'Processing...'
+        processing: 'Processing...',
+        confirm: 'Confirm',
+        password: 'Password',
+        hour: 'hour',
+        hours: 'hours',
+        minute: 'minute',
+        minutes: 'minutes',
+        showMore: 'Show more',
+        showingFirst200: 'Showing first 200 items',
+        showingFirst500: 'Showing first 500 items. Refine search to see more.'
       },
       noteEditor: {
         selectNote: 'Select a note to start editing',
@@ -88,6 +112,8 @@ const resources = {
         unlockRemovePassword: 'Unlock Note (Remove Password)',
         lockNote: 'Lock Note',
         startTyping: 'Start typing...',
+        editTags: 'Edit tags',
+        tagsPlaceholder: 'Add tags...',
         toolbar: {
           bold: 'Bold',
           italic: 'Italic',
@@ -160,6 +186,7 @@ const resources = {
         notesList: 'Notes',
         notesTree: 'Notes tree view',
         deleteNote: 'Delete note',
+        editNote: 'Edit note',
         addChildNote: 'Add child note',
         markComplete: 'Mark as complete',
         markIncomplete: 'Mark as incomplete',
@@ -167,10 +194,19 @@ const resources = {
       },
       confirm: {
         deleteNote: 'Are you sure you want to delete this note?',
-        deleteTask: 'Are you sure you want to delete this task?'
+        deleteTask: 'Are you sure you want to delete this task?',
+        deleteNoteTitle: 'Delete note',
+        deleteNoteMessage: 'Are you sure you want to delete this note?',
+        deleteProject: 'Delete this project folder?',
+        deleteProjectTitle: 'Delete project',
+        deleteProjectMessage: 'Are you sure you want to delete this project folder and all its contents?',
+        deleteTaskListTitle: 'Delete task list',
+        deleteTaskListMessage: 'Are you sure you want to delete this task list?'
       },
       tasks: {
         header: 'Tasks',
+        createTitle: 'Create Task',
+        sort: { label: 'Sort order' },
         todo: 'To Do',
         completed: 'Completed',
         placeholder: 'Add a task...',
@@ -231,11 +267,19 @@ const resources = {
         toggleTheme: 'Växla tema',
         logout: 'Logga ut',
         offlineIndicator: 'Offline',
-        hideOfflineIndicator: 'Dölj offline‑indikator'
+        hideOfflineIndicator: 'Dölj offline‑indikator',
+        graphTitle: 'Utforska grafen',
+        hubTitle: 'Daylited Hub — alla verktyg & tjänster',
+        showSidebar: 'Visa sidofält',
+        hideSidebar: 'Dölj sidofält'
       },
       settings: {
         title: 'Inställningar',
-        close: 'Stäng'
+        close: 'Stäng',
+        autoLockTimeout: 'Tidsgräns för autolås'
+      },
+      note: {
+        enterPassword: 'Ange lösenord'
       },
       actions: {
         newNote: 'Ny anteckning',
@@ -243,7 +287,14 @@ const resources = {
         createTask: 'Skapa uppgift',
         addChild: 'Lägg till underanteckning',
         deleteNote: 'Ta bort anteckning',
-        delete: 'Ta bort'
+        delete: 'Ta bort',
+        edit: 'Redigera',
+        editList: 'Redigera lista',
+        editNote: 'Redigera anteckning'
+      },
+      view: {
+        switchToList: 'Byt till listvy',
+        switchToTree: 'Byt till trädvy'
       },
       project: {
         label: 'Projektmapp',
@@ -259,7 +310,11 @@ const resources = {
         titleAsc: 'Titel A–Ö',
         titleDesc: 'Titel Ö–A',
         custom: 'Egen',
-        updatedAt: 'Senast uppdaterad'
+        updatedAt: 'Senast uppdaterad',
+        updatedDesc: 'Senast ändrad',
+        updatedAsc: 'Äldst ändrad',
+        createdDesc: 'Senast skapad',
+        createdAsc: 'Äldst skapad'
       },
       list: { noNotes: 'Inga anteckningar ännu. Klicka + för att lägga till.', allTasks: 'Alla uppgifter' },
       common: {
@@ -274,7 +329,16 @@ const resources = {
         priority: 'Prioritet',
         dueDate: 'Förfallodatum',
         completed: 'Klar',
-        processing: 'Bearbetar...'
+        processing: 'Bearbetar...',
+        confirm: 'Bekräfta',
+        password: 'Lösenord',
+        hour: 'timme',
+        hours: 'timmar',
+        minute: 'minut',
+        minutes: 'minuter',
+        showMore: 'Visa mer',
+        showingFirst200: 'Visar de första 200 objekten',
+        showingFirst500: 'Visar de första 500 objekten. Förfina sökningen för att se fler.'
       },
       noteEditor: {
         selectNote: 'Välj en anteckning för att börja redigera',
@@ -291,6 +355,8 @@ const resources = {
         unlockRemovePassword: 'Lås upp (ta bort lösenord)',
         lockNote: 'Lås anteckning',
         startTyping: 'Börja skriva...',
+        editTags: 'Redigera taggar',
+        tagsPlaceholder: 'Lägg till taggar...',
         toolbar: {
           bold: 'Fet',
           italic: 'Kursiv',
@@ -363,6 +429,7 @@ const resources = {
         notesList: 'Anteckningar',
         notesTree: 'Trädvy anteckningar',
         deleteNote: 'Ta bort anteckning',
+        editNote: 'Redigera anteckning',
         addChildNote: 'Lägg till underanteckning',
         markComplete: 'Markera som klar',
         markIncomplete: 'Markera som ej klar',
@@ -370,10 +437,18 @@ const resources = {
       },
       confirm: {
         deleteNote: 'Är du säker på att du vill ta bort anteckningen?',
-        deleteTask: 'Är du säker på att du vill ta bort uppgiften?'
+        deleteTask: 'Är du säker på att du vill ta bort uppgiften?',
+        deleteNoteTitle: 'Ta bort anteckning',
+        deleteNoteMessage: 'Är du säker på att du vill ta bort anteckningen?',
+        deleteProject: 'Ta bort projektmappen?',
+        deleteProjectTitle: 'Ta bort projekt',
+        deleteProjectMessage: 'Är du säker på att du vill ta bort projektmappen och allt dess innehåll?',
+        deleteTaskListTitle: 'Ta bort uppgiftslista',
+        deleteTaskListMessage: 'Är du säker på att du vill ta bort uppgiftslistan?'
       },
       tasks: {
         header: 'Uppgifter',
+        createTitle: 'Skapa uppgift',
         todo: 'Att göra',
         completed: 'Avslutade',
         placeholder: 'Lägg till en uppgift...',
@@ -429,7 +504,12 @@ i18n
     resources,
     lng: initialLng,
     fallbackLng: 'sv',
-    interpolation: { escapeValue: false }
+    interpolation: { escapeValue: false },
+    // Never render a raw dotted key (e.g. "sort.updatedDesc") when a translation is
+    // missing: return the provided default (t(key, 'Default')) or an empty string so
+    // the common `t(key) || 'fallback'` pattern resolves to the fallback instead of
+    // the key. A missing key degrades to readable text everywhere.
+    parseMissingKeyHandler: (_key: string, defaultValue?: string) => (typeof defaultValue === 'string' ? defaultValue : ''),
   });
 
 export default i18n;

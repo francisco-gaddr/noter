@@ -108,10 +108,10 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative bg-white dark:bg-gray-900 rounded-lg shadow-xl w-full max-w-md p-6">
-        <div className="flex items-center justify-between">
+      <div className="relative bg-white dark:bg-gray-900 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between p-6 pb-3 shrink-0">
           <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-100">{t('settings.title')}</h2>
           <button
             onClick={() => setIsApiModalOpen(true)}
@@ -123,7 +123,11 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             <FaCog />
           </button>
         </div>
-        
+
+        {/* Scrollable body — always shows all content; lays out in two columns when
+            there is room (xl+), single column otherwise. */}
+        <div className="overflow-y-auto grow px-6 pb-2 xl:grid xl:grid-cols-2 xl:gap-x-6 xl:items-start">
+
         <div className="mt-4">
           <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
             {t('common.language')}
@@ -358,7 +362,9 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
           )}
         </div>
 
-        <div className="mt-6 flex justify-end gap-2">
+        </div>{/* /scrollable body */}
+
+        <div className="flex justify-end gap-2 p-6 pt-3 border-t border-gray-200 dark:border-gray-700 shrink-0">
           <button
             className="px-4 py-2 rounded bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-100"
             onClick={onClose}
