@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { MobileLlamaProvider } from '@/services/ai/provider';
 import { useStore } from '@/stores/useStore';
 import { ChatMessage, Conversation, HFModel, AIProject, normalizeToolArguments } from '@repo/ai';
-import { searchHuggingFaceModels, getModelFiles, getConversionHealth } from '@/services/ai/huggingface';
+import { searchHuggingFaceModels, getModelFiles } from '@/services/ai/huggingface';
 import { downloadModel as serviceDownloadModel, getBestQuantization, deleteModel as serviceDeleteModel, cancelDownload as cancelModelDownload } from '@/services/ai/modelService';
 import { isNativeFileSystemAvailable } from '@/services/ai/ModelDownloader';
 import { saveConversationLocal, getConversationsLocal, deleteConversationLocal, saveMessageLocal, getMessagesLocal, getModelsLocal, saveProjectLocal, getProjectsLocal, deleteProjectLocal } from '@/services/database';
@@ -22,7 +22,7 @@ import { toolUsageLabel, type ToolUsageRow } from '@repo/shared';
 import { pullAiSync, pushAiSync } from '@/services/ai/sync';
 import { initSocket, getSocket } from '@/services/socket';
 import { buildSecurityNoteMap, isReadableWithLocks } from '@/services/ai/security';
-import { getLocalConversionCapabilities } from '@/services/ai/native/MLCModule';
+import { modelManager } from '@/services/ai/ModelManager';
 import { isAiBackgroundWorkEnabled, setAiBackgroundWorkEnabled } from '@/services/ai/runtimeSettings';
 import IconPickerModal from '@/components/IconPickerModal';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
@@ -281,7 +281,6 @@ export default function AIScreen() {
   const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({});
   const [processingModels, setProcessingModels] = useState<Record<string, boolean>>({});
   const [downloadStage, setDownloadStage] = useState<Record<string, string>>({});
-  const [preferLocalConversion, setPreferLocalConversion] = useState(false);
   const [allowBackgroundAIWork, setAllowBackgroundAIWork] = useState(false);
   const [aiUseApiProviders, setAiUseApiProviders] = useState(false);
   const [apiProvider, setApiProvider] = useState<string>('openrouter');
@@ -385,8 +384,7 @@ export default function AIScreen() {
   const [mcpDashboardLoading, setMcpDashboardLoading] = useState(false);
   const [mcpDashboardError, setMcpDashboardError] = useState<string | null>(null);
   const [mcpDashboardRows, setMcpDashboardRows] = useState<any[]>([]);
-  const [conversionHealthText, setConversionHealthText] = useState<string>('');
-  const [deviceConversionHealthText, setDeviceConversionHealthText] = useState<string>('');
+  const [localEngineText, setLocalEngineText] = useState<string>('');
   const [searchSizes, setSearchSizes] = useState<Record<string, number | null>>({});
 
   // History
@@ -496,8 +494,6 @@ export default function AIScreen() {
       if (savedToolUse !== null) setEnableToolUse(savedToolUse === 'true');
       const savedContextLevel = await AsyncStorage.getItem(`ai_chat_context_level_${scopeKey}`);
       if (savedContextLevel) setChatContextLevel(normalizeContextLevel(savedContextLevel));
-      const savedLocalConvert = await AsyncStorage.getItem(`ai_local_convert_${scopeKey}`);
-      if (savedLocalConvert !== null) setPreferLocalConversion(savedLocalConvert === 'true');
       const savedAttachmentsEnabled = await AsyncStorage.getItem(`ai_attachments_enabled_${scopeKey}`);
       if (savedAttachmentsEnabled !== null) setAttachmentsEnabled(savedAttachmentsEnabled === 'true');
       const savedNextLocalOnly = await AsyncStorage.getItem(`ai_next_thread_local_only_${scopeKey}`);
@@ -575,11 +571,6 @@ export default function AIScreen() {
     if (!userScopeKey) return;
     AsyncStorage.setItem(`ai_chat_context_level_${userScopeKey}`, chatContextLevel);
   }, [chatContextLevel, userScopeKey]);
-
-  useEffect(() => {
-    if (!userScopeKey) return;
-    AsyncStorage.setItem(`ai_local_convert_${userScopeKey}`, preferLocalConversion ? 'true' : 'false');
-  }, [preferLocalConversion, userScopeKey]);
 
   useEffect(() => {
     if (!userScopeKey) return;
@@ -734,43 +725,15 @@ export default function AIScreen() {
     };
   }, [userScopeKey]);
 
-  const refreshConversionHealth = async () => {
-      try {
-          const health = await getConversionHealth();
-          if (health.mode === 'external') {
-              setConversionHealthText(t('ai.conversionHealthExternal'));
-              return;
-          }
-          if (health.localBinaryAvailable && health.storageWritable) {
-              setConversionHealthText(t('ai.conversionHealthLocalOk'));
-              return;
-          }
-          if (!health.localBinaryAvailable) {
-              setConversionHealthText(t('ai.conversionHealthLocalMissing'));
-              return;
-          }
-          if (!health.storageWritable) {
-              setConversionHealthText(t('ai.conversionHealthStorageMissing'));
-              return;
-          }
-          setConversionHealthText('');
-      } catch {
-          setConversionHealthText(t('ai.conversionHealthUnknown'));
-      }
-      try {
-          const deviceCaps = await getLocalConversionCapabilities();
-          if (deviceCaps.engineAvailable && deviceCaps.converterAvailable) {
-              setDeviceConversionHealthText(t('ai.conversionHealthDeviceReady'));
-          } else {
-              setDeviceConversionHealthText(t('ai.conversionHealthDeviceMissing'));
-          }
-      } catch {
-          setDeviceConversionHealthText(t('ai.conversionHealthDeviceUnknown'));
-      }
+  const refreshLocalEngine = () => {
+      // llama.rn runs GGUF directly on-device — no conversion. We just report whether
+      // the native engine is compiled into this build (it is in an EAS/dev build, not
+      // in Expo Go), so the user knows whether downloaded models can actually run here.
+      setLocalEngineText(modelManager.isAvailable() ? t('ai.localEngineReady') : t('ai.localEngineMissing'));
   };
 
   useEffect(() => {
-      refreshConversionHealth().catch(() => {});
+      refreshLocalEngine();
   }, []);
 
   const loadModels = async () => {
@@ -836,14 +799,10 @@ export default function AIScreen() {
 
   const formatError = (error: unknown) => {
       const message = (error as any)?.message ? String((error as any).message) : String(error);
-      if (message.includes('Zip module not available')) return 'Zip-stöd saknas. Bygg en dev‑client.';
       if (message.includes('Native filesystem not available')) return 'Filsystem saknas. Kör i dev‑client.';
-      if (message.includes('MLCModule')) return 'MLC‑modulen saknas. Bygg om appen.';
-      if (message.includes('Local conversion unsupported')) return 'Lokal konvertering stöds inte i denna build. Server-fallback används.';
-      if (message.includes('Failed to download GGUF')) return 'Kunde inte ladda ner GGUF-filen för lokal konvertering.';
-      if (message.includes('Invalid model package')) return 'Modellpaketet är ogiltigt eller saknar filer.';
-      if (message.includes('Conversion failed')) return 'Konvertering misslyckades på servern.';
-      if (message.includes('job not found')) return 'Konverteringsjobb saknas eller har löpt ut.';
+      if (message.includes('Model path not found')) return 'Modellfilen hittades inte. Ladda ner modellen igen.';
+      if (message.includes('Model not loaded')) return 'Ingen lokal modell är laddad. Välj och ladda en modell först.';
+      if (message.includes('Download failed')) return 'Nedladdningen misslyckades. Kontrollera nätverket och försök igen.';
       return message;
   };
 
@@ -858,19 +817,9 @@ export default function AIScreen() {
       if (!stage) return '';
       const map: Record<string, string> = {
           queued: t('ai.downloadStageQueued'),
-          local_conversion_requested: t('ai.downloadStageLocalRequested'),
-          local_conversion_unavailable: t('ai.downloadStageLocalUnavailable'),
-          local_conversion_failed: t('ai.downloadStageLocalFailed'),
-          downloading_gguf: t('ai.downloadStageDownloadingGguf'),
-          converting_locally: t('ai.downloadStageConvertingLocally'),
-          checking_compiled: t('ai.downloadStageCheckingCompiled'),
-          converting_server: t('ai.downloadStageConvertingServer'),
-          downloading_compiled: t('ai.downloadStageDownloadingCompiled'),
           downloading: t('ai.downloadStageDownloadingGguf'),
-          converting: t('ai.downloadStageConvertingServer'),
-          zipping: t('ai.downloadStagePacking'),
           completed: t('ai.downloadStageCompleted'),
-          finalizing: t('ai.downloadStageFinalizing'),
+          failed: t('ai.downloadStageLocalFailed'),
       };
       return map[stage] || stage;
   };
@@ -1972,7 +1921,6 @@ export default function AIScreen() {
         await serviceDownloadModel(model, file, (percent) => {
             setDownloadProgress(prev => ({ ...prev, [model.id]: percent }));
         }, {
-            preferLocalConversion,
             onStageChange: (stage) => setDownloadStage(prev => ({ ...prev, [model.id]: stage }))
         });
 
@@ -2011,52 +1959,6 @@ export default function AIScreen() {
               delete newS[model.id];
               return newS;
           });
-      }
-  };
-
-  const runDeviceLocalConversionCheck = async (model: HFModel) => {
-      let localStageObserved = false;
-      try {
-        setProcessingModels(prev => ({ ...prev, [model.id]: true }));
-        setDownloadProgress(prev => ({ ...prev, [model.id]: 0 }));
-        setDownloadStage(prev => ({ ...prev, [model.id]: 'queued' }));
-        const files = await getModelFiles(model.id);
-        const file = getBestQuantization(files);
-        if (!file) {
-            throw new Error('No suitable GGUF file found for this model');
-        }
-        await serviceDownloadModel(model, file, (percent) => {
-            setDownloadProgress(prev => ({ ...prev, [model.id]: percent }));
-        }, {
-            preferLocalConversion: true,
-            onStageChange: (stage) => {
-              if (stage === 'converting_locally') localStageObserved = true;
-              setDownloadStage(prev => ({ ...prev, [model.id]: stage }));
-            }
-        });
-        await loadModels();
-        if (!localStageObserved) {
-            throw new Error('Local conversion unsupported');
-        }
-        alert(t('ai.deviceE2ESuccess'));
-      } catch (e) {
-        alert(`${t('ai.deviceE2EFailed')}: ${formatError(e)}`);
-      } finally {
-        setProcessingModels(prev => {
-            const newP = { ...prev };
-            delete newP[model.id];
-            return newP;
-        });
-        setDownloadProgress(prev => {
-            const newP = { ...prev };
-            delete newP[model.id];
-            return newP;
-        });
-        setDownloadStage(prev => {
-            const newS = { ...prev };
-            delete newS[model.id];
-            return newS;
-        });
       }
   };
 
@@ -2700,32 +2602,20 @@ export default function AIScreen() {
                 {t('ai.toolUseHint')}
               </Text>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
-                <Text style={{ color: theme.colors.onSurface }}>{t('ai.localConversionLabel')}</Text>
-                <Switch value={preferLocalConversion} onValueChange={setPreferLocalConversion} />
-              </View>
-              <Text style={{ marginTop: 6, color: theme.colors.onSurfaceVariant }}>
-                {t('ai.localConversionHint')}
-              </Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
                 <Text style={{ color: theme.colors.onSurface }}>{t('ai.backgroundWorkLabel')}</Text>
                 <Switch value={allowBackgroundAIWork} onValueChange={setAllowBackgroundAIWork} />
               </View>
               <Text style={{ marginTop: 6, color: theme.colors.onSurfaceVariant }}>
                 {t('ai.backgroundWorkHint')}
               </Text>
-              {conversionHealthText ? (
+              {localEngineText ? (
                 <Text style={{ marginTop: 6, color: theme.colors.onSurfaceVariant }}>
-                  {conversionHealthText}
-                </Text>
-              ) : null}
-              {deviceConversionHealthText ? (
-                <Text style={{ marginTop: 6, color: theme.colors.onSurfaceVariant }}>
-                  {deviceConversionHealthText}
+                  {localEngineText}
                 </Text>
               ) : null}
               <View style={{ flexDirection: 'row', marginTop: 10 }}>
-                <Button mode="outlined" onPress={refreshConversionHealth}>
-                  {t('ai.checkConversionHealth')}
+                <Button mode="outlined" onPress={refreshLocalEngine}>
+                  {t('ai.checkLocalEngine')}
                 </Button>
               </View>
               <View style={{ marginTop: 14, padding: 12, borderWidth: 1, borderColor: theme.colors.outline, borderRadius: 10 }}>
@@ -2963,13 +2853,6 @@ export default function AIScreen() {
                             Ladda ner
                           </Button>
                         )}
-                        <IconButton
-                          icon="shield-check"
-                          size={18}
-                          onPress={() => runDeviceLocalConversionCheck(item)}
-                          disabled={!!processingModels[item.id]}
-                          accessibilityLabel={t('ai.deviceE2ECheck')}
-                        />
                       </View>
                       {typeof downloadProgress[item.id] === 'number' && (
                         <View style={{ marginTop: 4 }}>

@@ -44,7 +44,7 @@ jest.mock('react-native', () => ({
   KeyboardAvoidingView: 'KeyboardAvoidingView',
   Pressable: 'Pressable',
   Platform: { OS: 'ios', select: (obj: any) => obj.ios },
-  NativeModules: { MLCModule: { loadModel: jest.fn(), generate: jest.fn(), unloadModel: jest.fn() } },
+  NativeModules: {},
   AppState: { addEventListener: jest.fn() },
 }));
 

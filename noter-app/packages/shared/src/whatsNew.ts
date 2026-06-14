@@ -19,6 +19,18 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    version: '1.4.0',
+    build: '2026.06.14.3',
+    date: '2026-06-14',
+    security: 'feature',
+    highlights: [
+      'Lokal AI på riktigt: AI-modeller körs nu direkt på telefonen med llama.rn (llama.cpp). Ladda ner en GGUF-modell och kör den lokalt — ingen server, inget konverteringssteg, ingen tredje part',
+      'Enklare & stabilare: det gamla MLC-konverteringsflödet är borttaget. Nedladdning går rakt till en GGUF-fil; modellen körs med sin egen chattmall och streamar svar token-för-token',
+      'Integritet: din lokala chatt lämnar aldrig enheten; nedladdade modeller och AI-inställningar lagras lokalt och allt innehåll förblir krypterat i alla ändar',
+      'Tydligt besked: inställningarna visar nu om den lokala motorn är inbyggd i bygget (EAS/dev-klient) eller om du bör använda en Hermes-källa tills vidare',
+    ],
+  },
+  {
     version: '1.3.0',
     build: '2026.06.14.2',
     date: '2026-06-14',

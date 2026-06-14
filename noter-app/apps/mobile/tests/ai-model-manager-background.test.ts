@@ -1,4 +1,4 @@
-const mockUnloadNative = jest.fn();
+const mockUnloadLlama = jest.fn();
 const mockAddEventListener = jest.fn();
 const mockIsBackgroundEnabled = jest.fn();
 
@@ -15,10 +15,13 @@ jest.mock('react-native-fs', () => ({
   },
 }));
 
-jest.mock('../services/ai/native/MLCModule', () => ({
-  loadModel: jest.fn(),
-  chat: jest.fn(),
-  unloadModel: (...args: any[]) => mockUnloadNative(...args),
+jest.mock('../services/ai/llama', () => ({
+  loadLlamaModel: jest.fn(),
+  completeLlama: jest.fn(),
+  unloadLlamaModel: (...args: any[]) => mockUnloadLlama(...args),
+  isLlamaLinked: jest.fn(() => true),
+  isLlamaLoaded: jest.fn(() => false),
+  loadedModelPath: jest.fn(() => null),
 }));
 
 jest.mock('../services/ai/runtimeSettings', () => ({
@@ -30,7 +33,7 @@ describe('ModelManager background behavior', () => {
 
   beforeEach(() => {
     jest.resetModules();
-    mockUnloadNative.mockReset();
+    mockUnloadLlama.mockReset();
     mockAddEventListener.mockReset();
     mockIsBackgroundEnabled.mockReset();
   });
@@ -41,7 +44,7 @@ describe('ModelManager background behavior', () => {
     const callback = mockAddEventListener.mock.calls[0][1];
     callback('background');
     await flush();
-    expect(mockUnloadNative).toHaveBeenCalledTimes(1);
+    expect(mockUnloadLlama).toHaveBeenCalledTimes(1);
   });
 
   it('keeps model loaded when app backgrounds and background AI is enabled', async () => {
@@ -50,6 +53,6 @@ describe('ModelManager background behavior', () => {
     const callback = mockAddEventListener.mock.calls[0][1];
     callback('background');
     await flush();
-    expect(mockUnloadNative).toHaveBeenCalledTimes(0);
+    expect(mockUnloadLlama).toHaveBeenCalledTimes(0);
   });
 });
