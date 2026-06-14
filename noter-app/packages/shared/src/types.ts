@@ -1,3 +1,11 @@
+/** An explicit, user-chosen link from one entity to another, with a relation label. */
+export interface EntityLink {
+  /** Target entity id (note/task/list/project). */
+  targetId: string;
+  /** Relation label, e.g. 'linked' | 'depends_on' | 'related' (free-form). */
+  rel: string;
+}
+
 export interface Note {
   _id: string;
   userId: string;
@@ -12,6 +20,8 @@ export interface Note {
   iconColor?: string;
   order?: number | string;
   type?: 'note' | 'task_list' | 'project';
+  /** Explicit user-chosen links to other entities (graph edges the user drew). */
+  links?: EntityLink[];
   createdAt: string;
   updatedAt: string;
   deleted?: boolean | string;
@@ -42,6 +52,8 @@ export interface Task {
    * single (encrypted) column. See agentTasks.ts.
    */
   aiAgent?: import('./agentTasks').AiTaskDelegation | null;
+  /** Explicit user-chosen links to other entities (graph edges the user drew). */
+  links?: EntityLink[];
 }
 
 export interface User {

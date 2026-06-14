@@ -45,6 +45,46 @@ describe('buildGraph', () => {
     expect(neighborsOf(g, 'missing')).toBeNull();
   });
 
+  it('derives sibling edges for notes in the same project + tasks in the same list', () => {
+    const ns = [
+      note({ _id: 'proj', title: 'P', type: 'project' }),
+      note({ _id: 'a', title: 'A', parentId: 'proj' }),
+      note({ _id: 'b', title: 'B', parentId: 'proj' }),
+    ];
+    const g = buildGraph(ns, [], { deriveSiblings: true });
+    expect(g.edges).toContainEqual({ source: 'a', target: 'b', rel: 'sibling' });
+  });
+
+  it('derives same-due edges between tasks on the same day, and respects the group cap', () => {
+    const ts = [
+      task({ _id: 't1', title: '1', dueDate: '2026-06-20T09:00:00Z' }),
+      task({ _id: 't2', title: '2', dueDate: '2026-06-20T18:00:00Z' }),
+      task({ _id: 't3', title: '3', dueDate: '2026-06-21T09:00:00Z' }),
+    ];
+    const g = buildGraph([], ts, { deriveSameDue: true });
+    expect(g.edges.some((e) => e.rel === 'same_due' && e.source === 't1' && e.target === 't2')).toBe(true);
+    expect(g.edges.some((e) => e.rel === 'same_due' && (e.source === 't3' || e.target === 't3'))).toBe(false);
+    // group cap: a big same-day group skips pairwise to avoid an N² explosion
+    const many = Array.from({ length: 5 }, (_, i) => task({ _id: `m${i}`, title: String(i), dueDate: '2026-07-01T09:00:00Z' }));
+    expect(buildGraph([], many, { deriveSameDue: true, siblingGroupCap: 3 }).edges.length).toBe(0);
+  });
+
+  it('renders explicit user-drawn links as "linked" edges', () => {
+    const ns = [
+      note({ _id: 'a', title: 'A', links: [{ targetId: 'b', rel: 'linked' }] }),
+      note({ _id: 'b', title: 'B' }),
+    ];
+    expect(buildGraph(ns, []).edges).toContainEqual({ source: 'a', target: 'b', rel: 'linked' });
+    // a link to a missing node is dropped
+    const ns2 = [note({ _id: 'a', links: [{ targetId: 'gone', rel: 'linked' }] })];
+    expect(buildGraph(ns2, []).edges.some((e) => e.rel === 'linked')).toBe(false);
+  });
+
+  it('does not derive sibling/same-due edges by default', () => {
+    const ns = [note({ _id: 'proj', title: 'P', type: 'project' }), note({ _id: 'a', parentId: 'proj' }), note({ _id: 'b', parentId: 'proj' })];
+    expect(buildGraph(ns, []).edges.some((e) => e.rel === 'sibling')).toBe(false);
+  });
+
   it('filterGraphByQuery keeps matches plus their direct neighbours', () => {
     const g = buildGraph(notes, tasks);
     const f = filterGraphByQuery(g, 'lista'); // matches the "Lista" task_list

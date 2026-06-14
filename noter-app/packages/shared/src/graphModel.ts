@@ -15,7 +15,7 @@ import type { Note, Task } from './types';
 import { normalizeNoteType } from './noteType';
 
 export type GraphNodeKind = 'note' | 'project' | 'task_list' | 'task';
-export type GraphRelation = 'in_project' | 'in_list' | 'subtask';
+export type GraphRelation = 'in_project' | 'in_list' | 'subtask' | 'sibling' | 'same_due' | 'linked';
 
 export interface GraphNode {
   id: string;
@@ -43,12 +43,23 @@ export interface GraphData {
 export interface GraphConfig {
   /** Which entity kinds to include as nodes (default: all). */
   include?: GraphNodeKind[];
-  /** Which relations to draw (default: all). */
+  /** Which relations to draw (default: the structural ones). */
   relations?: GraphRelation[];
+  /**
+   * Derive automatic "co-location" sibling edges: notes sharing the same project, and
+   * tasks sharing the same list, are linked to each other (capped per group to avoid an
+   * N² explosion). Off by default — the view toggles it.
+   */
+  deriveSiblings?: boolean;
+  /** Derive "same due-day" edges between tasks that fall on the same date. */
+  deriveSameDue?: boolean;
+  /** Max group size for full pairwise sibling/same-due linking (bigger groups skip it). */
+  siblingGroupCap?: number;
 }
 
 const DEFAULT_KINDS: GraphNodeKind[] = ['note', 'project', 'task_list', 'task'];
-const DEFAULT_RELS: GraphRelation[] = ['in_project', 'in_list', 'subtask'];
+const DEFAULT_RELS: GraphRelation[] = ['in_project', 'in_list', 'subtask', 'linked'];
+const DEFAULT_SIBLING_CAP = 8;
 
 const noteKind = (n: Note): GraphNodeKind => {
   const t = normalizeNoteType(n.type);
@@ -122,6 +133,64 @@ export const buildGraph = (notes: Note[], tasks: Task[], config?: GraphConfig): 
     }
   }
 
+  // Explicit user-drawn links (note.links / task.links) — always shown when present.
+  const addExplicitLinks = (items: { _id: string; links?: { targetId: string; rel: string }[] }[]) => {
+    for (const it of items) {
+      if (!nodeIds.has(it._id) || !Array.isArray(it.links)) continue;
+      for (const link of it.links) {
+        const target = String(link?.targetId || '');
+        if (target && nodeIds.has(target)) edges.push({ source: it._id, target, rel: 'linked' });
+      }
+    }
+  };
+  if (rels.has('linked')) { addExplicitLinks(liveNotes); addExplicitLinks(liveTasks); }
+
+  // --- Derived "co-location" edges (opt-in via config) -----------------------
+  const cap = config?.siblingGroupCap ?? DEFAULT_SIBLING_CAP;
+  // Full pairwise edges within a group, but only when the group is small enough that
+  // the pairwise count stays reasonable (else the structural hub node carries it).
+  const pairwise = (ids: string[], rel: GraphRelation) => {
+    const present = ids.filter((id) => nodeIds.has(id));
+    if (present.length < 2 || present.length > cap) return;
+    for (let i = 0; i < present.length; i += 1) {
+      for (let j = i + 1; j < present.length; j += 1) {
+        edges.push({ source: present[i], target: present[j], rel });
+      }
+    }
+  };
+
+  if (config?.deriveSiblings) {
+    // Notes sharing the same parent project/list, grouped by parentId.
+    const byParent = new Map<string, string[]>();
+    for (const n of liveNotes) {
+      if (!n.parentId || !nodeIds.has(n._id)) continue;
+      const k = String(n.parentId);
+      (byParent.get(k) ?? byParent.set(k, []).get(k)!).push(n._id);
+    }
+    for (const ids of byParent.values()) pairwise(ids, 'sibling');
+    // Tasks sharing the same list.
+    const byList = new Map<string, string[]>();
+    for (const t of liveTasks) {
+      if (!t.parentNoteId || !nodeIds.has(t._id)) continue;
+      const k = String(t.parentNoteId);
+      (byList.get(k) ?? byList.set(k, []).get(k)!).push(t._id);
+    }
+    for (const ids of byList.values()) pairwise(ids, 'sibling');
+  }
+
+  if (config?.deriveSameDue) {
+    // Tasks that fall on the same calendar day are loosely related.
+    const byDay = new Map<string, string[]>();
+    for (const t of liveTasks) {
+      if (!t.dueDate || !nodeIds.has(t._id)) continue;
+      const d = new Date(t.dueDate);
+      if (!Number.isFinite(d.getTime())) continue;
+      const k = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+      (byDay.get(k) ?? byDay.set(k, []).get(k)!).push(t._id);
+    }
+    for (const ids of byDay.values()) pairwise(ids, 'same_due');
+  }
+
   return { nodes, edges };
 };
 
@@ -130,6 +199,9 @@ export const RELATION_LABELS: Record<GraphRelation, string> = {
   in_project: 'i projektmapp',
   in_list: 'i lista',
   subtask: 'deluppgift av',
+  sibling: 'samma mapp/lista',
+  same_due: 'samma datum',
+  linked: 'länkad',
 };
 
 /** Human labels for the node kinds (Swedish UI). */
