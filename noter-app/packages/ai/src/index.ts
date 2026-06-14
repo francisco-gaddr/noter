@@ -50,4 +50,5 @@ export class AIAgent {
 export * from './hf';
 export * from './tools';
 export * from './toolArgs';
+export * from './agentRunner';
 export * from './mcp';

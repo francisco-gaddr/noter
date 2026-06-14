@@ -36,6 +36,12 @@ export interface Task {
   updatedAt: string;
   deleted?: boolean | string;
   position?: number;
+  /**
+   * AI delegation for this task. When `assignee === 'ai'` the agent runs the task
+   * at its dueDate. Stored as one structured field so the backend only adds a
+   * single (encrypted) column. See agentTasks.ts.
+   */
+  aiAgent?: import('./agentTasks').AiTaskDelegation | null;
 }
 
 export interface User {
