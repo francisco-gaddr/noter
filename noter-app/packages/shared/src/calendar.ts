@@ -42,25 +42,32 @@ export const rfcPriorityToTask = (n: unknown): 'low' | 'medium' | 'high' | null 
 };
 
 /**
- * Project the user's tasks down to the minimal calendar fields. Only tasks with a
- * valid due date are included. All-day when the due time is midnight (date-only).
+ * Project the user's tasks down to the minimal calendar fields. ALL non-deleted tasks
+ * are included — even undated ones, which belong in a CalDAV task app (VTODO) as a
+ * to-do with no due date. Undated tasks get an empty `start`; the ICS calendar feed
+ * (generateIcs / VEVENT, which needs a date) skips those, so calendar links stay
+ * dated-only while CalDAV shows everything. All-day when the due time is midnight.
  */
 export const buildCalendarProjection = (tasks: Task[]): CalendarFeedItem[] => {
   const out: CalendarFeedItem[] = [];
   for (const t of tasks || []) {
-    if (!t || !t.dueDate || t.deleted) continue;
-    const d = new Date(t.dueDate);
-    if (Number.isNaN(d.getTime())) continue;
+    if (!t || t.deleted) continue;
     const uid = String(t._id || t.clientId || '').trim();
     if (!uid) continue;
-    // All-day when there's no meaningful local time-of-day. For all-day events we
-    // anchor `start` to UTC-midnight of the LOCAL calendar date, so the ICS date
-    // value (computed in UTC downstream) never drifts to the previous/next day in
-    // another timezone. Timed events keep their exact UTC instant.
-    const allDay = d.getHours() === 0 && d.getMinutes() === 0 && d.getSeconds() === 0;
-    const start = allDay
-      ? new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())).toISOString()
-      : d.toISOString();
+    let start = '';
+    let allDay = true;
+    if (t.dueDate) {
+      const d = new Date(t.dueDate);
+      if (!Number.isNaN(d.getTime())) {
+        // All-day when there's no meaningful local time-of-day. For all-day we anchor
+        // `start` to UTC-midnight of the LOCAL date so the ICS date never drifts a day
+        // in another timezone. Timed tasks keep their exact UTC instant.
+        allDay = d.getHours() === 0 && d.getMinutes() === 0 && d.getSeconds() === 0;
+        start = allDay
+          ? new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())).toISOString()
+          : d.toISOString();
+      }
+    }
     const description = String((t as any).description || '').slice(0, 4000);
     const priority = taskPriorityToRfc((t as any).priority);
     out.push({

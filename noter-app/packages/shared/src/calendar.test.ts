@@ -7,14 +7,26 @@ const task = (over: Partial<Task>): Task => ({
 } as Task);
 
 describe('buildCalendarProjection', () => {
-  it('includes only tasks with a valid due date', () => {
+  it('includes ALL tasks; undated ones get an empty start (valid VTODO)', () => {
     const items = buildCalendarProjection([
       task({ _id: 'a', title: 'Has due', dueDate: '2026-07-01T00:00:00.000Z' }),
       task({ _id: 'b', title: 'No due', dueDate: null }),
       task({ _id: 'c', title: 'Bad due', dueDate: 'not-a-date' }),
     ]);
-    expect(items.map((i) => i.uid)).toEqual(['a']);
-    expect(items[0].title).toBe('Has due');
+    expect(items.map((i) => i.uid).sort()).toEqual(['a', 'b', 'c']);
+    expect(items.find((i) => i.uid === 'a')?.start).toBeTruthy();
+    expect(items.find((i) => i.uid === 'b')?.start).toBe('');
+    expect(items.find((i) => i.uid === 'c')?.start).toBe('');
+  });
+
+  it('generateIcs (calendar) still emits only dated tasks', () => {
+    const items = buildCalendarProjection([
+      task({ _id: 'a', dueDate: '2026-07-01T13:30:00.000Z' }),
+      task({ _id: 'b', dueDate: null }),
+    ]);
+    const ics = generateIcs(items);
+    expect(ics).toContain('UID:a@noter');
+    expect(ics).not.toContain('UID:b@noter');
   });
 
   it('marks local-midnight due dates as all-day and timed ones as not', () => {

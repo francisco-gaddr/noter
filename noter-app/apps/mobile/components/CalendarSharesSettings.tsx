@@ -24,7 +24,7 @@ export function CalendarSharesSettings() {
     const map = buildSecurityNoteMap((notes as any) || []);
     const set = new Set<string>(unlocked || []);
     return ((notes as any[]) || [])
-      .filter((n) => (n.type === 'task_list' || n.type === 'project') && isReadableWithLocks(map.get(n._id), map, set))
+      .filter((n) => n.type === 'task_list' && isReadableWithLocks(map.get(n._id), map, set))
       .map((n) => ({ id: String(n._id), name: String(n.title || 'Namnlös lista') }));
   }, [notes, unlocked]);
   const nameOf = (id: string) => lists.find((l) => l.id === id)?.name || 'Lista';
