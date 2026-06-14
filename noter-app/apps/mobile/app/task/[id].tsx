@@ -12,6 +12,7 @@ import { Note } from '@repo/shared';
 import { CreateTaskDto, UpdateTaskDto } from '@repo/shared';
 import { debounce } from 'lodash';
 import { useTranslation } from 'react-i18next';
+import { AiDelegationSection } from '@/components/AiDelegationSection';
 import { getReminderDefaultsForDueDate } from '@/services/tasks/reminderDefaults';
 
 type FormData = {
@@ -576,6 +577,12 @@ export default function TaskEditorScreen() {
             ))}
           </View>
         </View>
+
+        {!isNew && existingTask ? (
+          <View style={styles.section}>
+            <AiDelegationSection task={existingTask} />
+          </View>
+        ) : null}
       </ScrollView>
     </View>
   );

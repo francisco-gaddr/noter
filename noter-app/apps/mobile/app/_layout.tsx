@@ -115,6 +115,7 @@ import {
   registerBackgroundFetch,
   unregisterBackgroundFetch,
 } from '@/services/backgroundFetch';
+import { startAgentScheduler, runDueAgentTasks } from '@/services/ai/agentScheduler';
 import { Alert, View } from 'react-native';
 import { useRouter, useSegments } from 'expo-router';
 
@@ -178,13 +179,23 @@ function RootLayoutNav() {
         const store = useStore.getState();
         const before = (store.notes?.length || 0) + (store.tasks?.length || 0);
         await Promise.all([store.fetchNotes(), store.fetchTasks()]);
+        // Best-effort catch-up: run any AI tasks that came due while backgrounded.
+        const ran = await runDueAgentTasks().catch(() => 0);
         const after = (store.notes?.length || 0) + (store.tasks?.length || 0);
-        return after !== before ? 'new-data' : 'no-data';
+        return (after !== before || ran > 0) ? 'new-data' : 'no-data';
       } catch {
         return 'failed';
       }
     });
     void registerBackgroundFetch();
+  }, [token]);
+
+  // Foreground AI-task scheduler: precise runs while the app is open (background
+  // is best-effort above). Started/stopped with auth.
+  useEffect(() => {
+    if (!token) return;
+    const stop = startAgentScheduler();
+    return stop;
   }, [token]);
 
   useEffect(() => {
