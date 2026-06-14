@@ -196,6 +196,7 @@ const findItem = (feed: ICalendarFeed, uid: string): CalendarFeedItem | undefine
 const enqueueMutation = async (
   feed: ICalendarFeed,
   m: { uid: string; op: 'upsert' | 'delete'; data?: any },
+  req?: Request,
 ): Promise<void> => {
   const mutation = {
     id: randomBytes(8).toString('hex'),
@@ -210,6 +211,18 @@ const enqueueMutation = async (
     { _id: feed._id },
     { $push: { pendingMutations: { $each: [mutation], $slice: -500 } } },
   );
+  // Fast two-way: nudge the user's live clients to drain the queue immediately
+  // instead of waiting for the slow poll. The payload carries NO task content
+  // (just op + uid) — the client re-fetches and applies with the user's key. A
+  // missing io (or no connected client) is fine; the poll/focus drain is the
+  // fallback. Never throw out of the write path on an emit failure.
+  try {
+    const io = req?.app?.get('io');
+    const userId = String((feed as any).userId || '');
+    if (io && userId) {
+      io.to(`user:${userId}`).emit('calendar:mutation', { shareId: feed.shareId, uid: mutation.uid, op: mutation.op });
+    }
+  } catch { /* emit is best-effort */ }
 };
 
 // --- method handlers -------------------------------------------------------
@@ -328,7 +341,7 @@ const handlePut = async (req: Request, res: Response, feed: ICalendarFeed, dp: D
       priority: parsed?.priority || undefined,
       completed: parsed?.completed ?? undefined,
     },
-  });
+  }, req);
   // We optimistically echo a new etag; the client will reconcile on next push.
   const echoItem: CalendarFeedItem = {
     uid,
@@ -348,7 +361,7 @@ const handleDelete = async (req: Request, res: Response, feed: ICalendarFeed, dp
   if (dp.kind !== 'resource') { res.status(403).end(); return; }
   const uid = (dp.uid || '').trim();
   if (!uid) { res.status(400).end(); return; }
-  await enqueueMutation(feed, { uid, op: 'delete' });
+  await enqueueMutation(feed, { uid, op: 'delete' }, req);
   res.status(204).end();
 };
 

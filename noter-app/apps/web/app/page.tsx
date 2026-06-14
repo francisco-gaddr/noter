@@ -12,6 +12,7 @@ import { HTML5Backend } from 'react-dnd-html5-backend';
 import { loadHotkeys, matchesHotkey } from '../lib/hotkeys';
 import { restoreCryptoFromSession } from '../lib/crypto';
 import { pushCalendarFeed, drainCalendarMutations } from '../lib/calendarSubscription';
+import { socket } from '../services/socket';
 
 export default function Home() {
   const { initSocket, user, activeTab, isHydrated } = useStore();
@@ -25,16 +26,35 @@ export default function Home() {
   }, [tasks]);
 
   // Two-way CalDAV: pull any task changes made from an external CalDAV widget
-  // (Tasks.org / Reminders) and apply them with the user's key. Drains on login,
-  // on window focus, and on a slow interval. No-op unless CalDAV is enabled.
+  // (Tasks.org / Reminders) and apply them with the user's key. Drains INSTANTLY
+  // on the backend's `calendar:mutation` socket nudge (fired the moment an external
+  // client writes), plus on login, window focus, regaining connectivity, and a
+  // short fallback interval. No-op unless CalDAV is enabled.
   useEffect(() => {
     if (!user) return;
-    const drain = () => { void drainCalendarMutations(); };
-    drain();
-    const onFocus = () => drain();
+    let draining = false;
+    const drain = async () => {
+      if (draining) return;
+      draining = true;
+      try { await drainCalendarMutations(); } finally { draining = false; }
+    };
+    void drain();
+    const onFocus = () => void drain();
+    const onOnline = () => void drain();
+    const onVisible = () => { if (document.visibilityState === 'visible') void drain(); };
+    const onMutation = () => void drain();
     window.addEventListener('focus', onFocus);
-    const id = window.setInterval(drain, 90_000);
-    return () => { window.removeEventListener('focus', onFocus); window.clearInterval(id); };
+    window.addEventListener('online', onOnline);
+    document.addEventListener('visibilitychange', onVisible);
+    socket.on('calendar:mutation', onMutation);
+    const id = window.setInterval(() => void drain(), 30_000);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('online', onOnline);
+      document.removeEventListener('visibilitychange', onVisible);
+      socket.off('calendar:mutation', onMutation);
+      window.clearInterval(id);
+    };
   }, [user]);
   const [sidebarWidth, setSidebarWidth] = useState(256);
   const [isResizing, setIsResizing] = useState(false);

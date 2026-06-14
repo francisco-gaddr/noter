@@ -9,6 +9,7 @@ import { TaskBoard } from '@/components/TaskBoard';
 import { TaskTimeline } from '@/components/TaskTimeline';
 import { Task, priorityRank, isBlankTask, completedTasks as pickCompletedTasks, buildSecurityNoteMap, isReadableWithLocks } from '@repo/shared';
 import { pushCalendarFeed, drainCalendarMutations } from '@/services/calendarSubscription';
+import { getSocket } from '@/services/socket';
 import { orderBy } from 'lodash';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SvgUri } from 'react-native-svg';
@@ -94,6 +95,17 @@ export default function TasksScreen() {
       void drainCalendarMutations().catch(() => {});
     }, []),
   );
+
+  // Fast two-way: drain INSTANTLY when the backend signals an external CalDAV write
+  // (the `calendar:mutation` socket nudge), so a change made in Reminders/Tasks.org
+  // shows here in seconds rather than waiting for the next focus.
+  useEffect(() => {
+    const s = getSocket();
+    if (!s) return;
+    const onMutation = () => { void drainCalendarMutations().catch(() => {}); };
+    s.on('calendar:mutation', onMutation);
+    return () => { s.off('calendar:mutation', onMutation); };
+  }, []);
 
   // Shared pull-to-refresh with haptic + min-spin + reentrancy guard.
   const { refreshing: pullRefreshing, onRefresh: onPullRefresh } = useRefreshControl(

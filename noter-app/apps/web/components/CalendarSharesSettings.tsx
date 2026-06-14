@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { useStore } from '../stores/useStore';
-import { buildSecurityNoteMap, isReadableWithLocks } from '@repo/shared';
+import { listShareableTaskLists } from '@repo/shared';
 import {
   type Share, type MintedDavCredential,
   refreshShares, getCachedShares, createShare, updateShare, deleteShare, mintShareDav, revokeShareDav,
@@ -15,15 +15,15 @@ import {
  */
 export default function CalendarSharesSettings() {
   const notes = useStore((s) => s.notes);
+  const tasks = useStore((s) => s.tasks);
   const unlocked = useStore((s) => s.unlockedProtectedNoteIds);
 
-  const lists = React.useMemo(() => {
-    const map = buildSecurityNoteMap((notes as any) || []);
-    const set = new Set(unlocked || []);
-    return ((notes as any[]) || [])
-      .filter((n) => n.type === 'task_list' && isReadableWithLocks(map.get(n._id), map, set))
-      .map((n) => ({ id: String(n._id), name: String(n.title || 'Namnlös lista') }));
-  }, [notes, unlocked]);
+  // Shared, decrypt-aware, task-inference list selection (single source of truth so
+  // web + mobile + Tasks screen all agree on what counts as a shareable task-list).
+  const lists = React.useMemo(
+    () => listShareableTaskLists(notes as any, tasks as any, unlocked || []),
+    [notes, tasks, unlocked],
+  );
   const nameOf = (id: string) => lists.find((l) => l.id === id)?.name || 'Lista';
 
   const [shares, setShares] = React.useState<Share[]>(getCachedShares());

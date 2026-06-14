@@ -191,4 +191,62 @@ describe('CalDAV bridge (shares)', () => {
     expect(res.text).toContain('L1.ics');
     expect(res.text).not.toContain('task-1.ics');
   });
+
+  // The user's hard requirement: tasks with NO date/time must sync both ways too.
+  // An undated projection item: empty start, no due date.
+  const undatedItems = [
+    { uid: 'no-date-1', title: 'Uppgift utan deadline', start: '', allDay: true, completed: false },
+    { uid: 'dated-1', title: 'Med deadline', start: '2026-07-05T00:00:00.000Z', allDay: true, completed: false },
+  ];
+
+  it('serves an undated task as a VTODO with NO DUE line, alongside dated ones', async () => {
+    const m = await mintShareWithDav({ name: 'Allt', listIds: [], items: undatedItems });
+    const col = `/api/dav/${m.username}/cal/tasks/`;
+
+    // Both appear as resources (undated is NOT dropped).
+    const propfind = await (request(app) as any).propfind(col).auth(m.username, m.password).set('Depth', '1');
+    expect(propfind.status).toBe(207);
+    expect(propfind.text).toContain('no-date-1.ics');
+    expect(propfind.text).toContain('dated-1.ics');
+
+    // The undated VTODO carries a UID + SUMMARY but no DUE property.
+    const get = await request(app).get(`${col}no-date-1.ics`).auth(m.username, m.password);
+    expect(get.status).toBe(200);
+    expect(get.text).toContain('UID:no-date-1');
+    expect(get.text).toContain('SUMMARY:Uppgift utan deadline');
+    expect(get.text).not.toContain('DUE');
+
+    // The dated one DOES carry a DUE.
+    const getDated = await request(app).get(`${col}dated-1.ics`).auth(m.username, m.password);
+    expect(getDated.text).toContain('DUE');
+  });
+
+  it('accepts an external add of a brand-new UNDATED task (PUT without DUE) → upsert mutation', async () => {
+    const m = await mintShareWithDav({ name: 'Allt', listIds: [], items: undatedItems });
+    const col = `/api/dav/${m.username}/cal/tasks/`;
+    const vtodo =
+      'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VTODO\r\nUID:new-undated\r\n' +
+      'SUMMARY:Ny utan datum\r\nSTATUS:NEEDS-ACTION\r\nEND:VTODO\r\nEND:VCALENDAR\r\n';
+    const put = await request(app).put(`${col}new-undated.ics`).auth(m.username, m.password).type('text/calendar').send(vtodo);
+    expect([200, 201, 204]).toContain(put.status);
+    const drain = await request(app).get('/api/calendar/mutations').set(...AUTH);
+    const mut = drain.body.mutations.find((x: any) => x.uid === 'new-undated');
+    expect(mut.op).toBe('upsert');
+    expect(mut.data.summary).toBe('Ny utan datum');
+    expect(mut.data.due == null || mut.data.due === undefined).toBe(true); // stays undated
+  });
+
+  it('accepts adding a due date to a previously undated task (PUT with DUE) → upsert carries the due', async () => {
+    const m = await mintShareWithDav({ name: 'Allt', listIds: [], items: undatedItems });
+    const col = `/api/dav/${m.username}/cal/tasks/`;
+    const vtodo =
+      'BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VTODO\r\nUID:no-date-1\r\n' +
+      'SUMMARY:Uppgift utan deadline\r\nDUE;VALUE=DATE:20260710\r\nSTATUS:NEEDS-ACTION\r\nEND:VTODO\r\nEND:VCALENDAR\r\n';
+    const put = await request(app).put(`${col}no-date-1.ics`).auth(m.username, m.password).type('text/calendar').send(vtodo);
+    expect([200, 204]).toContain(put.status);
+    const drain = await request(app).get('/api/calendar/mutations').set(...AUTH);
+    const mut = drain.body.mutations.find((x: any) => x.uid === 'no-date-1');
+    expect(mut.op).toBe('upsert');
+    expect(String(mut.data.due)).toContain('2026-07-10');
+  });
 });

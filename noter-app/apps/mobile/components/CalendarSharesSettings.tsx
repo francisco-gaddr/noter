@@ -3,7 +3,7 @@ import { View, ScrollView, StyleSheet, Alert } from 'react-native';
 import { List, Text, Button, Dialog, Portal, TextInput, Checkbox, Divider, useTheme } from 'react-native-paper';
 import * as Clipboard from 'expo-clipboard';
 import { useStore } from '@/stores/useStore';
-import { buildSecurityNoteMap, isReadableWithLocks } from '@repo/shared';
+import { listShareableTaskLists } from '@repo/shared';
 import {
   type Share, type MintedDavCredential,
   refreshShares, getCachedShares, createShare, updateShare, deleteShare, mintShareDav, revokeShareDav,
@@ -18,15 +18,14 @@ import { CalDavCredentialDialog } from '@/components/CalDavCredentialDialog';
 export function CalendarSharesSettings() {
   const theme = useTheme();
   const notes = useStore((s: any) => s.notes);
+  const tasks = useStore((s: any) => s.tasks);
   const unlocked = useStore((s: any) => s.unlockedProtectedNoteIds);
 
-  const lists = useMemo(() => {
-    const map = buildSecurityNoteMap((notes as any) || []);
-    const set = new Set<string>(unlocked || []);
-    return ((notes as any[]) || [])
-      .filter((n) => n.type === 'task_list' && isReadableWithLocks(map.get(n._id), map, set))
-      .map((n) => ({ id: String(n._id), name: String(n.title || 'Namnlös lista') }));
-  }, [notes, unlocked]);
+  // Shared, decrypt-aware, task-inference list selection (single source of truth).
+  const lists = useMemo(
+    () => listShareableTaskLists(notes as any, tasks as any, unlocked || []),
+    [notes, tasks, unlocked],
+  );
   const nameOf = (id: string) => lists.find((l) => l.id === id)?.name || 'Lista';
 
   const [shares, setShares] = useState<Share[]>([]);

@@ -1,4 +1,14 @@
-const CACHE_NAME = 'noter-cache-v3';
+// Noter service worker.
+//
+// IMPORTANT — why this is network-first for navigations/code:
+// A previous version served the page HTML stale-while-revalidate. That meant the
+// browser kept loading an OLD HTML document, which pinned OLD hashed JS bundles,
+// so users ran stale code for many visits after every deploy — folders leaked
+// into notes, the CalDAV picker was empty, i18n keys showed, the timeout banner
+// fired. All four were the SAME root cause: stale cached code. This SW now always
+// fetches fresh HTML (and therefore fresh JS) when online, and only falls back to
+// cache when offline. Bump CACHE_NAME on any cache-shape change to purge old data.
+const CACHE_NAME = 'noter-cache-v4';
 const STATIC_ASSETS = [
   '/app/favicon.ico',
   '/app/manifest.json',
@@ -9,85 +19,81 @@ const STATIC_ASSETS = [
 self.addEventListener('install', (event) => {
   self.skipWaiting();
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS);
-    })
+    caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS).catch(() => {}))
   );
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME) {
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    }).then(() => clients.claim())
+    caches.keys()
+      .then((cacheNames) => Promise.all(
+        cacheNames.filter((name) => name !== CACHE_NAME).map((name) => caches.delete(name))
+      ))
+      .then(() => self.clients.claim())
   );
 });
 
+// Allow the page to tell a waiting SW to take over immediately.
+self.addEventListener('message', (event) => {
+  if (event.data === 'SKIP_WAITING') self.skipWaiting();
+});
+
+const isHashedStatic = (pathname) =>
+  pathname.startsWith('/_next/static/') ||
+  pathname.startsWith('/app/_next/static/') ||
+  /\.(png|jpg|jpeg|svg|gif|webp|woff2?)$/.test(pathname);
+
 self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
+  const { request } = event;
+  if (request.method !== 'GET') return;
 
-  // Ignore non-GET requests
-  if (event.request.method !== 'GET') return;
-
-  // Ignore socket.io
+  const url = new URL(request.url);
   if (url.pathname.includes('socket.io')) return;
 
-  // API Requests: Network First, Fallback to Offline JSON
+  // API: always network, never cache; synthesise an offline marker on failure so
+  // the client's own offline handling kicks in.
   if (url.pathname.startsWith('/api/')) {
     event.respondWith(
-      fetch(event.request)
-        .catch(() => {
-          return new Response(JSON.stringify({ offline: true, message: 'You are offline' }), {
-            headers: { 'Content-Type': 'application/json' }
-          });
+      fetch(request).catch(() =>
+        new Response(JSON.stringify({ offline: true, message: 'You are offline' }), {
+          headers: { 'Content-Type': 'application/json' },
         })
+      )
     );
     return;
   }
 
-  // Next.js Static Assets (_next/static) & Public Images: Cache First
-  // These are hashed, so they don't change.
-  if (url.pathname.startsWith('/_next/static/') || url.pathname.startsWith('/app/_next/static/') || url.pathname.match(/\.(png|jpg|jpeg|svg|gif|webp)$/)) {
+  // Hashed immutable static assets: cache-first is safe — the URL changes when the
+  // content changes, so a cached hit is always the right bytes.
+  if (isHashedStatic(url.pathname)) {
     event.respondWith(
-      caches.match(event.request).then((cachedResponse) => {
-        if (cachedResponse) return cachedResponse;
-        return fetch(event.request).then((response) => {
-            // Check if valid
-            if (!response || response.status !== 200) {
-                return response;
-            }
-            const responseToCache = response.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-                cache.put(event.request, responseToCache);
-            });
-            return response;
-        });
-      })
+      caches.match(request).then((cached) =>
+        cached || fetch(request).then((response) => {
+          if (response && response.status === 200) {
+            const copy = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+          }
+          return response;
+        })
+      )
     );
     return;
   }
 
-  // Other Requests (Pages, JSON data not in /api): Stale-While-Revalidate
+  // Navigations & everything else (HTML documents, non-hashed assets): NETWORK
+  // FIRST so fresh code always wins when online; fall back to cache only offline.
+  const isNavigation = request.mode === 'navigate' ||
+    (request.headers.get('accept') || '').includes('text/html');
+
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      const fetchPromise = fetch(event.request).then((networkResponse) => {
-        if (networkResponse && networkResponse.status === 200) {
-            const responseToCache = networkResponse.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-                cache.put(event.request, responseToCache);
-            });
+    fetch(request)
+      .then((response) => {
+        if (response && response.status === 200 && (isNavigation || response.type === 'basic')) {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
         }
-        return networkResponse;
-      }).catch(() => {
-          // If both fail, we might return nothing or a fallback page
-      });
-      return cachedResponse || fetchPromise;
-    })
+        return response;
+      })
+      .catch(() => caches.match(request).then((cached) => cached || Response.error()))
   );
 });
