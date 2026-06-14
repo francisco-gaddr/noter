@@ -33,6 +33,8 @@ export interface AiTaskDelegation {
   baseUrl?: string;
   /** Extra instructions beyond the task title/description. */
   instructions?: string;
+  /** How much data/search the agent may use (minimal/fast/standard/deep). */
+  contextLevel?: import('./contextLevels').ContextLevel;
   /**
    * Run on the always-on backend (Pi) instead of (only) the device. Opt-in. The
    * backend runs it at dueDate using the configured source/model — best for
@@ -87,6 +89,7 @@ export const parseAiDelegation = (raw: unknown): AiTaskDelegation | null => {
     localOnly: !!obj.localOnly,
     toolUse: obj.toolUse === undefined ? true : !!obj.toolUse,
     instructions: typeof obj.instructions === 'string' ? obj.instructions : undefined,
+    contextLevel: ['minimal', 'fast', 'standard', 'deep'].includes(obj.contextLevel) ? obj.contextLevel : undefined,
     runOnBackend: !!obj.runOnBackend,
     notify: obj.notify && typeof obj.notify === 'object'
       ? { onStart: !!obj.notify.onStart, onFinish: obj.notify.onFinish === undefined ? true : !!obj.notify.onFinish }

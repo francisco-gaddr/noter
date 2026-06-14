@@ -7,6 +7,7 @@ import {
   decrypt,
   normalizeNoteType,
   AGENT_MAX_STEPS,
+  contextLevelConfig,
   type AiTaskDelegation,
   type Note,
   type Task,
@@ -98,13 +99,20 @@ const buildToolExecutor = () => async (tool: string, args: Record<string, any>):
 
 const buildAgentSystem = (task: Task, delegation: AiTaskDelegation): string => {
   const notes: Note[] = Array.isArray(useStore.getState().notes) ? useStore.getState().notes : [];
-  const fmt = (type: string) => notes.filter((n) => normalizeNoteType(n.type) === type).slice(0, 50).map((n) => `${n.title || '(namnlös)'} [id:${n._id}]`).join(', ') || '(inga)';
+  const cl = contextLevelConfig(delegation.contextLevel);
+  const fmt = (type: string) => !cl.includeContainers ? '(utelämnat — låg kontextnivå)'
+    : (notes.filter((n) => normalizeNoteType(n.type) === type).slice(0, cl.maxContextItems).map((n) => `${n.title || '(namnlös)'} [id:${n._id}]`).join(', ') || '(inga)');
   const memoryProject = notes.find((n) => normalizeNoteType(n.type) === 'project' && (n.title || '').trim().toLowerCase() === AGENT_MEMORY_PROJECT_TITLE.toLowerCase());
   const memoryNotes = memoryProject ? notes.filter((n) => String(n.parentId) === String(memoryProject._id)) : [];
   const memoryBlock = memoryNotes.length ? `\nMinnen/instruktioner/regler (projekt "${AGENT_MEMORY_PROJECT_TITLE}"):\n${memoryNotes.map((n) => `- ${n.title}: ${(n.content || '').slice(0, 600)}`).join('\n')}` : '';
   let tz = 'UTC'; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { /* keep */ }
+  const levelHint = cl.level === 'minimal' ? 'KONTEXTNIVÅ minimal: svara direkt, läs inte databasen om det inte krävs.'
+    : cl.level === 'fast' ? 'KONTEXTNIVÅ lätt: använd verktyg sparsamt, föredra snabba enkla steg.'
+    : cl.allowVectorSearch ? 'KONTEXTNIVÅ djup: grundliga sökningar tillåtna när det behövs.'
+    : 'KONTEXTNIVÅ standard: verktyg vid behov, föredra billiga snabba steg.';
   return [
     'Du är en autonom AI-agent som utför en delegerad uppgift åt användaren.',
+    levelHint,
     'Arbeta i korta steg med tool calls i ```json {"tool","arguments"} ``` format. Wrappa ALDRIG fälten i en extra "args"-nivå.',
     'Verktyg: list_notes, get_note, list_projects, list_tasklists, list_tasks, get_task, create_note, update_note, create_task, update_task, complete_task, delete_task.',
     `Aktuell tid: ${new Date().toISOString()} (${tz}).`,

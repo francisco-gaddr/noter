@@ -23,6 +23,7 @@ import {
   type AiTaskDelegation,
   type Note,
   AGENT_MAX_STEPS,
+  contextLevelConfig,
 } from '@repo/shared';
 import { runAgentTask, type AgentAccess, type ChatMessage } from '@repo/ai';
 import { API_PROVIDERS, generateApiProviderResponse, type ApiProviderType } from './apiProviders';
@@ -137,10 +138,13 @@ const buildToolExecutor = () => async (tool: string, args: Record<string, any>):
 const buildAgentSystem = (task: Task, delegation: AiTaskDelegation, baseUrl: string): string => {
   const store = useStore.getState();
   const notes: Note[] = Array.isArray(store.notes) ? store.notes : [];
-  const containers = {
-    projects: notes.filter((n) => normalizeNoteType(n.type) === 'project').map((n): ToolContainer => ({ id: n._id, title: n.title })),
-    taskLists: notes.filter((n) => normalizeNoteType(n.type) === 'task_list').map((n): ToolContainer => ({ id: n._id, title: n.title })),
-  };
+  // Context level gates how much we inject (cheaper/faster for light jobs).
+  const cl = contextLevelConfig(delegation.contextLevel);
+  const cap = (arr: ToolContainer[]) => arr.slice(0, cl.maxContextItems);
+  const containers = cl.includeContainers ? {
+    projects: cap(notes.filter((n) => normalizeNoteType(n.type) === 'project').map((n): ToolContainer => ({ id: n._id, title: n.title }))),
+    taskLists: cap(notes.filter((n) => normalizeNoteType(n.type) === 'task_list').map((n): ToolContainer => ({ id: n._id, title: n.title }))),
+  } : { projects: [], taskLists: [] };
   // Agent memory: notes inside the "AI-agent" project act as memory/instructions/rules.
   const memoryProject = notes.find((n) => normalizeNoteType(n.type) === 'project' && (n.title || '').trim().toLowerCase() === AGENT_MEMORY_PROJECT_TITLE.toLowerCase());
   const memoryNotes = memoryProject ? notes.filter((n) => String(n.parentId) === String(memoryProject._id)) : [];
@@ -148,8 +152,16 @@ const buildAgentSystem = (task: Task, delegation: AiTaskDelegation, baseUrl: str
     ? `\n\nDina minnen/instruktioner/regler (från projektet "${AGENT_MEMORY_PROJECT_TITLE}"):\n${memoryNotes.map((n) => `- ${n.title}: ${(n.content || '').slice(0, 600)}`).join('\n')}`
     : '';
   const toolPrompt = buildToolSystemPrompt(baseUrl, [], containers);
+  const levelHint = cl.level === 'minimal'
+    ? 'KONTEXTNIVÅ minimal: svara direkt, undvik att läsa databasen om det inte uttryckligen krävs.'
+    : cl.level === 'fast'
+      ? 'KONTEXTNIVÅ lätt: använd verktyg sparsamt, föredra snabba enkla steg.'
+      : cl.allowVectorSearch
+        ? 'KONTEXTNIVÅ djup: du får göra grundliga sökningar när det behövs.'
+        : 'KONTEXTNIVÅ standard: använd verktyg vid behov, föredra billiga snabba steg.';
   return [
     'Du är en autonom AI-agent som utför en delegerad uppgift åt användaren.',
+    levelHint,
     'Arbeta i korta steg med tool calls. Läs bara det du behöver. Undvik upprepning.',
     'Bocka av uppgiften (complete_task / update_task completed=true) när målet är uppfyllt, annars planera nästa steg.',
     'Du kan skapa framtida uppgifter åt dig själv (create_task med dueDate) för uppföljning.',

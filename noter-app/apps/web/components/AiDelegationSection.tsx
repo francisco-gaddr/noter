@@ -5,7 +5,8 @@
  * run now, and see a transparent log of what the agent read/did last run.
  */
 import React, { useEffect, useState, useCallback } from 'react';
-import type { AiTaskDelegation, AiTaskSource, Task } from '@repo/shared';
+import type { AiTaskDelegation, AiTaskSource, Task, ContextLevel } from '@repo/shared';
+import { CONTEXT_LEVELS, contextLevelConfig } from '@repo/shared';
 import { API_PROVIDER_LIST } from '../services/ai/apiProviders';
 import { getDelegations, setDelegation, removeDelegation, getRunLog, type AgentRunLogEntry } from '../services/ai/agentDelegations';
 import { runAgentTaskNow } from '../services/ai/agentScheduler';
@@ -101,6 +102,13 @@ export const AiDelegationSection: React.FC<{ task: Task }> = ({ task }) => {
           <div>
             <label className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-300">Extra instruktioner (valfritt)</label>
             <textarea className={inputCls} rows={2} value={d.instructions ?? ''} onChange={(e) => patch({ instructions: e.target.value })} />
+          </div>
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-300">Kontextnivå</label>
+            <select className={inputCls} value={d.contextLevel ?? 'standard'} onChange={(e) => patch({ contextLevel: e.target.value as ContextLevel })}>
+              {CONTEXT_LEVELS.map((l) => <option key={l} value={l}>{contextLevelConfig(l).label}</option>)}
+            </select>
+            <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">{contextLevelConfig(d.contextLevel).description}</p>
           </div>
           <label className="flex items-center justify-between text-sm">
             <span>Endast lokalt (synka inte)</span>

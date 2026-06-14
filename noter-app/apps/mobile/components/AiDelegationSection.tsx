@@ -11,7 +11,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Text, Switch, SegmentedButtons, TextInput as PaperTextInput, Button, useTheme, Divider, ActivityIndicator } from 'react-native-paper';
-import type { AiTaskDelegation, AiTaskSource, Task } from '@repo/shared';
+import type { AiTaskDelegation, AiTaskSource, Task, ContextLevel } from '@repo/shared';
+import { CONTEXT_LEVELS, contextLevelConfig } from '@repo/shared';
 import { API_PROVIDER_LIST } from '@/services/ai/apiProviders';
 import { getDelegations, setDelegation, removeDelegation, getRunLog, type AgentRunLogEntry } from '@/services/ai/agentDelegations';
 import { runAgentTaskNow } from '@/services/ai/agentScheduler';
@@ -152,6 +153,17 @@ export const AiDelegationSection: React.FC<{ task: Task }> = ({ task }) => {
             dense
             style={{ marginTop: 8 }}
           />
+
+          <Text style={styles.label}>Kontextnivå</Text>
+          <SegmentedButtons
+            value={d.contextLevel ?? 'standard'}
+            onValueChange={(v) => patch({ contextLevel: v as ContextLevel })}
+            buttons={CONTEXT_LEVELS.map((l) => ({ value: l, label: contextLevelConfig(l).label }))}
+            density="small"
+          />
+          <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant, marginTop: 2 }}>
+            {contextLevelConfig(d.contextLevel).description}
+          </Text>
 
           <View style={[styles.row, { marginTop: 10 }]}>
             <Text>Endast lokalt (synka inte)</Text>
