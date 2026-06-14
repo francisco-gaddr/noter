@@ -11,6 +11,7 @@ import { FaBars, FaCog, FaPlus, FaRegSmile, FaComments, FaCopy } from 'react-ico
 import * as FaIcons from 'react-icons/fa';
 import { IconPicker } from './IconPicker';
 import { getApiBaseUrl } from '../services/api';
+import { resolveAuthToken as apiResolveAuthToken, resolveGraphqlUrl as apiResolveGraphqlUrl, graphqlRequest as apiGraphqlRequest } from '../services/apiClient';
 import { shouldStopToolIteration, toToolCallKeys, toToolIterationSignature } from '../services/ai/toolChain';
 import { ApiProviderType, API_PROVIDERS, API_PROVIDER_LIST, resolveChatCompletionsUrl, streamApiProviderResponse } from '../services/ai/apiProviders';
 import { getUsageSnapshot, recordUsage, type UsageSnapshot } from '../services/ai/usageTracker';
@@ -1886,67 +1887,13 @@ export const AISidebar = () => {
     return { calls, cleaned };
   };
 
-  const resolveAuthToken = async () => {
-    // 1. Try Zustand store state directly to avoid closure staleness
-    const stateToken = useStore.getState().token;
-    if (stateToken) return stateToken;
-    
-    // 2. Try localStorage/sessionStorage
-    if (typeof window !== 'undefined') {
-        const local = localStorage.getItem('token') || localStorage.getItem('auth_token') || sessionStorage.getItem('token') || sessionStorage.getItem('auth_token');
-        if (local) return local;
-    }
+  // Auth-token + GraphQL-URL resolution now live in services/apiClient (single
+  // source for REST + GraphQL auth/URL). These thin wrappers keep the call sites
+  // here unchanged.
+  const resolveAuthToken = () => apiResolveAuthToken();
+  const resolveGraphqlUrl = () => apiResolveGraphqlUrl();
 
-    // 3. Try Electron settings (async) via bridge
-    if (isElectron && (window as any).mlc?.getSetting) {
-        const stored = await (window as any).mlc.getSetting('token');
-        if (stored) return stored;
-    }
-    
-    // 4. Try legacy setting
-    const legacy = await getStoredValue('auth_token');
-    return legacy || '';
-  };
-
-  const resolveGraphqlUrl = () => {
-    const cleaned = getApiBaseUrl().trim().replace(/^[`'"]+|[`'"]+$/g, '').trim().replace(/\/+$/, '');
-    // Ensure we don't double up on /api or /graphql
-    let base = cleaned;
-    if (base.endsWith('/graphql')) base = base.replace(/\/graphql$/, '');
-    
-    // If we have a full URL like https://daylited.com/app/api, we want https://daylited.com/api/graphql
-    if (base.includes('/app/api')) {
-        return `${base.replace('/app/api', '/api')}/graphql`;
-    }
-    
-    // Default fallback
-    if (base.endsWith('/api')) return `${base}/graphql`;
-    return `${base}/api/graphql`;
-  };
-
-  const graphQLRequest = async (query: string, variables: Record<string, any>) => {
-    let authToken = await resolveAuthToken();
-    if (authToken) {
-        authToken = authToken.trim().replace(/^["']|["']$/g, '');
-    }
-    
-    const url = resolveGraphqlUrl();
-
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {})
-      },
-      body: JSON.stringify({ query, variables })
-    });
-    
-    const json = await res.json();
-    if (json.errors?.length) {
-        throw new Error(json.errors[0]?.message || 'GraphQL error');
-    }
-    return json.data;
-  };
+  const graphQLRequest = (query: string, variables: Record<string, any>) => apiGraphqlRequest(query, variables);
 
   const resolveMcpUrl = () => {
     const cleaned = getApiBaseUrl().trim().replace(/^[`'"]+|[`'"]+$/g, '').trim().replace(/\/+$/, '');
