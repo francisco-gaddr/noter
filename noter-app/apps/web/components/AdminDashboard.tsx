@@ -3,7 +3,7 @@
 import React from 'react';
 import { useStore } from '../stores/useStore';
 import { AdminCleanup } from './AdminCleanup';
-import { computeTaskInsights, computeNoteInsights, toolUsageLabel, type ToolUsageRow } from '@repo/shared';
+import { computeTaskInsights, computeNoteInsights, computeProductivityStats, computeAgentStats, toolUsageLabel, type ToolUsageRow } from '@repo/shared';
 import { getApiBaseUrl } from '../services/api';
 import { getToolUsageRows, getAllUsageRows } from '../services/ai/usageTracker';
 import type { UsageSnapshot } from '../services/ai/usageTracker';
@@ -52,6 +52,8 @@ export const AdminDashboard: React.FC = () => {
 
   const taskInsights = React.useMemo(() => computeTaskInsights(tasks as any, new Date()), [tasks]);
   const noteInsights = React.useMemo(() => computeNoteInsights(notes as any), [notes]);
+  const productivity = React.useMemo(() => computeProductivityStats(tasks as any, new Date()), [tasks]);
+  const agentStats = React.useMemo(() => computeAgentStats(tasks as any), [tasks]);
   const [toolRows, setToolRows] = React.useState<ToolUsageRow[]>([]);
   const [usageRows, setUsageRows] = React.useState<UsageSnapshot[]>([]);
   const refreshAiStats = React.useCallback(() => {
@@ -162,6 +164,56 @@ export const AdminDashboard: React.FC = () => {
           </div>
         )}
       </div>
+
+      <div data-testid="admin-productivity">
+        <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Produktivitet (mätbar, denna enhet)</div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <Stat label="Klara 7 dgr" value={productivity.completedLast7} tone="ok" />
+          <Stat label="Klara 30 dgr" value={productivity.completedLast30} />
+          <Stat label="Skapade 7 dgr" value={productivity.createdLast7} />
+          <Stat label="Svit (dagar)" value={productivity.currentStreakDays} tone={productivity.currentStreakDays > 0 ? 'ok' : 'default'} />
+          <Stat label="Snitt/aktiv dag" value={productivity.avgPerActiveDay ? productivity.avgPerActiveDay.toFixed(1) : '0'} />
+          <Stat label="Genomflöde 7d" value={`${Math.round(productivity.throughputRatio7 * 100)}%`} tone={productivity.throughputRatio7 >= 1 ? 'ok' : 'default'} />
+        </div>
+        <div className="mt-2 flex items-end gap-1 h-12" aria-label="Klara uppgifter per dag (7 dagar)">
+          {productivity.perDay.map((d) => {
+            const max = Math.max(1, ...productivity.perDay.map((x) => x.completed));
+            return (
+              <div key={d.date} className="flex-1 flex flex-col items-center justify-end" title={`${d.date}: ${d.completed}`}>
+                <div className="w-full rounded-t bg-blue-500/70" style={{ height: `${(d.completed / max) * 100}%`, minHeight: d.completed ? 4 : 1 }} />
+                <span className="text-[9px] text-gray-400 mt-0.5">{d.date.slice(8)}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {agentStats.delegated > 0 && (
+        <div data-testid="admin-orchestration">
+          <div className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">AI-orkestrering (delegerade uppgifter)</div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <Stat label="Delegerade" value={agentStats.delegated} />
+            <Stat label="Klara (AI)" value={agentStats.completedByAi} tone="ok" />
+            <Stat label="Väntar" value={agentStats.scheduled} />
+            <Stat label="Fel" value={agentStats.errors} tone={agentStats.errors > 0 ? 'warn' : 'default'} />
+            <Stat label="Körningar totalt" value={agentStats.totalRuns} />
+            <Stat label="Endast lokalt" value={agentStats.localOnly} />
+            <Stat label="På servern (Pi)" value={agentStats.onBackend} />
+            <Stat label="Källor" value={`L${agentStats.bySource.local}·H${agentStats.bySource.hermes}·A${agentStats.bySource.api}`} />
+          </div>
+          {agentStats.byModel.length > 0 && (
+            <div className="mt-2 rounded-lg border border-gray-200 dark:border-gray-700 p-2 bg-white dark:bg-gray-800">
+              <div className="text-[11px] font-semibold text-gray-600 dark:text-gray-300 mb-1">Modeller i bruk</div>
+              {agentStats.byModel.slice(0, 10).map((m) => (
+                <div key={m.model} className="flex justify-between text-[11px] py-0.5">
+                  <span className="text-gray-700 dark:text-gray-200 truncate">{m.model}</span>
+                  <span className="text-gray-500 dark:text-gray-400 ml-2 tabular-nums">{m.count}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <AdminCleanup />
     </div>

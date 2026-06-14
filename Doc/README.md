@@ -18,6 +18,7 @@ Den här mappen är arbetsdokumentationen för det aktiva workspace: `noter-app/
 | Hur fungerar AI- och modellflöden i app/Electron/web? | [`App AI.md`](./App%20AI.md) |
 | Hur fungerar AI tool use och GraphQL-kontraktet? | [`Tool Calls.md`](./Tool%20Calls.md) |
 | Vad är nuvarande säkerhetsstatus för AI/MCP? | [`AI Platform Security & Stability Review.md`](./AI%20Platform%20Security%20%26%20Stability%20Review.md) |
+| Hur fungerar admin, AI-orkestrering och inställningar (+ mätbarhet)? | [`admin-orchestration-and-settings.md`](./admin-orchestration-and-settings.md) |
 | Vad är status för Firefox-extensionen? | [`../noter-app/apps/firefox-extension/PROGRESS.md`](../noter-app/apps/firefox-extension/PROGRESS.md) |
 
 ## Dokumentkategorier

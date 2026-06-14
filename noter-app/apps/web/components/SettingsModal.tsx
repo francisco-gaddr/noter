@@ -3,7 +3,7 @@
 import React from 'react';
 import { useStore } from '../stores/useStore';
 import { useTranslation } from 'react-i18next';
-import { clearNotesAndTasks } from '../services/db';
+import { clearNotesAndTasks, db } from '../services/db';
 import ApiUrlModal from './ApiUrlModal';
 import { FaCog } from 'react-icons/fa';
 import { WHATS_NEW_ENTRIES, hasActiveDataKey } from '@repo/shared';
@@ -21,6 +21,21 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const { language, setLanguage, autoLockTimeout, setAutoLockTimeout } = useStore();
   const fetchNotes = useStore((s) => s.fetchNotes);
   const fetchTasks = useStore((s) => s.fetchTasks);
+  const isOffline = useStore((s) => s.isOffline);
+  const syncOfflineChanges = useStore((s) => s.syncOfflineChanges);
+  const [pendingCount, setPendingCount] = React.useState<number | null>(null);
+  const [syncing, setSyncing] = React.useState(false);
+  const refreshPending = React.useCallback(async () => {
+    try {
+      const [n, t2] = await Promise.all([db.getPendingSyncNotes(), db.getPendingSyncTasks()]);
+      setPendingCount(n.length + t2.length);
+    } catch { setPendingCount(null); }
+  }, []);
+  React.useEffect(() => { if (isOpen) void refreshPending(); }, [isOpen, refreshPending]);
+  const handleSyncNow = async () => {
+    setSyncing(true);
+    try { await syncOfflineChanges(); await Promise.all([fetchNotes(), fetchTasks()]); } finally { setSyncing(false); await refreshPending(); }
+  };
   const setActiveTab = useStore((s) => s.setActiveTab);
   const selectNote = useStore((s) => s.selectNote);
   const { t } = useTranslation();
@@ -120,6 +135,28 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             <option value="sv">Svenska</option>
             <option value="en">English</option>
           </select>
+        </div>
+
+        <div className="mt-4">
+          <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">Synkning</h3>
+          <div className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+            <div className="text-xs text-gray-600 dark:text-gray-300">
+              {isOffline
+                ? 'Offline — ändringar synkas automatiskt när nätet återkommer'
+                : pendingCount && pendingCount > 0
+                  ? `${pendingCount} ändringar väntar på synk`
+                  : 'Allt är synkat'}
+            </div>
+            <button
+              type="button"
+              onClick={handleSyncNow}
+              disabled={syncing || isOffline}
+              className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm disabled:opacity-50"
+              data-testid="settings-sync-now"
+            >
+              {syncing ? 'Synkar…' : 'Synka nu'}
+            </button>
+          </div>
         </div>
 
         <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">

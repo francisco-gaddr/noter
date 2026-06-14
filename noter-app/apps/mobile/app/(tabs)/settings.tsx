@@ -14,7 +14,7 @@ import { clearLocalData, clearNotesLocal, clearTasksLocal, clearModelsLocal, cle
 import { deleteModel as deleteModelFile } from '@/services/ai/modelService';
 import { enrollOrUnlockCrypto, changeCryptoPassword } from '@/services/crypto';
 import { hasActiveDataKey } from '@repo/shared';
-import { AdminCleanup } from '@/components/AdminCleanup';
+import { AdminDashboard } from '@/components/AdminDashboard';
 import { EmbeddingsSettings } from '@/components/EmbeddingsSettings';
 
 export default function SettingsScreen() {
@@ -520,9 +520,9 @@ export default function SettingsScreen() {
 
       <Divider />
 
-      <List.Section title="Admin & städning">
+      <List.Section title="Admin & orkestrering">
         <View style={{ paddingHorizontal: 16 }}>
-          <AdminCleanup />
+          <AdminDashboard />
         </View>
       </List.Section>
 
