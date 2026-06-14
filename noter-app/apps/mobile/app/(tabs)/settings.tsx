@@ -31,7 +31,8 @@ export default function SettingsScreen() {
   const isOffline = useStore((s) => s.isOffline);
   const isSyncingOffline = useStore((s) => s.isSyncingOffline);
   const paperTheme = useTheme();
-  const touchRippleColor = 'rgba(33, 150, 243, 0.22)';
+  // Clearly-visible row press feedback (stronger alpha so the tapped row is obvious).
+  const touchRippleColor = 'rgba(33, 150, 243, 0.40)';
   const router = useRouter();
   const { width } = useWindowDimensions();
   const [language, setLanguage] = useState<'sv' | 'en'>('sv');

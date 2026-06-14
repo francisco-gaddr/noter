@@ -28,6 +28,11 @@ export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
       'Enklare & stabilare: det gamla MLC-konverteringsflödet är borttaget. Nedladdning går rakt till en GGUF-fil; modellen körs med sin egen chattmall och streamar svar token-för-token',
       'Integritet: din lokala chatt lämnar aldrig enheten; nedladdade modeller och AI-inställningar lagras lokalt och allt innehåll förblir krypterat i alla ändar',
       'Tydligt besked: inställningarna visar nu om den lokala motorn är inbyggd i bygget (EAS/dev-klient) eller om du bör använda en Hermes-källa tills vidare',
+      'Graf: zooma, panorera och vrid grafen med fingrarna (dubbeltryck återställer); graf/lista-växlingen ligger nu på samma rad som filter och semantisk sök; nya graf-inställningar (etiketter, nodstorlek, härledda relationer) gömda bakom ett eget val',
+      'Graf (listvy): filtervalen är inte längre hoptryckta — rutorna har full höjd och är lätta att läsa',
+      'Anteckningar: headern är nu en kompakt egen rad (inte längre Material-appbarens minsta höjd) så mer av sidan syns; uppgiftsvyns försenade/aktiva/%-rad är borttagen',
+      'Tydligare tryck-effekt på rader i inställningar och i AI-sektionens projekt/chattar så du ser exakt vilken rad du tryckte på',
+      'Bakgrunds-AI: uppgifter som blivit klara att köra medan appen var stängd körs nu direkt när du öppnar appen igen (utöver de periodiska bakgrundskörningarna)',
     ],
   },
   {

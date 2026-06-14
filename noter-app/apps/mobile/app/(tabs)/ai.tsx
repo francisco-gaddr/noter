@@ -249,8 +249,9 @@ export default function AIScreen() {
   // navigating chat ↔ project list. Stored encrypted, scoped per user.
   const projectSelInitRef = useRef(false);
   const ALL_PROJECTS_SENTINEL = '__ALL__';
-  // Visible press ripple for list rows in the AI section (parity with settings rows).
-  const ROW_RIPPLE = 'rgba(33, 150, 243, 0.22)';
+  // Clearly-visible press ripple for list rows in the AI section (parity with settings
+  // rows). Stronger alpha so it's obvious which row was tapped on both iOS and Android.
+  const ROW_RIPPLE = 'rgba(33, 150, 243, 0.40)';
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const [projectDialogVisible, setProjectDialogVisible] = useState(false);
   const [projectDialogMode, setProjectDialogMode] = useState<'create' | 'edit'>('edit');

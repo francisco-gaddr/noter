@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { StyleSheet, View, TextInput, Alert, KeyboardAvoidingView, Platform, Modal, ScrollView, Keyboard, Pressable, ActivityIndicator } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { Appbar, useTheme, Text, Menu, Button, Chip } from 'react-native-paper';
+import { useTheme, Text, Menu, Button, Chip, IconButton } from 'react-native-paper';
 import { FontAwesome5 } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useStore } from '@/stores/useStore';
@@ -488,10 +488,12 @@ export default function NoteEditorScreen() {
     return (
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
         <Stack.Screen options={{ headerShown: false }} />
-        <Appbar.Header>
-          <Appbar.BackAction onPress={() => router.back()} />
-          <Appbar.Content title={t('note.locked')} />
-        </Appbar.Header>
+        <View style={{ paddingTop: insets.top, backgroundColor: theme.colors.elevation.level2 }}>
+          <View style={styles.editorHeaderRow}>
+            <IconButton icon="arrow-left" size={22} style={styles.headerIcon} onPress={() => router.back()} />
+            <Text variant="titleMedium" style={{ flex: 1, marginLeft: 4 }} numberOfLines={1}>{t('note.locked')}</Text>
+          </View>
+        </View>
         <View style={styles.lockedContainer}>
           <Text variant="headlineSmall" style={{ marginBottom: 16 }}>
             {blockingLockedAncestor && existingNote && blockingLockedAncestor._id !== existingNote._id
@@ -521,16 +523,17 @@ export default function NoteEditorScreen() {
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <Stack.Screen options={{ headerShown: false }} />
-      <Appbar.Header
-        statusBarHeight={insets.top}
-        // Compact header so it doesn't steal vertical space from the note content.
-        style={{ height: insets.top + 38, paddingBottom: 0, paddingTop: 0, marginBottom: 0 }}
-      >
-        <Appbar.BackAction onPress={() => router.back()} size={22} />
+      {/* Custom compact header: a plain status-bar spacer + a fixed 40pt row. This is
+          deliberately NOT Appbar.Header — Paper's Appbar carries a Material min-height
+          (~56pt) plus its own status-bar padding, which made the header tall regardless
+          of the height override. A hard-height View gives an exact, minimal header. */}
+      <View style={{ paddingTop: insets.top, backgroundColor: theme.colors.elevation.level2 }}>
+       <View style={styles.editorHeaderRow}>
+        <IconButton icon="arrow-left" size={22} style={styles.headerIcon} onPress={() => router.back()} />
         {icon && (
           <Pressable
             onLongPress={() => setShowIconPicker(true)}
-            style={({pressed}) => ({ justifyContent: 'center', marginLeft: 4, opacity: pressed ? 0.7 : 1 })}
+            style={({pressed}) => ({ justifyContent: 'center', marginLeft: 2, opacity: pressed ? 0.7 : 1 })}
           >
             <FontAwesome5 name={icon.replace(/^Fa/, '').toLowerCase()} size={18} color={iconColor || theme.colors.onSurface} />
           </Pressable>
@@ -539,10 +542,11 @@ export default function NoteEditorScreen() {
             ref={titleInputRef}
             style={{
                 flex: 1,
-                fontSize: 17,
+                fontSize: 16,
                 color: theme.colors.onSurface,
                 fontWeight: 'bold',
-                marginLeft: 8,
+                marginLeft: 6,
+                paddingVertical: 0,
                 backgroundColor: 'transparent'
             }}
             value={title}
@@ -550,11 +554,11 @@ export default function NoteEditorScreen() {
             placeholder={t('common.title')}
             placeholderTextColor={theme.colors.onSurfaceDisabled}
         />
-        {isSaving && <ActivityIndicator size="small" color={theme.colors.primary} style={{ marginRight: 8 }} />}
+        {isSaving && <ActivityIndicator size="small" color={theme.colors.primary} style={{ marginRight: 6 }} />}
         <Menu
           visible={showMenu}
           onDismiss={() => setShowMenu(false)}
-          anchor={<Appbar.Action icon="dots-vertical" onPress={() => {
+          anchor={<IconButton icon="dots-vertical" size={22} style={styles.headerIcon} onPress={() => {
             setShowMenu(false);
             setTimeout(() => setShowMenu(true), 0);
           }} />}
@@ -641,8 +645,9 @@ export default function NoteEditorScreen() {
             <Menu.Item onPress={handleDelete} title={t('common.delete')} leadingIcon="delete" titleStyle={{ color: theme.colors.error }} />
           )}
         </Menu>
-        <Appbar.Action icon="check" onPress={handleManualSave} disabled={isSaving} />
-      </Appbar.Header>
+        <IconButton icon="check" size={22} style={styles.headerIcon} onPress={handleManualSave} disabled={isSaving} />
+       </View>
+      </View>
 
       <KeyboardAvoidingView
         style={styles.editorShell}
@@ -838,6 +843,16 @@ export default function NoteEditorScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  // Fixed, minimal header row (40pt) — see the compact-header note in the JSX.
+  editorHeaderRow: {
+    height: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 2,
+  },
+  headerIcon: {
+    margin: 0,
   },
   editorShell: {
     flex: 1,

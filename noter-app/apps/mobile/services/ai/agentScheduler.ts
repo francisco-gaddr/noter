@@ -18,6 +18,7 @@ import { runScheduledAgentTask } from './agentExecutor';
 
 let running = false;          // single-flight guard for an active agent run
 let timer: ReturnType<typeof setInterval> | null = null;
+let appStateSub: { remove: () => void } | null = null;
 
 const POLL_MS = 30_000;
 
@@ -78,9 +79,16 @@ export const startAgentScheduler = (): (() => void) => {
   timer = setInterval(() => {
     if (AppState.currentState === 'active') void runDueAgentTasks();
   }, POLL_MS);
+  // Immediate catch-up the moment the app comes back to the foreground, so tasks
+  // that came due while we were backgrounded (where OS wake-ups are best-effort and
+  // ~15 min apart) run right away instead of waiting for the next 30s poll tick.
+  appStateSub = AppState.addEventListener('change', (state) => {
+    if (state === 'active') void runDueAgentTasks();
+  });
   return stopAgentScheduler;
 };
 
 export const stopAgentScheduler = (): void => {
   if (timer) { clearInterval(timer); timer = null; }
+  if (appStateSub) { appStateSub.remove(); appStateSub = null; }
 };
