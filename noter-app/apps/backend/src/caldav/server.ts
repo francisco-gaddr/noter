@@ -146,6 +146,8 @@ const collectionPropMap = (feed: ICalendarFeed, user: string): Record<string, st
     'sync-token': `<d:sync-token>${ctag}</d:sync-token>`,
     'calendar-color': `<ical:calendar-color>${CAL_COLOR}</ical:calendar-color>`,
     'current-user-principal': `<d:current-user-principal><d:href>${principalHref(user)}</d:href></d:current-user-principal>`,
+    // Apple sometimes asks for the home-set on the collection too; answer it.
+    'calendar-home-set': `<c:calendar-home-set><d:href>${homeHref(user)}</d:href></c:calendar-home-set>`,
     'current-user-privilege-set': PRIVILEGES,
     'supported-report-set': SUPPORTED_REPORTS,
     'supported-calendar-data': '<c:supported-calendar-data><c:calendar-data content-type="text/calendar" version="2.0"/></c:supported-calendar-data>',
@@ -372,6 +374,19 @@ caldavRouter.use(express.text({ type: () => true, limit: '1mb' }));
 caldavRouter.use(async (req: Request, res: Response): Promise<void> => {
   const method = req.method.toUpperCase();
 
+  // Lightweight access log (CalDAV is low-traffic) — invaluable for diagnosing
+  // client-specific discovery quirks (e.g. which path/method a client probes).
+  res.on('finish', () => {
+    logger.info('caldav', {
+      method,
+      path: req.path,
+      status: res.statusCode,
+      hasAuth: !!req.headers['authorization'],
+      depth: req.headers['depth'],
+      ua: req.headers['user-agent'],
+    });
+  });
+
   // Operator kill-switch: when CalDAV is disabled the whole channel goes dark
   // (no discovery, no auth prompt) — existing feeds remain stored for instant re-enable.
   if (!isCaldavEnabled()) { res.status(404).end(); return; }
@@ -394,7 +409,10 @@ caldavRouter.use(async (req: Request, res: Response): Promise<void> => {
   // Basic auth → resolve the feed for this credential.
   const creds = parseBasicAuth(req.headers['authorization']);
   const requireAuth = (): void => {
-    res.setHeader('WWW-Authenticate', 'Basic realm="Noter CalDAV", charset="UTF-8"');
+    // Plain `Basic realm="..."` only — macOS/iOS CalDAV mishandles the RFC 7617
+    // `charset="UTF-8"` auth-param and then never sends credentials ("Unable to
+    // verify account name or password"). DAVx5/Android tolerate it; Apple does not.
+    res.setHeader('WWW-Authenticate', 'Basic realm="Noter"');
     res.setHeader('DAV', DAV_HEADER);
     res.status(401).end();
   };
