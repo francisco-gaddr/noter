@@ -8,7 +8,8 @@ import TaskList from '@/components/TaskList';
 import { TaskBoard } from '@/components/TaskBoard';
 import { TaskTimeline } from '@/components/TaskTimeline';
 import { Task, priorityRank, isBlankTask, completedTasks as pickCompletedTasks, buildSecurityNoteMap, isReadableWithLocks } from '@repo/shared';
-import { pushCalendarFeed, createCalendarSubscription, revokeCalendarSubscription, getCalendarUrl, drainCalendarMutations, createDavCredential, revokeDavCredential, getDavServerUrl } from '@/services/calendarSubscription';
+import { pushCalendarFeed, createCalendarSubscription, revokeCalendarSubscription, getCalendarUrl, drainCalendarMutations, createDavCredential, revokeDavCredential, type DavCredential } from '@/services/calendarSubscription';
+import { CalDavCredentialDialog } from '@/components/CalDavCredentialDialog';
 import * as Clipboard from 'expo-clipboard';
 import { orderBy } from 'lodash';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -380,21 +381,18 @@ export default function TasksScreen() {
     Alert.alert(t('tasks.calendarRevoked', 'Inaktiverad'), t('tasks.calendarRevokedBody', 'Kalenderlänken för den här listan är inaktiverad.'));
   };
 
-  // Per-list CalDAV (two-way). Mints a revocable credential and shows it ONCE.
+  // Per-list CalDAV (two-way). Mints a revocable credential and shows it ONCE in a
+  // dialog where each field (server/username/password) has its own copy button.
+  const [davCred, setDavCred] = useState<DavCredential | null>(null);
+  const [davDialogVisible, setDavDialogVisible] = useState(false);
   const handleEnableListDav = async () => {
     if (!selectedListId) return;
     setCalMenuVisible(false);
     setCalBusy(true);
     try {
       const cred = await createDavCredential(selectedListId, 'Noter-lista');
-      Alert.alert(
-        t('tasks.caldavTitle', 'CalDAV aktiverat'),
-        `Server: ${getDavServerUrl()}\nAnvändarnamn: ${cred.username}\nLösenord: ${cred.password}\n\nLägg till i Påminnelser (Mac/iOS) eller Tasks.org (Android). Endast den här listan delas. Spara lösenordet — det visas bara nu.`,
-        [
-          { text: t('common.copy', 'Kopiera lösenord'), onPress: () => Clipboard.setStringAsync(cred.password || '') },
-          { text: 'OK' },
-        ],
-      );
+      setDavCred(cred);
+      setDavDialogVisible(true);
     } catch (e: any) {
       Alert.alert(t('common.error'), e?.message || 'Kunde inte aktivera CalDAV.');
     } finally {
@@ -730,6 +728,12 @@ export default function TasksScreen() {
           />
         )}
       </Portal>
+      <CalDavCredentialDialog
+        visible={davDialogVisible}
+        credential={davCred}
+        scopeLabel="Endast den här uppgiftslistan delas"
+        onDismiss={() => setDavDialogVisible(false)}
+      />
     </View>
   );
 }

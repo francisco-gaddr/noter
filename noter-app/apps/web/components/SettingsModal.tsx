@@ -87,7 +87,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     setDavCred(null); setDavActive(false);
     setDavMsg('CalDAV är inaktiverat. Befintliga kopplingar slutar fungera direkt.');
   };
-  const copyText = async (v: string) => { try { await navigator.clipboard.writeText(v); setDavMsg('Kopierat.'); } catch { /* ignore */ } };
+  const copyText = async (v: string, label?: string) => { try { await navigator.clipboard.writeText(v); setDavMsg(label ? `Kopierat: ${label}` : 'Kopierat.'); } catch { /* ignore */ } };
   const setActiveTab = useStore((s) => s.setActiveTab);
   const selectNote = useStore((s) => s.selectNote);
   const { t } = useTranslation();
@@ -279,7 +279,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   <div key={label} className="flex items-center gap-2">
                     <span className="w-40 shrink-0 text-gray-500 dark:text-gray-400">{label}</span>
                     <code className="flex-1 break-all rounded bg-gray-100 dark:bg-gray-800 px-2 py-1">{value}</code>
-                    <button type="button" onClick={() => copyText(String(value))} className="px-2 py-1 rounded border border-gray-300 dark:border-gray-700">Kopiera</button>
+                    <button type="button" onClick={() => copyText(String(value), String(label))} className="px-2 py-1 rounded border border-gray-300 dark:border-gray-700">Kopiera</button>
                   </div>
                 ))}
                 <p className="text-amber-600 dark:text-amber-400">Spara lösenordet nu — det kan inte visas igen. Förlorat lösenord? Skapa ett nytt.</p>

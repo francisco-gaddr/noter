@@ -641,7 +641,7 @@ export default function TaskList() {
                             <div key={label} className="flex items-center gap-2">
                                 <span className="w-36 shrink-0 text-gray-500 dark:text-gray-400">{label}</span>
                                 <code className="flex-1 break-all rounded bg-gray-100 dark:bg-gray-800 px-2 py-0.5">{value}</code>
-                                <button onClick={() => { try { navigator.clipboard.writeText(value); } catch {} }} className="px-2 py-0.5 rounded border border-gray-300 dark:border-gray-700">Kopiera</button>
+                                <button onClick={() => { try { navigator.clipboard.writeText(value); setCalMsg(`Kopierat: ${label}`); } catch {} }} className="px-2 py-0.5 rounded border border-gray-300 dark:border-gray-700">Kopiera</button>
                             </div>
                         ))}
                         <p className="text-amber-600 dark:text-amber-400">Endast denna listas uppgifter delas. Spara lösenordet — det visas inte igen.</p>
