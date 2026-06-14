@@ -28,6 +28,8 @@ ska öppna för en given fråga. Läs det här först, sedan den specifika filen
 | Förstå CI/kvalitet & död-kod-grinden | [`ops/ci-quality.md`](./ops/ci-quality.md) |
 | Förstå AI-runtime (web/mobil/Electron) | [`App AI.md`](./App%20AI.md), [`AI impl.md`](./AI%20impl.md) |
 | Förstå AI tool-use + GraphQL-kontrakt | [`Tool Calls.md`](./Tool%20Calls.md) |
+| **Förstå admin, AI-orkestrering, inställningar + mätbarhet** | [`admin-orchestration-and-settings.md`](./admin-orchestration-and-settings.md) ⭐ |
+| Förstå grafvyn (noder/kanter/flödesriktning) + semantisk sök | [`graph-explorer.md`](./graph-explorer.md) |
 | Förstå widgets | [`widgets-architecture.md`](./widgets-architecture.md) |
 | Se vad som återstår / nästa steg | [`improvements.md`](./improvements.md) + §4 nedan |
 | Skriva en incident-postmortem | [`incidents/TEMPLATE.md`](./incidents/TEMPLATE.md) |
@@ -42,6 +44,10 @@ ska öppna för en given fråga. Läs det här först, sedan den specifika filen
 | Mobil-state/sync | `noter-app/apps/mobile/stores/useStore.ts` | Offline-först, chunked dekryptering. |
 | Mobil-AI-leverantörer | `…/mobile/services/ai/apiProviders.ts` | Registry; lägg till leverantör här + binding i `ai.tsx`. |
 | Web-API-klient | `noter-app/apps/web/services/api.ts` | `decryptNoteFromApi`/`decryptTaskFromApi`. |
+| Graf + layout | `packages/shared/src/{graphModel,graphLayout}.ts` | `buildGraph`/`layoutGraph`/`edgeGeometry` (riktade kanter + pilar); renderas i `apps/web/components/GraphExplorer.tsx` + `apps/mobile/app/graph.tsx`. |
+| Semantisk sök (vektor + RRF) | `packages/shared/src/{vectorSearch,embeddings,embeddingsClient,vectorStore}.ts` | Krypterat index på enheten; tjänst i `apps/{web,mobile}/services/ai/embeddingsService.ts`; inställningar `EmbeddingsSettings`. Låsta noter indexeras aldrig. |
+| Produktivitet/admin-statistik | `packages/shared/src/insights.ts` | `computeProductivityStats`/`computeAgentStats`; visas i `AdminDashboard` (web + mobil, hopfällbara sektioner). |
+| Realtid (WSS) | `apps/{web,mobile}/stores/useStore.ts` | Lyssnar `note:created`/`task:created` + `cache:invalidate`-fallback (debouncad refetch). Backend emittar i GraphQL-resolvers, REST-rutter och Pi-agent-runnern. |
 | Versionshantering | `packages/shared/src/whatsNew.ts` | `WHATS_NEW_ENTRIES` + `SecurityClass` per release. |
 | Hälsa/observability | `…/backend/src/routes/healthDeep.ts` | `GET /api/health/deep` → `version` + `securityLevel`. |
 
