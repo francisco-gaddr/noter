@@ -17,7 +17,7 @@ import { hasActiveDataKey } from '@repo/shared';
 import { AdminDashboard } from '@/components/AdminDashboard';
 import { EmbeddingsSettings } from '@/components/EmbeddingsSettings';
 import * as Clipboard from 'expo-clipboard';
-import { createCalendarSubscription, getCalendarUrl, revokeCalendarSubscription } from '@/services/calendarSubscription';
+import { createCalendarSubscription, getCalendarUrl, revokeCalendarSubscription, createDavCredential, revokeDavCredential, hasDavCredential, getDavServerUrl } from '@/services/calendarSubscription';
 
 export default function SettingsScreen() {
   const { t, i18n } = useTranslation();
@@ -85,6 +85,40 @@ export default function SettingsScreen() {
           text: t('settings.calendarRevoke', 'Inaktivera'), style: 'destructive',
           onPress: async () => { await revokeCalendarSubscription(); setCalendarUrl(null); },
         },
+      ],
+    );
+  };
+
+  // CalDAV (two-way) for the all-tasks scope. Revocable per-feed credential.
+  const [davActive, setDavActive] = useState(false);
+  const [davBusy, setDavBusy] = useState(false);
+  useEffect(() => { void hasDavCredential().then(setDavActive).catch(() => {}); }, []);
+  const handleEnableDav = async () => {
+    setDavBusy(true);
+    try {
+      const cred = await createDavCredential(null, 'Alla uppgifter');
+      setDavActive(true);
+      Alert.alert(
+        t('settings.caldavTitle', 'CalDAV aktiverat'),
+        `Server: ${getDavServerUrl()}\nAnvändarnamn: ${cred.username}\nLösenord: ${cred.password}\n\nLägg till som CalDAV-konto i Påminnelser (Mac/iOS) eller Tasks.org (Android). Endast titel + datum + status delas; låsta listor aldrig. Spara lösenordet — det visas bara nu.`,
+        [
+          { text: t('common.copy', 'Kopiera lösenord'), onPress: () => Clipboard.setStringAsync(cred.password || '') },
+          { text: 'OK' },
+        ],
+      );
+    } catch (e: any) {
+      Alert.alert(t('common.error'), e?.message || 'Kunde inte aktivera CalDAV.');
+    } finally {
+      setDavBusy(false);
+    }
+  };
+  const handleRevokeDav = async () => {
+    Alert.alert(
+      t('settings.caldavRevokeTitle', 'Inaktivera CalDAV'),
+      t('settings.caldavRevokeBody', 'Alla befintliga CalDAV-kopplingar för alla uppgifter slutar fungera direkt.'),
+      [
+        { text: t('common.cancel', 'Avbryt'), style: 'cancel' },
+        { text: t('settings.caldavRevoke', 'Inaktivera'), style: 'destructive', onPress: async () => { await revokeDavCredential(null); setDavActive(false); } },
       ],
     );
   };
@@ -496,6 +530,23 @@ export default function SettingsScreen() {
             title={t('settings.calendarRevoke', 'Inaktivera kalenderlänk')}
             left={props => <List.Icon {...props} icon="calendar-remove" />}
             onPress={handleRevokeCalendar}
+            rippleColor={touchRippleColor}
+          />
+        ) : null}
+        <List.Item
+          title={davActive ? t('settings.caldavRotate', 'CalDAV: skapa nytt lösenord') : t('settings.caldavCreate', 'Aktivera CalDAV (tvåvägs)')}
+          description={t('settings.caldavDesc', 'Synka uppgifter med Påminnelser (Mac/iOS) eller Tasks.org (Android) — bockar du av där, bockas det av här. Eget lösenord, kan återkallas direkt.')}
+          left={props => <List.Icon {...props} icon="sync" />}
+          right={() => (davBusy ? <ActivityIndicator style={{ marginRight: 12 }} /> : undefined)}
+          onPress={davBusy ? undefined : handleEnableDav}
+          disabled={davBusy}
+          rippleColor={touchRippleColor}
+        />
+        {davActive ? (
+          <List.Item
+            title={t('settings.caldavRevoke', 'Inaktivera CalDAV')}
+            left={props => <List.Icon {...props} icon="sync-off" />}
+            onPress={handleRevokeDav}
             rippleColor={touchRippleColor}
           />
         ) : null}

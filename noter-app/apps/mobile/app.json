@@ -2,7 +2,7 @@
   "expo": {
     "name": "Noter",
     "slug": "noter",
-    "version": "1.4.0",
+    "version": "1.5.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "noter",
@@ -11,11 +11,11 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.noter.app",
-      "buildNumber": "9",
+      "buildNumber": "10",
       "infoPlist": {
         "NSFaceIDUsageDescription": "Noter uses FaceID to unlock your secure notes.",
-        "NSPhotoLibraryUsageDescription": "Noter beh\u00f6ver \u00e5tkomst till dina bilder f\u00f6r att bifoga dem till anteckningar.",
-        "NSCameraUsageDescription": "Noter beh\u00f6ver \u00e5tkomst till kameran f\u00f6r att ta bilder till anteckningar."
+        "NSPhotoLibraryUsageDescription": "Noter behöver åtkomst till dina bilder för att bifoga dem till anteckningar.",
+        "NSCameraUsageDescription": "Noter behöver åtkomst till kameran för att ta bilder till anteckningar."
       }
     },
     "android": {
@@ -25,7 +25,7 @@
         "backgroundColor": "#FF6B40"
       },
       "package": "com.noter.app",
-      "versionCode": 10,
+      "versionCode": 11,
       "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "android.permission.USE_BIOMETRIC",

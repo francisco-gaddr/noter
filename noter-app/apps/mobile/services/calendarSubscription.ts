@@ -7,14 +7,15 @@
  * fields. The scope→URL map is cached locally.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { buildSafeCalendarProjection } from '@repo/shared';
-import { fetchWithAuth } from '@/services/api';
+import { buildSafeCalendarProjection, rfcPriorityToTask } from '@repo/shared';
+import { fetchWithAuth, API_URL } from '@/services/api';
 import { useStore } from '@/stores/useStore';
 
 // scopeKey: 'all' for the all-tasks feed, otherwise the task-list/project note id.
 const MAP_KEY = 'calendar_subscriptions_v2';
 const LEGACY_URL_KEY = 'calendar_subscription_url';
 const LEGACY_FLAG_KEY = 'calendar_subscribed';
+const DAV_MAP_KEY = 'calendar_dav_users_v1';
 
 export const ALL_SCOPE = 'all';
 export type CalendarScope = string; // 'all' | <listId>
@@ -102,3 +103,109 @@ export const getCalendarUrl = async (listId?: string | null): Promise<string | n
 
 export const isCalendarSubscribed = async (listId?: string | null): Promise<boolean> =>
   Boolean((await readMap())[scopeKey(listId)]);
+
+// ---------------------------------------------------------------------------
+// CalDAV (two-way). A revocable Basic-Auth credential per scope; the password is
+// returned ONCE. We cache only the username locally for UI status + revoke.
+// fetchWithAuth returns the PARSED body and throws on non-2xx (NOT a Response).
+// ---------------------------------------------------------------------------
+
+export interface DavCredential {
+  listId: string | null;
+  username: string;
+  password?: string;
+  displayName?: string | null;
+  serverUrl: string;
+  collectionUrl: string;
+}
+
+const readDavMap = async (): Promise<Record<string, string>> => {
+  try { return JSON.parse((await AsyncStorage.getItem(DAV_MAP_KEY)) || '{}') || {}; } catch { return {}; }
+};
+const writeDavMap = async (m: Record<string, string>): Promise<void> => {
+  await AsyncStorage.setItem(DAV_MAP_KEY, JSON.stringify(m));
+};
+
+export const createDavCredential = async (listId?: string | null, displayName?: string): Promise<DavCredential> => {
+  const items = safeProjection(listId);
+  const data = (await fetchWithAuth('/calendar/dav', {
+    method: 'POST',
+    body: JSON.stringify({ listId: scopeKey(listId) === ALL_SCOPE ? null : scopeKey(listId), displayName, items }),
+  })) as DavCredential;
+  if (data?.username) {
+    const map = await readDavMap();
+    map[scopeKey(listId)] = data.username;
+    await writeDavMap(map);
+  }
+  return data;
+};
+
+export const revokeDavCredential = async (listId?: string | null): Promise<void> => {
+  await fetchWithAuth('/calendar/dav', {
+    method: 'DELETE',
+    body: JSON.stringify({ listId: scopeKey(listId) === ALL_SCOPE ? null : scopeKey(listId) }),
+  }).catch(() => {});
+  const map = await readDavMap();
+  delete map[scopeKey(listId)];
+  await writeDavMap(map);
+};
+
+export const getDavUsername = async (listId?: string | null): Promise<string | null> =>
+  (await readDavMap())[scopeKey(listId)] || null;
+export const hasDavCredential = async (listId?: string | null): Promise<boolean> =>
+  Boolean((await readDavMap())[scopeKey(listId)]);
+
+/** The CalDAV server URL the user pastes into Tasks.org / Reminders. */
+export const getDavServerUrl = (): string => `${API_URL.replace(/\/api\/?$/, '').replace(/\/$/, '')}/dav/`;
+
+const applyMutation = async (s: any, m: any): Promise<void> => {
+  const task = (s.tasks || []).find((t: any) => t._id === m.uid || t.clientId === m.uid);
+  if (m.op === 'delete') { if (task) await s.deleteTask(task._id); return; }
+  const d = m.data || {};
+  if (task) {
+    const patch: any = {};
+    if (typeof d.completed === 'boolean') patch.completed = d.completed;
+    if (typeof d.summary === 'string' && d.summary) patch.title = d.summary;
+    if (d.due !== undefined) patch.dueDate = d.due;
+    if (typeof d.description === 'string') patch.description = d.description;
+    if (typeof d.priority === 'number') { const p = rfcPriorityToTask(d.priority); if (p) patch.priority = p; }
+    if (Object.keys(patch).length) await s.updateTask(task._id, patch);
+  } else {
+    const listId = m.listId && m.listId !== ALL_SCOPE ? m.listId : (m.feedListId && m.feedListId !== ALL_SCOPE ? m.feedListId : undefined);
+    const pr = typeof d.priority === 'number' ? rfcPriorityToTask(d.priority) : null;
+    await s.createTask({
+      title: d.summary || 'Uppgift',
+      parentNoteId: listId || undefined,
+      dueDate: d.due ?? null,
+      description: d.description || undefined,
+      priority: pr || undefined,
+      completed: !!d.completed,
+      clientId: String(m.uid), // so the widget's later edits to this uid match via clientId
+    });
+  }
+};
+
+/**
+ * Drain pending CalDAV write-backs from the widget: apply each with the user's key,
+ * ack the applied ids, then re-push the projection. Best-effort; safe on focus/interval.
+ */
+export const drainCalendarMutations = async (): Promise<number> => {
+  let mutations: any[] = [];
+  try {
+    const body: any = await fetchWithAuth('/calendar/mutations', { method: 'GET', skipUnauthorized: true });
+    mutations = Array.isArray(body?.mutations) ? body.mutations : [];
+  } catch { return 0; }
+  if (mutations.length === 0) return 0;
+  const s: any = useStore.getState();
+  const applied: string[] = [];
+  for (const m of mutations) {
+    try { await applyMutation(s, m); applied.push(m.id); } catch { /* retry next drain */ }
+  }
+  if (applied.length) {
+    await fetchWithAuth('/calendar/mutations/ack', {
+      method: 'POST', body: JSON.stringify({ ids: applied }), skipUnauthorized: true,
+    }).catch(() => {});
+    try { await pushCalendarFeed(); } catch { /* ignore */ }
+  }
+  return applied.length;
+};

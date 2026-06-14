@@ -11,7 +11,7 @@ import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { loadHotkeys, matchesHotkey } from '../lib/hotkeys';
 import { restoreCryptoFromSession } from '../lib/crypto';
-import { pushCalendarFeed } from '../lib/calendarSubscription';
+import { pushCalendarFeed, drainCalendarMutations } from '../lib/calendarSubscription';
 
 export default function Home() {
   const { initSocket, user, activeTab, isHydrated } = useStore();
@@ -23,6 +23,19 @@ export default function Home() {
     const handle = setTimeout(() => { void pushCalendarFeed(); }, 1500);
     return () => clearTimeout(handle);
   }, [tasks]);
+
+  // Two-way CalDAV: pull any task changes made from an external CalDAV widget
+  // (Tasks.org / Reminders) and apply them with the user's key. Drains on login,
+  // on window focus, and on a slow interval. No-op unless CalDAV is enabled.
+  useEffect(() => {
+    if (!user) return;
+    const drain = () => { void drainCalendarMutations(); };
+    drain();
+    const onFocus = () => drain();
+    window.addEventListener('focus', onFocus);
+    const id = window.setInterval(drain, 90_000);
+    return () => { window.removeEventListener('focus', onFocus); window.clearInterval(id); };
+  }, [user]);
   const [sidebarWidth, setSidebarWidth] = useState(256);
   const [isResizing, setIsResizing] = useState(false);
   const [mounted, setMounted] = useState(false);
