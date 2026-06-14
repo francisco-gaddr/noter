@@ -114,6 +114,15 @@ One document per `(userId, listId)` — `listId: null` = the all-tasks scope.
 compound `(userId, listId)` unique index and the sparse-unique `davUser` index, since
 production runs with `autoIndex` off.
 
+## Shutting it down (operator kill-switch)
+
+Set `CALENDAR_CALDAV_ENABLED=0` on the backend to make `/dav` + `/.well-known/caldav`
+return 404 and refuse new credential mints (403) — the channel goes fully dark without
+touching stored data (instant re-enable). `CALENDAR_ICS_ENABLED=0` does the same for the
+ICS feed. Confirm live state at `GET /api/health/deep` → `calendarExposure`. The full
+egress map + per-scope/per-user/network controls live in
+[`security/calendar-exposure.md`](./security/calendar-exposure.md).
+
 ## Client setup
 
 **Apple Reminders (macOS):** System Settings → Internet Accounts → Add Account → Add

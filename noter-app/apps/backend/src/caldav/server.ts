@@ -9,6 +9,7 @@ import {
 } from '@repo/shared';
 import CalendarFeed, { ICalendarFeed } from '../models/CalendarFeed';
 import { verifyDavPassword, parseBasicAuth } from './credentials';
+import { isCaldavEnabled } from '../config/calendarExposure';
 import {
   multistatus,
   responseXml,
@@ -370,6 +371,10 @@ caldavRouter.use(express.text({ type: () => true, limit: '1mb' }));
 caldavRouter.use(async (req: Request, res: Response): Promise<void> => {
   const method = req.method.toUpperCase();
 
+  // Operator kill-switch: when CalDAV is disabled the whole channel goes dark
+  // (no discovery, no auth prompt) — existing feeds remain stored for instant re-enable.
+  if (!isCaldavEnabled()) { res.status(404).end(); return; }
+
   // OPTIONS is unauthenticated discovery — advertise capabilities.
   if (method === 'OPTIONS') {
     res.setHeader('DAV', DAV_HEADER);
@@ -451,5 +456,6 @@ caldavRouter.use(async (req: Request, res: Response): Promise<void> => {
  * to the DAV root so principal discovery proceeds. 301 keeps the credential prompt.
  */
 export const wellKnownCaldavHandler = (_req: Request, res: Response): void => {
+  if (!isCaldavEnabled()) { res.status(404).end(); return; }
   res.redirect(301, '/dav/');
 };

@@ -5,6 +5,7 @@ import { authMiddleware, AuthRequest } from '../middleware/authMiddleware';
 import CalendarFeed from '../models/CalendarFeed';
 import { UnauthorizedError } from '../utils/httpErrors';
 import { genDavUser, genDavPassword, hashDavPassword } from '../caldav/credentials';
+import { isIcsEnabled, isCaldavEnabled } from '../config/calendarExposure';
 
 /**
  * Calendar (ICS) subscription.
@@ -67,6 +68,7 @@ const sanitizeItems = (raw: unknown): CalendarFeedItem[] => {
 // Public ICS feed. The token is the only credential; it's a 192-bit random secret.
 router.get('/:token.ics', async (req: Request, res: Response, next: NextFunction) => {
   try {
+    if (!isIcsEnabled()) { res.status(404).send('Not found'); return; }
     const token = String(req.params.token || '');
     const feed = token ? await CalendarFeed.findOne({ token }).lean() : null;
     const ics = generateIcs((feed?.items as CalendarFeedItem[]) || []);
@@ -103,6 +105,7 @@ router.post('/subscription', authMiddleware, async (req: AuthRequest, res: Respo
   try {
     const userId = req.user?.userId;
     if (!userId) throw new UnauthorizedError('Not authenticated');
+    if (!isIcsEnabled()) { res.status(403).json({ message: 'ICS-flödet är avstängt av administratören.' }); return; }
     const listId = normalizeListId(req.body?.listId);
     let feed = await CalendarFeed.findOne({ userId, listId });
     if (!feed) {
@@ -124,6 +127,7 @@ router.put('/feed', authMiddleware, async (req: AuthRequest, res: Response, next
   try {
     const userId = req.user?.userId;
     if (!userId) throw new UnauthorizedError('Not authenticated');
+    if (!isIcsEnabled()) { res.status(403).json({ message: 'ICS-flödet är avstängt av administratören.' }); return; }
     const listId = normalizeListId(req.body?.listId);
     const items = sanitizeItems(req.body?.items);
     const feed = await CalendarFeed.findOneAndUpdate(
@@ -193,6 +197,7 @@ router.post('/dav', authMiddleware, async (req: AuthRequest, res: Response, next
   try {
     const userId = req.user?.userId;
     if (!userId) throw new UnauthorizedError('Not authenticated');
+    if (!isCaldavEnabled()) { res.status(403).json({ message: 'CalDAV är avstängt av administratören.' }); return; }
     const listId = normalizeListId(req.body?.listId);
     const displayName = sanitizeDisplayName(req.body?.displayName);
     let feed = await CalendarFeed.findOne({ userId, listId });
