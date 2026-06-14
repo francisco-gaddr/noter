@@ -140,6 +140,27 @@ In Noter: **Settings → CalDAV** for the all-tasks scope, or the 📅/sync menu
 **Tasks** screen (with a list selected) for that one list. The password is shown once;
 "create new password" rotates it; "inaktivera" revokes instantly.
 
+### Apple (macOS/iOS) needs a well-known redirect at the public edge
+
+Apple Reminders/Calendar follow RFC 6764: they probe **`/.well-known/caldav` at the
+bare host first**, before ever using the explicit server URL, and abort if that probe
+doesn't point them at a CalDAV server. On daylited.com the domain root is the marketing
+site and only `/api/*` reaches this backend, so the well-known probe hits the marketing
+catch-all (200 HTML) and Apple gives up ("Unable to verify account name or password").
+Android/DAVx5 skip well-known and hit `/api/dav/` directly, so they work without this.
+
+Fix at the **public edge nginx** (the one terminating TLS for the domain) — add to the
+server block, before `location /`:
+
+```nginx
+location = /.well-known/caldav  { return 301 /api/dav/; }
+location = /.well-known/carddav { return 301 /api/dav/; }
+```
+
+then `nginx -t && systemctl reload nginx`. (Mirrored in
+`infra/tailscale/vps-nginx-proxy.sh` for re-provisioning.) After that, macOS/iOS account
+setup follows the redirect to `/api/dav/` and authenticates normally.
+
 ### Known limitation
 
 Creating a *brand-new* task from the widget works (it's enqueued as an `upsert` with the
