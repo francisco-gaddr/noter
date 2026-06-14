@@ -4,6 +4,7 @@ import { generateIcs, type CalendarFeedItem } from '@repo/shared';
 import { authMiddleware, AuthRequest } from '../middleware/authMiddleware';
 import CalendarFeed from '../models/CalendarFeed';
 import { UnauthorizedError } from '../utils/httpErrors';
+import { genDavUser, genDavPassword, hashDavPassword } from '../caldav/credentials';
 
 /**
  * Calendar (ICS) subscription.
@@ -20,9 +21,19 @@ import { UnauthorizedError } from '../utils/httpErrors';
  */
 const router = express.Router();
 
-const buildUrl = (req: Request, token: string): string => {
-  const base = (process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '') || `${req.protocol}://${req.get('host')}`;
-  return `${base}/api/calendar/${token}.ics`;
+const baseHost = (req: Request): string =>
+  (process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '') || `${req.protocol}://${req.get('host')}`;
+
+const buildUrl = (req: Request, token: string): string => `${baseHost(req)}/api/calendar/${token}.ics`;
+
+// CalDAV URLs the client shows the user. serverUrl is what most clients want (they
+// do principal discovery from it); collectionUrl is the direct VTODO collection.
+const buildDavUrls = (req: Request, davUser: string): { serverUrl: string; collectionUrl: string } => {
+  const host = baseHost(req);
+  return {
+    serverUrl: `${host}/dav/`,
+    collectionUrl: `${host}/dav/${encodeURIComponent(davUser)}/cal/tasks/`,
+  };
 };
 
 // Normalise the scope: null = all-tasks feed; otherwise a task-list/project note id
@@ -37,13 +48,19 @@ const sanitizeItems = (raw: unknown): CalendarFeedItem[] => {
   if (!Array.isArray(raw)) return [];
   return raw
     .slice(0, 5000)
-    .map((r: any): CalendarFeedItem => ({
-      uid: String(r?.uid || '').slice(0, 200),
-      title: String(r?.title || '').slice(0, 500),
-      start: String(r?.start || ''),
-      allDay: r?.allDay !== false,
-      completed: !!r?.completed,
-    }))
+    .map((r: any): CalendarFeedItem => {
+      const description = String(r?.description || '').slice(0, 4000);
+      const priority = Number.isFinite(Number(r?.priority)) ? Math.max(0, Math.min(9, Math.round(Number(r.priority)))) : 0;
+      return {
+        uid: String(r?.uid || '').slice(0, 200),
+        title: String(r?.title || '').slice(0, 500),
+        start: String(r?.start || ''),
+        allDay: r?.allDay !== false,
+        completed: !!r?.completed,
+        ...(description ? { description } : {}),
+        ...(priority ? { priority } : {}),
+      };
+    })
     .filter((i) => i.uid && i.start);
 };
 
@@ -132,6 +149,121 @@ router.delete('/subscription', authMiddleware, async (req: AuthRequest, res: Res
     const listId = normalizeListId(req.body?.listId ?? req.query?.listId);
     await CalendarFeed.deleteOne({ userId, listId });
     res.json({ ok: true, listId });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// CalDAV credential management. A CalDAV credential is a SEPARATE, revocable
+// Basic-Auth secret bound to one feed scope. The password is shown ONCE and never
+// stored (only its SHA-256). Revoking destroys CalDAV access for that scope without
+// touching the public ICS feed. See caldav/server.ts for the protocol side.
+// ---------------------------------------------------------------------------
+
+const sanitizeDisplayName = (raw: unknown): string | null => {
+  const v = typeof raw === 'string' ? raw.trim().slice(0, 80) : '';
+  return v || null;
+};
+
+// List the user's CalDAV-enabled scopes (never the password/hash).
+router.get('/dav', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) throw new UnauthorizedError('Not authenticated');
+    const feeds = await CalendarFeed.find({ userId, davUser: { $ne: null } }).lean();
+    res.json({
+      credentials: feeds.map((f) => ({
+        listId: f.listId ?? null,
+        username: f.davUser,
+        displayName: f.davDisplayName ?? null,
+        createdAt: f.davCreatedAt ?? null,
+        lastSeenAt: f.davLastSeenAt ?? null,
+        ...buildDavUrls(req, f.davUser as string),
+      })),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Mint (or rotate) a CalDAV credential for a scope. Creates the feed if missing and
+// seeds items if provided. Returns the password exactly once.
+router.post('/dav', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) throw new UnauthorizedError('Not authenticated');
+    const listId = normalizeListId(req.body?.listId);
+    const displayName = sanitizeDisplayName(req.body?.displayName);
+    let feed = await CalendarFeed.findOne({ userId, listId });
+    if (!feed) {
+      const token = crypto.randomBytes(24).toString('base64url');
+      feed = await CalendarFeed.create({ userId, listId, token, items: sanitizeItems(req.body?.items), updatedAt: new Date() });
+    } else if (Array.isArray(req.body?.items)) {
+      feed.items = sanitizeItems(req.body.items);
+      feed.updatedAt = new Date();
+    }
+    const username = feed.davUser || genDavUser();
+    const password = genDavPassword();
+    feed.davUser = username;
+    feed.davTokenHash = hashDavPassword(password);
+    feed.davDisplayName = displayName ?? feed.davDisplayName ?? null;
+    feed.davCreatedAt = new Date();
+    await feed.save();
+    res.json({
+      listId,
+      username,
+      password, // shown once — never returned again
+      displayName: feed.davDisplayName ?? null,
+      ...buildDavUrls(req, username),
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Revoke a scope's CalDAV credential (instant). Keeps the ICS feed + items intact.
+router.delete('/dav', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) throw new UnauthorizedError('Not authenticated');
+    const listId = normalizeListId(req.body?.listId ?? req.query?.listId);
+    await CalendarFeed.updateOne(
+      { userId, listId },
+      { $set: { davUser: null, davTokenHash: null, davDisplayName: null, davCreatedAt: null, davLastSeenAt: null, pendingMutations: [] } },
+    );
+    res.json({ ok: true, listId });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Drain queue: pending CalDAV write-backs the client must apply with the user's key.
+router.get('/mutations', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) throw new UnauthorizedError('Not authenticated');
+    const feeds = await CalendarFeed.find({ userId, 'pendingMutations.0': { $exists: true } }).lean();
+    const mutations = feeds.flatMap((f) => (f.pendingMutations || []).map((m) => ({ ...m, feedListId: f.listId ?? null })));
+    mutations.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+    res.json({ mutations });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Acknowledge applied mutations so they're removed from the queue.
+router.post('/mutations/ack', authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) throw new UnauthorizedError('Not authenticated');
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.map((x: unknown) => String(x)).slice(0, 1000) : [];
+    if (ids.length === 0) { res.json({ ok: true, removed: 0 }); return; }
+    await CalendarFeed.updateMany(
+      { userId },
+      { $pull: { pendingMutations: { id: { $in: ids } } } },
+    );
+    res.json({ ok: true, removed: ids.length });
   } catch (error) {
     next(error);
   }

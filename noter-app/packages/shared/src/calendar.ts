@@ -16,7 +16,30 @@ export interface CalendarFeedItem {
   /** All-day event (no meaningful time-of-day). */
   allDay: boolean;
   completed: boolean;
+  /** Optional plaintext description/notes (VTODO DESCRIPTION). Opt-in, lock-aware. */
+  description?: string;
+  /** RFC 5545 VTODO PRIORITY 0–9 (0/absent = none, 1 = highest … 9 = lowest). */
+  priority?: number;
 }
+
+/** Map our task priority ('low'|'medium'|'high') to an RFC 5545 PRIORITY number. */
+export const taskPriorityToRfc = (p: unknown): number => {
+  switch (String(p || '').toLowerCase()) {
+    case 'high': return 1;
+    case 'medium': return 5;
+    case 'low': return 9;
+    default: return 0;
+  }
+};
+
+/** Map an RFC 5545 PRIORITY number back to our task priority, or null if unset. */
+export const rfcPriorityToTask = (n: unknown): 'low' | 'medium' | 'high' | null => {
+  const v = Number(n);
+  if (!Number.isFinite(v) || v <= 0) return null;
+  if (v <= 4) return 'high';
+  if (v === 5) return 'medium';
+  return 'low';
+};
 
 /**
  * Project the user's tasks down to the minimal calendar fields. Only tasks with a
@@ -38,12 +61,16 @@ export const buildCalendarProjection = (tasks: Task[]): CalendarFeedItem[] => {
     const start = allDay
       ? new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())).toISOString()
       : d.toISOString();
+    const description = String((t as any).description || '').slice(0, 4000);
+    const priority = taskPriorityToRfc((t as any).priority);
     out.push({
       uid,
       title: String(t.title || 'Uppgift').slice(0, 500),
       start,
       allDay,
       completed: !!t.completed,
+      ...(description ? { description } : {}),
+      ...(priority ? { priority } : {}),
     });
   }
   return out;

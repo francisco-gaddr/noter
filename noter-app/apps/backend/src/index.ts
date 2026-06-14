@@ -18,6 +18,7 @@ import authRoutes from './routes/auth';
 import aiModelRoutes from './routes/aiModels';
 import calendarRoutes from './routes/calendar';
 import { reconcileCalendarFeedIndexes } from './models/CalendarFeed';
+import { caldavRouter, wellKnownCaldavHandler } from './caldav/server';
 import aiSyncRoutes from './routes/aiSync';
 import pushRoutes from './routes/push';
 import { runDueBackendAgentTasks } from './services/backendAgentRunner';
@@ -96,6 +97,14 @@ app.use(requestLogMiddleware);
 // during warm-up. Before any route-specific middleware (CORS, helmet) so the
 // 503 returns fast with minimal work.
 app.use(readinessGate);
+
+// CalDAV bridge — mounted EARLY, before the browser-oriented middleware (CORS,
+// JSON-enforcement, mongo-sanitize). Native CalDAV clients (Tasks.org, Apple
+// Reminders) send XML/text bodies and rely on a raw OPTIONS handshake + the DAV
+// header; the browser middleware below would mangle or short-circuit those. The
+// router does its own Basic-Auth, body parsing, and failure throttling.
+app.use('/.well-known/caldav', wellKnownCaldavHandler);
+app.use('/dav', caldavRouter);
 
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {

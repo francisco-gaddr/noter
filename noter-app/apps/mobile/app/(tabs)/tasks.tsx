@@ -8,7 +8,7 @@ import TaskList from '@/components/TaskList';
 import { TaskBoard } from '@/components/TaskBoard';
 import { TaskTimeline } from '@/components/TaskTimeline';
 import { Task, priorityRank, isBlankTask, completedTasks as pickCompletedTasks, buildSecurityNoteMap, isReadableWithLocks } from '@repo/shared';
-import { pushCalendarFeed, createCalendarSubscription, revokeCalendarSubscription, getCalendarUrl } from '@/services/calendarSubscription';
+import { pushCalendarFeed, createCalendarSubscription, revokeCalendarSubscription, getCalendarUrl, drainCalendarMutations, createDavCredential, revokeDavCredential, getDavServerUrl } from '@/services/calendarSubscription';
 import * as Clipboard from 'expo-clipboard';
 import { orderBy } from 'lodash';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -86,6 +86,15 @@ export default function TasksScreen() {
     const handle = setTimeout(() => { void pushCalendarFeed().catch(() => {}); }, 1500);
     return () => clearTimeout(handle);
   }, [tasks]);
+
+  // Two-way CalDAV: apply task changes made from an external CalDAV widget
+  // (Tasks.org / Reminders) with the user's key. Drains when the screen regains
+  // focus. No-op unless CalDAV is enabled for a scope.
+  useFocusEffect(
+    useCallback(() => {
+      void drainCalendarMutations().catch(() => {});
+    }, []),
+  );
 
   // Shared pull-to-refresh with haptic + min-spin + reentrancy guard.
   const { refreshing: pullRefreshing, onRefresh: onPullRefresh } = useRefreshControl(
@@ -371,6 +380,35 @@ export default function TasksScreen() {
     Alert.alert(t('tasks.calendarRevoked', 'Inaktiverad'), t('tasks.calendarRevokedBody', 'Kalenderlänken för den här listan är inaktiverad.'));
   };
 
+  // Per-list CalDAV (two-way). Mints a revocable credential and shows it ONCE.
+  const handleEnableListDav = async () => {
+    if (!selectedListId) return;
+    setCalMenuVisible(false);
+    setCalBusy(true);
+    try {
+      const cred = await createDavCredential(selectedListId, 'Noter-lista');
+      Alert.alert(
+        t('tasks.caldavTitle', 'CalDAV aktiverat'),
+        `Server: ${getDavServerUrl()}\nAnvändarnamn: ${cred.username}\nLösenord: ${cred.password}\n\nLägg till i Påminnelser (Mac/iOS) eller Tasks.org (Android). Endast den här listan delas. Spara lösenordet — det visas bara nu.`,
+        [
+          { text: t('common.copy', 'Kopiera lösenord'), onPress: () => Clipboard.setStringAsync(cred.password || '') },
+          { text: 'OK' },
+        ],
+      );
+    } catch (e: any) {
+      Alert.alert(t('common.error'), e?.message || 'Kunde inte aktivera CalDAV.');
+    } finally {
+      setCalBusy(false);
+    }
+  };
+
+  const handleRevokeListDav = async () => {
+    if (!selectedListId) return;
+    setCalMenuVisible(false);
+    await revokeDavCredential(selectedListId);
+    Alert.alert(t('tasks.caldavRevoked', 'CalDAV inaktiverad'), t('tasks.caldavRevokedBody', 'CalDAV-kopplingen för den här listan slutar fungera direkt.'));
+  };
+
   const saveListTitle = async () => {
     if (editingList) {
         await updateNote(editingList.id, { title: editingList.title });
@@ -432,6 +470,9 @@ export default function TasksScreen() {
                >
                  <Menu.Item leadingIcon="content-copy" onPress={handleCopyListCalendar} title={t('tasks.calendarCopyList', 'Kopiera kalenderlänk (denna lista)')} />
                  <Menu.Item leadingIcon="calendar-remove" onPress={handleRevokeListCalendar} title={t('tasks.calendarRevokeList', 'Inaktivera kalenderlänk')} />
+                 <Divider />
+                 <Menu.Item leadingIcon="sync" onPress={handleEnableListDav} title={t('tasks.caldavEnableList', 'Aktivera CalDAV (tvåvägs)')} />
+                 <Menu.Item leadingIcon="sync-off" onPress={handleRevokeListDav} title={t('tasks.caldavRevokeList', 'Inaktivera CalDAV')} />
                </Menu>
              ) : null}
              <IconButton
