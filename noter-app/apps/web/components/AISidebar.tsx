@@ -16,6 +16,7 @@ import { resolveAuthToken as apiResolveAuthToken, resolveGraphqlUrl as apiResolv
 import { shouldStopToolIteration, toToolCallKeys, toToolIterationSignature } from '../services/ai/toolChain';
 import { ApiProviderType, API_PROVIDERS, API_PROVIDER_LIST, resolveChatCompletionsUrl, streamApiProviderResponse } from '../services/ai/apiProviders';
 import { getUsageSnapshot, recordUsage, recordToolUse, type UsageSnapshot } from '../services/ai/usageTracker';
+import { extractPdfText } from '../services/ai/pdfText';
 import { pullAiSync, pushAiSync } from '../services/ai/sync';
 import { startAgentScheduler } from '../services/ai/agentScheduler';
 import { connectSocket, socket } from '../services/socket';
@@ -3007,6 +3008,16 @@ export const AISidebar = () => {
       if (file.size > maxSize) {
         setMessages(prev => [...prev, { id: uuidv4(), role: 'system', content: `Filen ${file.name} är för stor. Max 10 MB.`, createdAt: new Date().toISOString() }]);
         continue;
+      }
+      const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+      // PDF: try to extract real text (pdfjs, dynamic) so the model reads it + it can
+      // become a searchable graph node. Falls back to the binary placeholder on failure.
+      if (isPdf) {
+        const text = await extractPdfText(file).catch(() => null);
+        if (text) {
+          next.push({ id: uuidv4(), name: file.name, type: 'text/plain', size: file.size, content: `[PDF: ${file.name}]\n\n${text}`, encoding: 'text' });
+          continue;
+        }
       }
       const encoding: 'text' | 'base64' = file.type.startsWith('text/') || file.name.endsWith('.md') ? 'text' : 'base64';
       const content = await new Promise<string>((resolve, reject) => {

@@ -10,6 +10,7 @@ import { WHATS_NEW_ENTRIES, hasActiveDataKey } from '@repo/shared';
 import { getDefaultHotkeys } from '../lib/hotkeys';
 import { enrollOrUnlockCrypto, changeCryptoPassword } from '../lib/crypto';
 import { AdminDashboard } from './AdminDashboard';
+import EmbeddingsSettings from './EmbeddingsSettings';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -183,6 +184,11 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             </div>
           )}
           {e2eMsg && <p className="mt-2 text-xs text-gray-700 dark:text-gray-200 break-words">{e2eMsg}</p>}
+        </div>
+
+        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">Semantisk sök</h3>
+          <EmbeddingsSettings />
         </div>
 
         <div className="mt-4">

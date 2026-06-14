@@ -9,13 +9,15 @@
  * this component only renders + filters it. Everything is in-memory on already-
  * decrypted store data — nothing leaves the device.
  */
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   buildGraph, neighborsOf, filterGraphByQuery, layoutGraph, sortGraphNodes,
+  fulltextSearch, hybridSearch,
   RELATION_LABELS, NODE_KIND_LABELS, RELATION_COLORS, NODE_COLORS,
   type GraphNodeKind, type GraphRelation, type GraphConfig, type GraphSort,
 } from '@repo/shared';
 import { useStore } from '../stores/useStore';
+import { semanticSearch, getIndexInfo } from '../services/ai/embeddingsService';
 
 const ALL_KINDS: GraphNodeKind[] = ['project', 'task_list', 'note', 'task'];
 const ALL_RELS: GraphRelation[] = ['in_project', 'in_list', 'subtask', 'linked', 'sibling', 'same_due'];
@@ -36,10 +38,41 @@ export const GraphExplorer: React.FC<{ isOpen: boolean; onClose: () => void }> =
   const [sort, setSort] = useState<GraphSort>('connections');
   const [deriveSiblings, setDeriveSiblings] = useState(false);
   const [deriveSameDue, setDeriveSameDue] = useState(false);
+  const [semantic, setSemantic] = useState(false);
+  const [semanticIds, setSemanticIds] = useState<Set<string> | null>(null);
+  const [semanticBusy, setSemanticBusy] = useState(false);
+  const semanticInfo = useMemo(() => (isOpen ? getIndexInfo() : { total: 0, model: '', enabled: false }), [isOpen, semantic]);
 
   const config: GraphConfig = useMemo(() => ({ include: [...kinds], relations: [...rels], deriveSiblings, deriveSameDue }), [kinds, rels, deriveSiblings, deriveSameDue]);
   const graph = useMemo(() => buildGraph(notes as any, tasks as any, config), [notes, tasks, config]);
-  const filtered = useMemo(() => filterGraphByQuery(graph, query), [graph, query]);
+
+  // Hybrid (fulltext + vector, fused by RRF) — debounced so we embed the query once the
+  // user pauses, not on every keystroke. Degrades to pure fulltext when the vector rung
+  // is empty/disabled. Matched ids drive the same graph filter as the text search.
+  useEffect(() => {
+    if (!semantic || !query.trim()) { setSemanticIds(null); setSemanticBusy(false); return; }
+    let cancelled = false;
+    setSemanticBusy(true);
+    const handle = setTimeout(() => {
+      (async () => {
+        const ft = fulltextSearch(notes as any, tasks as any, query, 60);
+        const vec = await semanticSearch(query, 60);
+        const fused = hybridSearch(ft, vec, 60);
+        if (!cancelled) { setSemanticIds(new Set(fused.map((h) => h.id))); setSemanticBusy(false); }
+      })().catch(() => { if (!cancelled) { setSemanticIds(null); setSemanticBusy(false); } });
+    }, 400);
+    return () => { cancelled = true; clearTimeout(handle); };
+  }, [semantic, query, notes, tasks]);
+
+  const filtered = useMemo(() => {
+    if (semantic && query.trim() && semanticIds) {
+      const nodes = graph.nodes.filter((n) => semanticIds.has(n.id));
+      const ids = new Set(nodes.map((n) => n.id));
+      const edges = graph.edges.filter((e) => ids.has(e.source) && ids.has(e.target));
+      return { nodes, edges };
+    }
+    return filterGraphByQuery(graph, query);
+  }, [graph, query, semantic, semanticIds]);
   const selected = useMemo(() => (selectedId ? neighborsOf(graph, selectedId) : null), [graph, selectedId]);
   const layout = useMemo(() => layoutGraph(filtered, { width: 1100, height: 850 }), [filtered]);
 
@@ -76,11 +109,26 @@ export const GraphExplorer: React.FC<{ isOpen: boolean; onClose: () => void }> =
         </div>
 
         <div className="p-3 border-b border-gray-200 dark:border-gray-700 space-y-2">
-          <input
-            value={query} onChange={(e) => setQuery(e.target.value)}
-            placeholder="Sök i grafen…" data-testid="graph-search"
-            className="w-full border rounded p-2 text-sm dark:bg-gray-800 dark:border-gray-700"
-          />
+          <div className="flex items-center gap-2">
+            <input
+              value={query} onChange={(e) => setQuery(e.target.value)}
+              placeholder={semantic ? 'Semantisk sök i grafen…' : 'Sök i grafen…'} data-testid="graph-search"
+              className="flex-1 border rounded p-2 text-sm dark:bg-gray-800 dark:border-gray-700"
+            />
+            <button
+              onClick={() => setSemantic((v) => !v)}
+              className={pill(semantic)}
+              data-testid="graph-semantic-toggle"
+              title={semanticInfo.enabled
+                ? `Semantisk sök (RRF-fusion av text + ${semanticInfo.total} indexerade vektorer, modell ${semanticInfo.model})`
+                : 'Semantisk sök är avstängd – aktivera och indexera under Inställningar → Semantisk sök'}
+            >
+              {semanticBusy ? '⏳' : '🧠'} Semantisk
+            </button>
+          </div>
+          {semantic && !semanticInfo.enabled && (
+            <p className="text-xs text-amber-600 dark:text-amber-400">Semantisk sök är avstängd. Aktivera och indexera under Inställningar → Semantisk sök. Tills dess används endast textsökning.</p>
+          )}
           <div className="flex flex-wrap items-center gap-1">
             <span className="text-xs text-gray-500 mr-1">Typ:</span>
             {ALL_KINDS.map((k) => (

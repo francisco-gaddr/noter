@@ -6,17 +6,19 @@
  * node to see its relations, and open the entity. Pure data from @repo/shared
  * `buildGraph` over the already-decrypted in-memory store — nothing leaves device.
  */
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { View, StyleSheet, FlatList, ScrollView, useWindowDimensions } from 'react-native';
 import { Stack, router } from 'expo-router';
 import { Text, Chip, Searchbar, List, Divider, useTheme, Button, SegmentedButtons } from 'react-native-paper';
 import Svg, { Line, Circle, G, Text as SvgText } from 'react-native-svg';
 import {
   buildGraph, neighborsOf, filterGraphByQuery, layoutGraph, sortGraphNodes,
+  fulltextSearch, hybridSearch,
   RELATION_LABELS, NODE_KIND_LABELS, RELATION_COLORS, NODE_COLORS,
   type GraphNodeKind, type GraphRelation, type GraphConfig, type GraphSort,
 } from '@repo/shared';
 import { useStore } from '@/stores/useStore';
+import { semanticSearch, getIndexInfo } from '@/services/ai/embeddingsService';
 
 const ALL_KINDS: GraphNodeKind[] = ['project', 'task_list', 'note', 'task'];
 const ALL_RELS: GraphRelation[] = ['in_project', 'in_list', 'subtask', 'linked', 'sibling', 'same_due'];
@@ -36,10 +38,41 @@ export default function GraphScreen() {
   const [sort, setSort] = useState<GraphSort>('connections');
   const [deriveSiblings, setDeriveSiblings] = useState(false);
   const [deriveSameDue, setDeriveSameDue] = useState(false);
+  const [semantic, setSemantic] = useState(false);
+  const [semanticIds, setSemanticIds] = useState<Set<string> | null>(null);
+  const [semanticBusy, setSemanticBusy] = useState(false);
+  const [semanticEnabled, setSemanticEnabled] = useState(false);
 
   const config: GraphConfig = useMemo(() => ({ include: [...kinds], relations: [...rels], deriveSiblings, deriveSameDue }), [kinds, rels, deriveSiblings, deriveSameDue]);
   const graph = useMemo(() => buildGraph(notes as any, tasks as any, config), [notes, tasks, config]);
-  const filtered = useMemo(() => filterGraphByQuery(graph, query), [graph, query]);
+
+  useEffect(() => { getIndexInfo().then((i) => setSemanticEnabled(i.enabled && i.total > 0)).catch(() => {}); }, [semantic]);
+
+  // Hybrid (fulltext + vector, fused by RRF), debounced. Degrades to pure fulltext when
+  // the vector rung is empty/disabled. Matched ids drive the same graph filter as text.
+  useEffect(() => {
+    if (!semantic || !query.trim()) { setSemanticIds(null); setSemanticBusy(false); return; }
+    let cancelled = false;
+    setSemanticBusy(true);
+    const handle = setTimeout(() => {
+      (async () => {
+        const ft = fulltextSearch(notes as any, tasks as any, query, 60);
+        const vec = await semanticSearch(query, 60);
+        const fused = hybridSearch(ft, vec, 60);
+        if (!cancelled) { setSemanticIds(new Set(fused.map((h) => h.id))); setSemanticBusy(false); }
+      })().catch(() => { if (!cancelled) { setSemanticIds(null); setSemanticBusy(false); } });
+    }, 400);
+    return () => { cancelled = true; clearTimeout(handle); };
+  }, [semantic, query, notes, tasks]);
+
+  const filtered = useMemo(() => {
+    if (semantic && query.trim() && semanticIds) {
+      const ns = graph.nodes.filter((n) => semanticIds.has(n.id));
+      const ids = new Set(ns.map((n) => n.id));
+      return { nodes: ns, edges: graph.edges.filter((e) => ids.has(e.source) && ids.has(e.target)) };
+    }
+    return filterGraphByQuery(graph, query);
+  }, [graph, query, semantic, semanticIds]);
   const selected = useMemo(() => (selectedId ? neighborsOf(graph, selectedId) : null), [graph, selectedId]);
   const canvas = Math.max(280, width - 16);
   const layout = useMemo(() => layoutGraph(filtered, { width: canvas, height: canvas }), [filtered, canvas]);
@@ -57,7 +90,24 @@ export default function GraphScreen() {
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <Stack.Screen options={{ title: 'Utforska grafen' }} />
-      <Searchbar placeholder="Sök i grafen…" value={query} onChangeText={setQuery} style={{ margin: 8 }} testID="graph-search" />
+      <Searchbar placeholder={semantic ? 'Semantisk sök i grafen…' : 'Sök i grafen…'} value={query} onChangeText={setQuery} style={{ margin: 8, marginBottom: 4 }} testID="graph-search" />
+
+      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, marginBottom: 4 }}>
+        <Chip
+          compact
+          selected={semantic}
+          icon={semanticBusy ? 'timer-sand' : 'brain'}
+          onPress={() => setSemantic((v) => !v)}
+          testID="graph-semantic-toggle"
+        >
+          Semantisk
+        </Chip>
+        {semantic && !semanticEnabled && (
+          <Text style={{ marginLeft: 8, fontSize: 11, color: theme.colors.onSurfaceVariant, flex: 1 }}>
+            Aktivera och indexera under Inställningar → Semantisk sök. Tills dess används endast textsökning.
+          </Text>
+        )}
+      </View>
 
       <SegmentedButtons
         value={view}

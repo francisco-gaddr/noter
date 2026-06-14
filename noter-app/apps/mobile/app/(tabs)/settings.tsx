@@ -15,6 +15,7 @@ import { deleteModel as deleteModelFile } from '@/services/ai/modelService';
 import { enrollOrUnlockCrypto, changeCryptoPassword } from '@/services/crypto';
 import { hasActiveDataKey } from '@repo/shared';
 import { AdminCleanup } from '@/components/AdminCleanup';
+import { EmbeddingsSettings } from '@/components/EmbeddingsSettings';
 
 export default function SettingsScreen() {
   const { t, i18n } = useTranslation();
@@ -433,6 +434,10 @@ export default function SettingsScreen() {
           rippleColor={touchRippleColor}
         />
       </List.Section>
+
+      <Divider />
+
+      <EmbeddingsSettings />
 
       <Divider />
 

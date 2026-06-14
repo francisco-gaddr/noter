@@ -36,6 +36,7 @@
     "next": "16.1.0",
     "next-themes": "^0.3.0",
     "node-llama-cpp": "^2.8.0",
+    "pdfjs-dist": "^4.8.69",
     "react": "19.1.0",
     "react-big-calendar": "^1.19.4",
     "react-dnd": "^16.0.1",
