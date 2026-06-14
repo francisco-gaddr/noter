@@ -1,5 +1,6 @@
 import express from 'express';
 import mongoose from 'mongoose';
+import { calendarExposureStatus } from '../config/calendarExposure';
 
 const router = express.Router();
 
@@ -92,6 +93,9 @@ router.get('/', authGuard, async (_req, res) => {
     time: new Date().toISOString(),
     uptime_sec: Math.round(process.uptime()),
     checks: { mongo, redis },
+    // Egress channels for (opt-in) plaintext task projections. See
+    // Doc/security/calendar-exposure.md. Lets an operator confirm what's live.
+    calendarExposure: calendarExposureStatus(),
   });
 });
 

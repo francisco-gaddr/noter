@@ -167,6 +167,39 @@ describe('CalDAV bridge', () => {
     expect(count).toBe(2); // would be impossible under a sparse-unique index
   });
 
+  it('operator kill-switch: CALENDAR_CALDAV_ENABLED=0 darkens /dav and blocks minting', async () => {
+    const prev = process.env.CALENDAR_CALDAV_ENABLED;
+    process.env.CALENDAR_CALDAV_ENABLED = '0';
+    try {
+      // The protocol channel goes fully dark (no auth prompt, just 404).
+      const opt = await request(app).options('/dav/');
+      expect(opt.status).toBe(404);
+      const pf = await (request(app) as any).propfind(`/dav/${username}/`).auth(username, password).set('Depth', '0');
+      expect(pf.status).toBe(404);
+      // Minting a new credential is refused.
+      const mint = await request(app).post('/api/calendar/dav').set(...AUTH).send({ listId: null });
+      expect(mint.status).toBe(403);
+    } finally {
+      process.env.CALENDAR_CALDAV_ENABLED = prev;
+    }
+  });
+
+  it('operator kill-switch: CALENDAR_ICS_ENABLED=0 stops serving + creating ICS feeds', async () => {
+    const prev = process.env.CALENDAR_ICS_ENABLED;
+    // Need a token to probe the public GET; create the sub while enabled.
+    const sub = await request(app).post('/api/calendar/subscription').set(...AUTH).send({ listId: null });
+    const token = sub.body.token;
+    process.env.CALENDAR_ICS_ENABLED = '0';
+    try {
+      const ics = await request(app).get(`/api/calendar/${token}.ics`);
+      expect(ics.status).toBe(404);
+      const create = await request(app).post('/api/calendar/subscription').set(...AUTH).send({ listId: 'x' });
+      expect(create.status).toBe(403);
+    } finally {
+      process.env.CALENDAR_ICS_ENABLED = prev;
+    }
+  });
+
   it('per-list credential only sees its own list scope', async () => {
     // Mint a per-list credential with its own items; it must be isolated from "all".
     const listRes = await request(app)
