@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { StyleSheet, View, Alert, ScrollView, Platform } from 'react-native';
-import { Appbar, TextInput, Button, SegmentedButtons, HelperText, useTheme, Checkbox, Text } from 'react-native-paper';
+import { Appbar, TextInput, Button, SegmentedButtons, HelperText, useTheme, Checkbox, Text, Chip } from 'react-native-paper';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useForm, Controller } from 'react-hook-form';
@@ -8,7 +8,7 @@ import { yupResolver } from '@hookform/resolvers/yup';
 import * as yup from 'yup';
 import { useStore } from '@/stores/useStore';
 import { useStore as useGlobalStore } from '@/stores/useStore';
-import { Note, applyDelegationDefaults, contextLevelConfig } from '@repo/shared';
+import { Note, applyDelegationDefaults, contextLevelConfig, toggleEntityLink, normalizeNoteType, type EntityLink } from '@repo/shared';
 import { CreateTaskDto, UpdateTaskDto } from '@repo/shared';
 import { debounce } from 'lodash';
 import { useTranslation } from 'react-i18next';
@@ -54,6 +54,11 @@ export default function TaskEditorScreen() {
   const [delegateOnCreate, setDelegateOnCreate] = useState(false);
   const [delegateDefaults, setDelegateDefaults] = useState<ReturnType<typeof applyDelegationDefaults> | null>(null);
   useEffect(() => { if (isNew) { getDelegationDefaults().then((d) => setDelegateDefaults(applyDelegationDefaults(d))).catch(() => {}); } }, [isNew]);
+  // Explicit graph links to other entities.
+  const allTasks = useStore((s) => s.tasks);
+  const [links, setLinks] = useState<EntityLink[]>([]);
+  const [linkQuery, setLinkQuery] = useState('');
+  useEffect(() => { if (existingTask) setLinks(Array.isArray((existingTask as any).links) ? (existingTask as any).links : []); }, [existingTask?._id]);
   const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
   const endOfWeek = (d: Date) => {
     const day = d.getDay(); // 0=Sun
@@ -214,6 +219,7 @@ export default function TaskEditorScreen() {
           reminderOffsetMinutes: data.reminderEnabled
             ? (data.reminderOffsetMinutes && data.reminderOffsetMinutes.length > 0 ? data.reminderOffsetMinutes : [0])
             : [],
+          links,
         };
         // await createTask to ensure optimistic update happens before nav
         // and to keep submitting state true
@@ -238,6 +244,7 @@ export default function TaskEditorScreen() {
           reminderOffsetMinutes: data.reminderEnabled
             ? (data.reminderOffsetMinutes && data.reminderOffsetMinutes.length > 0 ? data.reminderOffsetMinutes : [0])
             : [],
+          links,
         };
         await updateTask(id!, dto);
         router.back();
@@ -588,6 +595,43 @@ export default function TaskEditorScreen() {
               </Button>
             ))}
           </View>
+        </View>
+
+        <View style={styles.section} testID="entity-link-picker">
+          <Text variant="titleSmall">Länka till andra (graf)</Text>
+          <Text style={{ fontSize: 12, color: theme.colors.onSurfaceVariant, marginBottom: 4 }}>
+            Koppla uppgiften till anteckningar, listor, projekt eller uppgifter — syns i grafvyn.
+          </Text>
+          {links.length > 0 ? (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>
+              {links.map((l) => {
+                const tgt = (notes as any[]).find((n) => n._id === l.targetId) || (allTasks as any[]).find((t) => t._id === l.targetId);
+                return (
+                  <Chip key={l.targetId} compact onClose={() => setLinks((cur) => toggleEntityLink(cur, l.targetId))}>
+                    {(tgt?.title || l.targetId.slice(0, 6))}
+                  </Chip>
+                );
+              })}
+            </View>
+          ) : null}
+          <TextInput mode="outlined" dense placeholder="Sök att länka…" value={linkQuery} onChangeText={setLinkQuery} />
+          {linkQuery.trim() ? (
+            <View style={{ borderWidth: 1, borderColor: theme.colors.outlineVariant, borderRadius: 6, marginTop: 4, maxHeight: 180 }}>
+              <ScrollView keyboardShouldPersistTaps="handled">
+                {[
+                  ...(notes as any[]).map((n) => ({ id: n._id, label: n.title, kind: normalizeNoteType(n.type) })),
+                  ...(allTasks as any[]).filter((t) => t._id !== existingTask?._id).map((t) => ({ id: t._id, label: t.title, kind: 'task' as const })),
+                ].filter((c) => c.id && (c.label || '').toLowerCase().includes(linkQuery.toLowerCase())).slice(0, 20).map((c) => {
+                  const on = links.some((l) => l.targetId === c.id);
+                  return (
+                    <Button key={c.id} mode={on ? 'contained-tonal' : 'text'} compact onPress={() => setLinks((cur) => toggleEntityLink(cur, c.id))} style={{ justifyContent: 'flex-start' }}>
+                      {(c.label || '(namnlös)').slice(0, 30)}{on ? ' ✓' : ''}
+                    </Button>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          ) : null}
         </View>
 
         {!isNew && existingTask ? (

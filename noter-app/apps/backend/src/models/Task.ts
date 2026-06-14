@@ -15,6 +15,7 @@ export interface ITask extends Document {
   recurrenceDays?: string;
   reminderEnabled?: string;
   reminderOffsetMinutes?: string;
+  links?: string; // Encrypted JSON array of {targetId, rel}
   createdAt: string; // Encrypted timestamp
   updatedAt: string; // Encrypted timestamp
 }
@@ -34,6 +35,7 @@ const TaskSchema: Schema = new Schema({
   recurrenceDays: { type: String, default: '' },
   reminderEnabled: { type: String, default: '' },
   reminderOffsetMinutes: { type: String, default: '' },
+  links: { type: String, default: '' }, // Encrypted JSON array of {targetId, rel}
   // Encrypted JSON of the AI delegation (assignee/source/model/runOnBackend/notify).
   // Encrypted with the service key (server-readable) so the backend agent runner
   // can execute it; only synced when the user opts a task into backend execution.

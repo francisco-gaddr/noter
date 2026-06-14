@@ -77,6 +77,7 @@ export interface UpdateTaskDto {
   reminderOffsetMinutes?: number | number[];
   parentNoteId?: string;
   position?: number;
+  links?: EntityLink[];
 }
 
 export interface CreateTaskDto {
@@ -92,6 +93,7 @@ export interface CreateTaskDto {
   reminderOffsetMinutes?: number | number[];
   clientId?: string;
   position?: number;
+  links?: EntityLink[];
 }
 
 export interface AuthResponse {
@@ -110,6 +112,7 @@ export interface CreateNoteDto {
     order?: number;
     locked?: boolean;
     clientId?: string;
+    links?: EntityLink[];
 }
 
 export interface UpdateNoteDto {
@@ -123,6 +126,7 @@ export interface UpdateNoteDto {
     iconColor?: string;
     type?: 'note' | 'task_list' | 'project';
     order?: number;
+    links?: EntityLink[];
 }
 
 export interface AIModel {

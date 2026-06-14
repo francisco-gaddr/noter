@@ -16,6 +16,7 @@ export * from './contextLevels';
 export * from './cleanup';
 export * from './graphModel';
 export * from './graphLayout';
+export * from './entityLinks';
 export * from './toolDescriptions';
 export * from './toolUsage';
 export * from './agentMemory';

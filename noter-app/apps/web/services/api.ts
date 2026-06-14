@@ -1,4 +1,4 @@
-import { Note, CreateNoteDto, UpdateNoteDto, Task, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, safeDecrypt, AuthResponse } from '@repo/shared';
+import { Note, CreateNoteDto, UpdateNoteDto, Task, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, safeDecrypt, AuthResponse, parseEntityLinks, serializeEntityLinks } from '@repo/shared';
 
 export const getUUID = (): string => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -212,6 +212,7 @@ const decryptNoteFromApi = (note: any): Note => {
     icon: locked ? undefined : (note.icon ? safeDecrypt(note.icon, note.icon) : undefined),
     type: note.type ? (safeDecrypt(note.type, note.type) as any) : 'note',
     locked,
+    links: locked ? [] : parseEntityLinks(note.links ? safeDecrypt(note.links, '') : ''),
     order: parseNoteOrder((note as any).order),
     createdAt: safeDecrypt(note.createdAt, note.createdAt),
     updatedAt: safeDecrypt(note.updatedAt, note.updatedAt),
@@ -234,6 +235,7 @@ const decryptTaskFromApi = (task: any): Task => ({
     : [],
   reminderEnabled: task.reminderEnabled ? safeDecrypt(task.reminderEnabled) === 'true' : false,
   reminderOffsetMinutes: parseReminderOffsets(task.reminderOffsetMinutes),
+  links: parseEntityLinks(task.links ? safeDecrypt(task.links, '') : ''),
   createdAt: safeDecrypt(task.createdAt, task.createdAt),
   updatedAt: safeDecrypt(task.updatedAt, task.updatedAt),
   position: task.position
@@ -299,6 +301,7 @@ export const api = {
       icon: data.icon ? encrypt(data.icon) : undefined,
       type: encrypt(data.type || 'note'),
       locked: encrypt(String(data.locked || false)),
+      links: data.links && data.links.length ? encrypt(serializeEntityLinks(data.links)) : undefined,
       order: data.order !== undefined ? encrypt(String(data.order)) : undefined,
       createdAt: encrypt(new Date().toISOString()),
       updatedAt: encrypt(new Date().toISOString()),
@@ -321,6 +324,7 @@ export const api = {
     if (data.icon !== undefined) encryptedData.icon = data.icon ? encrypt(data.icon) : undefined;
     if (data.type !== undefined) encryptedData.type = encrypt(String(data.type)) as any;
     if (data.locked !== undefined) encryptedData.locked = encrypt(String(data.locked));
+    if (data.links !== undefined) encryptedData.links = data.links && data.links.length ? encrypt(serializeEntityLinks(data.links)) : '';
     if (data.order !== undefined) encryptedData.order = encrypt(String(data.order));
     if (data.password !== undefined) encryptedData.password = data.password;
     // Always update updatedAt
@@ -421,6 +425,7 @@ export const api = {
       recurrenceDays: data.recurrenceDays ? encrypt(JSON.stringify(data.recurrenceDays)) : '',
       reminderEnabled: data.reminderEnabled !== undefined ? encrypt(String(data.reminderEnabled)) : '',
       reminderOffsetMinutes: data.reminderOffsetMinutes !== undefined ? encrypt(JSON.stringify(data.reminderOffsetMinutes)) : '',
+      links: data.links && data.links.length ? encrypt(serializeEntityLinks(data.links)) : '',
       createdAt: encrypt(new Date().toISOString()),
       updatedAt: encrypt(new Date().toISOString()),
       position: data.position !== undefined ? encrypt(String(data.position)) : encrypt('0'),
@@ -456,6 +461,7 @@ export const api = {
     if (data.reminderOffsetMinutes !== undefined) {
       encryptedData.reminderOffsetMinutes = encrypt(JSON.stringify(data.reminderOffsetMinutes));
     }
+    if (data.links !== undefined) encryptedData.links = data.links && data.links.length ? encrypt(serializeEntityLinks(data.links)) : '';
     encryptedData.updatedAt = encrypt(new Date().toISOString());
     if (data.position !== undefined) encryptedData.position = encrypt(String(data.position));
 

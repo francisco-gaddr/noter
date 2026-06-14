@@ -420,7 +420,8 @@ export default function TaskList() {
             recurrenceType: taskData.recurrenceType,
             recurrenceDays: taskData.recurrenceDays,
             reminderEnabled: taskData.reminderEnabled,
-            reminderOffsetMinutes: reminderOffsets
+            reminderOffsetMinutes: reminderOffsets,
+            links: (taskData as any).links,
         });
     };
 

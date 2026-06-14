@@ -39,6 +39,7 @@ const noteSchema = Joi.object({
   icon: Joi.alternatives().try(Joi.valid(null), encryptedOptional).optional(),
   order: encryptedOptional.optional(),
   type: encryptedRequired.required(),
+  links: encryptedOptional.optional(),
   clientId: Joi.string().allow('').optional(),
   createdAt: encryptedRequired.required(),
   updatedAt: encryptedRequired.required()
@@ -54,6 +55,7 @@ const updateSchema = Joi.object({
   icon: Joi.alternatives().try(Joi.valid(null), encryptedOptional).optional(),
   order: encryptedOptional.optional(),
   type: Joi.alternatives().try(Joi.valid(null), encryptedOptional).optional(),
+  links: encryptedOptional.optional(),
   createdAt: encryptedOptional.optional(),
   updatedAt: encryptedOptional.optional()
 });
@@ -355,6 +357,7 @@ router.put('/:id', validate(updateSchema), async (req: Request, res: Response, n
         }
       }
       if (value.icon !== undefined) note.icon = value.icon;
+      if ((value as any).links !== undefined) (note as any).links = (value as any).links;
       if (value.order !== undefined) note.order = value.order;
       if (value.createdAt !== undefined) note.createdAt = value.createdAt; // Handle encrypted timestamps
       if (value.updatedAt !== undefined) note.updatedAt = value.updatedAt; // Handle encrypted timestamps

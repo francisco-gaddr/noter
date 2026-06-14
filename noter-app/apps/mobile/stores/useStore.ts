@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import 'react-native-get-random-values';
 import * as Crypto from 'expo-crypto';
-import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, safeDecrypt } from '@repo/shared';
+import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, safeDecrypt, parseEntityLinks, serializeEntityLinks } from '@repo/shared';
 import { fetchWithAuth, login as apiLogin, register as apiRegister, setAuthToken, initApiUrl, setUnauthorizedHandler } from '../services/api';
 import * as Database from '../services/database';
 import { initSocket, disconnectSocket, getSocket } from '../services/socket';
@@ -208,6 +208,7 @@ const materializeOneNote = (note: any, noteMap: any, unlockedIds: Set<string>): 
           }
         })(),
     icon: note.__rawEncryptedIcon ? tryDecryptString(note.__rawEncryptedIcon) : undefined,
+    links: parseEntityLinks(note.links ? safeDecrypt(note.links, '') : ''),
     locked: parseNoteLocked(note.locked),
   };
 };
@@ -355,6 +356,7 @@ const processApiTask = (task: any): Task => ({
   recurrenceDays: task.recurrenceDays ? (() => { try { return JSON.parse(decrypt(task.recurrenceDays)) } catch { return [] } })() : [],
   reminderEnabled: task.reminderEnabled ? (() => { try { return decrypt(task.reminderEnabled) === 'true' } catch { return false } })() : false,
   reminderOffsetMinutes: task.reminderOffsetMinutes ? (() => { try { return parseReminderOffsets(decrypt(task.reminderOffsetMinutes)); } catch { return []; } })() : [],
+  links: parseEntityLinks(task.links ? safeDecrypt(task.links, '') : ''),
   createdAt: safeDecrypt(task.createdAt, typeof task.createdAt === 'string' ? task.createdAt : ''),
   updatedAt: safeDecrypt(task.updatedAt, typeof task.updatedAt === 'string' ? task.updatedAt : ''),
   position: task.position ? (() => {
@@ -821,6 +823,7 @@ export const useStore = create<AppState>((set, get) => ({
         content: encrypt(data.content),
         type: encrypt(data.type || 'note'),
         locked: encrypt(String(data.locked || false)),
+        links: (data as any).links && (data as any).links.length ? encrypt(serializeEntityLinks((data as any).links)) : undefined,
         order: data.order !== undefined ? encrypt(String(data.order)) : undefined,
         createdAt: encrypt(new Date().toISOString()),
         updatedAt: encrypt(new Date().toISOString()),
@@ -922,6 +925,7 @@ export const useStore = create<AppState>((set, get) => ({
       if (data.locked !== undefined) encryptedData.locked = encrypt(String(data.locked));
       if (data.order !== undefined) encryptedData.order = encrypt(String(data.order));
       if (data.password !== undefined) encryptedData.password = data.password;
+      if ((data as any).links !== undefined) encryptedData.links = (data as any).links && (data as any).links.length ? encrypt(serializeEntityLinks((data as any).links)) : '';
       // Always update updatedAt
       encryptedData.updatedAt = encrypt(new Date().toISOString());
 
@@ -1172,6 +1176,7 @@ export const useStore = create<AppState>((set, get) => ({
         recurrenceDays: data.recurrenceDays ? encrypt(JSON.stringify(data.recurrenceDays)) : '',
         reminderEnabled: data.reminderEnabled !== undefined ? encrypt(String(data.reminderEnabled)) : '',
         reminderOffsetMinutes: data.reminderEnabled ? encrypt(JSON.stringify(reminderOffsets)) : '',
+        links: (data as any).links && (data as any).links.length ? encrypt(serializeEntityLinks((data as any).links)) : '',
         createdAt: encrypt(new Date().toISOString()),
         updatedAt: encrypt(new Date().toISOString()),
         position: data.position !== undefined ? encrypt(String(data.position)) : encrypt('0'),
@@ -1323,6 +1328,7 @@ export const useStore = create<AppState>((set, get) => ({
           : [];
         encryptedData.reminderOffsetMinutes = offsets.length > 0 ? encrypt(JSON.stringify(offsets)) : '';
       }
+      if ((data as any).links !== undefined) encryptedData.links = (data as any).links && (data as any).links.length ? encrypt(serializeEntityLinks((data as any).links)) : '';
       encryptedData.updatedAt = encrypt(new Date().toISOString());
       if (data.position !== undefined) encryptedData.position = encrypt(String(data.position));
 

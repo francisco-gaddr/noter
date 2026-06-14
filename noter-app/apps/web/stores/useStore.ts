@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Note, Task, UpdateTaskDto, User, decrypt, encrypt, normalizeNoteType } from '@repo/shared';
+import { Note, Task, UpdateTaskDto, User, decrypt, encrypt, safeDecrypt, normalizeNoteType, parseEntityLinks } from '@repo/shared';
 import { api, getApiBaseUrl, getUUID, setApiBaseUrl, setApiToken } from '../services/api';
 import { socket, connectSocket, disconnectSocket, setSocketToken } from '../services/socket';
 import { db } from '../services/db';
@@ -307,6 +307,7 @@ const materializeNotesFromEncrypted = (notes: Note[], unlockedIds: Set<string>):
         : [],
       icon: note.__rawEncryptedIcon ? (() => { try { return decrypt(note.__rawEncryptedIcon) } catch { return note.__rawEncryptedIcon } })() : undefined,
       iconColor: note.__rawEncryptedIconColor ? (() => { try { return decrypt(note.__rawEncryptedIconColor) } catch { return note.__rawEncryptedIconColor } })() : undefined,
+      links: parseEntityLinks(note.links ? safeDecrypt(note.links, '') : ''),
       locked: parseNoteLocked(note.locked),
     };
   });
@@ -359,7 +360,7 @@ interface StoreState {
   unlockNote: (id: string, password: string) => Promise<boolean>;
   deleteNote: (id: string) => Promise<void>;
   
-  createTask: (title: string, parentNoteId?: string, dueDate?: string | null, options?: { description?: string; priority?: 'low' | 'medium' | 'high'; recurrenceType?: 'none' | 'daily' | 'weekly'; recurrenceDays?: number[]; reminderEnabled?: boolean; reminderOffsetMinutes?: number | number[] }) => Promise<Task | undefined>;
+  createTask: (title: string, parentNoteId?: string, dueDate?: string | null, options?: { description?: string; priority?: 'low' | 'medium' | 'high'; recurrenceType?: 'none' | 'daily' | 'weekly'; recurrenceDays?: number[]; reminderEnabled?: boolean; reminderOffsetMinutes?: number | number[]; links?: import('@repo/shared').EntityLink[] }) => Promise<Task | undefined>;
   updateTask: (id: string, data: UpdateTaskDto) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
   reorderTasks: (tasks: Task[]) => Promise<void>;
@@ -768,6 +769,7 @@ export const useStore = create<StoreState>((set, get) => ({
             })(),
             recurrenceType: newTask.recurrenceType ? (() => { try { return decrypt(newTask.recurrenceType) as any } catch { return 'none' as any } })() : 'none',
             recurrenceDays: newTask.recurrenceDays ? (() => { try { return JSON.parse(decrypt(newTask.recurrenceDays)) } catch { return [] } })() : [],
+            links: parseEntityLinks(newTask.links ? safeDecrypt(newTask.links, '') : ''),
             reminderEnabled: newTask.reminderEnabled ? (() => { try { return decrypt(newTask.reminderEnabled) === 'true' } catch { return false } })() : false,
             reminderOffsetMinutes: newTask.reminderOffsetMinutes ? (() => { try { return parseReminderOffsets(decrypt(newTask.reminderOffsetMinutes)); } catch { return []; } })() : [],
         };
@@ -1390,7 +1392,8 @@ export const useStore = create<StoreState>((set, get) => ({
               recurrenceType: options?.recurrenceType,
               recurrenceDays: options?.recurrenceDays,
               reminderEnabled: options?.reminderEnabled,
-              reminderOffsetMinutes: reminderOffsets
+              reminderOffsetMinutes: reminderOffsets,
+              links: options?.links,
           });
           set(state => ({ 
               tasks: uniqBy([newTask, ...state.tasks], '_id'),

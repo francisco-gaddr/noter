@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Task, applyDelegationDefaults, contextLevelConfig } from '@repo/shared';
+import { Task, applyDelegationDefaults, contextLevelConfig, toggleEntityLink, normalizeNoteType, type EntityLink } from '@repo/shared';
 import { FaTimes, FaSave, FaTrash } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '../stores/useStore';
@@ -47,6 +47,9 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
   const [recurrenceDays, setRecurrenceDays] = useState<number[]>([]);
   const [reminderEnabled, setReminderEnabled] = useState(false);
   const [reminderOffsetMinutes, setReminderOffsetMinutes] = useState<number[]>([0]);
+  const [links, setLinks] = useState<EntityLink[]>([]);
+  const [linkQuery, setLinkQuery] = useState('');
+  const allTasks = useStore((s) => s.tasks);
   const [isSaving, setIsSaving] = useState(false);
   const recurrenceOptions = [
     { value: 'none', label: 'Ingen' },
@@ -110,6 +113,7 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
         setRecurrenceDays(task.recurrenceDays || []);
         setReminderEnabled(task.reminderEnabled || false);
         setReminderOffsetMinutes(Array.isArray(task.reminderOffsetMinutes) && task.reminderOffsetMinutes.length > 0 ? task.reminderOffsetMinutes : [0]);
+        setLinks(Array.isArray((task as any).links) ? (task as any).links : []);
       } else {
         // Reset for new task
         setTitle('');
@@ -148,7 +152,9 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
         setRecurrenceDays([]);
         setReminderEnabled(shouldDefaultReminder);
         setReminderOffsetMinutes([0]);
+        setLinks([]);
       }
+      setLinkQuery('');
     }
   }, [isOpen, task, initialDate, defaultListId]);
 
@@ -185,8 +191,9 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
             recurrenceType,
             recurrenceDays: recurrenceType === 'weekly' ? recurrenceDays : [],
             reminderEnabled,
-            reminderOffsetMinutes: reminderEnabled ? (reminderOffsetMinutes.length > 0 ? reminderOffsetMinutes : [0]) : [0]
-        });
+            reminderOffsetMinutes: reminderEnabled ? (reminderOffsetMinutes.length > 0 ? reminderOffsetMinutes : [0]) : [0],
+            links,
+        } as Partial<Task>);
       } else if (onCreate) {
          const dueIso = dueDateValue
            ? (() => {
@@ -204,8 +211,9 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
             recurrenceType,
             recurrenceDays: recurrenceType === 'weekly' ? recurrenceDays : [],
             reminderEnabled,
-            reminderOffsetMinutes: reminderEnabled ? (reminderOffsetMinutes.length > 0 ? reminderOffsetMinutes : [0]) : [0]
-         });
+            reminderOffsetMinutes: reminderEnabled ? (reminderOffsetMinutes.length > 0 ? reminderOffsetMinutes : [0]) : [0],
+            links,
+         } as any);
          // Attach the delegation now that the new task has an id (reuses the same local
          // map + backend-sync path the edit flow uses).
          if (delegateOnCreate && created && created._id) {
@@ -457,6 +465,40 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
                 </option>
               ))}
             </select>
+          </div>
+
+          <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700" data-testid="entity-link-picker">
+            <label className="font-semibold text-gray-800 dark:text-gray-100">Länka till andra (graf)</label>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Koppla den här uppgiften till anteckningar, listor, projekt eller uppgifter — syns i grafvyn.</p>
+            {links.length > 0 && (
+              <div className="flex flex-wrap gap-1 mb-1">
+                {links.map((l) => {
+                  const tgt = (notes as any[]).find((n) => n._id === l.targetId) || (allTasks as any[]).find((t) => t._id === l.targetId);
+                  return (
+                    <button key={l.targetId} type="button" onClick={() => setLinks((cur) => toggleEntityLink(cur, l.targetId))} className="text-[11px] px-2 py-0.5 rounded-full bg-pink-600 text-white">
+                      {(tgt?.title || l.targetId.slice(0, 6))} ✕
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <input value={linkQuery} onChange={(e) => setLinkQuery(e.target.value)} placeholder="Sök att länka…" className="w-full border rounded p-1.5 text-sm dark:bg-gray-900 dark:border-gray-700" />
+            {linkQuery.trim() && (
+              <div className="max-h-32 overflow-y-auto mt-1 border border-gray-200 dark:border-gray-700 rounded">
+                {[
+                  ...(notes as any[]).map((n) => ({ id: n._id, label: n.title, kind: normalizeNoteType(n.type) })),
+                  ...(allTasks as any[]).filter((t) => t._id !== task?._id).map((t) => ({ id: t._id, label: t.title, kind: 'task' as const })),
+                ].filter((c) => c.id && (c.label || '').toLowerCase().includes(linkQuery.toLowerCase())).slice(0, 20).map((c) => {
+                  const on = links.some((l) => l.targetId === c.id);
+                  return (
+                    <button key={c.id} type="button" onClick={() => setLinks((cur) => toggleEntityLink(cur, c.id))} className={`w-full text-left px-2 py-1 text-xs ${on ? 'bg-pink-50 dark:bg-pink-900/30' : 'hover:bg-gray-100 dark:hover:bg-gray-800'}`}>
+                      <span className="text-gray-400 mr-1">{c.kind === 'project' ? '📁' : c.kind === 'task_list' ? '✓' : c.kind === 'task' ? '◻︎' : '📝'}</span>
+                      {c.label || '(namnlös)'} {on ? '✓' : ''}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {task ? <AiDelegationSection task={task} /> : (

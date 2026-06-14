@@ -30,7 +30,8 @@ const taskSchema = Joi.object({
   recurrenceType: encryptedOptional.optional(),
   recurrenceDays: encryptedOptional.optional(),
   reminderEnabled: encryptedOptional.optional(),
-  reminderOffsetMinutes: encryptedOptional.optional()
+  reminderOffsetMinutes: encryptedOptional.optional(),
+  links: encryptedOptional.optional()
 });
 
 const assignSchema = Joi.object({
@@ -58,7 +59,8 @@ const updateTaskSchema = Joi.object({
   recurrenceType: encryptedOptional.optional(),
   recurrenceDays: encryptedOptional.optional(),
   reminderEnabled: encryptedOptional.optional(),
-  reminderOffsetMinutes: encryptedOptional.optional()
+  reminderOffsetMinutes: encryptedOptional.optional(),
+  links: encryptedOptional.optional()
 });
 
 // GET /api/tasks
@@ -209,7 +211,8 @@ router.put('/:id', validate(updateTaskSchema), async (req: Request, res: Respons
         if (req.body.recurrenceDays !== undefined) task.recurrenceDays = req.body.recurrenceDays;
         if (req.body.reminderEnabled !== undefined) task.reminderEnabled = req.body.reminderEnabled;
         if (req.body.reminderOffsetMinutes !== undefined) task.reminderOffsetMinutes = req.body.reminderOffsetMinutes;
-        
+        if (req.body.links !== undefined) task.links = req.body.links;
+
         const updatedTask = await task.save();
         
         const io = req.app.get('io');
