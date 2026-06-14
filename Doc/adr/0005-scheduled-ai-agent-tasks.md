@@ -65,6 +65,31 @@ Per Expo docs (June 2026) background execution is best-effort only
 - **Transparency**: `onAccess` records each read; the run log is shown in the task
   editor's "Delegera till AI" section (mobile + web) as a plain list.
 
+### Always-on backend execution + push (opt-in)
+
+A task can additionally be flagged `runOnBackend`. Then the Pi backend (always-on)
+runs it at its dueDate with **no device open**:
+
+- The delegation is mirrored onto the synced task's encrypted `aiAgent` field via
+  GraphQL `updateTask` — encrypted with the **service key** so the backend can
+  read it (the on-device-only local map is never server-readable). Cleared when
+  the user turns backend execution off.
+- `services/backendAgentRunner` runs as a 60 s cron job: it finds due
+  backend-flagged AI tasks and runs each via the SAME `@repo/ai runAgentTask`,
+  with `invokeModel` → the configured **self-hosted** endpoint (Ollama/LM Studio;
+  the Pi reaches its own Ollama with no key) and `executeTool` → server-side
+  Task/Note ops (scoped by userId, emitting the same realtime socket events).
+  `source='api'` is rejected server-side (the server has no user key) and stays
+  device-run.
+- **Push**: a `PushToken` model + `/api/push/register`; `expoPush.sendPushToUser`
+  notifies every registered device on start/finish per the task's `notify`
+  settings. Mobile registers its Expo token on auth; web/Electron get the live
+  socket updates (browser web-push infra exists for a future hook).
+
+This makes execution "smarter and more dynamic": the user picks per task (or as a
+default) whether it runs on the device, on the always-on backend, or both, and
+which model/source — while a plain self-task stays a plain task.
+
 ### Model source
 
 `source` selects local / Hermes / API; `provider`+`model` pick the exact model.
