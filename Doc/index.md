@@ -32,6 +32,7 @@ ska öppna för en given fråga. Läs det här först, sedan den specifika filen
 | Förstå AI tool-use + GraphQL-kontrakt | [`Tool Calls.md`](./Tool%20Calls.md) |
 | **Förstå admin, AI-orkestrering, inställningar + mätbarhet** | [`admin-orchestration-and-settings.md`](./admin-orchestration-and-settings.md) ⭐ |
 | Förstå grafvyn (noder/kanter/flödesriktning) + semantisk sök | [`graph-explorer.md`](./graph-explorer.md) |
+| **Kalenderprenumeration (ICS) till Google/Apple-kalender** | [`calendar-subscription.md`](./calendar-subscription.md) ⭐ |
 | Förstå widgets | [`widgets-architecture.md`](./widgets-architecture.md) |
 | Se vad som återstår / nästa steg | [`improvements.md`](./improvements.md) + §4 nedan |
 | Skriva en incident-postmortem | [`incidents/TEMPLATE.md`](./incidents/TEMPLATE.md) |

@@ -32,7 +32,9 @@ export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
       'Graf (listvy): filtervalen är inte längre hoptryckta — rutorna har full höjd och är lätta att läsa',
       'Anteckningar: headern är nu en kompakt egen rad (inte längre Material-appbarens minsta höjd) så mer av sidan syns; uppgiftsvyns försenade/aktiva/%-rad är borttagen',
       'Tydligare tryck-effekt på rader i inställningar och i AI-sektionens projekt/chattar så du ser exakt vilken rad du tryckte på',
-      'Bakgrunds-AI: uppgifter som blivit klara att köra medan appen var stängd körs nu direkt när du öppnar appen igen (utöver de periodiska bakgrundskörningarna)',
+      'Bakgrunds-AI: uppgifter som blivit klara att köra medan appen var stängd körs nu direkt när du öppnar appen igen (utöver de periodiska bakgrundskörningarna); bakgrundsagenten kan nu även köra lokala på-enheten-modeller, inte bara API/Hermes',
+      'Kalender: skapa en prenumerationslänk (under Inställningar → Kalender) och klistra in den i Google Kalender eller Kalender på Mac för att se dina daterade uppgifter i en extern kalender — uppdateras live. Endast titel + datum delas',
+      'AI-inställningar: din API-nyckel sparas nu korrekt krypterat lokalt och glöms inte längre bort mellan omstarter; kontextnivå och tool-use flyttade till AI-instruktioner (en plats), och onödiga hjälptexter borttagna',
     ],
   },
   {
