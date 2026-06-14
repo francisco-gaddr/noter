@@ -10,6 +10,8 @@ import { buildSecurityNoteMap, findBlockingLockedAncestor } from '../services/ai
 import { forgetSessionCrypto } from '../lib/crypto';
 
 let networkListenersReady = false;
+// Debounce handle for the cache:invalidate change-stream fallback (see socket setup).
+let cacheInvalidateTimer: ReturnType<typeof setTimeout> | null = null;
 
 const shouldLogElectronDataDebug = (): boolean => {
   if (typeof window === 'undefined') return false;
@@ -660,6 +662,15 @@ export const useStore = create<StoreState>((set, get) => ({
     socket.off('disconnect');
     socket.on('disconnect', () => {
         set({ error: 'Socket disconnected' });
+    });
+
+    // Change-stream fallback: any DB write the user owns emits cache:invalidate.
+    // Coalesce bursts and refetch so AI-agent / other-device writes that didn't arrive
+    // as a specific note:created/task:created event still appear live (no reload).
+    socket.off('cache:invalidate');
+    socket.on('cache:invalidate', () => {
+      if (cacheInvalidateTimer) clearTimeout(cacheInvalidateTimer);
+      cacheInvalidateTimer = setTimeout(() => { void get().fetchNotes(); void get().fetchTasks(); }, 600);
     });
 
     socket.off('note:created');

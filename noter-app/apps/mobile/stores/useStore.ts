@@ -561,6 +561,8 @@ export const useStore = create<AppState>((set, get) => ({
     socket.off('task:updated');
     socket.off('task:deleted');
     socket.off('tasks:reordered');
+    socket.off('cache:invalidate');
+    let cacheInvalidateTimer: ReturnType<typeof setTimeout> | null = null;
 
     socket.on('note:created', (note: Note) => {
       set(state => {
@@ -692,6 +694,14 @@ export const useStore = create<AppState>((set, get) => ({
         });
         return { tasks: newTasks };
       });
+    });
+
+    // Change-stream fallback: any DB write the user owns emits cache:invalidate.
+    // Coalesce bursts and refetch so AI-agent / other-device writes that didn't arrive
+    // as a specific note:created/task:created event still appear live (no reload).
+    socket.on('cache:invalidate', () => {
+      if (cacheInvalidateTimer) clearTimeout(cacheInvalidateTimer);
+      cacheInvalidateTimer = setTimeout(() => { void get().syncViaHttp(); }, 600);
     });
 
     socket.on('connect', () => {
