@@ -1,4 +1,5 @@
 import { Note, CreateNoteDto, UpdateNoteDto, Task, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, safeDecrypt, AuthResponse, parseEntityLinks, serializeEntityLinks } from '@repo/shared';
+import { readStoredToken, writeStoredToken } from '../lib/authStorage';
 
 export const getUUID = (): string => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -67,15 +68,13 @@ export const setApiBaseUrl = (url: string) => {
 
 export const setApiToken = (token: string | null) => {
   apiTokenCache = token;
-  const storage = getStorage();
-  if (!storage) return;
-  if (token) storage.setItem('token', token);
-  else storage.removeItem('token');
+  // Persist the bearer token ENCRYPTED at rest (defeats generic localStorage scrapers);
+  // apiTokenCache holds the raw value in memory for request headers.
+  writeStoredToken(token);
 };
 
 const getHeaders = () => {
-  const storage = getStorage();
-  const token = apiTokenCache || (storage ? storage.getItem('token') : null);
+  const token = apiTokenCache || readStoredToken();
   return {
     'Content-Type': 'application/json',
     ...(token ? { 'Authorization': `Bearer ${token}` } : {}),

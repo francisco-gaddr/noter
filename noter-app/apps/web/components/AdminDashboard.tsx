@@ -5,6 +5,7 @@ import { useStore } from '../stores/useStore';
 import { AdminCleanup } from './AdminCleanup';
 import { computeTaskInsights, computeNoteInsights, computeProductivityStats, computeAgentStats, toolUsageLabel, type ToolUsageRow } from '@repo/shared';
 import { getApiBaseUrl } from '../services/api';
+import { readStoredToken } from '../lib/authStorage';
 import { getToolUsageRows, getAllUsageRows } from '../services/ai/usageTracker';
 import type { UsageSnapshot } from '../services/ai/usageTracker';
 
@@ -65,7 +66,7 @@ export const AdminDashboard: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const token = typeof localStorage !== 'undefined' ? localStorage.getItem('token') : null;
+      const token = readStoredToken();
       const res = await fetch(`${getApiBaseUrl()}/admin/overview`, {
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       });

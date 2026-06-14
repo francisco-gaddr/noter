@@ -8,6 +8,7 @@ import { uniqBy } from 'lodash';
 import CryptoJS from 'crypto-js';
 import { buildSecurityNoteMap, findBlockingLockedAncestor } from '../services/ai/security';
 import { forgetSessionCrypto } from '../lib/crypto';
+import { readStoredToken, readStoredUser, writeStoredToken, writeStoredUser } from '../lib/authStorage';
 
 let networkListenersReady = false;
 // Debounce handle for the cache:invalidate change-stream fallback (see socket setup).
@@ -396,8 +397,8 @@ export const useStore = create<StoreState>((set, get) => ({
   hydrate: () => {
     if (typeof window === 'undefined') return;
     try {
-        const user = JSON.parse(localStorage.getItem('user') || 'null');
-        const token = localStorage.getItem('token');
+        const user = readStoredUser();
+        const token = readStoredToken();
         const language = (localStorage.getItem('language') as 'sv' | 'en') || 'sv';
         const activeTab = (localStorage.getItem('activeTab') as any) || 'notes';
         const savedSortOrder = (localStorage.getItem('sortOrder') as SortOrder) || 'date-desc';
@@ -434,11 +435,11 @@ export const useStore = create<StoreState>((set, get) => ({
                     hasStoredBackendUrl: Boolean(storedBackendUrl),
                 });
                 if (storedToken && !token) {
-                    localStorage.setItem('token', String(storedToken));
+                    writeStoredToken(String(storedToken));
                 }
                 if (storedUser && !user) {
                     const normalizedUser = typeof storedUser === 'string' ? JSON.parse(storedUser) : storedUser;
-                    localStorage.setItem('user', JSON.stringify(normalizedUser));
+                    writeStoredUser(normalizedUser);
                 }
                 const apiBaseCandidate = storedApiBaseUrl || storedApiUrl || storedBackendUrl;
                 if (apiBaseCandidate && typeof apiBaseCandidate === 'string') {
@@ -492,8 +493,8 @@ export const useStore = create<StoreState>((set, get) => ({
   login: async (username, password) => {
     try {
         const { user, token } = await api.login(username, password);
-        localStorage.setItem('token', token);
-        localStorage.setItem('user', JSON.stringify(user));
+        writeStoredToken(token);
+        writeStoredUser(user);
         localStorage.removeItem('isAppLocked');
         set({ user, token, isAppLocked: false });
         setElectronLockState(false);
@@ -513,8 +514,8 @@ export const useStore = create<StoreState>((set, get) => ({
   register: async (username, password) => {
     try {
         const { user, token } = await api.register(username, password);
-        localStorage.setItem('token', token);
-        localStorage.setItem('user', JSON.stringify(user));
+        writeStoredToken(token);
+        writeStoredUser(user);
         localStorage.removeItem('isAppLocked');
         set({ user, token, isAppLocked: false });
         setElectronLockState(false);

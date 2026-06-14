@@ -27,6 +27,9 @@ jest.mock('@repo/shared', () => ({
     typeof v === 'string'
       ? (v.startsWith('encrypted_') ? v.replace('encrypted_', '') : v)
       : (typeof fb === 'string' ? fb : '')),
+  // EntityLink (graph) helpers used by decryptNoteFromApi / decryptTaskFromApi.
+  parseEntityLinks: jest.fn(() => []),
+  serializeEntityLinks: jest.fn(() => ''),
 }));
 
 describe('E2E Encryption Tests', () => {
@@ -76,6 +79,7 @@ describe('E2E Encryption Tests', () => {
         type: 'note',
         locked: true,
         order: 0,
+        links: [],
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-02T00:00:00.000Z',
         parentId: null,

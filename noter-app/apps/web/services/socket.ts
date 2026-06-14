@@ -1,6 +1,7 @@
 import { io } from 'socket.io-client';
 import { enforceSecureSocketUrl } from '@repo/shared';
 import { getApiBaseUrl } from './api';
+import { readStoredToken, writeStoredToken } from '../lib/authStorage';
 
 const stripApiSuffix = (url: string) => url.replace(/\/api\/?$/, '');
 
@@ -78,7 +79,7 @@ export const connectSocket = () => {
       withCredentials: true,
     });
   }
-  const token = socketTokenCache || (typeof window !== 'undefined' ? localStorage.getItem('token') : null);
+  const token = socketTokenCache || readStoredToken();
   (socket as any).auth = { token };
   if (!socket.connected) socket.connect();
 };
@@ -90,8 +91,7 @@ export const disconnectSocket = () => {
 export const setSocketToken = (token: string | null) => {
   socketTokenCache = token;
   if (typeof window !== 'undefined') {
-    if (token) localStorage.setItem('token', token);
-    else localStorage.removeItem('token');
+    writeStoredToken(token);
   }
   (socket as any).auth = { token };
 };

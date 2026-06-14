@@ -18,12 +18,13 @@ import {
   type EnrollOutcome,
 } from '@repo/shared';
 import { getApiBaseUrl } from '../services/api';
+import { readStoredToken } from './authStorage';
 
 const DATA_KEY_STORE = 'v3_data_key';
 
 const getToken = (): string | null => {
   try {
-    return typeof localStorage !== 'undefined' ? localStorage.getItem('token') : null;
+    return readStoredToken();
   } catch {
     return null;
   }

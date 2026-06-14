@@ -11,6 +11,7 @@
  */
 import { getApiBaseUrl } from './api';
 import { useStore } from '../stores/useStore';
+import { readStoredToken } from '../lib/authStorage';
 
 const isElectron = (): boolean =>
   typeof window !== 'undefined' && Boolean((window as any).mlc?.isElectron);
@@ -25,10 +26,10 @@ export const resolveAuthToken = async (): Promise<string> => {
   const stateToken = useStore.getState().token;
   if (stateToken) return stateToken;
 
-  // 2. Browser storage (token / legacy auth_token, local then session).
+  // 2. Browser storage (encrypted token, then legacy auth_token / session fallbacks).
   if (typeof window !== 'undefined') {
     const local =
-      localStorage.getItem('token') ||
+      readStoredToken() ||
       localStorage.getItem('auth_token') ||
       sessionStorage.getItem('token') ||
       sessionStorage.getItem('auth_token');
