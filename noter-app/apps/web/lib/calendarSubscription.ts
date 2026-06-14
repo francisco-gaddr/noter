@@ -139,12 +139,6 @@ export const revokeDavCredential = async (listId?: string | null): Promise<void>
 export const getDavUsername = (listId?: string | null): string | null => readDavMap()[scopeKey(listId)] || null;
 export const hasDavCredential = (listId?: string | null): boolean => Boolean(readDavMap()[scopeKey(listId)]);
 
-/** The CalDAV server URL the user pastes into their client. */
-export const getDavServerUrl = (): string => {
-  const base = getApiBaseUrl().replace(/\/api\/?$/, '').replace(/\/$/, '');
-  return `${base}/dav/`;
-};
-
 /** Apply a single queued CalDAV write-back to the real (encrypted) task with the user's key. */
 const applyMutation = async (s: any, m: any): Promise<void> => {
   const task = (s.tasks || []).find((t: any) => t._id === m.uid || t.clientId === m.uid);
