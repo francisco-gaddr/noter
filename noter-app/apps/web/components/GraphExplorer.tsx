@@ -11,14 +11,14 @@
  */
 import React, { useMemo, useState } from 'react';
 import {
-  buildGraph, neighborsOf, filterGraphByQuery,
-  RELATION_LABELS, NODE_KIND_LABELS,
+  buildGraph, neighborsOf, filterGraphByQuery, layoutGraph,
+  RELATION_LABELS, NODE_KIND_LABELS, RELATION_COLORS, NODE_COLORS,
   type GraphNodeKind, type GraphRelation, type GraphConfig,
 } from '@repo/shared';
 import { useStore } from '../stores/useStore';
 
 const ALL_KINDS: GraphNodeKind[] = ['project', 'task_list', 'note', 'task'];
-const ALL_RELS: GraphRelation[] = ['in_project', 'in_list', 'subtask'];
+const ALL_RELS: GraphRelation[] = ['in_project', 'in_list', 'subtask', 'linked', 'sibling', 'same_due'];
 
 const KIND_ICON: Record<GraphNodeKind, string> = { project: '📁', task_list: '✓', note: '📝', task: '◻︎' };
 
@@ -29,14 +29,18 @@ export const GraphExplorer: React.FC<{ isOpen: boolean; onClose: () => void }> =
   const setActiveTab = useStore((s) => s.setActiveTab);
 
   const [kinds, setKinds] = useState<Set<GraphNodeKind>>(new Set(ALL_KINDS));
-  const [rels, setRels] = useState<Set<GraphRelation>>(new Set(ALL_RELS));
+  const [rels, setRels] = useState<Set<GraphRelation>>(new Set(['in_project', 'in_list', 'subtask', 'linked'] as GraphRelation[]));
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [view, setView] = useState<'graph' | 'list'>('graph');
+  const [deriveSiblings, setDeriveSiblings] = useState(false);
+  const [deriveSameDue, setDeriveSameDue] = useState(false);
 
-  const config: GraphConfig = useMemo(() => ({ include: [...kinds], relations: [...rels] }), [kinds, rels]);
+  const config: GraphConfig = useMemo(() => ({ include: [...kinds], relations: [...rels], deriveSiblings, deriveSameDue }), [kinds, rels, deriveSiblings, deriveSameDue]);
   const graph = useMemo(() => buildGraph(notes as any, tasks as any, config), [notes, tasks, config]);
   const filtered = useMemo(() => filterGraphByQuery(graph, query), [graph, query]);
   const selected = useMemo(() => (selectedId ? neighborsOf(graph, selectedId) : null), [graph, selectedId]);
+  const layout = useMemo(() => layoutGraph(filtered, { width: 1100, height: 850 }), [filtered]);
 
   if (!isOpen) return null;
 
@@ -58,10 +62,16 @@ export const GraphExplorer: React.FC<{ isOpen: boolean; onClose: () => void }> =
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose} role="dialog" aria-modal="true" aria-label="Grafutforskaren">
-      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-xl w-full max-w-4xl h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()} data-testid="graph-explorer">
+      <div className="bg-white dark:bg-gray-900 rounded-lg shadow-xl w-full max-w-6xl h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()} data-testid="graph-explorer">
         <div className="flex items-center justify-between p-3 border-b border-gray-200 dark:border-gray-700">
           <h2 className="font-semibold text-gray-800 dark:text-gray-100">Grafutforskaren · {graph.nodes.length} noder, {graph.edges.length} relationer</h2>
-          <button onClick={onClose} className="p-1 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200" aria-label="Stäng">✕</button>
+          <div className="flex items-center gap-2">
+            <div className="flex rounded overflow-hidden border border-gray-300 dark:border-gray-600 text-xs">
+              <button onClick={() => setView('graph')} className={`px-2 py-1 ${view === 'graph' ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-300'}`} data-testid="graph-view-graph">Graf</button>
+              <button onClick={() => setView('list')} className={`px-2 py-1 ${view === 'list' ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-300'}`} data-testid="graph-view-list">Lista</button>
+            </div>
+            <button onClick={onClose} className="p-1 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200" aria-label="Stäng">✕</button>
+          </div>
         </div>
 
         <div className="p-3 border-b border-gray-200 dark:border-gray-700 space-y-2">
@@ -83,10 +93,51 @@ export const GraphExplorer: React.FC<{ isOpen: boolean; onClose: () => void }> =
                 {RELATION_LABELS[r]}
               </button>
             ))}
+            <span className="text-xs text-gray-500 mx-1">Auto:</span>
+            <button className={pill(deriveSiblings)} onClick={() => { setDeriveSiblings((v) => !v); setRels((s) => new Set(s).add('sibling')); }} data-testid="graph-derive-siblings">samma mapp/lista</button>
+            <button className={pill(deriveSameDue)} onClick={() => { setDeriveSameDue((v) => !v); setRels((s) => new Set(s).add('same_due')); }} data-testid="graph-derive-samedue">samma datum</button>
           </div>
         </div>
 
-        <div className="flex flex-1 overflow-hidden">
+        {view === 'graph' && (
+          <div className="relative flex-1 overflow-hidden bg-gray-50 dark:bg-gray-950" data-testid="graph-canvas">
+            {filtered.nodes.length === 0 && <div className="absolute inset-0 flex items-center justify-center text-sm text-gray-500">Inga noder matchar filtret.</div>}
+            {selected && (
+              <div className="absolute top-2 right-2 w-64 max-h-[80%] overflow-y-auto bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3 z-10" data-testid="graph-detail-overlay">
+                <div className="text-xs uppercase tracking-wider text-gray-500">{NODE_KIND_LABELS[selected.node.kind]}</div>
+                <div className="font-semibold text-gray-800 dark:text-gray-100 text-sm">{KIND_ICON[selected.node.kind]} {selected.node.label}</div>
+                <button onClick={() => openNode(selected.node.id, selected.node.kind)} className="mt-1 text-xs text-blue-600 dark:text-blue-400">Öppna →</button>
+                {[...selected.outgoing, ...selected.incoming].length > 0 && (
+                  <div className="mt-2 text-xs">
+                    <div className="font-semibold text-gray-600 dark:text-gray-300 mb-1">Relationer</div>
+                    {selected.outgoing.map((o, i) => (
+                      <button key={`o-${i}`} onClick={() => setSelectedId(o.node.id)} className="block text-left hover:underline">{RELATION_LABELS[o.edge.rel]}: {o.node.label}</button>
+                    ))}
+                    {selected.incoming.map((inc, i) => (
+                      <button key={`i-${i}`} onClick={() => setSelectedId(inc.node.id)} className="block text-left hover:underline">{inc.node.label} ({RELATION_LABELS[inc.edge.rel]})</button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            <svg viewBox={`0 0 ${layout.width} ${layout.height}`} className="w-full h-full" preserveAspectRatio="xMidYMid meet">
+              {layout.edges.map((e, i) => {
+                const a = layout.nodes.find((n) => n.id === e.source);
+                const b = layout.nodes.find((n) => n.id === e.target);
+                if (!a || !b) return null;
+                return <line key={`e-${i}`} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={RELATION_COLORS[e.rel] || '#cbd5e1'} strokeWidth={e.rel === 'sibling' || e.rel === 'same_due' ? 0.8 : 1.4} strokeOpacity={0.55} strokeDasharray={e.rel === 'same_due' || e.rel === 'sibling' ? '4 3' : undefined} />;
+              })}
+              {layout.nodes.map((n) => (
+                <g key={n.id} transform={`translate(${n.x},${n.y})`} onClick={() => setSelectedId(n.id)} style={{ cursor: 'pointer' }}>
+                  <circle r={n.r} fill={NODE_COLORS[n.kind]} stroke={selectedId === n.id ? '#111827' : '#fff'} strokeWidth={selectedId === n.id ? 2.5 : 1} />
+                  <text x={n.r + 3} y={4} fontSize={11} className="fill-gray-700 dark:fill-gray-200">{(n.label || '').slice(0, 22)}</text>
+                </g>
+              ))}
+            </svg>
+          </div>
+        )}
+
+        <div className={`${view === 'graph' ? 'hidden' : 'flex'} flex-1 overflow-hidden`}>
           <ul className="w-1/2 overflow-y-auto border-r border-gray-200 dark:border-gray-700" data-testid="graph-node-list">
             {filtered.nodes.length === 0 && <li className="p-3 text-sm text-gray-500">Inga noder matchar filtret.</li>}
             {filtered.nodes.map((n) => (

@@ -167,7 +167,7 @@ export const buildGraph = (notes: Note[], tasks: Task[], config?: GraphConfig): 
       const k = String(n.parentId);
       (byParent.get(k) ?? byParent.set(k, []).get(k)!).push(n._id);
     }
-    for (const ids of byParent.values()) pairwise(ids, 'sibling');
+    byParent.forEach((ids) => pairwise(ids, 'sibling'));
     // Tasks sharing the same list.
     const byList = new Map<string, string[]>();
     for (const t of liveTasks) {
@@ -175,7 +175,7 @@ export const buildGraph = (notes: Note[], tasks: Task[], config?: GraphConfig): 
       const k = String(t.parentNoteId);
       (byList.get(k) ?? byList.set(k, []).get(k)!).push(t._id);
     }
-    for (const ids of byList.values()) pairwise(ids, 'sibling');
+    byList.forEach((ids) => pairwise(ids, 'sibling'));
   }
 
   if (config?.deriveSameDue) {
@@ -188,7 +188,7 @@ export const buildGraph = (notes: Note[], tasks: Task[], config?: GraphConfig): 
       const k = `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
       (byDay.get(k) ?? byDay.set(k, []).get(k)!).push(t._id);
     }
-    for (const ids of byDay.values()) pairwise(ids, 'same_due');
+    byDay.forEach((ids) => pairwise(ids, 'same_due'));
   }
 
   return { nodes, edges };
