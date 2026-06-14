@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { ChatMessage, HFModel, HFFile, Conversation, AIProject, normalizeToolArguments } from '@repo/ai';
-import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, mcpSettingsFromJson, mcpSettingsToJsonString, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings } from '@repo/shared';
+import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, mcpSettingsFromJson, mcpSettingsToJsonString, mergePresetProviders, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings } from '@repo/shared';
 import { db } from '../services/db';
 import { v4 as uuidv4 } from 'uuid';
 import { useStore } from '../stores/useStore';
@@ -397,7 +397,12 @@ export const AISidebar = () => {
           }
         } catch {}
       }
-      if (mounted) setCustomProviders(loadedCustom);
+      // Pre-seed this user's private Hermes agents (exclusive per username; nothing
+      // for others). Persist encrypted only when something was actually added.
+      const username = (user as any)?.username as string | undefined;
+      const { merged: withPresets, added: presetsAdded } = mergePresetProviders(loadedCustom, username);
+      if (mounted) setCustomProviders(withPresets);
+      if (presetsAdded) setStoredValue('aiCustomProviders', encrypt(JSON.stringify(withPresets)));
 
       const savedApiProvider = await getStoredValue('aiApiProvider');
       if (mounted && typeof savedApiProvider === 'string' && savedApiProvider.startsWith('custom:')) {

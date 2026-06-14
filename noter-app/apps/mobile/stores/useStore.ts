@@ -703,6 +703,8 @@ export const useStore = create<AppState>((set, get) => ({
       const response = await apiLogin(username, password);
       setAuthToken(response.token);
       await SecureStore.setItemAsync('token', response.token);
+      // Remember the username (used e.g. to pre-seed a user's private AI providers).
+      try { await SecureStore.setItemAsync('auth_username', username); } catch {}
       get().setToken(response.token);
       if (get().securityLocked) {
         await get().setSecurityLocked(false);

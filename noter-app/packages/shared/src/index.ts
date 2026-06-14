@@ -8,3 +8,4 @@ export * from './insights';
 export * from './aiAttachments';
 export * from './displayFilters';
 export * from './noteType';
+export * from './presetProviders';

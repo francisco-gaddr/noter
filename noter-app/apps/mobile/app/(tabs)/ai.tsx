@@ -31,7 +31,7 @@ import * as Clipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import * as Crypto from 'expo-crypto';
-import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, safeDecrypt, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings, mcpSettingsFromJson, mcpSettingsToJsonString, buildAttachmentContextBlock, summarizeAttachmentsForUi, imageDataUrls, MAX_ATTACHMENTS, type AiAttachment } from '@repo/shared';
+import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, safeDecrypt, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings, mcpSettingsFromJson, mcpSettingsToJsonString, mergePresetProviders, buildAttachmentContextBlock, summarizeAttachmentsForUi, imageDataUrls, MAX_ATTACHMENTS, type AiAttachment } from '@repo/shared';
 import { pickAttachments } from '@/services/ai/attachments';
 
 const provider = new MobileLlamaProvider();
@@ -483,10 +483,21 @@ export default function AIScreen() {
       if (savedApiEnabled !== null) setAiUseApiProviders(savedApiEnabled === 'true');
       // Custom providers (encrypted JSON in SecureStore). Load before restoring id.
       const customRaw = await SecureStore.getItemAsync(`ai_custom_providers_${scopeKey}`);
+      let loadedCustom: CustomProvider[] = [];
       if (customRaw) {
         try {
           const parsed = JSON.parse(safeDecrypt(customRaw, customRaw) || '[]');
-          if (Array.isArray(parsed)) setCustomProviders(parsed);
+          if (Array.isArray(parsed)) loadedCustom = parsed;
+        } catch {}
+      }
+      // Pre-seed this user's private Hermes agents (exclusive per username; nothing
+      // for anyone else). Persist encrypted only when something was actually added.
+      const username = await SecureStore.getItemAsync('auth_username').catch(() => null);
+      const { merged: withPresets, added: presetsAdded } = mergePresetProviders(loadedCustom, username);
+      setCustomProviders(withPresets);
+      if (presetsAdded) {
+        try {
+          await SecureStore.setItemAsync(`ai_custom_providers_${scopeKey}`, encrypt(JSON.stringify(withPresets)));
         } catch {}
       }
       const savedApiProvider = await AsyncStorage.getItem(`ai_api_provider_${scopeKey}`);
