@@ -35,6 +35,8 @@ import {
 } from '@repo/shared';
 import { runAgentTask, type AgentAccess, type ChatMessage } from '@repo/ai';
 import { API_PROVIDERS, generateApiProviderResponse, type ApiProviderType } from './apiProviders';
+import { modelManager } from './ModelManager';
+import { getModelsLocal } from '@/services/database';
 import { buildToolSystemPrompt, type ToolContainer } from './tooling';
 import { patchDelegation, setRunLogEntry } from './agentDelegations';
 import { recordToolUse } from './usageTracker';
@@ -52,6 +54,10 @@ export interface ResolvedModelConfig {
   apiKey: string;
   baseUrl?: string;
   model: string;
+  /** True when the model runs on-device via llama.rn (no API key / network). */
+  local?: boolean;
+  /** Absolute GGUF path for local inference. */
+  localModelPath?: string;
 }
 
 /**
@@ -61,6 +67,20 @@ export interface ResolvedModelConfig {
  */
 export const resolveModelConfig = async (delegation: AiTaskDelegation): Promise<ResolvedModelConfig | null> => {
   const scopeKey = await scopeKeyForToken();
+
+  // Local on-device model (llama.rn): no provider/key/network. The delegation's `model`
+  // holds the GGUF path (set when self-assigning a local task); fall back to the first
+  // downloaded model so a background run can still pick one up.
+  if (delegation.source === 'local') {
+    let path = delegation.model || '';
+    if (!path || !/\.gguf$/i.test(path)) {
+      const models = await getModelsLocal().catch(() => [] as any[]);
+      path = models[0]?.path || path;
+    }
+    if (!path) return null;
+    return { sendProvider: 'hermes', apiKey: '', model: path, local: true, localModelPath: path };
+  }
+
   const providerId = delegation.provider || 'openrouter';
 
   // Custom provider (a user-added Hermes/agent): send via the Hermes path.
@@ -231,13 +251,24 @@ export const runScheduledAgentTask = async (
   await persist({ status: 'running', lastRunAt: new Date().toISOString(), runCount: (delegation.runCount || 0) + 1 });
 
   const config = await resolveModelConfig(delegation);
-  if (!config || !config.model || (!config.apiKey && !API_PROVIDERS[config.sendProvider]?.apiKeyOptional)) {
+  // Local models need a GGUF path, not an API key; remote ones need a key (unless the
+  // provider marks it optional). Either path must resolve a model first.
+  if (!config || !config.model || (!config.local && !config.apiKey && !API_PROVIDERS[config.sendProvider]?.apiKeyOptional)) {
     await persist({ status: 'error', result: 'Saknar modell/nyckel-konfiguration för agenten.' });
     return { ok: false, summary: 'Saknar modellkonfiguration', accesses: [], stopped: 'error' };
   }
 
   const accesses: AgentAccess[] = [];
   const invokeModel = async (messages: ChatMessage[]): Promise<string> => {
+    // Local on-device model: run via llama.rn. Works in the background too (when the
+    // "AI-arbete i bakgrunden" setting keeps the engine resident); honest caveat — a
+    // large model may not finish within iOS's short background window and will simply
+    // retry on the next wake. Remote API/Hermes runs are unaffected.
+    if (config.local && config.localModelPath) {
+      if (!modelManager.isAvailable()) throw new Error('Lokal AI-motor saknas i detta bygge.');
+      await modelManager.load(config.localModelPath);
+      return await modelManager.complete(messages, { shouldStop: opts.isAborted });
+    }
     const res = await generateApiProviderResponse({
       provider: config.sendProvider,
       apiKey: config.apiKey,

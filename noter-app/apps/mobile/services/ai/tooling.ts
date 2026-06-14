@@ -1,15 +1,8 @@
-export type ToolCall = {
-  tool: string;
-  arguments: Record<string, any>;
-};
+import { extractToolCalls as sharedExtractToolCalls, DEFAULT_TOOL_NAMES, type ToolCall } from '@repo/shared';
 
-const allowedTools = new Set([
-  'list_notes', 'get_note', 'create_note', 'update_note', 'delete_note',
-  'list_projects', 'create_project', 'update_project', 'delete_project',
-  'list_tasklists', 'create_tasklist', 'update_tasklist', 'delete_tasklist',
-  'list_tasks', 'get_task', 'create_task', 'update_task', 'delete_task',
-  'mcp_list_tools', 'mcp_call_tool'
-]);
+export type { ToolCall };
+
+const allowedTools = new Set(DEFAULT_TOOL_NAMES);
 
 export type ToolContainer = { id: string; title: string };
 export type ToolPromptContext = {
@@ -69,10 +62,11 @@ export const buildToolSystemPrompt = (baseUrl: string, enabledMcpServices: strin
     'GraphQL endpoint: {BASE_URL}/graphql',
     'Autentisering: använd samma Bearer-token som appen använder.',
     `Aktiva MCP-tjänster: ${enabledMcpText}.`,
-    'Svara med ENDAST ett JSON-block i ```json ... ``` när du vill anropa tools.',
+    'NÄR en åtgärd behövs: ditt svar ska INNEHÅLLA ett JSON-tool-call. Skriv inte bara att du "ska" eller "kan" göra något — emittera själva JSON:en så att åtgärden faktiskt körs.',
+    'Föredra ett ```json-block, men ren JSON utan kodstaket fungerar också. Lägg inget annat på samma rad som JSON:en.',
     'Format:',
     '{"tool":"<name>","arguments":{...}}',
-    'eller lista:',
+    'eller lista (flera åtgärder i tur):',
     '[{"tool":"<name>","arguments":{...}}, {"tool":"<name2>","arguments":{...}}]',
     'VIKTIGT: lägg fälten DIREKT i "arguments". Wrappa dem ALDRIG i en extra "args"-, "input"- eller "parameters"-nivå. Ex korrekt: {"tool":"create_task","arguments":{"title":"Springa","dueDate":"2026-06-14T11:00:00.000Z"}}.',
     'Om användaren ber om ändring i data, utför nödvändiga tool calls direkt.',
@@ -114,36 +108,11 @@ export const buildToolSystemPrompt = (baseUrl: string, enabledMcpServices: strin
   ].join('\n');
 };
 
-export const extractToolCalls = (text: string): { calls: ToolCall[]; cleaned: string } => {
-  const calls: ToolCall[] = [];
-  const pushCall = (tool: string, args: unknown) => {
-    if (!allowedTools.has(tool)) return;
-    if (calls.length >= 8) return;
-    if (typeof args !== 'object' || args === null || Array.isArray(args)) {
-      calls.push({ tool, arguments: {} });
-      return;
-    }
-    const asJson = JSON.stringify(args);
-    if (asJson.length > 8000) return;
-    calls.push({ tool, arguments: args as Record<string, any> });
-  };
-
-  let cleaned = text;
-  const blockRegex = /```json([\s\S]*?)```/g;
-  const matches = text.matchAll(blockRegex);
-  for (const match of matches) {
-    const jsonText = match[1].trim();
-    try {
-      const parsed = JSON.parse(jsonText);
-      const list = Array.isArray(parsed) ? parsed : [parsed];
-      list.forEach((item) => {
-        if (!item?.tool || typeof item.tool !== 'string') return;
-        pushCall(item.tool, item.arguments || {});
-      });
-    } catch {}
-    cleaned = cleaned.replace(match[0], '').trim();
-  }
-
-  return { calls, cleaned };
-};
+/**
+ * Robust tool-call extraction — delegates to the shared parser, which accepts ```json,
+ * plain ```/~~~ fences AND bare un-fenced JSON, and unwraps args/input/parameters. This
+ * is what makes the model's tool calls actually fire instead of being read as chat.
+ */
+export const extractToolCalls = (text: string): { calls: ToolCall[]; cleaned: string } =>
+  sharedExtractToolCalls(text, allowedTools);
 

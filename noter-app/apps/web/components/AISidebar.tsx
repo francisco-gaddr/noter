@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { ChatMessage, HFModel, HFFile, Conversation, AIProject, normalizeToolArguments } from '@repo/ai';
-import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, mcpSettingsFromJson, mcpSettingsToJsonString, mergePresetProviders, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings, CONTEXT_LEVELS, contextLevelConfig, summarizeToolPolicy, normalizeContextLevel, applyDelegationDefaults, serializeAiDelegation, summarizeToolMessage, type ContextLevel, type AiTaskSource, type AiTaskDelegation } from '@repo/shared';
+import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, mcpSettingsFromJson, mcpSettingsToJsonString, mergePresetProviders, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings, CONTEXT_LEVELS, contextLevelConfig, summarizeToolPolicy, normalizeContextLevel, applyDelegationDefaults, serializeAiDelegation, summarizeToolMessage, formatToolFields, extractToolCalls as sharedExtractToolCalls, type ContextLevel, type AiTaskSource, type AiTaskDelegation } from '@repo/shared';
 import { setDelegation as setLocalDelegation } from '../services/ai/agentDelegations';
 import { db } from '../services/db';
 import { v4 as uuidv4 } from 'uuid';
@@ -1904,7 +1904,6 @@ export const AISidebar = () => {
   };
 
   const extractToolCalls = (text: string) => {
-    const calls: Array<{ tool: string; arguments: Record<string, any> }> = [];
     // The context level gates which tools the chat may run: minimal → none, otherwise
     // read+search tools always, write/mutation tools only when the level permits.
     const policy = contextLevelConfig(chatContextLevel);
@@ -1914,49 +1913,28 @@ export const AISidebar = () => {
       ...(policy.allowReadTools ? readTools : []),
       ...(policy.allowWriteTools ? writeTools : []),
     ]);
-    const pushCall = (tool: string, args: unknown) => {
-      if (!allowedTools.has(tool)) return;
-      if (calls.length >= 8) return;
-      if (typeof args !== 'object' || args === null || Array.isArray(args)) {
-        calls.push({ tool, arguments: {} });
-        return;
-      }
-      const asJson = JSON.stringify(args);
-      if (asJson.length > 8000) return;
-      calls.push({ tool, arguments: args as Record<string, any> });
-    };
-    let cleaned = text;
-    const blockRegex = /```json([\s\S]*?)```/g;
-    const matches = text.matchAll(blockRegex);
-    for (const match of matches) {
-      const jsonText = match[1].trim();
-      try {
-        const parsed = JSON.parse(jsonText);
-        const list = Array.isArray(parsed) ? parsed : [parsed];
-        list.forEach(item => {
-          if (typeof item?.tool === 'string') {
-            pushCall(item.tool, item.arguments || {});
-          }
-        });
-      } catch {}
-      cleaned = cleaned.replace(match[0], '').trim();
-    }
+    // Robust JSON detection (```json / ``` / ~~~ / bare JSON, arg-unwrapping) lives in
+    // @repo/shared so mobile + web behave identically and tool calls actually fire.
+    const { calls, cleaned: cleanedJson } = sharedExtractToolCalls(text, allowedTools);
+    const out = calls as Array<{ tool: string; arguments: Record<string, any> }>;
+    // Legacy inline form: "Tool call: <tool> {args}" (args only, no {"tool":...}).
     const inlineRegex = /Tool call:\s*([a-z_]+)\s*(\{[\s\S]*?\})(?=\s*(?:Tool result:|Tool error:|$))/gi;
     let inlineMatch: RegExpExecArray | null;
     while ((inlineMatch = inlineRegex.exec(text)) !== null) {
+      if (out.length >= 8) break;
       const tool = inlineMatch[1];
-      const rawArgs = inlineMatch[2];
+      if (!allowedTools.has(tool)) continue;
       try {
-        const parsedArgs = JSON.parse(rawArgs);
-        pushCall(tool, parsedArgs || {});
+        const parsedArgs = JSON.parse(inlineMatch[2]);
+        if (parsedArgs && typeof parsedArgs === 'object' && !Array.isArray(parsedArgs)) out.push({ tool, arguments: parsedArgs });
       } catch {}
     }
-    cleaned = cleaned
+    const cleaned = cleanedJson
       .replace(inlineRegex, '')
       .replace(/Tool result:[^\n]*\n?/gi, '')
       .replace(/Tool error:[^\n]*\n?/gi, '')
       .trim();
-    return { calls, cleaned };
+    return { calls: out, cleaned };
   };
 
   // Auth-token + GraphQL-URL resolution now live in services/apiClient (single
@@ -3533,11 +3511,28 @@ export const AISidebar = () => {
                             <span className="w-3.5 h-3.5" dangerouslySetInnerHTML={{ __html: statusIcon }} />
                             {status.label}
                           </div>
-                          {!toolCollapsed && (
-                            <div className="mt-2 text-xs text-gray-600 dark:text-gray-300 whitespace-pre-wrap">
-                              {info.details || '(inga detaljer)'}
-                            </div>
-                          )}
+                          {!toolCollapsed && (() => {
+                            // Readable "Label: value" rows so the user clearly sees what was
+                            // done + which values were filled in (instead of raw JSON).
+                            const fields = formatToolFields(msg.content);
+                            if (fields.length > 0) {
+                              return (
+                                <div className="mt-2 text-xs text-gray-600 dark:text-gray-300 space-y-0.5">
+                                  {fields.map((f, fi) => (
+                                    <div key={fi} className="flex gap-1">
+                                      <span className="font-semibold text-gray-700 dark:text-gray-200 shrink-0">{f.label}:</span>
+                                      <span className="break-all">{f.value}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              );
+                            }
+                            return (
+                              <div className="mt-2 text-xs text-gray-600 dark:text-gray-300 whitespace-pre-wrap break-all">
+                                {info.details || '(inga detaljer)'}
+                              </div>
+                            );
+                          })()}
                         </div>
                       );
                     }

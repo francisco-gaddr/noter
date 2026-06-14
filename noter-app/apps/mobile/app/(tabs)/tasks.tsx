@@ -7,7 +7,8 @@ import { useStore } from '@/stores/useStore';
 import TaskList from '@/components/TaskList';
 import { TaskBoard } from '@/components/TaskBoard';
 import { TaskTimeline } from '@/components/TaskTimeline';
-import { Task, computeTaskInsights, priorityRank, isBlankTask, completedTasks as pickCompletedTasks } from '@repo/shared';
+import { Task, priorityRank, isBlankTask, completedTasks as pickCompletedTasks } from '@repo/shared';
+import { pushCalendarFeed } from '@/services/calendarSubscription';
 import { orderBy } from 'lodash';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SvgUri } from 'react-native-svg';
@@ -75,6 +76,14 @@ export default function TasksScreen() {
   const navigation = useNavigation();
   const theme = useTheme();
   const { tasks, notes, isLoading, fetchTasks, fetchNotes, updateTask, reorderTasks, createNote, updateNote, deleteNote, deleteTask } = useStore();
+
+  // Keep the external calendar feed (ICS subscription) live: push the latest task
+  // projection whenever tasks change. No-op unless the user created a subscription.
+  // Debounced so a burst of edits results in one push.
+  useEffect(() => {
+    const handle = setTimeout(() => { void pushCalendarFeed().catch(() => {}); }, 1500);
+    return () => clearTimeout(handle);
+  }, [tasks]);
 
   // Shared pull-to-refresh with haptic + min-spin + reentrancy guard.
   const { refreshing: pullRefreshing, onRefresh: onPullRefresh } = useRefreshControl(
@@ -226,12 +235,6 @@ export default function TasksScreen() {
 
     return result;
   }, [tasks, selectedListId, statusFilter, filterDateRange]);
-
-  // Dashboard insights for the tasks in the currently-selected list (or all).
-  const insights = useMemo(() => {
-    const scope = selectedListId ? tasks.filter((t) => t.parentNoteId === selectedListId) : tasks;
-    return computeTaskInsights(scope, new Date());
-  }, [tasks, selectedListId]);
 
   const sortedTasks = useMemo(() => {
     if (sortBy === 'custom') {
@@ -486,23 +489,6 @@ export default function TasksScreen() {
         </ScrollView>
       </View>
 
-      {insights.total > 0 ? (
-        <View style={styles.insightsRow}>
-          {insights.overdue > 0 && (
-            <Chip compact mode="flat" style={[styles.insightChip, { backgroundColor: theme.colors.errorContainer }]} textStyle={{ fontSize: 11, lineHeight: 14 }}>
-              {insights.overdue} försenade
-            </Chip>
-          )}
-          {insights.dueToday > 0 && (
-            <Chip compact mode="flat" style={styles.insightChip} textStyle={{ fontSize: 11, lineHeight: 14 }}>{insights.dueToday} idag</Chip>
-          )}
-          <Chip compact mode="flat" style={styles.insightChip} textStyle={{ fontSize: 11, lineHeight: 14 }}>{insights.active} aktiva</Chip>
-          <Text variant="bodySmall" style={{ color: theme.colors.onSurfaceVariant, marginLeft: 'auto', alignSelf: 'center' }}>
-            {Math.round(insights.completionRate * 100)}% klart
-          </Text>
-        </View>
-      ) : null}
-
       {viewMode === 'list' && isLoading && sortedTasks.length === 0 ? (
         <SkeletonRow count={6} />
       ) : null}
@@ -666,16 +652,6 @@ const styles = StyleSheet.create({
   tabsContent: {
     alignItems: 'center',
     paddingRight: 16
-  },
-  insightsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 1,
-  },
-  insightChip: {
-    height: 24,
   },
   tabChip: {
     // Bigger touch target so the right list is reliably tapped (was ~32pt tall,

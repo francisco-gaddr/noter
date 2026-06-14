@@ -97,6 +97,18 @@ jest.mock('expo-haptics', () => ({
 // streaming itself isn't exercised in unit tests.
 jest.mock('expo/fetch', () => ({ fetch: jest.fn() }));
 
+// llama.rn binds llama.cpp natively; the import throws under jest. A small JS shim
+// keeps services/ai/llama importable (callers gate real use behind isLlamaLinked()).
+// Suites that need ModelManager behaviour mock it directly; this is just the floor.
+jest.mock('llama.rn', () => ({
+  initLlama: jest.fn(async () => ({
+    completion: jest.fn(async () => ({ text: '' })),
+    stopCompletion: jest.fn(async () => undefined),
+    release: jest.fn(async () => undefined),
+  })),
+  releaseAllLlama: jest.fn(async () => undefined),
+}), { virtual: true });
+
 // react-native-safe-area-context's NativeSafeAreaContext TurboModule spec throws at
 // import time under jest ("Cannot read properties of undefined (reading 'get')"),
 // which fails every suite that transitively imports a screen. A self-contained mock

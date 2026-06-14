@@ -1,6 +1,6 @@
 const mockLoad = jest.fn();
 const mockUnload = jest.fn();
-const mockChat = jest.fn();
+const mockComplete = jest.fn();
 
 jest.mock('uuid', () => ({
   v4: () => 'test-uuid',
@@ -10,7 +10,7 @@ jest.mock('../services/ai/ModelManager', () => ({
   modelManager: {
     load: (...args: any[]) => mockLoad(...args),
     unload: (...args: any[]) => mockUnload(...args),
-    chat: (...args: any[]) => mockChat(...args),
+    complete: (...args: any[]) => mockComplete(...args),
   },
 }));
 
@@ -20,21 +20,15 @@ jest.mock('../services/database', () => ({
 }));
 
 jest.mock('../services/ai/ModelDownloader', () => ({
-  downloadCompiledModel: jest.fn().mockResolvedValue('/docs/mlc_models/user_model/Q4_K_M'),
-  getModelDir: jest.fn().mockReturnValue('/docs/mlc_models/user_model/Q4_K_M'),
-  getPlatformTarget: jest.fn().mockReturnValue('iphone'),
-}));
-
-jest.mock('../services/ai/huggingface', () => ({
-  requestModelConversion: jest.fn().mockResolvedValue({ jobId: 'job-1' }),
-  getConversionStatus: jest.fn().mockResolvedValue({ status: 'completed', progress: 1, outputUrl: 'https://models.test/compiled.zip' }),
-  getCompiledModelUrl: jest.fn().mockResolvedValue({ url: 'https://models.test/compiled.zip', filename: 'Q4_K_M.zip' }),
+  downloadGgufModel: jest.fn().mockResolvedValue('/docs/llama_models/user_model-Q4_K_M.gguf'),
+  getModelPath: jest.fn().mockReturnValue('/docs/llama_models/user_model-Q4_K_M.gguf'),
+  stopModelDownload: jest.fn(),
 }));
 
 jest.mock('react-native-fs', () => ({
   default: {
     DocumentDirectoryPath: '/docs',
-    exists: jest.fn().mockResolvedValue(true),
+    exists: jest.fn().mockResolvedValue(false),
     unlink: jest.fn(),
   },
 }));
@@ -46,14 +40,15 @@ describe('AI E2E', () => {
   beforeEach(() => {
     mockLoad.mockReset();
     mockUnload.mockReset();
-    mockChat.mockReset();
+    mockComplete.mockReset();
   });
 
-  it('downloads, loads and chats with a model', async () => {
-    mockChat.mockResolvedValue('Svar');
+  it('downloads (GGUF-direct), loads and chats with a model', async () => {
+    mockComplete.mockResolvedValue('Svar');
     const model = { id: 'user/model', name: 'model', author: 'user', downloads: 0, likes: 0, tags: [] };
     const file = { filename: 'model.Q4_K_M.gguf', size: 123, url: 'https://hf.test', quantization: 'Q4_K_M' };
     const path = await downloadModel(model as any, file as any);
+    expect(path).toBe('/docs/llama_models/user_model-Q4_K_M.gguf');
     const provider = new MobileLlamaProvider();
     await provider.loadModel(path);
     const response = await provider.generateResponse([

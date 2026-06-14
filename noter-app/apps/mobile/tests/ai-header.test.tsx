@@ -44,7 +44,7 @@ jest.mock('react-native', () => ({
   Pressable: 'Pressable',
   TouchableOpacity: 'TouchableOpacity',
   Platform: { OS: 'ios', select: (obj: any) => obj.ios },
-  NativeModules: { MLCModule: { loadModel: jest.fn(), generate: jest.fn(), unloadModel: jest.fn() } },
+  NativeModules: {},
   AppState: { addEventListener: jest.fn() },
 }));
 

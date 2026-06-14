@@ -16,6 +16,7 @@ import noteRoutes from './routes/notes';
 import taskRoutes from './routes/tasks';
 import authRoutes from './routes/auth';
 import aiModelRoutes from './routes/aiModels';
+import calendarRoutes from './routes/calendar';
 import aiSyncRoutes from './routes/aiSync';
 import pushRoutes from './routes/push';
 import { runDueBackendAgentTasks } from './services/backendAgentRunner';
@@ -460,6 +461,9 @@ app.use('/api/keys', apiSensitiveLimiter, authMiddleware, apiKeysRoutes);
 app.use('/api/notes', authMiddleware, conditionalGet(), idempotency(), auditLog(), noteRoutes);
 app.use('/api/tasks', authMiddleware, conditionalGet(), idempotency(), auditLog(), taskRoutes);
 app.use('/api/ai/models', aiModelRoutes);
+// Calendar ICS feed: GET /:token.ics is public (token-scoped); POST/PUT/DELETE are
+// auth-gated per-route inside the router, so no mount-level authMiddleware here.
+app.use('/api/calendar', calendarRoutes);
 app.use('/api/ai/sync', authMiddleware, aiSyncBodyLimit, aiSyncRoutes);
 app.use('/api/push', authMiddleware, pushRoutes);
 app.use('/api/mcp', apiSensitiveLimiter, authMiddleware, mcpRoutes);

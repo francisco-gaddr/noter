@@ -11,9 +11,18 @@ import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import { loadHotkeys, matchesHotkey } from '../lib/hotkeys';
 import { restoreCryptoFromSession } from '../lib/crypto';
+import { pushCalendarFeed } from '../lib/calendarSubscription';
 
 export default function Home() {
   const { initSocket, user, activeTab, isHydrated } = useStore();
+  const tasks = useStore((s) => s.tasks);
+
+  // Keep the external calendar feed (ICS subscription) live: push the latest task
+  // projection whenever tasks change. No-op unless the user created a subscription.
+  useEffect(() => {
+    const handle = setTimeout(() => { void pushCalendarFeed(); }, 1500);
+    return () => clearTimeout(handle);
+  }, [tasks]);
   const [sidebarWidth, setSidebarWidth] = useState(256);
   const [isResizing, setIsResizing] = useState(false);
   const [mounted, setMounted] = useState(false);

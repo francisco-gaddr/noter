@@ -1,55 +1,64 @@
 import { AppState } from "react-native";
 
+import type { ChatMessage } from "@repo/ai";
+import {
+  loadLlamaModel,
+  completeLlama,
+  unloadLlamaModel,
+  isLlamaLinked,
+  isLlamaLoaded,
+  loadedModelPath,
+  type LlamaCompletionOptions,
+} from "./llama";
+import { isAiBackgroundWorkEnabled } from "./runtimeSettings";
+
 let RNFS: any;
 try {
   RNFS = require("react-native-fs").default;
 } catch {
-  RNFS = {
-    DocumentDirectoryPath: null,
-    exists: async () => false,
-    mkdir: async () => {},
-    downloadFile: () => ({ promise: Promise.reject("Native module missing") }),
-    unlink: async () => {},
-  };
+  RNFS = { exists: async () => true };
 }
 
-import { loadModel, chat, unloadModel } from "./native/MLCModule";
-import { downloadCompiledModel } from "./ModelDownloader";
-import { isAiBackgroundWorkEnabled } from "./runtimeSettings";
-
+/**
+ * Owns the single resident on-device model. Real inference runs through llama.rn
+ * (see ./llama) — a GGUF file is loaded directly, no conversion step. The old MLC
+ * bridge is gone; this is the only local path now.
+ */
 class ModelManager {
-  currentModelPath: string | null = null;
-  isModelLoaded: boolean = false;
-
-  async install(modelMeta: { url: string; modelId: string; quantization?: string }) {
-    const path = await downloadCompiledModel(modelMeta.url, modelMeta.modelId, modelMeta.quantization);
-    this.currentModelPath = path;
-    await loadModel(path);
-    this.isModelLoaded = true;
+  /** Path of the GGUF currently loaded, or null. Backed by the llama context. */
+  get currentModelPath(): string | null {
+    return loadedModelPath();
   }
 
-  async load(path: string) {
+  get isModelLoaded(): boolean {
+    return isLlamaLoaded();
+  }
+
+  /** True only when the native llama.rn engine is compiled into this build. */
+  isAvailable(): boolean {
+    return isLlamaLinked();
+  }
+
+  async load(path: string, onProgress?: (progress: number) => void) {
     if (this.isModelLoaded && this.currentModelPath === path) return;
-    const exists = await RNFS.exists(path);
+    const exists = await RNFS.exists(path).catch(() => true);
     if (!exists) throw new Error("Model path not found");
-    const configExists = await RNFS.exists(`${path}/mlc-chat-config.json`);
-    if (!configExists) throw new Error("Invalid model package");
-    await loadModel(path);
-    this.currentModelPath = path;
-    this.isModelLoaded = true;
+    await loadLlamaModel(path, {}, onProgress);
   }
 
-  async chat(prompt: string) {
+  /**
+   * Run a chat completion on the resident model. Passing the `messages` array lets
+   * llama.rn apply the model's own chat template. Streams tokens via opts.onToken.
+   */
+  async complete(messages: ChatMessage[], opts?: LlamaCompletionOptions) {
     if (!this.isModelLoaded) {
       throw new Error("Model not loaded");
     }
-    return chat(prompt);
+    return completeLlama(messages, opts);
   }
 
   async unload() {
-    await unloadModel();
-    this.currentModelPath = null;
-    this.isModelLoaded = false;
+    await unloadLlamaModel();
   }
 }
 

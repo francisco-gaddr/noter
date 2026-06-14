@@ -28,9 +28,11 @@ ska öppna för en given fråga. Läs det här först, sedan den specifika filen
 | Driftsätta / härda servern | [`ops/server-hardening.md`](./ops/server-hardening.md), [`ops/disaster-recovery.md`](./ops/disaster-recovery.md) |
 | Förstå CI/kvalitet & död-kod-grinden | [`ops/ci-quality.md`](./ops/ci-quality.md) |
 | Förstå AI-runtime (web/mobil/Electron) | [`App AI.md`](./App%20AI.md), [`AI impl.md`](./AI%20impl.md) |
+| **Köra AI lokalt på mobilen (llama.rn, GGUF direkt)** | [`on-device-ai-llama.md`](./on-device-ai-llama.md) ⭐ (ersätter [`MLC AI.md`](./MLC%20AI.md)) |
 | Förstå AI tool-use + GraphQL-kontrakt | [`Tool Calls.md`](./Tool%20Calls.md) |
 | **Förstå admin, AI-orkestrering, inställningar + mätbarhet** | [`admin-orchestration-and-settings.md`](./admin-orchestration-and-settings.md) ⭐ |
 | Förstå grafvyn (noder/kanter/flödesriktning) + semantisk sök | [`graph-explorer.md`](./graph-explorer.md) |
+| **Kalenderprenumeration (ICS) till Google/Apple-kalender** | [`calendar-subscription.md`](./calendar-subscription.md) ⭐ |
 | Förstå widgets | [`widgets-architecture.md`](./widgets-architecture.md) |
 | Se vad som återstår / nästa steg | [`improvements.md`](./improvements.md) + §4 nedan |
 | Skriva en incident-postmortem | [`incidents/TEMPLATE.md`](./incidents/TEMPLATE.md) |

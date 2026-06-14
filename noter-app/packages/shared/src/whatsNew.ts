@@ -19,6 +19,25 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    version: '1.4.0',
+    build: '2026.06.14.3',
+    date: '2026-06-14',
+    security: 'feature',
+    highlights: [
+      'Lokal AI på riktigt: AI-modeller körs nu direkt på telefonen med llama.rn (llama.cpp). Ladda ner en GGUF-modell och kör den lokalt — ingen server, inget konverteringssteg, ingen tredje part',
+      'Enklare & stabilare: det gamla MLC-konverteringsflödet är borttaget. Nedladdning går rakt till en GGUF-fil; modellen körs med sin egen chattmall och streamar svar token-för-token',
+      'Integritet: din lokala chatt lämnar aldrig enheten; nedladdade modeller och AI-inställningar lagras lokalt och allt innehåll förblir krypterat i alla ändar',
+      'Tydligt besked: inställningarna visar nu om den lokala motorn är inbyggd i bygget (EAS/dev-klient) eller om du bör använda en Hermes-källa tills vidare',
+      'Graf: zooma, panorera och vrid grafen med fingrarna (dubbeltryck återställer); graf/lista-växlingen ligger nu på samma rad som filter och semantisk sök; nya graf-inställningar (etiketter, nodstorlek, härledda relationer) gömda bakom ett eget val',
+      'Graf (listvy): filtervalen är inte längre hoptryckta — rutorna har full höjd och är lätta att läsa',
+      'Anteckningar: headern är nu en kompakt egen rad (inte längre Material-appbarens minsta höjd) så mer av sidan syns; uppgiftsvyns försenade/aktiva/%-rad är borttagen',
+      'Tydligare tryck-effekt på rader i inställningar och i AI-sektionens projekt/chattar så du ser exakt vilken rad du tryckte på',
+      'Bakgrunds-AI: uppgifter som blivit klara att köra medan appen var stängd körs nu direkt när du öppnar appen igen (utöver de periodiska bakgrundskörningarna); bakgrundsagenten kan nu även köra lokala på-enheten-modeller, inte bara API/Hermes',
+      'Kalender: skapa en prenumerationslänk (under Inställningar → Kalender) och klistra in den i Google Kalender eller Kalender på Mac för att se dina daterade uppgifter i en extern kalender — uppdateras live. Endast titel + datum delas',
+      'AI-inställningar: din API-nyckel sparas nu korrekt krypterat lokalt och glöms inte längre bort mellan omstarter; kontextnivå och tool-use flyttade till AI-instruktioner (en plats), och onödiga hjälptexter borttagna',
+    ],
+  },
+  {
     version: '1.3.0',
     build: '2026.06.14.2',
     date: '2026-06-14',

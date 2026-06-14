@@ -1,3 +1,10 @@
+> ⚠️ **SUPERSEDED (v1.4.0, 2026-06-14).** This MLC plan is no longer the on-device path.
+> Noter now runs GGUF models directly on-device with **llama.rn** — no conversion, no build
+> server, no zip. See **[On-device AI (llama.rn)](on-device-ai-llama.md)** for the live design.
+> This file is kept for historical context only.
+
+---
+
 MLC AI
 Hugging Face
 React Native

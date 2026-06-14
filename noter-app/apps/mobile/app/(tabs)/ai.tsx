@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { MobileLlamaProvider } from '@/services/ai/provider';
 import { useStore } from '@/stores/useStore';
 import { ChatMessage, Conversation, HFModel, AIProject, normalizeToolArguments } from '@repo/ai';
-import { searchHuggingFaceModels, getModelFiles, getConversionHealth } from '@/services/ai/huggingface';
+import { searchHuggingFaceModels, getModelFiles } from '@/services/ai/huggingface';
 import { downloadModel as serviceDownloadModel, getBestQuantization, deleteModel as serviceDeleteModel, cancelDownload as cancelModelDownload } from '@/services/ai/modelService';
 import { isNativeFileSystemAvailable } from '@/services/ai/ModelDownloader';
 import { saveConversationLocal, getConversationsLocal, deleteConversationLocal, saveMessageLocal, getMessagesLocal, getModelsLocal, saveProjectLocal, getProjectsLocal, deleteProjectLocal } from '@/services/database';
@@ -22,7 +22,7 @@ import { toolUsageLabel, type ToolUsageRow } from '@repo/shared';
 import { pullAiSync, pushAiSync } from '@/services/ai/sync';
 import { initSocket, getSocket } from '@/services/socket';
 import { buildSecurityNoteMap, isReadableWithLocks } from '@/services/ai/security';
-import { getLocalConversionCapabilities } from '@/services/ai/native/MLCModule';
+import { modelManager } from '@/services/ai/ModelManager';
 import { isAiBackgroundWorkEnabled, setAiBackgroundWorkEnabled } from '@/services/ai/runtimeSettings';
 import IconPickerModal from '@/components/IconPickerModal';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
@@ -32,7 +32,7 @@ import * as Clipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { resolveAiSettingsScope } from '@/services/ai/settingsScope';
-import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, safeDecrypt, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings, mcpSettingsFromJson, mcpSettingsToJsonString, mergePresetProviders, buildAttachmentContextBlock, summarizeAttachmentsForUi, imageDataUrls, MAX_ATTACHMENTS, CONTEXT_LEVELS, contextLevelConfig, summarizeToolPolicy, normalizeContextLevel, applyDelegationDefaults, serializeAiDelegation, summarizeToolMessage, type AiAttachment, type ContextLevel, type AiTaskSource, type AiTaskDelegation } from '@repo/shared';
+import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, safeDecrypt, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings, mcpSettingsFromJson, mcpSettingsToJsonString, mergePresetProviders, buildAttachmentContextBlock, summarizeAttachmentsForUi, imageDataUrls, MAX_ATTACHMENTS, CONTEXT_LEVELS, contextLevelConfig, summarizeToolPolicy, normalizeContextLevel, applyDelegationDefaults, serializeAiDelegation, summarizeToolMessage, formatToolFields, type AiAttachment, type ContextLevel, type AiTaskSource, type AiTaskDelegation } from '@repo/shared';
 import { setDelegation as setLocalDelegation } from '@/services/ai/agentDelegations';
 import { syncDelegationToBackend } from '@/services/ai/agentBackendSync';
 import { pickAttachments } from '@/services/ai/attachments';
@@ -234,9 +234,9 @@ export default function AIScreen() {
   // Chat complexity: gates which tools + searches the chat may use (minimal → just
   // answer, deep → full tools + search). Mirrors the web AISidebar.
   const [chatContextLevel, setChatContextLevel] = useState<ContextLevel>('standard');
-  const [toolSettingsVisible, setToolSettingsVisible] = useState(false);
   const [toolUsageRows, setToolUsageRows] = useState<ToolUsageRow[]>([]);
-  useEffect(() => { if (toolSettingsVisible) { getToolUsageRows().then(setToolUsageRows).catch(() => {}); } }, [toolSettingsVisible]);
+  // AI-statistik now lives in the AI-instruktioner tab; load it when that opens.
+  useEffect(() => { if (settingsVisible && settingsTab === 'instructions') { getToolUsageRows().then(setToolUsageRows).catch(() => {}); } }, [settingsVisible, settingsTab]);
   const [userScopeKey, setUserScopeKey] = useState<string>('anon');
   const [collapsedTool, setCollapsedTool] = useState<Record<string, boolean>>({});
   const [collapsedThinking, setCollapsedThinking] = useState<Record<string, boolean>>({});
@@ -248,9 +248,15 @@ export default function AIScreen() {
   // auto-select-first-project logic override it — that's what made the selection jump when
   // navigating chat ↔ project list. Stored encrypted, scoped per user.
   const projectSelInitRef = useRef(false);
+  // Guards the persist effects below until the initial load has populated state. Without
+  // it, the moment userScopeKey is set the save effects fire with empty initial state and
+  // overwrite the stored keys/models/flags with '' — wiping them on every launch (this is
+  // why API keys "had to be re-entered" each time). Set true at the end of the load IIFE.
+  const settingsHydratedRef = useRef(false);
   const ALL_PROJECTS_SENTINEL = '__ALL__';
-  // Visible press ripple for list rows in the AI section (parity with settings rows).
-  const ROW_RIPPLE = 'rgba(33, 150, 243, 0.22)';
+  // Clearly-visible press ripple for list rows in the AI section (parity with settings
+  // rows). Stronger alpha so it's obvious which row was tapped on both iOS and Android.
+  const ROW_RIPPLE = 'rgba(33, 150, 243, 0.40)';
   const [sidebarVisible, setSidebarVisible] = useState(false);
   const [projectDialogVisible, setProjectDialogVisible] = useState(false);
   const [projectDialogMode, setProjectDialogMode] = useState<'create' | 'edit'>('edit');
@@ -281,7 +287,6 @@ export default function AIScreen() {
   const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({});
   const [processingModels, setProcessingModels] = useState<Record<string, boolean>>({});
   const [downloadStage, setDownloadStage] = useState<Record<string, string>>({});
-  const [preferLocalConversion, setPreferLocalConversion] = useState(false);
   const [allowBackgroundAIWork, setAllowBackgroundAIWork] = useState(false);
   const [aiUseApiProviders, setAiUseApiProviders] = useState(false);
   const [apiProvider, setApiProvider] = useState<string>('openrouter');
@@ -385,8 +390,7 @@ export default function AIScreen() {
   const [mcpDashboardLoading, setMcpDashboardLoading] = useState(false);
   const [mcpDashboardError, setMcpDashboardError] = useState<string | null>(null);
   const [mcpDashboardRows, setMcpDashboardRows] = useState<any[]>([]);
-  const [conversionHealthText, setConversionHealthText] = useState<string>('');
-  const [deviceConversionHealthText, setDeviceConversionHealthText] = useState<string>('');
+  const [localEngineText, setLocalEngineText] = useState<string>('');
   const [searchSizes, setSearchSizes] = useState<Record<string, number | null>>({});
 
   // History
@@ -496,8 +500,6 @@ export default function AIScreen() {
       if (savedToolUse !== null) setEnableToolUse(savedToolUse === 'true');
       const savedContextLevel = await AsyncStorage.getItem(`ai_chat_context_level_${scopeKey}`);
       if (savedContextLevel) setChatContextLevel(normalizeContextLevel(savedContextLevel));
-      const savedLocalConvert = await AsyncStorage.getItem(`ai_local_convert_${scopeKey}`);
-      if (savedLocalConvert !== null) setPreferLocalConversion(savedLocalConvert === 'true');
       const savedAttachmentsEnabled = await AsyncStorage.getItem(`ai_attachments_enabled_${scopeKey}`);
       if (savedAttachmentsEnabled !== null) setAttachmentsEnabled(savedAttachmentsEnabled === 'true');
       const savedNextLocalOnly = await AsyncStorage.getItem(`ai_next_thread_local_only_${scopeKey}`);
@@ -563,33 +565,31 @@ export default function AIScreen() {
       }
       const resolvedMcpSettings = resolveMcpSettings(parsedMcpSettings, getMcpEnvValues());
       setMcpSettings(toEffectiveMcpUiSettings(resolvedMcpSettings));
+      // Hydration complete — only now may the persist effects write to storage, so they
+      // never clobber the just-loaded values with empty initial state.
+      settingsHydratedRef.current = true;
     })();
   }, []);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     AsyncStorage.setItem(`ai_tool_use_enabled_${userScopeKey}`, enableToolUse ? 'true' : 'false');
   }, [enableToolUse, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     AsyncStorage.setItem(`ai_chat_context_level_${userScopeKey}`, chatContextLevel);
   }, [chatContextLevel, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
-    AsyncStorage.setItem(`ai_local_convert_${userScopeKey}`, preferLocalConversion ? 'true' : 'false');
-  }, [preferLocalConversion, userScopeKey]);
-
-  useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     AsyncStorage.setItem(`ai_attachments_enabled_${userScopeKey}`, attachmentsEnabled ? 'true' : 'false');
   }, [attachmentsEnabled, userScopeKey]);
 
   // Auto-save the system prompt locally (encrypted) as you type — debounced — so it
   // always persists without needing an explicit save tap.
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     const handle = setTimeout(() => {
       AsyncStorage.setItem(`ai_system_prompt_${userScopeKey}`, systemPrompt ? encrypt(systemPrompt) : '').catch(() => {});
     }, 400);
@@ -597,23 +597,23 @@ export default function AIScreen() {
   }, [systemPrompt, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     AsyncStorage.setItem(`ai_next_thread_local_only_${userScopeKey}`, nextThreadLocalOnly ? 'true' : 'false');
   }, [nextThreadLocalOnly, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     AsyncStorage.setItem(`ai_background_work_${userScopeKey}`, allowBackgroundAIWork ? 'true' : 'false');
     setAiBackgroundWorkEnabled(allowBackgroundAIWork).catch(() => {});
   }, [allowBackgroundAIWork, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     AsyncStorage.setItem(`ai_api_enabled_${userScopeKey}`, aiUseApiProviders ? 'true' : 'false');
   }, [aiUseApiProviders, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     // Provider/model choices are encrypted at rest too (not just keys) so nothing about
     // the user's AI config sits in plaintext AsyncStorage on the device.
     AsyncStorage.setItem(`ai_api_provider_${userScopeKey}`, apiProvider ? encrypt(apiProvider) : '');
@@ -621,58 +621,58 @@ export default function AIScreen() {
 
   // Custom providers (incl. their API keys) saved encrypted in SecureStore.
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     SecureStore.setItemAsync(`ai_custom_providers_${userScopeKey}`, customProviders.length ? encrypt(JSON.stringify(customProviders)) : '');
   }, [customProviders, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     AsyncStorage.setItem(`ai_openrouter_model_${userScopeKey}`, openRouterModel ? encrypt(openRouterModel) : '');
   }, [openRouterModel, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     AsyncStorage.setItem(`ai_gemini_model_${userScopeKey}`, geminiModel ? encrypt(geminiModel) : '');
   }, [geminiModel, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     AsyncStorage.setItem(`ai_groq_model_${userScopeKey}`, groqModel ? encrypt(groqModel) : '');
   }, [groqModel, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     AsyncStorage.setItem(`ai_hermes_model_${userScopeKey}`, hermesModel ? encrypt(hermesModel) : '');
   }, [hermesModel, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     // The Hermes base URL is the user's own server address — encrypt it at rest too.
     AsyncStorage.setItem(`ai_hermes_base_url_${userScopeKey}`, hermesBaseUrl ? encrypt(hermesBaseUrl) : '');
   }, [hermesBaseUrl, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     SecureStore.setItemAsync(`ai_openrouter_key_${userScopeKey}`, openRouterApiKey ? encrypt(openRouterApiKey) : '');
   }, [openRouterApiKey, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     SecureStore.setItemAsync(`ai_gemini_key_${userScopeKey}`, geminiApiKey ? encrypt(geminiApiKey) : '');
   }, [geminiApiKey, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     SecureStore.setItemAsync(`ai_groq_key_${userScopeKey}`, groqApiKey ? encrypt(groqApiKey) : '');
   }, [groqApiKey, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     SecureStore.setItemAsync(`ai_hermes_key_${userScopeKey}`, hermesApiKey ? encrypt(hermesApiKey) : '');
   }, [hermesApiKey, userScopeKey]);
 
   useEffect(() => {
-    if (!userScopeKey) return;
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     SecureStore.setItemAsync(`ai_mcp_settings_${userScopeKey}`, encrypt(JSON.stringify(mcpSettings)));
   }, [mcpSettings, userScopeKey]);
 
@@ -734,43 +734,15 @@ export default function AIScreen() {
     };
   }, [userScopeKey]);
 
-  const refreshConversionHealth = async () => {
-      try {
-          const health = await getConversionHealth();
-          if (health.mode === 'external') {
-              setConversionHealthText(t('ai.conversionHealthExternal'));
-              return;
-          }
-          if (health.localBinaryAvailable && health.storageWritable) {
-              setConversionHealthText(t('ai.conversionHealthLocalOk'));
-              return;
-          }
-          if (!health.localBinaryAvailable) {
-              setConversionHealthText(t('ai.conversionHealthLocalMissing'));
-              return;
-          }
-          if (!health.storageWritable) {
-              setConversionHealthText(t('ai.conversionHealthStorageMissing'));
-              return;
-          }
-          setConversionHealthText('');
-      } catch {
-          setConversionHealthText(t('ai.conversionHealthUnknown'));
-      }
-      try {
-          const deviceCaps = await getLocalConversionCapabilities();
-          if (deviceCaps.engineAvailable && deviceCaps.converterAvailable) {
-              setDeviceConversionHealthText(t('ai.conversionHealthDeviceReady'));
-          } else {
-              setDeviceConversionHealthText(t('ai.conversionHealthDeviceMissing'));
-          }
-      } catch {
-          setDeviceConversionHealthText(t('ai.conversionHealthDeviceUnknown'));
-      }
+  const refreshLocalEngine = () => {
+      // llama.rn runs GGUF directly on-device — no conversion. We just report whether
+      // the native engine is compiled into this build (it is in an EAS/dev build, not
+      // in Expo Go), so the user knows whether downloaded models can actually run here.
+      setLocalEngineText(modelManager.isAvailable() ? t('ai.localEngineReady') : t('ai.localEngineMissing'));
   };
 
   useEffect(() => {
-      refreshConversionHealth().catch(() => {});
+      refreshLocalEngine();
   }, []);
 
   const loadModels = async () => {
@@ -836,14 +808,10 @@ export default function AIScreen() {
 
   const formatError = (error: unknown) => {
       const message = (error as any)?.message ? String((error as any).message) : String(error);
-      if (message.includes('Zip module not available')) return 'Zip-stöd saknas. Bygg en dev‑client.';
       if (message.includes('Native filesystem not available')) return 'Filsystem saknas. Kör i dev‑client.';
-      if (message.includes('MLCModule')) return 'MLC‑modulen saknas. Bygg om appen.';
-      if (message.includes('Local conversion unsupported')) return 'Lokal konvertering stöds inte i denna build. Server-fallback används.';
-      if (message.includes('Failed to download GGUF')) return 'Kunde inte ladda ner GGUF-filen för lokal konvertering.';
-      if (message.includes('Invalid model package')) return 'Modellpaketet är ogiltigt eller saknar filer.';
-      if (message.includes('Conversion failed')) return 'Konvertering misslyckades på servern.';
-      if (message.includes('job not found')) return 'Konverteringsjobb saknas eller har löpt ut.';
+      if (message.includes('Model path not found')) return 'Modellfilen hittades inte. Ladda ner modellen igen.';
+      if (message.includes('Model not loaded')) return 'Ingen lokal modell är laddad. Välj och ladda en modell först.';
+      if (message.includes('Download failed')) return 'Nedladdningen misslyckades. Kontrollera nätverket och försök igen.';
       return message;
   };
 
@@ -858,19 +826,9 @@ export default function AIScreen() {
       if (!stage) return '';
       const map: Record<string, string> = {
           queued: t('ai.downloadStageQueued'),
-          local_conversion_requested: t('ai.downloadStageLocalRequested'),
-          local_conversion_unavailable: t('ai.downloadStageLocalUnavailable'),
-          local_conversion_failed: t('ai.downloadStageLocalFailed'),
-          downloading_gguf: t('ai.downloadStageDownloadingGguf'),
-          converting_locally: t('ai.downloadStageConvertingLocally'),
-          checking_compiled: t('ai.downloadStageCheckingCompiled'),
-          converting_server: t('ai.downloadStageConvertingServer'),
-          downloading_compiled: t('ai.downloadStageDownloadingCompiled'),
           downloading: t('ai.downloadStageDownloadingGguf'),
-          converting: t('ai.downloadStageConvertingServer'),
-          zipping: t('ai.downloadStagePacking'),
           completed: t('ai.downloadStageCompleted'),
-          finalizing: t('ai.downloadStageFinalizing'),
+          failed: t('ai.downloadStageLocalFailed'),
       };
       return map[stage] || stage;
   };
@@ -1972,7 +1930,6 @@ export default function AIScreen() {
         await serviceDownloadModel(model, file, (percent) => {
             setDownloadProgress(prev => ({ ...prev, [model.id]: percent }));
         }, {
-            preferLocalConversion,
             onStageChange: (stage) => setDownloadStage(prev => ({ ...prev, [model.id]: stage }))
         });
 
@@ -2011,52 +1968,6 @@ export default function AIScreen() {
               delete newS[model.id];
               return newS;
           });
-      }
-  };
-
-  const runDeviceLocalConversionCheck = async (model: HFModel) => {
-      let localStageObserved = false;
-      try {
-        setProcessingModels(prev => ({ ...prev, [model.id]: true }));
-        setDownloadProgress(prev => ({ ...prev, [model.id]: 0 }));
-        setDownloadStage(prev => ({ ...prev, [model.id]: 'queued' }));
-        const files = await getModelFiles(model.id);
-        const file = getBestQuantization(files);
-        if (!file) {
-            throw new Error('No suitable GGUF file found for this model');
-        }
-        await serviceDownloadModel(model, file, (percent) => {
-            setDownloadProgress(prev => ({ ...prev, [model.id]: percent }));
-        }, {
-            preferLocalConversion: true,
-            onStageChange: (stage) => {
-              if (stage === 'converting_locally') localStageObserved = true;
-              setDownloadStage(prev => ({ ...prev, [model.id]: stage }));
-            }
-        });
-        await loadModels();
-        if (!localStageObserved) {
-            throw new Error('Local conversion unsupported');
-        }
-        alert(t('ai.deviceE2ESuccess'));
-      } catch (e) {
-        alert(`${t('ai.deviceE2EFailed')}: ${formatError(e)}`);
-      } finally {
-        setProcessingModels(prev => {
-            const newP = { ...prev };
-            delete newP[model.id];
-            return newP;
-        });
-        setDownloadProgress(prev => {
-            const newP = { ...prev };
-            delete newP[model.id];
-            return newP;
-        });
-        setDownloadStage(prev => {
-            const newS = { ...prev };
-            delete newS[model.id];
-            return newS;
-        });
       }
   };
 
@@ -2372,51 +2283,6 @@ export default function AIScreen() {
             <Button mode="contained" onPress={confirmDeleteChat}>Ta bort</Button>
           </Dialog.Actions>
         </Dialog>
-        <Dialog visible={toolSettingsVisible} onDismiss={() => setToolSettingsVisible(false)}>
-          <Dialog.Title>{t('ai.toolUseTitle')}</Dialog.Title>
-          <Dialog.Content>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Text>{t('ai.toolUseLabel')}</Text>
-              <Switch value={enableToolUse} onValueChange={setEnableToolUse} />
-            </View>
-            <Text style={{ marginTop: 8, color: theme.colors.onSurfaceVariant }}>
-              {t('ai.toolUseHint')}
-            </Text>
-            <Text style={{ marginTop: 16, fontWeight: '600' }}>Kontextnivå (komplexitet)</Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
-              {CONTEXT_LEVELS.map((l) => (
-                <Chip key={l} compact selected={chatContextLevel === l} onPress={() => setChatContextLevel(l)} testID={`chat-context-${l}`}>
-                  {contextLevelConfig(l).label}
-                </Chip>
-              ))}
-            </View>
-            <Text style={{ marginTop: 6, fontSize: 12, color: theme.colors.onSurfaceVariant }}>
-              {contextLevelConfig(chatContextLevel).description}
-            </Text>
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 6 }} testID="chat-tool-policy">
-              {summarizeToolPolicy(chatContextLevel, enableToolUse).map((cap) => (
-                <Chip key={cap} compact textStyle={{ fontSize: 10 }}>{cap}</Chip>
-              ))}
-            </View>
-            <Text style={{ marginTop: 16, fontWeight: '600' }}>AI-statistik (verktyg)</Text>
-            <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant, marginBottom: 4 }}>idag · månad · totalt — lagras krypterat lokalt</Text>
-            {toolUsageRows.length === 0 ? (
-              <Text style={{ fontSize: 12, color: theme.colors.onSurfaceVariant }}>Inga verktygsanrop registrerade ännu.</Text>
-            ) : (
-              <View testID="ai-tool-stats">
-                {toolUsageRows.slice(0, 10).map((r) => (
-                  <View key={r.tool} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 1 }}>
-                    <Text style={{ fontSize: 12, flex: 1 }} numberOfLines={1}>{toolUsageLabel(r.tool)}</Text>
-                    <Text style={{ fontSize: 12, color: theme.colors.onSurfaceVariant }}>{r.countDay} · {r.countMonth} · {r.total}</Text>
-                  </View>
-                ))}
-              </View>
-            )}
-          </Dialog.Content>
-          <Dialog.Actions>
-            <Button onPress={() => setToolSettingsVisible(false)}>{t('common.close')}</Button>
-          </Dialog.Actions>
-        </Dialog>
       </Portal>
       <IconPickerModal
         visible={projectIconPickerVisible}
@@ -2463,16 +2329,10 @@ export default function AIScreen() {
                 <Text style={{ color: theme.colors.onSurface }}>Använd API-baserad AI</Text>
                 <Switch value={aiUseApiProviders} onValueChange={setAiUseApiProviders} />
               </View>
-              <Text style={{ marginTop: 6, color: theme.colors.onSurfaceVariant }}>
-                När detta är på används en AI-källa (OpenRouter, Groq, Gemini eller din egen Hermes-agent på Mac/Pi). Annars används vald lokal modell.
-              </Text>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
                 <Text style={{ color: theme.colors.onSurface, flex: 1 }}>Tillåt filbilagor i chatten</Text>
                 <Switch value={attachmentsEnabled} onValueChange={setAttachmentsEnabled} />
               </View>
-              <Text style={{ marginTop: 2, fontSize: 12, color: theme.colors.onSurfaceVariant }}>
-                Textfiler (md, txt, json, kod) läses in i prompten. Bilder skickas till vision-modeller (t.ex. Gemini eller en vision-Hermes). PDF bifogas som referens. Max {MAX_ATTACHMENTS} filer.
-              </Text>
               {aiUseApiProviders ? (
                 <View style={{ marginTop: 12 }}>
                   <Text style={{ color: theme.colors.onSurface, marginBottom: 6 }}>API Provider</Text>
@@ -2696,38 +2556,55 @@ export default function AIScreen() {
                 <Text style={{ color: theme.colors.onSurface }}>{t('ai.toolUseLabel')}</Text>
                 <Switch value={enableToolUse} onValueChange={setEnableToolUse} />
               </View>
-              <Text style={{ marginTop: 6, color: theme.colors.onSurfaceVariant }}>
-                {t('ai.toolUseHint')}
-              </Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
-                <Text style={{ color: theme.colors.onSurface }}>{t('ai.localConversionLabel')}</Text>
-                <Switch value={preferLocalConversion} onValueChange={setPreferLocalConversion} />
+              {/* Context level moved here from the chat bottom-bar popup so it lives with
+                  the other AI instructions and applies globally. */}
+              <Text style={{ marginTop: 16, fontWeight: '600', color: theme.colors.onSurface }}>Kontextnivå (komplexitet)</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                {CONTEXT_LEVELS.map((l) => (
+                  <Chip key={l} compact selected={chatContextLevel === l} onPress={() => setChatContextLevel(l)} testID={`chat-context-${l}`}>
+                    {contextLevelConfig(l).label}
+                  </Chip>
+                ))}
               </View>
-              <Text style={{ marginTop: 6, color: theme.colors.onSurfaceVariant }}>
-                {t('ai.localConversionHint')}
+              <Text style={{ marginTop: 6, fontSize: 12, color: theme.colors.onSurfaceVariant }}>
+                {contextLevelConfig(chatContextLevel).description}
               </Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 6 }} testID="chat-tool-policy">
+                {summarizeToolPolicy(chatContextLevel, enableToolUse).map((cap) => (
+                  <Chip key={cap} compact textStyle={{ fontSize: 10 }}>{cap}</Chip>
+                ))}
+              </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
                 <Text style={{ color: theme.colors.onSurface }}>{t('ai.backgroundWorkLabel')}</Text>
                 <Switch value={allowBackgroundAIWork} onValueChange={setAllowBackgroundAIWork} />
               </View>
-              <Text style={{ marginTop: 6, color: theme.colors.onSurfaceVariant }}>
-                {t('ai.backgroundWorkHint')}
-              </Text>
-              {conversionHealthText ? (
+              {localEngineText ? (
                 <Text style={{ marginTop: 6, color: theme.colors.onSurfaceVariant }}>
-                  {conversionHealthText}
-                </Text>
-              ) : null}
-              {deviceConversionHealthText ? (
-                <Text style={{ marginTop: 6, color: theme.colors.onSurfaceVariant }}>
-                  {deviceConversionHealthText}
+                  {localEngineText}
                 </Text>
               ) : null}
               <View style={{ flexDirection: 'row', marginTop: 10 }}>
-                <Button mode="outlined" onPress={refreshConversionHealth}>
-                  {t('ai.checkConversionHealth')}
+                <Button mode="outlined" onPress={refreshLocalEngine}>
+                  {t('ai.checkLocalEngine')}
                 </Button>
               </View>
+
+              {/* AI-statistik (moved here from the chat bottom-bar cog popup). */}
+              <Text style={{ marginTop: 16, fontWeight: '600', color: theme.colors.onSurface }}>AI-statistik (verktyg)</Text>
+              <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant, marginBottom: 4 }}>idag · månad · totalt — lagras krypterat lokalt</Text>
+              {toolUsageRows.length === 0 ? (
+                <Text style={{ fontSize: 12, color: theme.colors.onSurfaceVariant }}>Inga verktygsanrop registrerade ännu.</Text>
+              ) : (
+                <View testID="ai-tool-stats">
+                  {toolUsageRows.slice(0, 10).map((r) => (
+                    <View key={r.tool} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 1 }}>
+                      <Text style={{ fontSize: 12, flex: 1, color: theme.colors.onSurface }} numberOfLines={1}>{toolUsageLabel(r.tool)}</Text>
+                      <Text style={{ fontSize: 12, color: theme.colors.onSurfaceVariant }}>{r.countDay} · {r.countMonth} · {r.total}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+
               <View style={{ marginTop: 14, padding: 12, borderWidth: 1, borderColor: theme.colors.outline, borderRadius: 10 }}>
                 <Text variant="titleSmall" style={{ color: theme.colors.onSurface, marginBottom: 6 }}>MCP Integrationer</Text>
                 <Text style={{ color: theme.colors.onSurfaceVariant, marginBottom: 10 }}>
@@ -2963,13 +2840,6 @@ export default function AIScreen() {
                             Ladda ner
                           </Button>
                         )}
-                        <IconButton
-                          icon="shield-check"
-                          size={18}
-                          onPress={() => runDeviceLocalConversionCheck(item)}
-                          disabled={!!processingModels[item.id]}
-                          accessibilityLabel={t('ai.deviceE2ECheck')}
-                        />
                       </View>
                       {typeof downloadProgress[item.id] === 'number' && (
                         <View style={{ marginTop: 4 }}>
@@ -3030,6 +2900,9 @@ export default function AIScreen() {
                     // the summary so the box is never blank. Shown as a 2-line preview when
                     // collapsed (so content is always visible) and in full when expanded.
                     const bodyText = (item.content || '').replace(/^Tool (call|result|error):\s*/i, '').trim() || summary;
+                    // Readable "Label: value" rows from the tool arguments so the user
+                    // clearly sees WHAT was done + WHICH values were filled in.
+                    const fields = formatToolFields(item.content);
                     return (
                       <View style={[styles.messageRow, styles.rowLeft]}>
                         <View style={[styles.toolCard, { borderColor: kind.color, backgroundColor: theme.colors.surfaceVariant }]}>
@@ -3047,13 +2920,24 @@ export default function AIScreen() {
                             </View>
                             <FontAwesome5 name={collapsed ? 'chevron-down' : 'chevron-up'} size={12} color={theme.colors.onSurfaceVariant} />
                           </Pressable>
-                          <Text
-                            style={[styles.toolBody, { color: theme.colors.onSurfaceVariant }]}
-                            numberOfLines={collapsed ? 2 : undefined}
-                            selectable={!collapsed}
-                          >
-                            {bodyText}
-                          </Text>
+                          {!collapsed && fields.length > 0 ? (
+                            <View style={{ marginTop: 6, gap: 3 }}>
+                              {fields.map((f, fi) => (
+                                <View key={fi} style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+                                  <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.onSurface }}>{f.label}: </Text>
+                                  <Text style={{ fontSize: 12, color: theme.colors.onSurfaceVariant, flexShrink: 1 }} selectable>{f.value}</Text>
+                                </View>
+                              ))}
+                            </View>
+                          ) : (
+                            <Text
+                              style={[styles.toolBody, { color: theme.colors.onSurfaceVariant }]}
+                              numberOfLines={collapsed ? 2 : undefined}
+                              selectable={!collapsed}
+                            >
+                              {collapsed && fields.length > 0 ? fields.map((f) => `${f.label}: ${f.value}`).join(' · ') : bodyText}
+                            </Text>
+                          )}
                         </View>
                       </View>
                     );
@@ -3160,7 +3044,6 @@ export default function AIScreen() {
                 </ScrollView>
               ) : null}
               <View style={[styles.inputContainer, { backgroundColor: theme.colors.surface, borderTopColor: theme.colors.outline }]}>
-                <IconButton icon="cog" onPress={() => setToolSettingsVisible(true)} />
                 {attachmentsEnabled ? (
                   <IconButton icon="paperclip" onPress={handleAttach} disabled={loading} testID="ai-attach-button" />
                 ) : null}

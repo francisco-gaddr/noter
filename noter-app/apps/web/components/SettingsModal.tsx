@@ -11,6 +11,7 @@ import { getDefaultHotkeys } from '../lib/hotkeys';
 import { enrollOrUnlockCrypto, changeCryptoPassword } from '../lib/crypto';
 import { AdminDashboard } from './AdminDashboard';
 import EmbeddingsSettings from './EmbeddingsSettings';
+import { createCalendarSubscription, getCachedCalendarUrl, revokeCalendarSubscription } from '../lib/calendarSubscription';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -35,6 +36,35 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const handleSyncNow = async () => {
     setSyncing(true);
     try { await syncOfflineChanges(); await Promise.all([fetchNotes(), fetchTasks()]); } finally { setSyncing(false); await refreshPending(); }
+  };
+
+  // Calendar (ICS) subscription — paste the link into Google/Apple Calendar.
+  const [calendarUrl, setCalendarUrl] = React.useState<string | null>(null);
+  const [calendarBusy, setCalendarBusy] = React.useState(false);
+  const [calendarMsg, setCalendarMsg] = React.useState<string | null>(null);
+  React.useEffect(() => { if (isOpen) setCalendarUrl(getCachedCalendarUrl()); }, [isOpen]);
+  const handleCreateOrCopyCalendar = async () => {
+    setCalendarBusy(true);
+    setCalendarMsg(null);
+    try {
+      let url = calendarUrl;
+      if (!url) {
+        const sub = await createCalendarSubscription();
+        url = sub.url;
+        setCalendarUrl(url);
+      }
+      try { await navigator.clipboard.writeText(url); setCalendarMsg('Länk kopierad — klistra in i din kalender (Prenumerera via URL).'); }
+      catch { setCalendarMsg(url); }
+    } catch (e: any) {
+      setCalendarMsg(e?.message || 'Kunde inte skapa kalenderlänk.');
+    } finally {
+      setCalendarBusy(false);
+    }
+  };
+  const handleRevokeCalendar = async () => {
+    await revokeCalendarSubscription();
+    setCalendarUrl(null);
+    setCalendarMsg('Kalenderlänken är inaktiverad.');
   };
   const setActiveTab = useStore((s) => s.setActiveTab);
   const selectNote = useStore((s) => s.selectNote);
@@ -156,6 +186,38 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             >
               {syncing ? 'Synkar…' : 'Synka nu'}
             </button>
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">Kalender</h3>
+          <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+            <p className="text-xs text-gray-600 dark:text-gray-300 mb-2">
+              Prenumerera på dina uppgifter i Google Kalender eller Kalender på Mac. Endast titel + datum delas; uppdateras när du ändrar uppgifter.
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleCreateOrCopyCalendar}
+                disabled={calendarBusy}
+                className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm disabled:opacity-50"
+                data-testid="settings-calendar-link"
+              >
+                {calendarBusy ? 'Arbetar…' : calendarUrl ? 'Kopiera kalenderlänk' : 'Skapa kalenderlänk'}
+              </button>
+              {calendarUrl ? (
+                <button
+                  type="button"
+                  onClick={handleRevokeCalendar}
+                  className="px-3 py-1.5 rounded border border-gray-300 dark:border-gray-700 text-sm"
+                >
+                  Inaktivera
+                </button>
+              ) : null}
+            </div>
+            {calendarMsg ? (
+              <p className="mt-2 text-xs text-gray-500 dark:text-gray-400 break-all">{calendarMsg}</p>
+            ) : null}
           </div>
         </div>
 
