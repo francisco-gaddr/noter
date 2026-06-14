@@ -74,7 +74,7 @@ const sanitizeItems = (raw: unknown): CalendarFeedItem[] => {
         ...(priority ? { priority } : {}),
       };
     })
-    .filter((i) => i.uid && i.start);
+    .filter((i) => i.uid); // undated tasks (empty start) are valid VTODOs
 };
 
 const shareView = (req: Request, feed: any) => ({

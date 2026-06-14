@@ -3,7 +3,13 @@
   "eslint": false,
   "jest": false,
   "next": false,
-  "ignoreWorkspaces": ["packages/typescript-config", "packages/eslint-config"],
+  "ignoreWorkspaces": [
+    "packages/typescript-config",
+    "packages/eslint-config"
+  ],
+  "ignore": [
+    "scripts/**"
+  ],
   "workspaces": {
     "apps/mobile": {
       "entry": [
@@ -18,29 +24,57 @@
         "__tests__/**/*.{ts,tsx}",
         "tests/**/*.{ts,tsx}"
       ],
-      "project": ["**/*.{ts,tsx}"],
-      "ignore": [".expo/**", "android/**", "ios/**"],
-      "ignoreDependencies": ["jest-expo", "react-native-bundle-visualizer"]
+      "project": [
+        "**/*.{ts,tsx}"
+      ],
+      "ignore": [
+        ".expo/**",
+        "android/**",
+        "ios/**"
+      ],
+      "ignoreDependencies": [
+        "jest-expo",
+        "react-native-bundle-visualizer"
+      ]
     },
     "apps/web": {
-      "entry": ["app/**/*.{ts,tsx}", "next.config.{js,mjs,ts}", "**/*.test.{ts,tsx}"],
-      "project": ["**/*.{ts,tsx}"],
-      "ignore": ["node_modules/**", ".next/**"]
+      "entry": [
+        "app/**/*.{ts,tsx}",
+        "next.config.{js,mjs,ts}",
+        "**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "**/*.{ts,tsx}"
+      ],
+      "ignore": [
+        "node_modules/**",
+        ".next/**"
+      ]
     },
     "apps/backend": {
-      "entry": ["**/*.test.ts", "__tests__/**/*.ts"],
-      "project": ["src/**/*.ts"],
-      "ignore": ["node_modules/**", "dist/**"]
-    },
-    "apps/docs": {
-      "entry": ["app/**/*.{ts,tsx}", "next.config.{js,mjs,ts}"],
-      "project": ["**/*.{ts,tsx}"],
-      "ignore": ["node_modules/**", ".next/**"]
+      "entry": [
+        "**/*.test.ts",
+        "__tests__/**/*.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ],
+      "ignore": [
+        "node_modules/**",
+        "dist/**"
+      ]
     },
     "packages/*": {
-      "entry": ["**/*.test.ts"],
-      "project": ["src/**/*.ts"],
-      "ignore": ["node_modules/**", "dist/**"]
+      "entry": [
+        "**/*.test.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ],
+      "ignore": [
+        "node_modules/**",
+        "dist/**"
+      ]
     }
   },
   "ignoreDependencies": [
