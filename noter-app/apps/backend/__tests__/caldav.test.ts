@@ -154,6 +154,19 @@ describe('CalDAV bridge', () => {
     expect(res.status).toBe(401);
   });
 
+  it('allows multiple DAV-disabled feeds (davUser:null) to coexist (partial-unique index)', async () => {
+    // Ensure the schema indexes (incl. the partial-unique davUser) are built.
+    await CalendarFeed.syncIndexes();
+    await CalendarFeed.deleteMany({});
+    // Two plain ICS subscriptions for different scopes — both leave davUser null.
+    const a = await request(app).post('/api/calendar/subscription').set(...AUTH).send({ listId: null });
+    const b = await request(app).post('/api/calendar/subscription').set(...AUTH).send({ listId: 'list-zzz' });
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+    const count = await CalendarFeed.countDocuments({ davUser: null });
+    expect(count).toBe(2); // would be impossible under a sparse-unique index
+  });
+
   it('per-list credential only sees its own list scope', async () => {
     // Mint a per-list credential with its own items; it must be isolated from "all".
     const listRes = await request(app)

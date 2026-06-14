@@ -106,9 +106,14 @@ const CalendarFeedSchema = new Schema<ICalendarFeed>({
 // userId-unique index (one feed/user) — see reconcileCalendarFeedIndexes() which drops
 // the legacy `userId_1` index at startup so multiple per-list feeds are allowed.
 CalendarFeedSchema.index({ userId: 1, listId: 1 }, { unique: true });
-// CalDAV Basic-Auth looks a feed up by its davUser; sparse-unique so only DAV-enabled
-// feeds carry the constraint (null davUser rows are ignored).
-CalendarFeedSchema.index({ davUser: 1 }, { unique: true, sparse: true });
+// CalDAV Basic-Auth looks a feed up by its davUser. PARTIAL-unique on string values
+// only — NOT sparse: davUser defaults to `null`, and a sparse index still indexes
+// null (it only skips MISSING fields), so two DAV-disabled feeds (davUser:null) would
+// collide. The partial filter indexes solely feeds that actually have a string davUser.
+CalendarFeedSchema.index(
+  { davUser: 1 },
+  { unique: true, partialFilterExpression: { davUser: { $type: 'string' } } },
+);
 
 const CalendarFeed = mongoose.model<ICalendarFeed>('CalendarFeed', CalendarFeedSchema);
 
@@ -126,7 +131,14 @@ export const reconcileCalendarFeedIndexes = async (): Promise<void> => {
       await CalendarFeed.collection.dropIndex('userId_1').catch(() => {});
     }
     await CalendarFeed.collection.createIndex({ userId: 1, listId: 1 }, { unique: true }).catch(() => {});
-    await CalendarFeed.collection.createIndex({ davUser: 1 }, { unique: true, sparse: true }).catch(() => {});
+    // Drop any earlier sparse `davUser_1` (it would reject a 2nd davUser:null feed),
+    // then create the correct partial-unique index over string davUser values only.
+    if (Array.isArray(existing) && existing.some((i: any) => i.name === 'davUser_1')) {
+      await CalendarFeed.collection.dropIndex('davUser_1').catch(() => {});
+    }
+    await CalendarFeed.collection
+      .createIndex({ davUser: 1 }, { unique: true, partialFilterExpression: { davUser: { $type: 'string' } } })
+      .catch(() => {});
   } catch {
     /* best-effort — never block boot on index reconciliation */
   }
