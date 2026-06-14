@@ -17,7 +17,8 @@ import { hasActiveDataKey } from '@repo/shared';
 import { AdminDashboard } from '@/components/AdminDashboard';
 import { EmbeddingsSettings } from '@/components/EmbeddingsSettings';
 import * as Clipboard from 'expo-clipboard';
-import { createCalendarSubscription, getCalendarUrl, revokeCalendarSubscription, createDavCredential, revokeDavCredential, hasDavCredential, getDavServerUrl } from '@/services/calendarSubscription';
+import { createCalendarSubscription, getCalendarUrl, revokeCalendarSubscription, createDavCredential, revokeDavCredential, hasDavCredential, type DavCredential } from '@/services/calendarSubscription';
+import { CalDavCredentialDialog } from '@/components/CalDavCredentialDialog';
 
 export default function SettingsScreen() {
   const { t, i18n } = useTranslation();
@@ -93,19 +94,15 @@ export default function SettingsScreen() {
   const [davActive, setDavActive] = useState(false);
   const [davBusy, setDavBusy] = useState(false);
   useEffect(() => { void hasDavCredential().then(setDavActive).catch(() => {}); }, []);
+  const [davCred, setDavCred] = useState<DavCredential | null>(null);
+  const [davDialogVisible, setDavDialogVisible] = useState(false);
   const handleEnableDav = async () => {
     setDavBusy(true);
     try {
       const cred = await createDavCredential(null, 'Alla uppgifter');
       setDavActive(true);
-      Alert.alert(
-        t('settings.caldavTitle', 'CalDAV aktiverat'),
-        `Server: ${getDavServerUrl()}\nAnvändarnamn: ${cred.username}\nLösenord: ${cred.password}\n\nLägg till som CalDAV-konto i Påminnelser (Mac/iOS) eller Tasks.org (Android). Endast titel + datum + status delas; låsta listor aldrig. Spara lösenordet — det visas bara nu.`,
-        [
-          { text: t('common.copy', 'Kopiera lösenord'), onPress: () => Clipboard.setStringAsync(cred.password || '') },
-          { text: 'OK' },
-        ],
-      );
+      setDavCred(cred);
+      setDavDialogVisible(true);
     } catch (e: any) {
       Alert.alert(t('common.error'), e?.message || 'Kunde inte aktivera CalDAV.');
     } finally {
@@ -830,6 +827,12 @@ export default function SettingsScreen() {
           </Dialog.Actions>
         </Dialog>
       </Portal>
+      <CalDavCredentialDialog
+        visible={davDialogVisible}
+        credential={davCred}
+        scopeLabel="Alla uppgifter med datum (låsta listor delas aldrig)"
+        onDismiss={() => setDavDialogVisible(false)}
+      />
     </ScrollView>
   );
 }
