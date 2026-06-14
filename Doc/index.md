@@ -25,6 +25,7 @@ ska öppna för en given fråga. Läs det här först, sedan den specifika filen
 | Se STRIDE→CWE-liggaren (audit) | [`security/cwe-mapping.md`](./security/cwe-mapping.md) |
 | Förstå nuvarande krypto-läge & spänningar | [`security/encryption-review-2026-06.md`](./security/encryption-review-2026-06.md) |
 | Veta varför ett arkitekturbeslut togs | [`adr/`](./adr/) (ADR-register) |
+| **Migrera desktop Electron → Tauri (körguide + beslut)** | [`migrations/electron-to-tauri-runbook.md`](./migrations/electron-to-tauri-runbook.md) ⭐ + [`adr/0007-electron-vs-tauri.md`](./adr/0007-electron-vs-tauri.md) |
 | Driftsätta / härda servern | [`ops/server-hardening.md`](./ops/server-hardening.md), [`ops/disaster-recovery.md`](./ops/disaster-recovery.md) |
 | Förstå CI/kvalitet & död-kod-grinden | [`ops/ci-quality.md`](./ops/ci-quality.md) |
 | Förstå AI-runtime (web/mobil/Electron) | [`App AI.md`](./App%20AI.md), [`AI impl.md`](./AI%20impl.md) |
