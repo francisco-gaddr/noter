@@ -221,6 +221,7 @@ export default function AIScreen() {
   const [loading, setLoading] = useState(false);
   const [systemPrompt, setSystemPrompt] = useState('');
   const [contextInfo, setContextInfo] = useState('');
+  const [infoVisible, setInfoVisible] = useState(false);
   const stopRequestedRef = useRef(false);
   // Chat list ref so opening a thread (and new messages) scrolls to the latest.
   const messagesListRef = useRef<FlatList<any>>(null);
@@ -451,11 +452,11 @@ export default function AIScreen() {
       ),
       headerRight: () => (
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          {tokensPerSecond !== null && (
-            <Text style={{ marginRight: 8, color: theme.colors.onSurfaceVariant, fontSize: 12 }}>
-              {tokensPerSecond.toFixed(1)} tok/s
-            </Text>
-          )}
+          <IconButton
+            icon="information-outline"
+            onPress={() => setInfoVisible(true)}
+            accessibilityLabel={t('ai.threadInfo', 'Information om tråden')}
+          />
           <IconButton
             icon={nextThreadLocalOnly ? 'cellphone-lock' : 'cloud-sync-outline'}
             iconColor={nextThreadLocalOnly ? theme.colors.primary : theme.colors.onSurfaceVariant}
@@ -470,7 +471,7 @@ export default function AIScreen() {
         </View>
       ),
     });
-  }, [navigation, theme, settingsVisible, activeModel, activeProjectId, tokensPerSecond, nextThreadLocalOnly, t]);
+  }, [navigation, theme, settingsVisible, activeModel, activeProjectId, nextThreadLocalOnly, t]);
 
   useEffect(() => {
     if (params.openSettings === '1') {
@@ -1690,7 +1691,7 @@ export default function AIScreen() {
       const newId = uuidv4();
       const newConv: LocalConversation = {
           id: newId,
-          title: 'New Chat',
+          title: 'Ny chatt',
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
           messages: [],
@@ -2073,6 +2074,23 @@ export default function AIScreen() {
         ? { ...userMsg, content: buildAttachmentContextBlock(sentAttachments) + input }
         : userMsg;
 
+    // Auto-name the thread from the FIRST user message (e.g. a chat started via the +
+    // button is "Ny chatt" until now). Skip if the user already renamed it. Renaming
+    // later is still available via the chat's edit dialog.
+    try {
+      const isFirstUserMsg = !messages.some((m) => m.role === 'user');
+      const conv = conversations.find((c) => c.id === conversationId);
+      const DEFAULT_TITLES = ['', 'new chat', 'ny chatt', 'untitled'];
+      if (conv && isFirstUserMsg && DEFAULT_TITLES.includes((conv.title || '').trim().toLowerCase())) {
+        const seed = (input.trim() || sentAttachments[0]?.name || 'Ny chatt');
+        const newTitle = seed.substring(0, 40) + (seed.length > 40 ? '…' : '');
+        const updated: LocalConversation = { ...conv, title: newTitle, updatedAt: new Date().toISOString() };
+        await saveConversationLocal(updated);
+        setConversations((prev) => prev.map((c) => (c.id === conversationId ? updated : c)));
+        if (!updated.localOnly) pushAiSync({ conversations: [updated] }).catch(() => {});
+      }
+    } catch {}
+
     setMessages(prev => [...prev, userMsg]);
     setInput('');
     setAttachments([]);
@@ -2213,6 +2231,41 @@ export default function AIScreen() {
         </View>
       )}
       <Portal>
+        {/* Thread info (moved from the chat's bottom edge): context usage + stats. */}
+        <Dialog visible={infoVisible} onDismiss={() => setInfoVisible(false)}>
+          <Dialog.Title>{t('ai.threadInfo', 'Information om tråden')}</Dialog.Title>
+          <Dialog.Content>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 }}>
+              <Text style={{ color: theme.colors.onSurfaceVariant }}>Kontextnivå</Text>
+              <Text style={{ color: theme.colors.onSurface }}>{contextLevelConfig(chatContextLevel).label}</Text>
+            </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 }}>
+              <Text style={{ color: theme.colors.onSurfaceVariant }}>Kontext (skickat)</Text>
+              <Text style={{ color: theme.colors.onSurface }}>{contextInfo || '—'}</Text>
+            </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 }}>
+              <Text style={{ color: theme.colors.onSurfaceVariant }}>Verktyg</Text>
+              <Text style={{ color: theme.colors.onSurface }}>{enableToolUse ? 'På' : 'Av'}</Text>
+            </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 }}>
+              <Text style={{ color: theme.colors.onSurfaceVariant }}>Modell</Text>
+              <Text style={{ color: theme.colors.onSurface, flexShrink: 1, textAlign: 'right' }} numberOfLines={1}>{activeModelLabel || '—'}</Text>
+            </View>
+            {tokensPerSecond !== null ? (
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 }}>
+                <Text style={{ color: theme.colors.onSurfaceVariant }}>Hastighet</Text>
+                <Text style={{ color: theme.colors.onSurface }}>{tokensPerSecond.toFixed(1)} tok/s</Text>
+              </View>
+            ) : null}
+            <Text style={{ marginTop: 8, fontSize: 11, color: theme.colors.onSurfaceVariant }}>
+              Ändra kontextnivå och verktyg under Inställningar → AI-instruktioner.
+            </Text>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setInfoVisible(false)}>{t('common.close')}</Button>
+          </Dialog.Actions>
+        </Dialog>
+
         {/* Add a custom OpenAI-compatible provider (e.g. another Hermes/Ollama agent). */}
         <Dialog visible={addProviderDialogVisible} onDismiss={() => setAddProviderDialogVisible(false)}>
           <Dialog.Title>Egen API-provider</Dialog.Title>
@@ -2999,26 +3052,16 @@ export default function AIScreen() {
                   );
                 }}
               />
+              {/* Discreet "AI thinking" indicator — just an inline animated bubble, no
+                  text, no bulky stop button (the input footer has an icon-only stop). The
+                  context/char-count moved to the header info (ℹ️) button. */}
               {loading && (
                 <View style={[styles.messageRow, styles.rowLeft]}>
-                  <View style={[styles.bubble, styles.assistantBubble, { backgroundColor: theme.colors.surfaceVariant, flexDirection: 'row', alignItems: 'center' }]}>
+                  <View style={[styles.bubble, styles.assistantBubble, { backgroundColor: theme.colors.surfaceVariant, alignItems: 'center', paddingVertical: 10, paddingHorizontal: 14 }]}>
                     <ActivityIndicator size="small" />
-                    <Text style={{ marginLeft: 8, color: theme.colors.onSurfaceVariant }}>AI tänker...</Text>
                   </View>
                 </View>
               )}
-              {loading && (
-                <View style={{ paddingHorizontal: 12, paddingBottom: 6 }}>
-                  <Button mode="contained-tonal" icon="stop" onPress={handleStop}>
-                    {t('ai.stopGeneration')}
-                  </Button>
-                </View>
-              )}
-              {contextInfo ? (
-                <Text style={{ color: theme.colors.onSurfaceVariant, paddingHorizontal: 12, paddingBottom: 6 }}>
-                  Kontext: {contextInfo}
-                </Text>
-              ) : null}
               {nextThreadLocalOnly && !currentConversationId ? (
                 <Text style={{ paddingHorizontal: 12, paddingBottom: 4, fontSize: 12, color: theme.colors.primary }}>
                   🔒 Nästa tråd sparas endast lokalt på denna enhet (synkas inte).
