@@ -58,6 +58,13 @@ server {
   proxy_hide_header Content-Security-Policy;
   add_header Content-Security-Policy "default-src 'self' https: data: 'unsafe-inline' 'unsafe-eval'; connect-src 'self' https: wss:; img-src 'self' https: data: blob:; style-src 'self' 'unsafe-inline' https:; font-src 'self' https: data:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'self'" always;
 
+  # CalDAV/CardDAV auto-discovery (RFC 6764). Apple Reminders/Calendar probe the
+  # host-root well-known URI BEFORE using an explicit server URL, so it must redirect
+  # to the CalDAV context path (served by the backend under /api/dav). Without this,
+  # macOS/iOS abort account setup (Android/DAVx5 skip well-known and work regardless).
+  location = /.well-known/caldav  { return 301 /api/dav/; }
+  location = /.well-known/carddav { return 301 /api/dav/; }
+
   location /api/ {
     proxy_pass http://${PI_TAILSCALE_IP}:${API_PORT}/api/;
     proxy_http_version 1.1;
@@ -104,6 +111,13 @@ server {
 
   ssl_certificate ${CERT_PATH};
   ssl_certificate_key ${KEY_PATH};
+
+  # CalDAV/CardDAV auto-discovery (RFC 6764). Apple Reminders/Calendar probe the
+  # host-root well-known URI BEFORE using an explicit server URL, so it must redirect
+  # to the CalDAV context path (served by the backend under /api/dav). Without this,
+  # macOS/iOS abort account setup (Android/DAVx5 skip well-known and work regardless).
+  location = /.well-known/caldav  { return 301 /api/dav/; }
+  location = /.well-known/carddav { return 301 /api/dav/; }
 
   location /api/ {
     proxy_pass http://${PI_TAILSCALE_IP}:${API_PORT}/api/;
