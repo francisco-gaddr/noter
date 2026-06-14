@@ -1,6 +1,7 @@
-import { extractToolCalls as sharedExtractToolCalls, DEFAULT_TOOL_NAMES, type ToolCall } from '@repo/shared';
+import { extractToolCalls as sharedExtractToolCalls, DEFAULT_TOOL_NAMES, buildTimeContextLines, type ToolCall } from '@repo/shared';
 
 export type { ToolCall };
+export { buildTimeContextLines };
 
 const allowedTools = new Set(DEFAULT_TOOL_NAMES);
 
@@ -10,32 +11,8 @@ export type ToolPromptContext = {
   taskLists?: ToolContainer[];
 };
 
-/**
- * "Du är här, just nu" — current date/time in the user's own timezone plus the
- * IANA zone + UTC offset, so the agent resolves relative times ("imorgon kl 11",
- * "på fredag") to the correct absolute instant the user means. Computed from the
- * device clock, which is the user's local time on mobile/desktop.
- */
-export const buildTimeContextLines = (now: Date = new Date()): string[] => {
-  let timezone = 'UTC';
-  try { timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { /* keep UTC */ }
-  let local = now.toISOString();
-  try {
-    local = new Intl.DateTimeFormat('sv-SE', {
-      timeZone: timezone, weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-      hour: '2-digit', minute: '2-digit',
-    }).format(now);
-  } catch { /* fall back to ISO */ }
-  const offMin = -now.getTimezoneOffset();
-  const sign = offMin >= 0 ? '+' : '-';
-  const abs = Math.abs(offMin);
-  const offset = `UTC${sign}${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`;
-  return [
-    `Aktuell tid (användarens tidszon): ${local} (${timezone}, ${offset}). ISO nu: ${now.toISOString()}.`,
-    'Räkna alltid relativa tider ("idag", "imorgon", "på fredag kl 11", "om en timme") utifrån denna aktuella tid och användarens tidszon. Om användaren anger en annan tidszon, använd den i stället.',
-    'dueDate och andra tidsfält ska vara ISO 8601 (helst med tidszonsoffset, t.ex. 2026-06-14T11:00:00+02:00, eller UTC med Z) som motsvarar den lokala tid användaren faktiskt menar.',
-  ];
-};
+// buildTimeContextLines now lives in @repo/shared/timeContext (re-exported above) so the
+// mobile + web prompts inject the SAME strong, worked-example time block.
 
 const buildContainerLines = (context?: ToolPromptContext): string[] => {
   if (!context) return [];

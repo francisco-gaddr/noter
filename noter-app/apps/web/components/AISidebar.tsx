@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { ChatMessage, HFModel, HFFile, Conversation, AIProject, normalizeToolArguments } from '@repo/ai';
-import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, mcpSettingsFromJson, mcpSettingsToJsonString, mergePresetProviders, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings, CONTEXT_LEVELS, contextLevelConfig, summarizeToolPolicy, normalizeContextLevel, applyDelegationDefaults, serializeAiDelegation, summarizeToolMessage, formatToolFields, extractToolCalls as sharedExtractToolCalls, type ContextLevel, type AiTaskSource, type AiTaskDelegation } from '@repo/shared';
+import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, mcpSettingsFromJson, mcpSettingsToJsonString, mergePresetProviders, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings, CONTEXT_LEVELS, contextLevelConfig, summarizeToolPolicy, normalizeContextLevel, applyDelegationDefaults, serializeAiDelegation, summarizeToolMessage, formatToolFields, extractToolCalls as sharedExtractToolCalls, buildTimeContextLines, type ContextLevel, type AiTaskSource, type AiTaskDelegation } from '@repo/shared';
 import { setDelegation as setLocalDelegation } from '../services/ai/agentDelegations';
 import { db } from '../services/db';
 import { v4 as uuidv4 } from 'uuid';
@@ -1779,17 +1779,6 @@ export const AISidebar = () => {
     const baseUrl = getApiBaseUrl();
     const now = new Date();
     const enabledMcpText = enabledMcpServices.length > 0 ? enabledMcpServices.join(', ') : 'inga';
-    // User's own timezone + offset, so relative times resolve to the right instant.
-    let timezone = 'UTC';
-    try { timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch {}
-    let localStr = now.toLocaleString('sv-SE');
-    try {
-      localStr = new Intl.DateTimeFormat('sv-SE', { timeZone: timezone, weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(now);
-    } catch {}
-    const offMin = -now.getTimezoneOffset();
-    const offSign = offMin >= 0 ? '+' : '-';
-    const offAbs = Math.abs(offMin);
-    const offset = `UTC${offSign}${String(Math.floor(offAbs / 60)).padStart(2, '0')}:${String(offAbs % 60).padStart(2, '0')}`;
     // Available containers so the agent can place items in the right folder/list.
     const allNotes = Array.isArray(notes) ? notes : [];
     const containerFmt = (type: string) => {
@@ -1802,8 +1791,7 @@ export const AISidebar = () => {
       'Tolkar även planering, påminnelser, agenda, och uppgifter/anteckningar kopplade till datum som signal att använda tool calls.',
       'För vanliga chattar, resonemang eller allmänna frågor: svara som vanlig text utan tool calls.',
       `Base URL: ${baseUrl}`,
-      `Aktuell tid (användarens tidszon): ${localStr} (${timezone}, ${offset}). ISO nu: ${now.toISOString()}.`,
-      'Räkna alltid relativa tider ("idag", "imorgon", "på fredag kl 11", "om en timme") utifrån denna aktuella tid och användarens tidszon. Om användaren anger en annan tidszon, använd den. dueDate ska vara ISO 8601 som motsvarar den lokala tid användaren menar (helst med offset, t.ex. 2026-06-14T11:00:00' + offset.replace("UTC","") + ', eller UTC med Z).',
+      ...buildTimeContextLines(now),
       `Tillgängliga projektmappar (type=project): ${containerFmt('project')}.`,
       `Tillgängliga uppgiftslistor (type=task_list): ${containerFmt('task_list')}.`,
       'Välj rätt projektmapp/uppgiftslista och sätt parentId (anteckning) respektive parentNoteId (uppgift) till rätt id ovan; finns ingen lämplig, kör list_*/create_* först.',
