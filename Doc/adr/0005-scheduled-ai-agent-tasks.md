@@ -97,6 +97,32 @@ Keys/base-URLs are read from the same encrypted per-provider settings the chat
 uses. `localOnly` keeps the task/result off the sync path. (Local on-device
 inference is tracked separately — see the local-models work.)
 
+## Entry points for delegation
+
+A task can be handed to the AI agent from three places, all converging on the same
+`AiTaskDelegation` + local-map persistence:
+
+1. **Editing a task** — the full `AiDelegationSection` (source/model/context level/
+   budget/notify/run-on-backend + transparent access log).
+2. **Creating a task** — a one-tap "Delegera till AI-agenten direkt" toggle in the
+   task create flow (web `TaskDetailModal`, mobile `task/[id].tsx`), seeded from the
+   last-delegation default (`applyDelegationDefaults(getDelegationDefaults())`). The
+   delegation is attached to the new task's id right after create (web `createTask`
+   now returns the task; mobile already did), reusing the edit path's local map +
+   optional backend sync.
+3. **From the AI chat** — `create_task` gained `delegateToAi` + `aiInstructions`. When
+   the user explicitly asks the agent to schedule/take on a task itself, the model
+   sets `delegateToAi:true`; the chat builds a delegation from the CURRENT chat
+   settings (source/provider/model/baseURL + the chat's context level + tool-use) so
+   it runs later with "what I'm using right now", persists `aiAgent` on the task + the
+   local map. A normal self-task is just `create_task` without the flag. The system
+   prompt explains the distinction.
+
+The chat also exposes the **context level** (minimal/fast/standard/deep) in its
+tool-settings popover, gating which tools/searches the chat itself may use and
+surfacing the policy as chips — the single knob that scales the chat (and a
+chat-created delegation) from a one-line answer to full tool+search use.
+
 ## Consequences
 
 - The hard, reusable part (data model + scheduler + runner) is one tested core;
