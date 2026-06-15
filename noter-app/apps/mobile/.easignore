@@ -17,3 +17,10 @@ coverage/
 # Local-only files
 .env.local
 .env.development.local
+
+# Monorepo-safe patterns: EAS uploads from the repo root, so a leading-slash
+# /android only matches <repo-root>/android, NOT apps/mobile/android. Match by
+# name anywhere so the stale local prebuild can never sneak in and flip EAS to
+# bare-workflow (which skips prebuild → default icons + unlinked native modules).
+**/android/
+**/ios/
