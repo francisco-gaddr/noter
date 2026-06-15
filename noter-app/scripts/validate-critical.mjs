@@ -6,6 +6,14 @@ const repoRoot = process.cwd();
 
 const steps = [
   {
+    // Lockfile drift breaks CI `npm ci`, the EAS install phase, and the Docker
+    // deploy. Catch it here so a bad lock never reaches a push (no CI-failure mail).
+    label: 'Lockfile in sync with package.json',
+    cwd: repoRoot,
+    command: 'node',
+    args: ['scripts/check-lockfile.mjs'],
+  },
+  {
     // Fail fast if any dead (unimported) source file sneaks in.
     label: 'No dead files (knip)',
     cwd: repoRoot,

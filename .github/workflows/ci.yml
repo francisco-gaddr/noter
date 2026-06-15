@@ -19,6 +19,12 @@ concurrency:
 permissions:
   contents: read
 
+# Opt the JS actions (checkout/setup-node) into the Node 24 runtime now, so the
+# "Node.js 20 actions are deprecated" annotations stop appearing. Node 24 becomes
+# the runner default on 2026-06-16; this just removes the noise until then.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   app-quality:
     name: noter-app · typecheck, core tests, dead-code
