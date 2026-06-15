@@ -1,5 +1,5 @@
 import { openDB, DBSchema, IDBPDatabase } from 'idb';
-import { Note, Task, Conversation, Message, AIModel, encrypt, decrypt, safeDecrypt } from '@repo/shared';
+import { Note, Task, Conversation, Message, AIModel, encrypt, decrypt, safeDecrypt, normalizeNoteType } from '@repo/shared';
 
 type LocalConversation = Conversation & { localOnly?: boolean; userId?: string };
 
@@ -160,8 +160,11 @@ export const db = {
           tags: n.tags ?? [],
           icon: n.icon,
           iconColor: n.iconColor,
-          type: n.type ? (() => { try { return decrypt(n.type) as any } catch { return n.type } })() : 'note',
-          parentId: n.parentId ? (() => { try { return decrypt(n.parentId) } catch { return n.parentId } })() : null,
+          // Decrypt-aware single source (handles plaintext / v3 / legacy). Using raw
+          // decrypt() here returned '' for plaintext-or-unkeyed types → projects
+          // collapsed to 'note'. See useStore.normalizeEncryptedNote for the full why.
+          type: normalizeNoteType(n.type ?? 'note') as any,
+          parentId: n.parentId ? safeDecrypt(n.parentId, n.parentId) : null,
           order: (() => {
               const parsed = decryptNumber((n as any).order);
               if (parsed !== null) return parsed;
@@ -215,8 +218,8 @@ export const db = {
         tags: note.tags ?? [],
         icon: note.icon,
         iconColor: note.iconColor,
-        type: note.type ? (() => { try { return decrypt(note.type) as any } catch { return note.type } })() : 'note',
-        parentId: note.parentId ? (() => { try { return decrypt(note.parentId) } catch { return note.parentId } })() : null,
+        type: normalizeNoteType(note.type ?? 'note') as any,
+        parentId: note.parentId ? safeDecrypt(note.parentId, note.parentId) : null,
         order: (() => {
             const parsed = decryptNumber((note as any).order);
             if (parsed !== null) return parsed;
@@ -296,8 +299,8 @@ export const db = {
         tags: n.tags?.map(t => { try { return decrypt(t) } catch { return t } }) ?? [],
         icon: n.icon ? (() => { try { return decrypt(n.icon) } catch { return n.icon } })() : undefined,
         iconColor: n.iconColor ? (() => { try { return decrypt(n.iconColor) } catch { return n.iconColor } })() : undefined,
-        type: n.type ? (() => { try { return decrypt(n.type) as any } catch { return n.type } })() : 'note',
-        parentId: n.parentId ? (() => { try { return decrypt(n.parentId) } catch { return n.parentId } })() : null,
+        type: normalizeNoteType(n.type ?? 'note') as any,
+        parentId: n.parentId ? safeDecrypt(n.parentId, n.parentId) : null,
         order: (() => {
             const parsed = decryptNumber((n as any).order);
             if (parsed !== null) return parsed;

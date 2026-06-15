@@ -33,7 +33,7 @@ import * as Clipboard from 'expo-clipboard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { resolveAiSettingsScope } from '@/services/ai/settingsScope';
-import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, safeDecrypt, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings, mcpSettingsFromJson, mcpSettingsToJsonString, mergePresetProviders, buildAttachmentContextBlock, summarizeAttachmentsForUi, imageDataUrls, MAX_ATTACHMENTS, CONTEXT_LEVELS, contextLevelConfig, summarizeToolPolicy, normalizeContextLevel, applyDelegationDefaults, serializeAiDelegation, summarizeToolMessage, formatToolFields, type AiAttachment, type ContextLevel, type AiTaskSource, type AiTaskDelegation } from '@repo/shared';
+import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, safeDecrypt, isAnyCiphertext, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings, mcpSettingsFromJson, mcpSettingsToJsonString, mergePresetProviders, buildAttachmentContextBlock, summarizeAttachmentsForUi, imageDataUrls, MAX_ATTACHMENTS, CONTEXT_LEVELS, contextLevelConfig, summarizeToolPolicy, normalizeContextLevel, applyDelegationDefaults, serializeAiDelegation, summarizeToolMessage, formatToolFields, type AiAttachment, type ContextLevel, type AiTaskSource, type AiTaskDelegation } from '@repo/shared';
 import { setDelegation as setLocalDelegation } from '@/services/ai/agentDelegations';
 import { syncDelegationToBackend } from '@/services/ai/agentBackendSync';
 import { pickAttachments } from '@/services/ai/attachments';
@@ -815,16 +815,20 @@ export default function AIScreen() {
               await saveConversationLocal(conversation);
           }
           for (const row of remote.messages) {
-              // BLANK-DATA GUARD: pullAiSync decrypts server ciphertext; if the data key
-              // isn't ready yet, content comes back ''. saveMessageLocal uses INSERT OR
-              // REPLACE, so saving that would overwrite a good on-device message (or the
-              // server copy) with a BLANK — which is exactly why opening a saved thread
-              // showed nothing. Skip messages that produced no readable content; they'll
-              // merge correctly on the next pull once the key is available.
+              // CORRUPTION GUARD (the real root cause of empty threads): pullAiSync runs
+              // safeDecrypt on the server ciphertext. If the data key isn't ready yet (the
+              // launch merge can race ahead of crypto restore), safeDecrypt returns the
+              // value UNCHANGED — i.e. STILL CIPHERTEXT, which is non-empty, so the old
+              // "blank" check let it through. saveMessageLocal then RE-ENCRYPTS that
+              // ciphertext over the good local row (INSERT OR REPLACE by id) → the thread
+              // can never decrypt again and reads as empty/garbled. So skip a row unless
+              // its content is genuinely readable plaintext (not blank, not still-encrypted).
+              // Once the key is ready a later pull (or loadChat's self-heal) merges it for real.
               const m = row.message as any;
-              const hasContent = (typeof m?.content === 'string' && m.content.trim().length > 0)
-                  || (Array.isArray(m?.toolCalls) && m.toolCalls.length > 0);
-              if (!hasContent) continue;
+              const content = typeof m?.content === 'string' ? m.content : '';
+              const readableText = content.trim().length > 0 && !isAnyCiphertext(content);
+              const hasToolCalls = Array.isArray(m?.toolCalls) && m.toolCalls.length > 0;
+              if (!readableText && !hasToolCalls) continue;
               await saveMessageLocal(row.conversationId, row.message);
           }
           const convs = await getConversationsLocal();
@@ -1511,6 +1515,13 @@ export default function AIScreen() {
           try {
               const result = await executeToolCall(call.tool, call.arguments || {}, intentText);
               if (['create_note', 'update_note', 'delete_note', 'create_project', 'update_project', 'delete_project'].includes(call.tool)) {
+                  // Optimistically merge the just-created/updated note so it shows INSTANTLY
+                  // (tasks already appeared live; notes lagged because they only refreshed via
+                  // a slow server refetch / a socket event the GraphQL create may not emit).
+                  try {
+                      const created = (result as any)?.createNote ?? (result as any)?.updateNote;
+                      if (created && created._id) useStore.getState().ingestServerNote(created);
+                  } catch {}
                   try {
                       await useStore.getState().fetchNotes();
                   } catch {}
@@ -1792,12 +1803,13 @@ export default function AIScreen() {
       } else {
         setActiveProjectId(null);
       }
-      // Self-heal: if the saved thread is empty or contains blank-content rows (left by
-      // an earlier pull that ran before the data key was ready), force a fresh server
-      // pull now — the key is available, so messages decrypt to real content and the
-      // blank-guard merge overwrites the empties. Skip for local-only threads.
-      const looksBlank = msgs.length === 0 || msgs.some(m => !m.content || !String(m.content).trim());
-      if (looksBlank && !isConversationLocalOnly(id)) {
+      // Self-heal: re-pull from the server when the local copy looks unusable — either
+      // empty, blank, or still-ciphertext (a row corrupted by an earlier key-not-ready
+      // merge on a prior build). The key is available now, so the corruption-guarded
+      // merge replaces the bad rows with real decrypted content. Skip local-only threads.
+      const looksUnusable = msgs.length === 0
+          || msgs.some(m => !m.content || !String(m.content).trim() || isAnyCiphertext(m.content));
+      if (looksUnusable && !isConversationLocalOnly(id)) {
         try {
           const remote = await pullAiSync({ force: true });
           await mergeRemoteSync(remote, userScopeKey || undefined);

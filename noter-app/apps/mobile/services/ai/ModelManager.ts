@@ -43,17 +43,14 @@ class ModelManager {
     if (!exists) {
       throw new Error("Modellfilen hittades inte. Ladda ner modellen igen.");
     }
+    // loadLlamaModel now owns the load timeout + CPU/small-context fallback + a clear
+    // error if even that fails, so an extra retry here would just double the (already
+    // slow) attempts. Reset a possibly-wedged native context, then surface its message.
     try {
       await loadLlamaModel(path, {}, onProgress);
     } catch (e: any) {
-      // A stale/partial native context can wedge initLlama; release everything and
-      // retry once before surfacing a clear error.
       try { await unloadLlamaModel(); } catch { /* ignore */ }
-      try {
-        await loadLlamaModel(path, {}, onProgress);
-      } catch (e2: any) {
-        throw new Error(`Kunde inte ladda modellen (${e2?.message || e?.message || 'okänt fel'}). Prova en mindre modell eller ladda ner den på nytt.`);
-      }
+      throw e instanceof Error ? e : new Error(String(e?.message || 'Kunde inte ladda modellen.'));
     }
   }
 

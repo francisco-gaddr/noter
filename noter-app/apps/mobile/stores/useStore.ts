@@ -40,6 +40,10 @@ interface AppState {
   // UI Actions
   setActiveProject: (id: string | null) => void;
   setViewMode: (mode: 'list' | 'tree') => void;
+  /** Optimistically merge a freshly server-created note into state + local DB (for
+   *  the AI chat, which creates notes via GraphQL — guarantees instant display even
+   *  if the realtime socket event is missed). Idempotent by _id. */
+  ingestServerNote: (note: Note) => void;
   setNotificationsEnabled: (enabled: boolean) => Promise<void>;
   setSecurityLocked: (locked: boolean) => Promise<void>;
   init: () => Promise<void>;
@@ -397,7 +401,8 @@ export const useStore = create<AppState>((set, get) => ({
   tasks: [],
   isLoading: false,
   error: null,
-  viewMode: 'list',
+  // Default notes view = Kortvy (cards). 'tree' renders the card variant (see NoteList).
+  viewMode: 'tree',
   isOffline: false,
   isSyncingOffline: false,
   activeProjectId: null,
@@ -425,6 +430,21 @@ export const useStore = create<AppState>((set, get) => ({
     }
   },
   setViewMode: (mode) => set({ viewMode: mode }),
+  ingestServerNote: (note) => set(state => {
+    if (!note || !(note as any)._id) return state;
+    const merged = [normalizeEncryptedNote(note), ...state.notes];
+    const secured = materializeNotesFromEncrypted(merged as any, new Set(state.unlockedProtectedNoteIds));
+    const parsed = secured.find((n) => n._id === (note as any)._id);
+    if (!parsed) return state;
+    if (state.notes.find(n => n._id === parsed._id)) {
+      // Already present (e.g. socket beat us) — refresh it in place, keep order.
+      Database.saveNoteLocal(parsed, true);
+      return { notes: state.notes.map(n => n._id === parsed._id ? parsed : n) };
+    }
+    Database.saveNoteLocal(parsed, true);
+    const deduped = [parsed, ...state.notes].filter((n, idx, arr) => arr.findIndex(x => x._id === n._id) === idx);
+    return { notes: deduped };
+  }),
   setSecurityLocked: async (locked) => {
     if (get().securityLocked === locked) return;
     if (locked) {

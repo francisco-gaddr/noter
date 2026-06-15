@@ -264,8 +264,14 @@ const normalizeEncryptedNote = (note: Note): any => {
     tags: Array.isArray(rawTags) ? rawTags : [],
     icon: typeof rawIcon === 'string' ? rawIcon : undefined,
     iconColor: typeof rawIconColor === 'string' ? rawIconColor : undefined,
-    type: normalizeNoteType(note.type ? (() => { try { return decrypt(note.type) as any; } catch { return note.type; } })() : 'note'),
-    parentId: note.parentId ? (() => { try { return decrypt(note.parentId) } catch { return note.parentId } })() : null,
+    // normalizeNoteType is decrypt-aware (safeDecrypt with raw fallback) and handles
+    // plaintext, v3 and legacy ciphertext. Pre-decrypting here was the recurring
+    // bug: decrypt() returns '' on failure — INCLUDING for an already-plaintext
+    // 'project' (legacy decrypt throws→swallows→'') — so the type collapsed to
+    // 'note' and project folders leaked into the notes list + vanished from the
+    // projects dropdown. Pass the raw value straight through instead.
+    type: normalizeNoteType(note.type ?? 'note'),
+    parentId: note.parentId ? safeDecrypt(note.parentId, note.parentId) : null,
     locked: locked,
     order: parseNoteOrder((note as any).order),
     createdAt: parseNoteDateValue(note.createdAt),

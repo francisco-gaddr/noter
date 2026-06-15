@@ -20,6 +20,7 @@ import { useTranslation } from 'react-i18next';
 import DOMPurify from 'dompurify';
 import { getTikTokEmbedUrl, resolveVideoEmbedUrl } from '../lib/videoEmbed';
 import { buildSecurityNoteMap, findBlockingLockedAncestor } from '../services/ai/security';
+import { normalizeNoteType } from '@repo/shared';
 
 type CustomElement = { type: string; children: CustomText[]; url?: string; align?: string; checked?: boolean };
 type CustomText = { text: string; bold?: boolean; italic?: boolean; underline?: boolean; code?: boolean };
@@ -1291,7 +1292,9 @@ function NoteEditorContent() {
       return activeUsers[selectedNoteId].filter(u => u._id !== user?._id);
   }, [activeUsers, selectedNoteId, user]);
 
-  const projects = useMemo(() => notes.filter(n => n.type === 'project'), [notes]);
+  // normalizeNoteType (not raw n.type) so the project dropdown stays populated even
+  // if a note's type is still an unkeyed/ciphertext value at first paint.
+  const projects = useMemo(() => notes.filter(n => normalizeNoteType((n as any).type) === 'project'), [notes]);
 
   const blockingLockedAncestor = useMemo(() => {
     if (!selectedNote) return null;

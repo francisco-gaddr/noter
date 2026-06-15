@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { ChatMessage, HFModel, HFFile, Conversation, AIProject, normalizeToolArguments } from '@repo/ai';
-import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, mcpSettingsFromJson, mcpSettingsToJsonString, mergePresetProviders, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings, CONTEXT_LEVELS, contextLevelConfig, summarizeToolPolicy, normalizeContextLevel, applyDelegationDefaults, serializeAiDelegation, summarizeToolMessage, formatToolFields, extractToolCalls as sharedExtractToolCalls, buildTimeContextLines, type ContextLevel, type AiTaskSource, type AiTaskDelegation } from '@repo/shared';
+import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, mcpSettingsFromJson, mcpSettingsToJsonString, mergePresetProviders, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings, CONTEXT_LEVELS, contextLevelConfig, summarizeToolPolicy, normalizeContextLevel, applyDelegationDefaults, serializeAiDelegation, summarizeToolMessage, formatToolFields, extractToolCalls as sharedExtractToolCalls, buildTimeContextLines, normalizeNoteType, type ContextLevel, type AiTaskSource, type AiTaskDelegation } from '@repo/shared';
 import { setDelegation as setLocalDelegation } from '../services/ai/agentDelegations';
 import { db } from '../services/db';
 import { v4 as uuidv4 } from 'uuid';
@@ -2799,7 +2799,7 @@ export const AISidebar = () => {
         const { notes, noteMap, unlockedIds, toNotePayload } = getAISecurityContext();
         const parentId = args.parentId ?? null;
         const filtered = notes
-          .filter((note: any) => note.type === 'project')
+          .filter((note: any) => normalizeNoteType(note.type) === 'project')
           .filter((note: any) => (parentId === null ? !note.parentId : String(note.parentId) === String(parentId)))
           .filter((note: any) => isReadableWithLocks(note as any, noteMap as any, unlockedIds))
           .map(toNotePayload);
