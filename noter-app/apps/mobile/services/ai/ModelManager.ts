@@ -11,13 +11,7 @@ import {
   type LlamaCompletionOptions,
 } from "./llama";
 import { isAiBackgroundWorkEnabled } from "./runtimeSettings";
-
-let RNFS: any;
-try {
-  RNFS = require("react-native-fs").default;
-} catch {
-  RNFS = { exists: async () => true };
-}
+import { modelFileExists } from "./ModelDownloader";
 
 /**
  * Owns the single resident on-device model. Real inference runs through llama.rn
@@ -41,7 +35,7 @@ class ModelManager {
 
   async load(path: string, onProgress?: (progress: number) => void) {
     if (this.isModelLoaded && this.currentModelPath === path) return;
-    const exists = await RNFS.exists(path).catch(() => true);
+    const exists = await modelFileExists(path);
     if (!exists) throw new Error("Model path not found");
     await loadLlamaModel(path, {}, onProgress);
   }

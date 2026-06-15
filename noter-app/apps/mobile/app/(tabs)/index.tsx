@@ -101,6 +101,7 @@ export default function NotesScreen() {
   );
   
   const [sortMenuVisible, setSortMenuVisible] = useState(false);
+  const [viewMenuVisible, setViewMenuVisible] = useState(false);
   const [projectSelectorVisible, setProjectSelectorVisible] = useState(false);
   const [iconPickerVisible, setIconPickerVisible] = useState(false);
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
@@ -202,11 +203,6 @@ export default function NotesScreen() {
             onPress={() => router.push('/(tabs)/search')}
           />
           <IconButton
-            icon="graph-outline"
-            onPress={() => router.push('/graph')}
-            testID="open-graph-explorer"
-          />
-          <IconButton
             icon="cog"
             onPress={() => router.push('/(tabs)/settings')}
           />
@@ -251,14 +247,42 @@ export default function NotesScreen() {
               leadingIcon={sortBy === 'updatedAt' && sortOrder === 'desc' ? 'check' : undefined}
             />
           </Menu>
-          <IconButton
-            icon={getViewIcon()}
-            onPress={() => setViewMode(getNextViewMode())}
-          />
+          {/* View picker dropdown: Listvy / Kortvy / Grafvy. Replaces the old separate
+              graph button + toggle. The anchor force-reopens (close→reopen on the next
+              tick) so the Menu never gets wedged after a couple of taps. */}
+          <Menu
+            visible={viewMenuVisible}
+            onDismiss={() => setViewMenuVisible(false)}
+            anchor={
+              <IconButton
+                icon={viewMode === 'tree' ? 'view-grid-outline' : 'view-list-outline'}
+                onPress={() => { setViewMenuVisible(false); setTimeout(() => setViewMenuVisible(true), 0); }}
+                testID="open-view-menu"
+              />
+            }
+          >
+            <Menu.Item
+              onPress={() => { setViewMode('list'); setViewMenuVisible(false); }}
+              title={t('view.list', 'Listvy')}
+              leadingIcon={viewMode === 'list' ? 'check' : 'view-list-outline'}
+            />
+            <Menu.Item
+              onPress={() => { setViewMode('tree'); setViewMenuVisible(false); }}
+              title={t('view.card', 'Kortvy')}
+              leadingIcon={viewMode === 'tree' ? 'check' : 'view-grid-outline'}
+            />
+            <Divider />
+            <Menu.Item
+              onPress={() => { setViewMenuVisible(false); router.push('/graph'); }}
+              title={t('view.graph', 'Grafvy')}
+              leadingIcon="graph-outline"
+              testID="open-graph-explorer"
+            />
+          </Menu>
         </View>
       ),
     });
-  }, [navigation, viewMode, setViewMode, sortMenuVisible, sortOrder, sortBy, activeProjectId, activeProject]);
+  }, [navigation, viewMode, setViewMode, sortMenuVisible, viewMenuVisible, sortOrder, sortBy, activeProjectId, activeProject]);
 
   const sortedNotes = useMemo(() => {
     // SECURITY (hard guarantee): a note whose ancestor project/folder is locked-and-not-

@@ -1,15 +1,7 @@
 import { HFFile, HFModel } from '@repo/ai';
 import { saveModelLocal, deleteModelLocal } from '@/services/database';
 import { v4 as uuidv4 } from 'uuid';
-import { downloadGgufModel, getModelPath, stopModelDownload } from './ModelDownloader';
-
-// Try to load RNFS safely
-let RNFS: any;
-try {
-  RNFS = require("react-native-fs").default;
-} catch (e) {
-  RNFS = null;
-}
+import { downloadGgufModel, getModelPath, stopModelDownload, modelFileExists, deleteModelFile } from './ModelDownloader';
 
 export const getBestQuantization = (files: HFFile[]): HFFile | undefined => {
     // Priority list for mobile (balance size/performance)
@@ -56,7 +48,7 @@ export const downloadModel = async (
     if (!target) {
         throw new Error('Native filesystem not available');
     }
-    const exists = await RNFS.exists(target).catch(() => false);
+    const exists = await modelFileExists(target);
     if (!exists) {
         options?.onStageChange?.('queued');
         try {
@@ -87,7 +79,7 @@ export const downloadModel = async (
 
 export const deleteModel = async (id: string, path: string) => {
     try {
-        await RNFS.unlink(path).catch(() => {});
+        await deleteModelFile(path);
         await deleteModelLocal(id);
     } catch (error) {
         console.error("Failed to delete model file:", error);
