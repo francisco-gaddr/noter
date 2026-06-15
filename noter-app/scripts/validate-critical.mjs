@@ -56,6 +56,8 @@ const steps = [
       '__tests__/api.test.ts',
       '__tests__/encryption-validation.test.ts',
       '__tests__/utils/encryption.test.ts',
+      '__tests__/utils/cors-origins.test.ts',
+      '__tests__/caldav.test.ts',
       '__tests__/routes/keyBundle.test.ts',
       '__tests__/routes/apiKeys.test.ts',
       '__tests__/routes/ownership-isolation.test.ts',

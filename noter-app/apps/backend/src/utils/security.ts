@@ -49,6 +49,11 @@ export const getAllowedOrigins = () => {
     'http://127.0.0.1:3001',
     'https://daylited.com',
     'https://www.daylited.com',
+    // Electron desktop renderer is served over the custom `app://noter` scheme
+    // (see electron-noter/main.js APP_ORIGIN). Its fetches to the API carry
+    // `Origin: app://noter`; without it here CORS rejects every request and the
+    // desktop app shows "Failed to fetch" on login.
+    'app://noter',
   ];
   if (list.length > 0) return Array.from(new Set([...list, ...defaults]));
   if (appEnv === 'production') return defaults;
