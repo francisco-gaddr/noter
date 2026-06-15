@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
-import { Modal, Portal, Text, Button, IconButton, TextInput, Menu, useTheme, Divider, Dialog } from 'react-native-paper';
+import { Modal, Portal, Text, Button, IconButton, TextInput, Menu, useTheme, Divider, Dialog, HelperText } from 'react-native-paper';
 import { useStore } from '@/stores/useStore';
 import { Note } from '@repo/shared';
 import IconPickerModal from '@/components/IconPickerModal';
@@ -160,7 +160,7 @@ const RenameProjectInput = React.memo(({
 export default function ProjectSelector({ visible, onDismiss, onSelect, selectedProjectId }: ProjectSelectorProps) {
   const { notes, activeProjectId, setActiveProject, createNote, updateNote, deleteNote, verifyNoteLock, reorderNotes } = useStore();
   const theme = useTheme();
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isSwedish = i18n.language?.toLowerCase().startsWith('sv');
   
   const [isCreating, setIsCreating] = useState(false);
@@ -174,6 +174,8 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
   const [lockDialogVisible, setLockDialogVisible] = useState(false);
   const [unlockDialogVisible, setUnlockDialogVisible] = useState(false);
   const [projectPassword, setProjectPassword] = useState('');
+  const [unlockError, setUnlockError] = useState<string | null>(null);
+  const [unlocking, setUnlocking] = useState(false);
   const [pendingSelectProjectId, setPendingSelectProjectId] = useState<string | null>(null);
   const unlockPasswordRef = useRef<any>(null);
   
@@ -292,8 +294,20 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
   const handleUnlockProject = async () => {
     const targetId = pendingSelectProjectId || selectedProjectForMenu?._id || null;
     if (!targetId || !projectPassword) return;
-    await verifyNoteLock(targetId, projectPassword);
+    setUnlocking(true);
+    setUnlockError(null);
+    try {
+      // verifyNoteLock THROWS on a wrong password — previously uncaught, so the dialog
+      // just hung silently. Catch it and show a clear "fel lösenord" message instead.
+      await verifyNoteLock(targetId, projectPassword);
+    } catch (e: any) {
+      setUnlockError(t('note.incorrectPassword', 'Felaktigt lösenord'));
+      return;
+    } finally {
+      setUnlocking(false);
+    }
     setProjectPassword('');
+    setUnlockError(null);
     setUnlockDialogVisible(false);
     if (pendingSelectProjectId) {
       if (onSelect) onSelect(pendingSelectProjectId);
@@ -495,26 +509,30 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
           </Dialog.Actions>
         </Dialog>
 
-        <Dialog visible={unlockDialogVisible} onDismiss={() => setUnlockDialogVisible(false)}>
-          <Dialog.Title>Unlock Project</Dialog.Title>
+        <Dialog visible={unlockDialogVisible} onDismiss={() => { setUnlockDialogVisible(false); setUnlockError(null); }}>
+          <Dialog.Title>{t('noteEditor.unlockNoteTitle', 'Lås upp projekt')}</Dialog.Title>
           <Dialog.Content>
             <TextInput
               ref={unlockPasswordRef}
               mode="outlined"
-              label="Password"
+              label={t('auth.password', 'Lösenord')}
               secureTextEntry
               value={projectPassword}
-              onChangeText={setProjectPassword}
+              onChangeText={(v) => { setProjectPassword(v); if (unlockError) setUnlockError(null); }}
+              error={!!unlockError}
               autoFocus
+              onSubmitEditing={handleUnlockProject}
               testID="unlock-project-password-input"
             />
+            {unlockError && <HelperText type="error" visible>{unlockError}</HelperText>}
           </Dialog.Content>
           <Dialog.Actions>
             <Button onPress={() => {
               setUnlockDialogVisible(false);
+              setUnlockError(null);
               setPendingSelectProjectId(null);
-            }}>Cancel</Button>
-            <Button mode="contained" onPress={handleUnlockProject} disabled={!projectPassword}>Unlock</Button>
+            }}>{t('common.cancel', 'Avbryt')}</Button>
+            <Button mode="contained" loading={unlocking} onPress={handleUnlockProject} disabled={!projectPassword || unlocking}>{t('noteEditor.unlockNote', 'Lås upp')}</Button>
           </Dialog.Actions>
         </Dialog>
 

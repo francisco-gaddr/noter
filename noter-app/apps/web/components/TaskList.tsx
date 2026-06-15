@@ -536,18 +536,8 @@ export default function TaskList() {
                         >
                             <FaFilter />
                         </button>
-                        {completedInScope.length > 0 && (
-                            <button
-                                onClick={handleClearCompleted}
-                                className="flex items-center gap-1 px-2 py-2 rounded text-gray-500 hover:text-red-600 dark:text-gray-400 dark:hover:text-red-400"
-                                title={`Rensa ${completedInScope.length} klara uppgifter${selectedTaskListId ? ' i listan' : ''}`}
-                                aria-label="Rensa klara uppgifter"
-                                data-testid="clear-completed-tasks"
-                            >
-                                <FaTrash />
-                                <span className="text-xs font-medium">Rensa klara ({completedInScope.length})</span>
-                            </button>
-                        )}
+                        {/* "Rensa klara uppgifter" moved to the Settings modal (parity with
+                            mobile) — manage/remove content from one place. */}
                     </div>
                 </div>
 

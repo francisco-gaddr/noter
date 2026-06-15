@@ -14,15 +14,15 @@
       "buildNumber": "11",
       "infoPlist": {
         "NSFaceIDUsageDescription": "Noter uses FaceID to unlock your secure notes.",
-        "NSPhotoLibraryUsageDescription": "Noter behöver åtkomst till dina bilder för att bifoga dem till anteckningar.",
-        "NSCameraUsageDescription": "Noter behöver åtkomst till kameran för att ta bilder till anteckningar."
+        "NSPhotoLibraryUsageDescription": "Noter beh\u00f6ver \u00e5tkomst till dina bilder f\u00f6r att bifoga dem till anteckningar.",
+        "NSCameraUsageDescription": "Noter beh\u00f6ver \u00e5tkomst till kameran f\u00f6r att ta bilder till anteckningar."
       }
     },
     "android": {
       "icon": "./assets/images/icon.png",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#FF6B40"
+        "backgroundColor": "#0C0C10"
       },
       "package": "com.noter.app",
       "versionCode": 12,
@@ -67,9 +67,9 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#FFF3E2",
+          "backgroundColor": "#0C0C10",
           "dark": {
-            "backgroundColor": "#1A1206"
+            "backgroundColor": "#050507"
           }
         }
       ],

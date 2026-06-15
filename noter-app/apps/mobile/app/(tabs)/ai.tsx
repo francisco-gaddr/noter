@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { StyleSheet, View, FlatList, TextInput, KeyboardAvoidingView, Platform, ScrollView, Pressable, AppState, Linking, useWindowDimensions } from 'react-native';
+import { StyleSheet, View, FlatList, TextInput, KeyboardAvoidingView, Platform, ScrollView, Pressable, AppState, Linking, useWindowDimensions, Modal } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text, Button, useTheme, IconButton, List, ActivityIndicator, ProgressBar, Portal, Dialog, TextInput as PaperTextInput, Switch, Menu, Divider, Chip } from 'react-native-paper';
 import { useLocalSearchParams, useNavigation } from 'expo-router';
@@ -488,6 +488,12 @@ export default function AIScreen() {
   useEffect(() => {
     loadModels();
     (async () => {
+     // The WHOLE restore is wrapped so a single failing await (a network refresh, a
+     // decrypt of legacy data, a SecureStore hiccup) can never abort hydration. If it
+     // did, `settingsHydratedRef` would stay false forever and EVERY persist effect
+     // would be gated off — so the "use API-based AI" toggle, the chosen model/provider
+     // etc. would silently never save. The finally guarantees hydration completes.
+     try {
       // Stable per-user scope (survives JWT rotation on re-login) + one-time migration
       // from the legacy token-hash scope so settings are never "forgotten".
       const scopeKey = await resolveAiSettingsScope();
@@ -569,9 +575,14 @@ export default function AIScreen() {
       }
       const resolvedMcpSettings = resolveMcpSettings(parsedMcpSettings, getMcpEnvValues());
       setMcpSettings(toEffectiveMcpUiSettings(resolvedMcpSettings));
+     } catch (e) {
+       console.warn('[ai-settings] hydration step failed (persistence still enabled):', e);
+     } finally {
       // Hydration complete — only now may the persist effects write to storage, so they
-      // never clobber the just-loaded values with empty initial state.
+      // never clobber the just-loaded values with empty initial state. ALWAYS runs, even
+      // if a step above threw, so the toggle/model/provider persist reliably.
       settingsHydratedRef.current = true;
+     }
     })();
   }, []);
 
@@ -2873,107 +2884,100 @@ export default function AIScreen() {
               </View>
             </ScrollView>
           )}
-          {/* Near-fullscreen so the long HuggingFace model names + the list have room.
-              Each model name sits in its own horizontal scroller so the full id can be
-              read by swiping sideways even when it's far too long to fit. */}
-          <Dialog
+          {/* Full-screen native Modal (Paper's Dialog won't reliably fill height): a
+              padded title at top, the model list flexes to fill all space, and the
+              close button is pinned to the bottom. Long names scroll horizontally. */}
+          <Modal
             visible={downloadDialogVisible}
-            onDismiss={() => setDownloadDialogVisible(false)}
-            style={{ height: Math.round(windowHeight * 0.9), marginVertical: 0, alignSelf: 'stretch', marginHorizontal: 12 }}
+            animationType="slide"
+            onRequestClose={() => setDownloadDialogVisible(false)}
           >
-            <Dialog.Title>Hämta AI-modeller från HuggingFace</Dialog.Title>
-            <Dialog.Content style={{ flex: 1, paddingBottom: 0 }}>
-              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
-                <TextInput
-                  style={[styles.input, { flex: 1, color: theme.colors.onSurface, borderColor: theme.colors.outline, borderWidth: 1, borderRadius: 4, padding: 8 }]}
-                  placeholder={t('ai.searchPlaceholder')}
-                  placeholderTextColor={theme.colors.onSurfaceVariant}
-                  value={searchQuery}
-                  onChangeText={setSearchQuery}
-                  returnKeyType="search"
-                  onSubmitEditing={handleSearch}
-                />
-                <Button mode="contained" onPress={handleSearch} loading={isSearching}>Search</Button>
+            <View style={{ flex: 1, backgroundColor: theme.colors.background, paddingTop: insets.top, paddingBottom: insets.bottom }}>
+              <View style={{ paddingTop: 18, paddingHorizontal: 16, paddingBottom: 10 }}>
+                <Text style={{ color: theme.colors.onSurface, fontSize: 20, fontWeight: '700' }}>Hämta AI-modeller</Text>
+                <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: 12, marginTop: 2 }}>Sök, utforska och ladda ner från HuggingFace</Text>
               </View>
-              {/* Sort: by downloads, likes (rating) or release date. Re-orders the
-                  already-fetched list client-side (shared sortModels) — no re-query. */}
-              {searchResults.length > 0 && (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
-                  <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>Sortera:</Text>
-                  {([['downloads', 'Nedladdningar'], ['likes', 'Likes'], ['recent', 'Senaste']] as [HFModelSort, string][]).map(([key, label]) => (
-                    <Chip
-                      key={key}
-                      compact
-                      selected={modelSort === key}
-                      onPress={() => setModelSort(key)}
-                      style={{ height: 30 }}
-                      textStyle={{ fontSize: 11, marginVertical: 0 }}
-                    >
-                      {label}
-                    </Chip>
-                  ))}
+              <View style={{ flex: 1, paddingHorizontal: 16 }}>
+                <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+                  <TextInput
+                    style={[styles.input, { flex: 1, color: theme.colors.onSurface, borderColor: theme.colors.outline, borderWidth: 1, borderRadius: 4, padding: 8 }]}
+                    placeholder={t('ai.searchPlaceholder')}
+                    placeholderTextColor={theme.colors.onSurfaceVariant}
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                    returnKeyType="search"
+                    onSubmitEditing={handleSearch}
+                  />
+                  <Button mode="contained" onPress={handleSearch} loading={isSearching}>Sök</Button>
                 </View>
-              )}
-              <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 8 }}>
-                <View style={{ gap: 10 }}>
-                  {sortModels(searchResults, modelSort).map((item) => (
-                    <View key={item.id} style={{ borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.outline, paddingVertical: 8 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        {/* Tap the name area to expand model details. */}
-                        <Pressable
-                          style={{ flex: 1, minWidth: 0, marginRight: 8 }}
-                          onPress={() => setExpandedModelId((cur) => (cur === item.id ? null : item.id))}
-                        >
-                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            <IconButton icon={expandedModelId === item.id ? 'chevron-down' : 'chevron-right'} size={16} style={{ margin: 0, marginRight: 2, width: 18 }} />
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" style={{ flex: 1 }}>
-                              <Text style={{ color: theme.colors.onSurface, fontWeight: '600', fontSize: 13 }}>{item.name}</Text>
-                            </ScrollView>
-                          </View>
-                          <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.colors.onSurfaceVariant, fontSize: 11, marginTop: 2 }}>
-                            {item.author} · ⬇ {formatCount(item.downloads)} · ♥ {formatCount(item.likes)}{formatSearchSize(searchSizes[item.id]) ? ` · ${formatSearchSize(searchSizes[item.id])}` : ''}
-                          </Text>
-                        </Pressable>
-                        {processingModels[item.id] ? (
-                          <Button mode="outlined" compact onPress={() => handleCancelDownload(item.id)} labelStyle={{ fontSize: 12 }}>
-                            Avbryt
-                          </Button>
-                        ) : (
-                          <Button mode="contained-tonal" compact onPress={() => downloadModel(item)} labelStyle={{ fontSize: 12 }}>
-                            Ladda ner
-                          </Button>
-                        )}
-                      </View>
-                      {/* Expanded detail — downloads, likes, release date, tags. */}
-                      {expandedModelId === item.id && (
-                        <View style={{ marginTop: 6, marginLeft: 20, gap: 2 }}>
-                          <Text selectable style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>Modell-id: {item.id}</Text>
-                          <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>Nedladdningar: {formatCount(item.downloads)}</Text>
-                          <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>Likes: {formatCount(item.likes)}</Text>
-                          <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>Släppt: {formatModelDate(item.createdAt)}</Text>
-                          <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>Uppdaterad: {formatModelDate(item.lastModified)}</Text>
-                          {Array.isArray(item.tags) && item.tags.length > 0 && (
-                            <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>Taggar: {item.tags.slice(0, 8).join(', ')}</Text>
+                {/* Sort: downloads, likes (rating) or release date — client-side re-sort. */}
+                {searchResults.length > 0 && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+                    <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>Sortera:</Text>
+                    {([['downloads', 'Nedladdningar'], ['likes', 'Likes'], ['recent', 'Senaste']] as [HFModelSort, string][]).map(([key, label]) => (
+                      <Chip key={key} compact selected={modelSort === key} onPress={() => setModelSort(key)} style={{ height: 30 }} textStyle={{ fontSize: 11, marginVertical: 0 }}>
+                        {label}
+                      </Chip>
+                    ))}
+                  </View>
+                )}
+                <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 12 }} keyboardShouldPersistTaps="handled">
+                  {searchResults.length === 0 && !isSearching && (
+                    <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: 13, marginTop: 24, textAlign: 'center' }}>
+                      Sök efter en modell ovan (t.ex. "llama 1b", "qwen") för att börja.
+                    </Text>
+                  )}
+                  <View style={{ gap: 10 }}>
+                    {sortModels(searchResults, modelSort).map((item) => (
+                      <View key={item.id} style={{ borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.outline, paddingVertical: 8 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                          <Pressable style={{ flex: 1, minWidth: 0, marginRight: 8 }} onPress={() => setExpandedModelId((cur) => (cur === item.id ? null : item.id))}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                              <IconButton icon={expandedModelId === item.id ? 'chevron-down' : 'chevron-right'} size={16} style={{ margin: 0, marginRight: 2, width: 18 }} />
+                              <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" style={{ flex: 1 }}>
+                                <Text style={{ color: theme.colors.onSurface, fontWeight: '600', fontSize: 13 }}>{item.name}</Text>
+                              </ScrollView>
+                            </View>
+                            <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.colors.onSurfaceVariant, fontSize: 11, marginTop: 2 }}>
+                              {item.author} · ⬇ {formatCount(item.downloads)} · ♥ {formatCount(item.likes)}{formatSearchSize(searchSizes[item.id]) ? ` · ${formatSearchSize(searchSizes[item.id])}` : ''}
+                            </Text>
+                          </Pressable>
+                          {processingModels[item.id] ? (
+                            <Button mode="outlined" compact onPress={() => handleCancelDownload(item.id)} labelStyle={{ fontSize: 12 }}>Avbryt</Button>
+                          ) : (
+                            <Button mode="contained-tonal" compact onPress={() => downloadModel(item)} labelStyle={{ fontSize: 12 }}>Ladda ner</Button>
                           )}
                         </View>
-                      )}
-                      {typeof downloadProgress[item.id] === 'number' && (
-                        <View style={{ marginTop: 4 }}>
-                          <ProgressBar progress={downloadProgress[item.id]} style={{ height: 4, borderRadius: 2 }} />
-                          <Text style={{ fontSize: 10, marginTop: 2, color: theme.colors.onSurfaceVariant }}>
-                            {(downloadProgress[item.id] * 100).toFixed(0)}% · {formatDownloadStage(downloadStage[item.id])}
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                  ))}
-                </View>
-              </ScrollView>
-            </Dialog.Content>
-            <Dialog.Actions>
-              <Button onPress={() => setDownloadDialogVisible(false)}>{t('common.close')}</Button>
-            </Dialog.Actions>
-          </Dialog>
+                        {expandedModelId === item.id && (
+                          <View style={{ marginTop: 6, marginLeft: 20, gap: 2 }}>
+                            <Text selectable style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>Modell-id: {item.id}</Text>
+                            <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>Nedladdningar: {formatCount(item.downloads)}</Text>
+                            <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>Likes: {formatCount(item.likes)}</Text>
+                            <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>Släppt: {formatModelDate(item.createdAt)}</Text>
+                            <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>Uppdaterad: {formatModelDate(item.lastModified)}</Text>
+                            {Array.isArray(item.tags) && item.tags.length > 0 && (
+                              <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>Taggar: {item.tags.slice(0, 8).join(', ')}</Text>
+                            )}
+                          </View>
+                        )}
+                        {typeof downloadProgress[item.id] === 'number' && (
+                          <View style={{ marginTop: 6 }}>
+                            <ProgressBar progress={downloadProgress[item.id]} color={theme.colors.primary} style={{ height: 8, borderRadius: 4 }} />
+                            <Text style={{ fontSize: 11, marginTop: 3, color: theme.colors.onSurface, fontWeight: '600' }}>
+                              {(downloadProgress[item.id] * 100).toFixed(0)}% · {formatDownloadStage(downloadStage[item.id])}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    ))}
+                  </View>
+                </ScrollView>
+              </View>
+              <View style={{ paddingHorizontal: 16, paddingTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.outline }}>
+                <Button mode="contained" onPress={() => setDownloadDialogVisible(false)} style={{ marginVertical: 4 }}>{t('common.close')}</Button>
+              </View>
+            </View>
+          </Modal>
         </View>
       ) : (
         <>
