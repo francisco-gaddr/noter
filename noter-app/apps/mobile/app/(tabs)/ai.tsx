@@ -9,7 +9,7 @@ import { useStore } from '@/stores/useStore';
 import { ChatMessage, Conversation, HFModel, AIProject, normalizeToolArguments, sortModels, type HFModelSort } from '@repo/ai';
 import { searchHuggingFaceModels, getModelFiles } from '@/services/ai/huggingface';
 import { downloadModel as serviceDownloadModel, getBestQuantization, deleteModel as serviceDeleteModel, cancelDownload as cancelModelDownload } from '@/services/ai/modelService';
-import { isNativeFileSystemAvailable } from '@/services/ai/ModelDownloader';
+import { isNativeFileSystemAvailable, subscribeDownloads, getDownloadSnapshot } from '@/services/ai/ModelDownloader';
 import { saveConversationLocal, getConversationsLocal, deleteConversationLocal, saveMessageLocal, getMessagesLocal, getModelsLocal, saveProjectLocal, getProjectsLocal, deleteProjectLocal } from '@/services/database';
 import { combineSystemPrompts, buildToolUseNotice } from '@/services/ai/prompt';
 import { API_URL, fetchWithAuth } from '@/services/api';
@@ -24,6 +24,7 @@ import { initSocket, getSocket } from '@/services/socket';
 import { buildSecurityNoteMap, isReadableWithLocks } from '@/services/ai/security';
 import { modelManager } from '@/services/ai/ModelManager';
 import { isAiBackgroundWorkEnabled, setAiBackgroundWorkEnabled } from '@/services/ai/runtimeSettings';
+import { acquireKeepAwake } from '@/services/ai/keepAwake';
 import IconPickerModal from '@/components/IconPickerModal';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import 'react-native-get-random-values';
@@ -700,6 +701,41 @@ export default function AIScreen() {
     return () => sub.remove();
   }, [loading, allowBackgroundAIWork]);
 
+  // #2: when background AI work is allowed, hold a keep-awake lock for the whole
+  // duration of an active generation. This stops the OS from locking the screen
+  // and suspending the JS engine mid-response — so both on-device (llama.rn) and
+  // streaming API generations actually run to completion when the user switches
+  // away or the screen would otherwise lock. Released the moment loading ends.
+  useEffect(() => {
+    if (!(loading && allowBackgroundAIWork)) return;
+    const release = acquireKeepAwake();
+    return release;
+  }, [loading, allowBackgroundAIWork]);
+
+  // #3: re-attach to module-owned downloads. A download keeps running even after
+  // this screen / the download dialog is closed (it lives in ModelDownloader), so
+  // on (re)mount we hydrate from the live snapshot and then track every update —
+  // reopening the model list always shows the real, ongoing progress.
+  useEffect(() => {
+    const apply = (modelId: string, percent: number, stage: string) => {
+      const finished = stage === 'completed' || stage === 'failed' || stage === 'cancelled';
+      setDownloadProgress(prev => {
+        const next = { ...prev };
+        if (finished) delete next[modelId]; else next[modelId] = percent;
+        return next;
+      });
+      setDownloadStage(prev => ({ ...prev, [modelId]: stage }));
+      setProcessingModels(prev => {
+        const next = { ...prev };
+        if (finished) delete next[modelId]; else next[modelId] = true;
+        return next;
+      });
+    };
+    for (const s of getDownloadSnapshot()) apply(s.modelId, s.percent, s.stage);
+    const unsub = subscribeDownloads((s) => apply(s.modelId, s.percent, s.stage));
+    return unsub;
+  }, []);
+
   useEffect(() => {
     let active = true;
     let currentSocket: ReturnType<typeof getSocket> | null = null;
@@ -779,6 +815,16 @@ export default function AIScreen() {
               await saveConversationLocal(conversation);
           }
           for (const row of remote.messages) {
+              // BLANK-DATA GUARD: pullAiSync decrypts server ciphertext; if the data key
+              // isn't ready yet, content comes back ''. saveMessageLocal uses INSERT OR
+              // REPLACE, so saving that would overwrite a good on-device message (or the
+              // server copy) with a BLANK — which is exactly why opening a saved thread
+              // showed nothing. Skip messages that produced no readable content; they'll
+              // merge correctly on the next pull once the key is available.
+              const m = row.message as any;
+              const hasContent = (typeof m?.content === 'string' && m.content.trim().length > 0)
+                  || (Array.isArray(m?.toolCalls) && m.toolCalls.length > 0);
+              if (!hasContent) continue;
               await saveMessageLocal(row.conversationId, row.message);
           }
           const convs = await getConversationsLocal();
@@ -1737,7 +1783,7 @@ export default function AIScreen() {
   };
 
   const loadChat = async (id: string) => {
-      const msgs = await getMessagesLocal(id);
+      let msgs = await getMessagesLocal(id);
       setMessages(msgs);
       setCurrentConversationId(id);
       const conv = conversations.find(c => c.id === id);
@@ -1745,6 +1791,19 @@ export default function AIScreen() {
         setActiveProjectId(conv.projectId || null);
       } else {
         setActiveProjectId(null);
+      }
+      // Self-heal: if the saved thread is empty or contains blank-content rows (left by
+      // an earlier pull that ran before the data key was ready), force a fresh server
+      // pull now — the key is available, so messages decrypt to real content and the
+      // blank-guard merge overwrites the empties. Skip for local-only threads.
+      const looksBlank = msgs.length === 0 || msgs.some(m => !m.content || !String(m.content).trim());
+      if (looksBlank && !isConversationLocalOnly(id)) {
+        try {
+          const remote = await pullAiSync({ force: true });
+          await mergeRemoteSync(remote, userScopeKey || undefined);
+          msgs = await getMessagesLocal(id);
+          setMessages(msgs);
+        } catch { /* offline / no key — keep what we have */ }
       }
   };
 
@@ -3067,6 +3126,15 @@ export default function AIScreen() {
                   const displayText = split ? split.answer : item.content;
                   const thinkKey = (item.id ?? String(index)) + '_think';
                   const thinkingCollapsed = collapsedThinking[thinkKey] ?? true;
+                  // #1: the "AI is working" animation lives INSIDE the last assistant
+                  // bubble (a real chat bubble), shown only before any token arrives.
+                  // Once streaming starts (displayText/thinking fills in) it disappears,
+                  // so it never overlaps the streaming text and never eats footer space.
+                  const isThinkingBubble = isAssistant
+                    && loading
+                    && index === messages.length - 1
+                    && !displayText
+                    && !(split && split.thinking);
                   return (
                     <View style={[styles.messageRow, item.role === 'user' ? styles.rowRight : styles.rowLeft]}>
                       <View style={[
@@ -3095,40 +3163,43 @@ export default function AIScreen() {
                             )}
                           </View>
                         ) : null}
+                        {isThinkingBubble ? (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 2 }}>
+                            <ActivityIndicator size="small" />
+                            <Text style={{ marginLeft: 8, color: theme.colors.onSurfaceVariant, fontStyle: 'italic' }}>
+                              {t('ai.thinking')}
+                            </Text>
+                          </View>
+                        ) : null}
                         {displayText ? (
                           <Text style={{ color: item.role === 'user' ? theme.colors.onPrimaryContainer : theme.colors.onSurfaceVariant }}>
                             {displayText}
                           </Text>
                         ) : null}
-                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
-                          {item.createdAt ? (
-                            <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>
-                              {formatTimestamp(item.createdAt)}
-                            </Text>
-                          ) : <View />}
-                          {(item.role === 'user' || item.role === 'assistant') ? (
-                            <IconButton
-                              icon="content-copy"
-                              size={16}
-                              onPress={() => handleCopyMessage(item.content)}
-                            />
-                          ) : null}
-                        </View>
+                        {isThinkingBubble ? null : (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+                            {item.createdAt ? (
+                              <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>
+                                {formatTimestamp(item.createdAt)}
+                              </Text>
+                            ) : <View />}
+                            {(item.role === 'user' || item.role === 'assistant') ? (
+                              <IconButton
+                                icon="content-copy"
+                                size={16}
+                                onPress={() => handleCopyMessage(item.content)}
+                              />
+                            ) : null}
+                          </View>
+                        )}
                       </View>
                     </View>
                   );
                 }}
               />
-              {/* Discreet "AI thinking" indicator — just an inline animated bubble, no
-                  text, no bulky stop button (the input footer has an icon-only stop). The
-                  context/char-count moved to the header info (ℹ️) button. */}
-              {loading && (
-                <View style={[styles.messageRow, styles.rowLeft]}>
-                  <View style={[styles.bubble, styles.assistantBubble, { backgroundColor: theme.colors.surfaceVariant, alignItems: 'center', paddingVertical: 10, paddingHorizontal: 14 }]}>
-                    <ActivityIndicator size="small" />
-                  </View>
-                </View>
-              )}
+              {/* #1: the AI-working animation now renders inside the last assistant
+                  bubble (see isThinkingBubble in renderItem) — no bottom-anchored loader
+                  eating space, and it hides itself the moment streaming begins. */}
               {nextThreadLocalOnly && !currentConversationId ? (
                 <Text style={{ paddingHorizontal: 12, paddingBottom: 4, fontSize: 12, color: theme.colors.primary }}>
                   🔒 Nästa tråd sparas endast lokalt på denna enhet (synkas inte).

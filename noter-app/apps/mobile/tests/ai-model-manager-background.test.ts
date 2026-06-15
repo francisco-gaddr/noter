@@ -8,11 +8,10 @@ jest.mock('react-native', () => ({
   },
 }));
 
-jest.mock('react-native-fs', () => ({
-  default: {
-    exists: jest.fn().mockResolvedValue(true),
-    DocumentDirectoryPath: '/docs',
-  },
+// ModelManager now reads model files through ModelDownloader (expo-file-system),
+// not the old react-native-fs. Mock that surface so the import graph stays light.
+jest.mock('../services/ai/ModelDownloader', () => ({
+  modelFileExists: jest.fn().mockResolvedValue(true),
 }));
 
 jest.mock('../services/ai/llama', () => ({

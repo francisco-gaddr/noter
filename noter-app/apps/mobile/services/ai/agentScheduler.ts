@@ -15,6 +15,8 @@ import { selectDueAiTasks, type Task } from '@repo/shared';
 import { useStore } from '@/stores/useStore';
 import { getDelegations, mergeDelegations } from './agentDelegations';
 import { runScheduledAgentTask } from './agentExecutor';
+import { isAiBackgroundWorkEnabled } from './runtimeSettings';
+import { acquireKeepAwake } from './keepAwake';
 
 let running = false;          // single-flight guard for an active agent run
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -35,6 +37,10 @@ export const runDueAgentTasks = async (): Promise<number> => {
   if (running) return 0;
   running = true;
   let ran = 0;
+  // Hold the screen/CPU awake while a batch of agent tasks runs so the OS doesn't
+  // suspend us mid-run (matters most when triggered from the background). Released
+  // in finally — best-effort no-op when the native module is absent.
+  const release = acquireKeepAwake();
   try {
     const map = await getDelegations();
     const tasks: Task[] = mergeDelegations(useStore.getState().tasks || [], map);
@@ -49,6 +55,7 @@ export const runDueAgentTasks = async (): Promise<number> => {
   } catch {
     /* best-effort */
   } finally {
+    release();
     running = false;
   }
   return ran;
@@ -74,10 +81,15 @@ export const runAgentTaskNow = async (task: Task): Promise<AgentRunNotice | null
 /** Start the foreground poll (no-op if already started). */
 export const startAgentScheduler = (): (() => void) => {
   if (timer) return stopAgentScheduler;
-  // Kick once on start, then poll while the app is active.
+  // Kick once on start, then poll. While active we always run; while backgrounded
+  // we keep polling ONLY when the user enabled "AI work in background" — so for as
+  // long as the OS keeps our process alive (Android especially, aided by the
+  // keep-awake lock during runs) due AI tasks keep executing instead of stalling
+  // until the next foreground. Local and API delegations both flow through here.
   void runDueAgentTasks();
   timer = setInterval(() => {
-    if (AppState.currentState === 'active') void runDueAgentTasks();
+    if (AppState.currentState === 'active') { void runDueAgentTasks(); return; }
+    void isAiBackgroundWorkEnabled().then((enabled) => { if (enabled) void runDueAgentTasks(); }).catch(() => {});
   }, POLL_MS);
   // Immediate catch-up the moment the app comes back to the foreground, so tasks
   // that came due while we were backgrounded (where OS wake-ups are best-effort and

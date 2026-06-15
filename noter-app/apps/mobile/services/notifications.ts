@@ -65,7 +65,19 @@ export const cancelTaskReminder = async (taskId: string) => {
     } catch {
     }
   }
-  if (existing.length > 0) {
+  // Bulletproof against duplicates: also sweep EVERY scheduled notification for this
+  // task by data.taskId. The id-map can miss orphans (scheduled before the map tracked
+  // them, or by an older build), and those orphans are exactly why several push notices
+  // fired for one due task. This guarantees at most the freshly-scheduled set remains.
+  try {
+    const all = await Notifications.getAllScheduledNotificationsAsync();
+    for (const n of all || []) {
+      if (n?.content?.data?.taskId === taskId) {
+        try { await Notifications.cancelScheduledNotificationAsync(n.identifier); } catch { /* ignore */ }
+      }
+    }
+  } catch { /* ignore — best effort */ }
+  if (map[taskId]) {
     delete map[taskId];
     await writeMap(map);
   }

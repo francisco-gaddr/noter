@@ -71,10 +71,10 @@ export const pushAiSync = async (payload: {
   });
 };
 
-export const pullAiSync = async () => {
+export const pullAiSync = async (opts?: { force?: boolean }) => {
   const now = Date.now();
-  if (lastPullResult && now - lastPullAt < PULL_DEDUP_TTL_MS) return lastPullResult;
-  if (pullInFlight) return pullInFlight;
+  if (!opts?.force && lastPullResult && now - lastPullAt < PULL_DEDUP_TTL_MS) return lastPullResult;
+  if (!opts?.force && pullInFlight) return pullInFlight;
   pullInFlight = (async () => {
     const data = await fetchWithAuth('/ai/sync/pull');
     const result: PullAiSyncResult = {

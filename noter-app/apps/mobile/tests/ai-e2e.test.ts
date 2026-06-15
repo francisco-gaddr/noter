@@ -22,15 +22,9 @@ jest.mock('../services/database', () => ({
 jest.mock('../services/ai/ModelDownloader', () => ({
   downloadGgufModel: jest.fn().mockResolvedValue('/docs/llama_models/user_model-Q4_K_M.gguf'),
   getModelPath: jest.fn().mockReturnValue('/docs/llama_models/user_model-Q4_K_M.gguf'),
+  modelFileExists: jest.fn().mockResolvedValue(false),
+  deleteModelFile: jest.fn(),
   stopModelDownload: jest.fn(),
-}));
-
-jest.mock('react-native-fs', () => ({
-  default: {
-    DocumentDirectoryPath: '/docs',
-    exists: jest.fn().mockResolvedValue(false),
-    unlink: jest.fn(),
-  },
 }));
 
 import { MobileLlamaProvider } from '../services/ai/provider';

@@ -35,9 +35,26 @@ class ModelManager {
 
   async load(path: string, onProgress?: (progress: number) => void) {
     if (this.isModelLoaded && this.currentModelPath === path) return;
+    if (!isLlamaLinked()) {
+      throw new Error("Lokal AI-motor saknas i detta bygge. Installera EAS-bygget.");
+    }
+    if (!path) throw new Error("Ingen modell vald. Välj en nedladdad modell.");
     const exists = await modelFileExists(path);
-    if (!exists) throw new Error("Model path not found");
-    await loadLlamaModel(path, {}, onProgress);
+    if (!exists) {
+      throw new Error("Modellfilen hittades inte. Ladda ner modellen igen.");
+    }
+    try {
+      await loadLlamaModel(path, {}, onProgress);
+    } catch (e: any) {
+      // A stale/partial native context can wedge initLlama; release everything and
+      // retry once before surfacing a clear error.
+      try { await unloadLlamaModel(); } catch { /* ignore */ }
+      try {
+        await loadLlamaModel(path, {}, onProgress);
+      } catch (e2: any) {
+        throw new Error(`Kunde inte ladda modellen (${e2?.message || e?.message || 'okänt fel'}). Prova en mindre modell eller ladda ner den på nytt.`);
+      }
+    }
   }
 
   /**
