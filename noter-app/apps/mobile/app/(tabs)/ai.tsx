@@ -6,7 +6,7 @@ import { useLocalSearchParams, useNavigation } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { MobileLlamaProvider } from '@/services/ai/provider';
 import { useStore } from '@/stores/useStore';
-import { ChatMessage, Conversation, HFModel, AIProject, normalizeToolArguments } from '@repo/ai';
+import { ChatMessage, Conversation, HFModel, AIProject, normalizeToolArguments, sortModels, type HFModelSort } from '@repo/ai';
 import { searchHuggingFaceModels, getModelFiles } from '@/services/ai/huggingface';
 import { downloadModel as serviceDownloadModel, getBestQuantization, deleteModel as serviceDeleteModel, cancelDownload as cancelModelDownload } from '@/services/ai/modelService';
 import { isNativeFileSystemAvailable } from '@/services/ai/ModelDownloader';
@@ -285,6 +285,8 @@ export default function AIScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<HFModel[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [modelSort, setModelSort] = useState<HFModelSort>('downloads');
+  const [expandedModelId, setExpandedModelId] = useState<string | null>(null);
   const [downloadDialogVisible, setDownloadDialogVisible] = useState(false);
   const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({});
   const [processingModels, setProcessingModels] = useState<Record<string, boolean>>({});
@@ -1688,6 +1690,20 @@ export default function AIScreen() {
       return 'Size: ?';
   };
 
+  // Compact count (12 345 → "12.3k", 2 100 000 → "2.1M") for downloads/likes.
+  const formatCount = (n?: number): string => {
+      if (typeof n !== 'number' || !Number.isFinite(n)) return '–';
+      if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+      if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+      return String(n);
+  };
+  // Release/updated date → locale short date, or '–'.
+  const formatModelDate = (iso?: string): string => {
+      if (!iso) return '–';
+      const d = new Date(iso);
+      return Number.isNaN(d.getTime()) ? '–' : d.toLocaleDateString();
+  };
+
   const createNewChat = async () => {
       const newId = uuidv4();
       const newConv: LocalConversation = {
@@ -2867,7 +2883,7 @@ export default function AIScreen() {
           >
             <Dialog.Title>Hämta AI-modeller från HuggingFace</Dialog.Title>
             <Dialog.Content style={{ flex: 1, paddingBottom: 0 }}>
-              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 12 }}>
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
                 <TextInput
                   style={[styles.input, { flex: 1, color: theme.colors.onSurface, borderColor: theme.colors.outline, borderWidth: 1, borderRadius: 4, padding: 8 }]}
                   placeholder={t('ai.searchPlaceholder')}
@@ -2879,20 +2895,45 @@ export default function AIScreen() {
                 />
                 <Button mode="contained" onPress={handleSearch} loading={isSearching}>Search</Button>
               </View>
+              {/* Sort: by downloads, likes (rating) or release date. Re-orders the
+                  already-fetched list client-side (shared sortModels) — no re-query. */}
+              {searchResults.length > 0 && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+                  <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>Sortera:</Text>
+                  {([['downloads', 'Nedladdningar'], ['likes', 'Likes'], ['recent', 'Senaste']] as [HFModelSort, string][]).map(([key, label]) => (
+                    <Chip
+                      key={key}
+                      compact
+                      selected={modelSort === key}
+                      onPress={() => setModelSort(key)}
+                      style={{ height: 30 }}
+                      textStyle={{ fontSize: 11, marginVertical: 0 }}
+                    >
+                      {label}
+                    </Chip>
+                  ))}
+                </View>
+              )}
               <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 8 }}>
                 <View style={{ gap: 10 }}>
-                  {searchResults.map((item) => (
+                  {sortModels(searchResults, modelSort).map((item) => (
                     <View key={item.id} style={{ borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.outline, paddingVertical: 8 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
-                          {/* Horizontal scroll → swipe to read the full model name. */}
-                          <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-                            <Text style={{ color: theme.colors.onSurface, fontWeight: '600', fontSize: 13 }}>{item.name}</Text>
-                          </ScrollView>
+                        {/* Tap the name area to expand model details. */}
+                        <Pressable
+                          style={{ flex: 1, minWidth: 0, marginRight: 8 }}
+                          onPress={() => setExpandedModelId((cur) => (cur === item.id ? null : item.id))}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <IconButton icon={expandedModelId === item.id ? 'chevron-down' : 'chevron-right'} size={16} style={{ margin: 0, marginRight: 2, width: 18 }} />
+                            <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" style={{ flex: 1 }}>
+                              <Text style={{ color: theme.colors.onSurface, fontWeight: '600', fontSize: 13 }}>{item.name}</Text>
+                            </ScrollView>
+                          </View>
                           <Text numberOfLines={1} ellipsizeMode="tail" style={{ color: theme.colors.onSurfaceVariant, fontSize: 11, marginTop: 2 }}>
-                            {item.author}{formatSearchSize(searchSizes[item.id]) ? ` · ${formatSearchSize(searchSizes[item.id])}` : ''}
+                            {item.author} · ⬇ {formatCount(item.downloads)} · ♥ {formatCount(item.likes)}{formatSearchSize(searchSizes[item.id]) ? ` · ${formatSearchSize(searchSizes[item.id])}` : ''}
                           </Text>
-                        </View>
+                        </Pressable>
                         {processingModels[item.id] ? (
                           <Button mode="outlined" compact onPress={() => handleCancelDownload(item.id)} labelStyle={{ fontSize: 12 }}>
                             Avbryt
@@ -2903,6 +2944,19 @@ export default function AIScreen() {
                           </Button>
                         )}
                       </View>
+                      {/* Expanded detail — downloads, likes, release date, tags. */}
+                      {expandedModelId === item.id && (
+                        <View style={{ marginTop: 6, marginLeft: 20, gap: 2 }}>
+                          <Text selectable style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>Modell-id: {item.id}</Text>
+                          <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>Nedladdningar: {formatCount(item.downloads)}</Text>
+                          <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>Likes: {formatCount(item.likes)}</Text>
+                          <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>Släppt: {formatModelDate(item.createdAt)}</Text>
+                          <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>Uppdaterad: {formatModelDate(item.lastModified)}</Text>
+                          {Array.isArray(item.tags) && item.tags.length > 0 && (
+                            <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>Taggar: {item.tags.slice(0, 8).join(', ')}</Text>
+                          )}
+                        </View>
+                      )}
                       {typeof downloadProgress[item.id] === 'number' && (
                         <View style={{ marginTop: 4 }}>
                           <ProgressBar progress={downloadProgress[item.id]} style={{ height: 4, borderRadius: 2 }} />

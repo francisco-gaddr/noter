@@ -43,7 +43,9 @@ export const searchHuggingFaceModels = async (query: string): Promise<HFModel[]>
             name: model.id.split('/')[1] || model.id,
             downloads: model.downloads,
             likes: model.likes,
-            tags: model.tags
+            tags: model.tags,
+            createdAt: model.createdAt,
+            lastModified: model.lastModified,
         }));
 
     } catch (error: any) {

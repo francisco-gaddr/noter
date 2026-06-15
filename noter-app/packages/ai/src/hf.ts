@@ -5,7 +5,35 @@ export interface HFModel {
   downloads: number;
   likes: number;
   tags: string[];
+  /** ISO creation/release date (HF `createdAt`), when available. */
+  createdAt?: string;
+  /** ISO last-modified date (HF `lastModified`), when available. */
+  lastModified?: string;
 }
+
+/** Sort key for the model browser: downloads, likes (≈ rating), or release date. */
+export type HFModelSort = 'downloads' | 'likes' | 'recent';
+
+/**
+ * Pure, stable client-side sort so the UI can re-order an already-fetched result
+ * set without a new network round-trip. Missing values sort last.
+ */
+export const sortModels = (models: HFModel[], sort: HFModelSort): HFModel[] => {
+  const arr = [...(models || [])];
+  const time = (s?: string) => {
+    const t = s ? new Date(s).getTime() : NaN;
+    return Number.isFinite(t) ? t : -Infinity;
+  };
+  switch (sort) {
+    case 'likes':
+      return arr.sort((a, b) => (b.likes || 0) - (a.likes || 0));
+    case 'recent':
+      return arr.sort((a, b) => time(b.createdAt) - time(a.createdAt));
+    case 'downloads':
+    default:
+      return arr.sort((a, b) => (b.downloads || 0) - (a.downloads || 0));
+  }
+};
 
 export interface HFFile {
   filename: string;
@@ -21,7 +49,9 @@ export class HuggingFaceService {
     try {
       // Direct HF API Search for Mobile
       // Using full URL to avoid any proxy issues
-      const searchUrl = `https://huggingface.co/api/models?search=${encodeURIComponent(query)}&filter=gguf&sort=downloads&direction=-1&limit=20`;
+      // full=true so the response carries createdAt/lastModified/likes for the
+      // model browser's sort + detail view (not just downloads).
+      const searchUrl = `https://huggingface.co/api/models?search=${encodeURIComponent(query)}&filter=gguf&sort=downloads&direction=-1&limit=30&full=true`;
       
       console.log('Searching HF:', searchUrl);
       
@@ -47,7 +77,9 @@ export class HuggingFaceService {
         name: model.id.split('/')[1] || model.id,
         downloads: model.downloads,
         likes: model.likes,
-        tags: model.tags
+        tags: model.tags,
+        createdAt: model.createdAt,
+        lastModified: model.lastModified,
       }));
     } catch (error) {
       console.error('HF Search Error:', error);
