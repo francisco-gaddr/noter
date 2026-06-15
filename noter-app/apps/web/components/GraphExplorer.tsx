@@ -9,7 +9,7 @@
  * this component only renders + filters it. Everything is in-memory on already-
  * decrypted store data — nothing leaves the device.
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   buildGraph, neighborsOf, filterGraphByQuery, layoutGraph, sortGraphNodes, edgeGeometry,
   fulltextSearch, hybridSearch, buildSecurityNoteMap, isReadableWithLocks,
@@ -90,6 +90,115 @@ export const GraphExplorer: React.FC<{ isOpen: boolean; onClose: () => void }> =
     layout.nodes.forEach((n) => m.set(n.id, { x: n.x, y: n.y, r: n.r }));
     return m;
   }, [layout]);
+
+  // ── Interactive view transform (zoom / pan / rotate) ──────────────────────
+  // Applied to a single <g> wrapper around all nodes+edges. Order matters:
+  // we translate by pan, then scale, then rotate around the layout centre, so
+  // zoom-toward-cursor maths stays in the SVG's own (viewBox) coordinate space.
+  const MIN_SCALE = 0.3;
+  const MAX_SCALE = 6;
+  const DEFAULT_VIEW = { scale: 1, tx: 0, ty: 0, rot: 0 };
+  const [viewT, setViewT] = useState(DEFAULT_VIEW);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  // Drag bookkeeping in refs so pointermove never triggers a re-render storm and
+  // closures never go stale. `moved` guards node-click vs canvas-drag.
+  const drag = useRef<{ active: boolean; mode: 'pan' | 'rotate'; startX: number; startY: number; moved: boolean; origin: typeof DEFAULT_VIEW } | null>(null);
+
+  const clampScale = (s: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, s));
+
+  // Convert a client (mouse) point to viewBox coordinates, accounting for the
+  // letterboxing introduced by preserveAspectRatio="xMidYMid meet".
+  const clientToView = useCallback((clientX: number, clientY: number) => {
+    const svg = svgRef.current;
+    if (!svg) return { x: 0, y: 0 };
+    const rect = svg.getBoundingClientRect();
+    const vw = layout.width;
+    const vh = layout.height;
+    const scaleFit = Math.min(rect.width / vw, rect.height / vh);
+    const drawnW = vw * scaleFit;
+    const drawnH = vh * scaleFit;
+    const offX = (rect.width - drawnW) / 2;
+    const offY = (rect.height - drawnH) / 2;
+    return {
+      x: (clientX - rect.left - offX) / scaleFit,
+      y: (clientY - rect.top - offY) / scaleFit,
+    };
+  }, [layout.width, layout.height]);
+
+  // Zoom toward a focal viewBox point: keep that point fixed on screen while scaling.
+  const zoomAt = useCallback((focusVX: number, focusVY: number, factor: number) => {
+    setViewT((v) => {
+      const next = clampScale(v.scale * factor);
+      const k = next / v.scale;
+      if (k === 1) return v;
+      // p_screen = scale * p_view + t  ⇒ hold focus fixed: t' = focus - k*(focus - t)
+      return { ...v, scale: next, tx: focusVX - k * (focusVX - v.tx), ty: focusVY - k * (focusVY - v.ty) };
+    });
+  }, []);
+
+  const onWheel = useCallback((e: React.WheelEvent<SVGSVGElement>) => {
+    e.preventDefault();
+    const p = clientToView(e.clientX, e.clientY);
+    const factor = Math.exp(-e.deltaY * 0.0015);
+    zoomAt(p.x, p.y, factor);
+  }, [clientToView, zoomAt]);
+
+  const onPointerDown = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
+    // Only start a canvas gesture on primary button on empty space (node circles
+    // call stopPropagation in their own handler so this never fires for them).
+    if (e.button !== 0) return;
+    drag.current = {
+      active: true,
+      mode: e.shiftKey ? 'rotate' : 'pan',
+      startX: e.clientX,
+      startY: e.clientY,
+      moved: false,
+      origin: viewT,
+    };
+    (e.currentTarget as SVGSVGElement).setPointerCapture?.(e.pointerId);
+  }, [viewT]);
+
+  const onPointerMove = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
+    const d = drag.current;
+    if (!d || !d.active) return;
+    const dx = e.clientX - d.startX;
+    const dy = e.clientY - d.startY;
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) d.moved = true;
+    if (d.mode === 'rotate') {
+      // Horizontal drag rotates; ~0.4° per px feels controllable.
+      setViewT({ ...d.origin, rot: d.origin.rot + dx * 0.4 });
+    } else {
+      const svg = svgRef.current;
+      const rect = svg?.getBoundingClientRect();
+      const fit = rect ? Math.min(rect.width / layout.width, rect.height / layout.height) : 1;
+      setViewT({ ...d.origin, tx: d.origin.tx + dx / fit, ty: d.origin.ty + dy / fit });
+    }
+  }, [layout.width, layout.height]);
+
+  const endDrag = useCallback((e: React.PointerEvent<SVGSVGElement>) => {
+    if (drag.current) {
+      (e.currentTarget as SVGSVGElement).releasePointerCapture?.(e.pointerId);
+      drag.current.active = false;
+    }
+  }, []);
+
+  // Clicking truly empty canvas (not after a drag) clears the selection.
+  const onCanvasClick = useCallback(() => {
+    if (drag.current && drag.current.moved) return;
+    setSelectedId(null);
+  }, []);
+
+  const centerView = useCallback(() => ({ x: layout.width / 2, y: layout.height / 2 }), [layout.width, layout.height]);
+  const zoomButton = (factor: number) => {
+    const c = centerView();
+    zoomAt(c.x, c.y, factor);
+  };
+  const rotateButton = (delta: number) => setViewT((v) => ({ ...v, rot: v.rot + delta }));
+  const resetView = () => setViewT(DEFAULT_VIEW);
+
+  // Reset the view whenever the modal opens or the filtered graph changes shape,
+  // so a stale pan/zoom never leaves the user staring at empty space.
+  useEffect(() => { setViewT(DEFAULT_VIEW); }, [isOpen, layout.width, layout.height, filtered.nodes.length]);
 
   if (!isOpen) return null;
 
@@ -194,7 +303,34 @@ export const GraphExplorer: React.FC<{ isOpen: boolean; onClose: () => void }> =
                 )}
               </div>
             )}
-            <svg viewBox={`0 0 ${layout.width} ${layout.height}`} className="w-full h-full" preserveAspectRatio="xMidYMid meet">
+            {/* Zoom / rotate / reset controls — top-left, themed like the rest of the modal. */}
+            {filtered.nodes.length > 0 && (
+              <div className="absolute top-2 left-2 z-10 flex flex-col gap-1" data-testid="graph-controls">
+                <div className="flex gap-1">
+                  <button onClick={() => zoomButton(1.25)} title="Zooma in" data-testid="graph-zoom-in" className="w-7 h-7 flex items-center justify-center rounded bg-white/90 dark:bg-gray-800/90 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 text-sm shadow hover:bg-white dark:hover:bg-gray-700">＋</button>
+                  <button onClick={() => zoomButton(0.8)} title="Zooma ut" data-testid="graph-zoom-out" className="w-7 h-7 flex items-center justify-center rounded bg-white/90 dark:bg-gray-800/90 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 text-sm shadow hover:bg-white dark:hover:bg-gray-700">－</button>
+                </div>
+                <div className="flex gap-1">
+                  <button onClick={() => rotateButton(-15)} title="Rotera vänster" data-testid="graph-rotate-left" className="w-7 h-7 flex items-center justify-center rounded bg-white/90 dark:bg-gray-800/90 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 text-sm shadow hover:bg-white dark:hover:bg-gray-700">↺</button>
+                  <button onClick={() => rotateButton(15)} title="Rotera höger" data-testid="graph-rotate-right" className="w-7 h-7 flex items-center justify-center rounded bg-white/90 dark:bg-gray-800/90 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 text-sm shadow hover:bg-white dark:hover:bg-gray-700">↻</button>
+                </div>
+                <button onClick={resetView} title="Återställ vy" data-testid="graph-reset-view" className="w-[60px] h-6 flex items-center justify-center rounded bg-white/90 dark:bg-gray-800/90 border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 text-[10px] shadow hover:bg-white dark:hover:bg-gray-700">Återställ</button>
+              </div>
+            )}
+            <svg
+              ref={svgRef}
+              viewBox={`0 0 ${layout.width} ${layout.height}`}
+              className="w-full h-full touch-none select-none"
+              preserveAspectRatio="xMidYMid meet"
+              onWheel={onWheel}
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={endDrag}
+              onPointerCancel={endDrag}
+              onClick={onCanvasClick}
+              style={{ cursor: drag.current?.active ? (drag.current.mode === 'rotate' ? 'grabbing' : 'move') : 'grab' }}
+            >
+              <g transform={`translate(${viewT.tx},${viewT.ty}) scale(${viewT.scale}) rotate(${viewT.rot},${layout.width / 2},${layout.height / 2})`}>
               {layout.edges.map((e, i) => {
                 const a = nodePos.get(e.source);
                 const b = nodePos.get(e.target);
@@ -211,11 +347,18 @@ export const GraphExplorer: React.FC<{ isOpen: boolean; onClose: () => void }> =
                 );
               })}
               {layout.nodes.map((n) => (
-                <g key={n.id} transform={`translate(${n.x},${n.y})`} onClick={() => setSelectedId(n.id)} style={{ cursor: 'pointer' }}>
+                <g
+                  key={n.id}
+                  transform={`translate(${n.x},${n.y})`}
+                  onClick={(ev) => { ev.stopPropagation(); setSelectedId(n.id); }}
+                  onPointerDown={(ev) => ev.stopPropagation()}
+                  style={{ cursor: 'pointer' }}
+                >
                   <circle r={n.r + (selectedId === n.id ? 2 : 0)} fill={NODE_COLORS[n.kind]} stroke={selectedId === n.id ? '#111827' : '#fff'} strokeWidth={selectedId === n.id ? 3 : 1.5} />
                   <text x={0} y={n.r + 13} textAnchor="middle" fontSize={11} fontWeight={selectedId === n.id ? 700 : 400} className="fill-gray-700 dark:fill-gray-200">{(n.label || '').slice(0, 22)}</text>
                 </g>
               ))}
+              </g>
             </svg>
           </div>
         )}

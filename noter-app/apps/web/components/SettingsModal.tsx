@@ -38,6 +38,24 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
     try { await syncOfflineChanges(); await Promise.all([fetchNotes(), fetchTasks()]); } finally { setSyncing(false); await refreshPending(); }
   };
 
+  const tasks = useStore((s) => s.tasks);
+  const deleteTask = useStore((s) => s.deleteTask);
+  const completedCount = React.useMemo(
+    () => (tasks || []).filter((t: any) => t?.completed && !t?.deleted).length,
+    [tasks],
+  );
+  const [clearingTasks, setClearingTasks] = React.useState(false);
+  const handleClearCompleted = async () => {
+    if (completedCount === 0) return;
+    if (!window.confirm(`Ta bort ${completedCount} klara uppgifter? Detta går inte att ångra.`)) return;
+    setClearingTasks(true);
+    try {
+      // Snapshot ids first — deleteTask mutates the store as it goes.
+      const ids = (tasks || []).filter((t: any) => t?.completed && !t?.deleted).map((t: any) => t._id);
+      for (const id of ids) { try { await deleteTask(id); } catch { /* continue */ } }
+    } finally { setClearingTasks(false); }
+  };
+
   const setActiveTab = useStore((s) => s.setActiveTab);
   const selectNote = useStore((s) => s.selectNote);
   const { t } = useTranslation();
@@ -161,6 +179,26 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               data-testid="settings-sync-now"
             >
               {syncing ? 'Synkar…' : 'Synka nu'}
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">Uppgifter</h3>
+          <div className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+            <div className="text-xs text-gray-600 dark:text-gray-300">
+              {completedCount > 0
+                ? `${completedCount} klara uppgifter kan rensas`
+                : 'Inga klara uppgifter att rensa'}
+            </div>
+            <button
+              type="button"
+              onClick={handleClearCompleted}
+              disabled={clearingTasks || completedCount === 0}
+              className="px-3 py-1.5 rounded bg-red-600 text-white text-sm disabled:opacity-50"
+              data-testid="settings-clear-completed"
+            >
+              {clearingTasks ? 'Rensar…' : 'Rensa klara uppgifter'}
             </button>
           </div>
         </div>

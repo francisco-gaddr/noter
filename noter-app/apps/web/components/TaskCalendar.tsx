@@ -153,12 +153,20 @@ export default function TaskCalendar({ tasks, onTaskClick, onCreateTask, view: i
         <div className="h-full p-2 bg-white dark:bg-gray-900 rounded-lg shadow-sm flex flex-col">
              <style>{`
                 .rbc-calendar { color: inherit; min-height: 500px; }
-                .rbc-off-range-bg { bg-gray-100 dark:bg-gray-800; }
+                .rbc-off-range-bg { background-color: #f3f4f6; }
                 .rbc-today { background-color: rgba(59, 130, 246, 0.1); }
                 .rbc-event { background-color: #3b82f6; border-radius: 4px; }
                 .rbc-event.completed { background-color: #10b981; text-decoration: line-through; opacity: 0.7; }
-                .dark .rbc-toolbar button { color: #e5e7eb; }
-                .dark .rbc-toolbar button:hover { bg-gray-700; }
+                /* Toolbar view buttons (Month/Week/Day/Agenda). In dark mode rbc keeps the
+                   ACTIVE/hover button's default LIGHT background (#e6e6e6), so its light
+                   text became invisible (white-on-white). Force a dark bg + readable text
+                   on every state so the selected view is always legible. */
+                .dark .rbc-toolbar button { color: #e5e7eb; background-color: transparent; border-color: #4b5563; }
+                .dark .rbc-toolbar button:hover,
+                .dark .rbc-toolbar button:focus { background-color: #374151; color: #ffffff; border-color: #6b7280; }
+                .dark .rbc-toolbar button.rbc-active,
+                .dark .rbc-toolbar button.rbc-active:hover,
+                .dark .rbc-toolbar button.rbc-active:focus { background-color: #3b82f6; color: #ffffff; border-color: #3b82f6; }
                 .dark .rbc-header { color: #e5e7eb; }
                 .dark .rbc-month-view { border-color: #374151; }
                 .dark .rbc-header { border-bottom-color: #374151; }
