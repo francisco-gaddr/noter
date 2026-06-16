@@ -32,18 +32,17 @@ export function MarkdownSharesSettings() {
   const notes = useStore((s: any) => s.notes);
   const unlocked = useStore((s: any) => s.unlockedProtectedNoteIds);
 
-  const { folders, plainNotes } = useMemo(() => {
+  // Settings manages PROJECT-FOLDER shares only. Individual notes are shared from each
+  // note's own 3-dots menu (otherwise this becomes an unwieldy list of every note).
+  const { folders } = useMemo(() => {
     const all = (notes || []) as any[];
     const noteMap = buildSecurityNoteMap(all as any);
     const u = new Set<string>(unlocked || []);
     const readable = all.filter((n) => isReadableWithLocks(n as any, noteMap as any, u));
     return {
       folders: readable.filter((n) => normalizeNoteType(n.type) === 'project'),
-      plainNotes: readable.filter((n) => normalizeNoteType(n.type) === 'note'),
     };
   }, [notes, unlocked]);
-  const nameOfFolder = (id: string) => folders.find((f) => f._id === id)?.title || 'Mapp';
-  const nameOfNote = (id: string) => plainNotes.find((n) => n._id === id)?.title || 'Anteckning';
 
   const [shares, setShares] = useState<MarkdownShare[]>([]);
   const [editing, setEditing] = useState<EditState | null>(null);
@@ -112,17 +111,21 @@ export function MarkdownSharesSettings() {
   ]);
 
   const toggleFolder = (id: string) => setEditing((e) => e && ({ ...e, folderIds: e.folderIds.includes(id) ? e.folderIds.filter((x) => x !== id) : [...e.folderIds, id] }));
-  const toggleNote = (id: string) => setEditing((e) => e && ({ ...e, noteIds: e.noteIds.includes(id) ? e.noteIds.filter((x) => x !== id) : [...e.noteIds, id] }));
+
+  // Settings lists PROJECT-FOLDER shares only. A pure single-note share (created from a
+  // note's 3-dots menu) is managed from that note, not here — keeps this list short.
+  const folderShares = shares.filter((s) => (s.folderIds?.length || 0) > 0);
 
   return (
     <View>
-      <List.Subheader>Extern Markdown-delning</List.Subheader>
+      <List.Subheader>Extern Markdown-delning (projektmappar)</List.Subheader>
       <Text variant="bodySmall" style={styles.intro}>
-        Exponera valda anteckningar/mappar som en Markdown-vault för Obsidian, Mac, Android och widgets.
+        Exponera valda projektmappar som en Markdown-vault för Obsidian, Mac, Android och widgets.
         Välj WebDAV och/eller Live (CRDT), och vilka riktningar som tillåts. Låsta anteckningar delas aldrig.
+        {'\n'}Enskilda anteckningar delas från anteckningens egen meny (de tre prickarna).
       </Text>
 
-      {shares.map((s) => (
+      {folderShares.map((s) => (
         <View key={s.shareId} style={[styles.card, { borderColor: theme.colors.outlineVariant }]}>
           <Text variant="titleSmall">{s.name || 'Delning'}</Text>
           <Text variant="bodySmall" style={{ opacity: 0.6 }}>{scopeLabel(s)} · {s.count ?? 0} filer</Text>
@@ -166,11 +169,9 @@ export function MarkdownSharesSettings() {
               {folders.length === 0 ? <Text variant="bodySmall" style={{ opacity: 0.5, padding: 8 }}>Inga projektmappar ännu.</Text> : folders.map((f) => (
                 <Checkbox.Item key={f._id} label={f.title || 'Mapp'} status={editing?.folderIds.includes(f._id) ? 'checked' : 'unchecked'} onPress={() => toggleFolder(f._id)} />
               ))}
-
-              <Text variant="labelLarge" style={{ marginTop: 8 }}>Enskilda anteckningar</Text>
-              {plainNotes.length === 0 ? <Text variant="bodySmall" style={{ opacity: 0.5, padding: 8 }}>Inga anteckningar.</Text> : plainNotes.slice(0, 300).map((n) => (
-                <Checkbox.Item key={n._id} label={n.title || 'Anteckning'} status={editing?.noteIds.includes(n._id) ? 'checked' : 'unchecked'} onPress={() => toggleNote(n._id)} />
-              ))}
+              <Text variant="bodySmall" style={{ opacity: 0.5, paddingHorizontal: 8, marginTop: 6 }}>
+                Vill du dela en enskild anteckning? Öppna anteckningen → de tre prickarna → "Dela externt".
+              </Text>
             </ScrollView>
           </Dialog.ScrollArea>
           <Dialog.Actions>
