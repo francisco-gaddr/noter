@@ -26,6 +26,7 @@ import { buildSecurityNoteMap, isReadableWithLocks } from '@/services/ai/securit
 import { modelManager } from '@/services/ai/ModelManager';
 import { isAiBackgroundWorkEnabled, setAiBackgroundWorkEnabled } from '@/services/ai/runtimeSettings';
 import { acquireKeepAwake } from '@/services/ai/keepAwake';
+import { startAiForegroundService, stopAiForegroundService } from '@/services/ai/foregroundService';
 import IconPickerModal from '@/components/IconPickerModal';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import 'react-native-get-random-values';
@@ -717,7 +718,11 @@ export default function AIScreen() {
   useEffect(() => {
     if (!(loading && allowBackgroundAIWork)) return;
     const release = acquireKeepAwake();
-    return release;
+    // Android: also run a foreground service so generation continues when the app is
+    // backgrounded / screen locked (keep-awake alone only covers a foregrounded app).
+    // No-op on iOS / before the native build. Gated on AI actually working + the toggle.
+    void startAiForegroundService();
+    return () => { release(); void stopAiForegroundService(); };
   }, [loading, allowBackgroundAIWork]);
 
   // Lazy-fetch the available quant files when a model row is expanded, so the picker can

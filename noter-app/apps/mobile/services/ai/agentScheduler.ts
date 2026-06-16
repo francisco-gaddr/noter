@@ -17,6 +17,7 @@ import { getDelegations, mergeDelegations } from './agentDelegations';
 import { runScheduledAgentTask } from './agentExecutor';
 import { isAiBackgroundWorkEnabled } from './runtimeSettings';
 import { acquireKeepAwake } from './keepAwake';
+import { startAiForegroundService, stopAiForegroundService } from './foregroundService';
 
 let running = false;          // single-flight guard for an active agent run
 let timer: ReturnType<typeof setInterval> | null = null;
@@ -41,10 +42,16 @@ export const runDueAgentTasks = async (): Promise<number> => {
   // suspend us mid-run (matters most when triggered from the background). Released
   // in finally — best-effort no-op when the native module is absent.
   const release = acquireKeepAwake();
+  let fgStarted = false;
   try {
     const map = await getDelegations();
     const tasks: Task[] = mergeDelegations(useStore.getState().tasks || [], map);
     const due = selectDueAiTasks(tasks);
+    // Only spin up the Android foreground service when there's real work AND the user
+    // enabled background AI — so agent runs survive the app being backgrounded/locked.
+    if (due.length > 0 && await isAiBackgroundWorkEnabled().catch(() => false)) {
+      await startAiForegroundService(); fgStarted = true;
+    }
     for (const task of due) {
       const outcome = await runScheduledAgentTask(task);
       ran += 1;
@@ -55,6 +62,7 @@ export const runDueAgentTasks = async (): Promise<number> => {
   } catch {
     /* best-effort */
   } finally {
+    if (fgStarted) { try { await stopAiForegroundService(); } catch { /* ignore */ } }
     release();
     running = false;
   }
