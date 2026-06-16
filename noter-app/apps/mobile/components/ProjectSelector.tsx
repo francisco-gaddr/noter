@@ -182,6 +182,30 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
   const [unlocking, setUnlocking] = useState(false);
   const [pendingSelectProjectId, setPendingSelectProjectId] = useState<string | null>(null);
   const unlockPasswordRef = useRef<any>(null);
+  // Folder ids that are externally shared via Markdown (CRDT/WebDAV) — for the discreet sync badge.
+  const [mdFolderIds, setMdFolderIds] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    let alive = true;
+    getCachedMarkdownShares()
+      .then((shares: any[]) => { if (alive) setMdFolderIds(new Set(shares.flatMap((s) => s.folderIds || []))); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [visible]);
+
+  // Discreet corner badge indicating a folder is externally/live-synced (Nextcloud or MD-extern).
+  const renderSyncBadge = (item: any) => {
+    const src = item?.source;
+    const isNextcloud = src && (src.origin === 'nextcloud' || src.origin === 'webdav');
+    const isMd = mdFolderIds.has(item?._id);
+    if (!isNextcloud && !isMd) return null;
+    const color = isNextcloud ? '#1e88e5' : '#8e24aa';
+    const iconName = isNextcloud ? 'cloud' : 'sync-alt';
+    return (
+      <View style={{ position: 'absolute', right: 2, bottom: 0, backgroundColor: theme.colors.surface, borderRadius: 8, padding: 1 }}>
+        <FontAwesome5 name={iconName as any} size={9} color={color} solid />
+      </View>
+    );
+  };
   
   const renderProjectIcon = (iconKey?: string) => {
     if (!iconKey) return <IconButton icon="folder-outline" size={24} />;
@@ -422,7 +446,10 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
                     }}
                     delayLongPress={180}
                   >
-                    {renderProjectIcon((item as any).icon)}
+                    <View style={{ width: 40, alignItems: 'center', justifyContent: 'center' }}>
+                      {renderProjectIcon((item as any).icon)}
+                      {renderSyncBadge(item)}
+                    </View>
                     <Text variant="bodyLarge" style={{ flex: 1 }}>{item.title}</Text>
                     <IconButton
                       icon="dots-horizontal"

@@ -208,6 +208,20 @@ const TreeNode = React.memo(({ note, allNotes, noteById, childrenMap, level, sel
                              <FaLock size={8} className="text-red-500" aria-hidden="true" />
                         </div>
                     )}
+                    {!isLocked && (() => {
+                        // Discreet corner badge: external/live sync (Nextcloud server-sync vs MD-extern).
+                        const src: any = (note as any).source;
+                        const isNextcloud = src && (src.origin === 'nextcloud' || src.origin === 'webdav');
+                        const isMd = !isNextcloud && getCachedMarkdownShares().some((s) => (s.folderIds || []).includes(note._id));
+                        if (!isNextcloud && !isMd) return null;
+                        return (
+                            <div className="absolute -bottom-1 -right-1 bg-white dark:bg-gray-900 rounded-full p-[1px]" title={isNextcloud ? 'Synkad med Nextcloud (server-sync)' : 'Synkad externt (Markdown)'}>
+                                {isNextcloud
+                                    ? <FaIcons.FaCloud size={8} className="text-blue-500" aria-hidden="true" />
+                                    : <FaIcons.FaSyncAlt size={8} className="text-purple-500" aria-hidden="true" />}
+                            </div>
+                        );
+                    })()}
                 </div>
 
                 <span className={`truncate flex-1 font-medium ${isLocked ? 'text-gray-700 dark:text-gray-300' : 'text-gray-900 dark:text-gray-100'}`}>{note.title || t('common.untitled')}</span>
