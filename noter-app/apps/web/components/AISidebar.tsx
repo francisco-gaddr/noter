@@ -1360,13 +1360,20 @@ export const AISidebar = () => {
             await useStore.getState().fetchTasks();
           } catch {}
         }
-        const status = getToolStatus({ kind: 'result', tool: call.tool, payload: result });
+        // Write results now come back END-TO-END ENCRYPTED (the backend can't read the
+        // user-key fields), so the raw result is ciphertext. For the chat trace + summary +
+        // the AI's next turn, show the AI's own plaintext args + the new id, not the blob.
+        const WRITE_TOOLS = new Set(['create_note', 'update_note', 'delete_note', 'create_project', 'update_project', 'delete_project', 'create_tasklist', 'update_tasklist', 'delete_tasklist', 'create_task', 'update_task', 'delete_task']);
+        const createdId = (result as any)?.createNote?._id ?? (result as any)?.updateNote?._id
+          ?? (result as any)?.createTask?._id ?? (result as any)?.updateTask?._id;
+        const traceResult = WRITE_TOOLS.has(call.tool) ? { _id: createdId, ...(call.arguments || {}) } : result;
+        const status = getToolStatus({ kind: 'result', tool: call.tool, payload: traceResult });
         summaries.push(status.label);
-        const entitiesRead = buildToolReadTrace(call.tool, result);
+        const entitiesRead = buildToolReadTrace(call.tool, traceResult);
         const resultMsg: ChatMessage = {
           id: uuidv4(),
           role: 'tool',
-          content: `Tool result: ${call.tool} ${JSON.stringify({ entitiesRead, result })}`,
+          content: `Tool result: ${call.tool} ${JSON.stringify({ entitiesRead, result: traceResult })}`,
           createdAt: new Date().toISOString()
         };
         setCollapsedTool(prev => ({ ...prev, [resultMsg.id as string]: true }));
@@ -2755,6 +2762,24 @@ export const AISidebar = () => {
     if (note && note._id) { try { useStore.getState().ingestServerNote(note); } catch { /* non-fatal */ } }
   };
 
+  // TRUE end-to-end encryption for AI-created/edited content: encrypt the sensitive fields
+  // on-device with the user's active key BEFORE the GraphQL mutation, so the backend stores
+  // ciphertext it cannot read (it passes already-encrypted values through). encrypt() uses
+  // the v3 user key when E2E is active — identical to a note typed by hand.
+  const e2eNoteInput = (input: Record<string, any>): Record<string, any> => {
+    const out = { ...input };
+    if (typeof out.title === 'string') out.title = encrypt(out.title);
+    if (typeof out.content === 'string') out.content = encrypt(out.content);
+    if (Array.isArray(out.tags)) out.tags = out.tags.map((t: any) => (typeof t === 'string' ? encrypt(t) : t));
+    return out;
+  };
+  const e2eTaskInput = (input: Record<string, any>): Record<string, any> => {
+    const out = { ...input };
+    if (typeof out.title === 'string') out.title = encrypt(out.title);
+    if (typeof out.description === 'string') out.description = encrypt(out.description);
+    return out;
+  };
+
   const executeToolCall = async (tool: string, rawArgs: Record<string, any>, intentText: string) => {
     // Statistics: count every tool/skill the AI invokes (for the admin usage panel).
     try { recordToolUse(tool); } catch { /* best-effort */ }
@@ -2787,7 +2812,7 @@ export const AISidebar = () => {
         const state = useStore.getState();
         const input = (!args.parentId && state.activeProjectId) ? { ...args, parentId: state.activeProjectId } : args;
         const query = `mutation($input:NoteInput!){createNote(input:$input){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
-        const data = await graphQLRequest(query, { input });
+        const data = await graphQLRequest(query, { input: e2eNoteInput(input) });
         applyNoteMutationLocally((data as any)?.createNote);
         return data;
       }
@@ -2796,7 +2821,7 @@ export const AISidebar = () => {
         ensureReadableNote(requireId(args.id));
         const query = `mutation($id:String!,$input:NoteInput!){updateNote(id:$id,input:$input){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
         if (!args.updates || Object.keys(args.updates).length === 0) throw new Error('update_note kräver updates');
-        const data = await graphQLRequest(query, { id: requireId(args.id), input: args.updates || {} });
+        const data = await graphQLRequest(query, { id: requireId(args.id), input: e2eNoteInput(args.updates || {}) });
         applyNoteMutationLocally((data as any)?.updateNote);
         return data;
       }
@@ -2820,7 +2845,7 @@ export const AISidebar = () => {
       }
       case 'create_project': {
         const query = `mutation($input:NoteInput!){createNote(input:$input){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
-        const data = await graphQLRequest(query, { input: { ...args, type: 'project' } });
+        const data = await graphQLRequest(query, { input: e2eNoteInput({ ...args, type: 'project' }) });
         applyNoteMutationLocally((data as any)?.createNote);
         return data;
       }
@@ -2829,7 +2854,7 @@ export const AISidebar = () => {
         ensureReadableNote(requireId(args.id));
         const query = `mutation($id:String!,$input:NoteInput!){updateNote(id:$id,input:$input){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
         if (!args.updates || Object.keys(args.updates).length === 0) throw new Error('update_project kräver updates');
-        const data = await graphQLRequest(query, { id: requireId(args.id), input: { ...args.updates } });
+        const data = await graphQLRequest(query, { id: requireId(args.id), input: e2eNoteInput({ ...args.updates }) });
         applyNoteMutationLocally((data as any)?.updateNote);
         return data;
       }
@@ -2853,7 +2878,7 @@ export const AISidebar = () => {
       }
       case 'create_tasklist': {
         const query = `mutation($input:NoteInput!){createNote(input:$input){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
-        const data = await graphQLRequest(query, { input: { ...args, type: 'task_list' } });
+        const data = await graphQLRequest(query, { input: e2eNoteInput({ ...args, type: 'task_list' }) });
         applyNoteMutationLocally((data as any)?.createNote);
         return data;
       }
@@ -2862,7 +2887,7 @@ export const AISidebar = () => {
         ensureReadableNote(requireId(args.id));
         const query = `mutation($id:String!,$input:NoteInput!){updateNote(id:$id,input:$input){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
         if (!args.updates || Object.keys(args.updates).length === 0) throw new Error('update_tasklist kräver updates');
-        const data = await graphQLRequest(query, { id: requireId(args.id), input: { ...args.updates } });
+        const data = await graphQLRequest(query, { id: requireId(args.id), input: e2eNoteInput({ ...args.updates }) });
         applyNoteMutationLocally((data as any)?.updateNote);
         return data;
       }
@@ -2919,7 +2944,7 @@ export const AISidebar = () => {
           (input as any).aiAgent = serializeAiDelegation(delegation);
         }
         const query = `mutation($input:TaskInput!){createTask(input:$input){_id title description dueDate completed priority parentNoteId parentId recurrenceType recurrenceDays reminderEnabled reminderOffsetMinutes aiAgent createdAt updatedAt}}`;
-        const res = await graphQLRequest(query, { input: withDefaultReminderForDueDate(withNormalizedDueDate(withDefaultPriority(input))) });
+        const res = await graphQLRequest(query, { input: e2eTaskInput(withDefaultReminderForDueDate(withNormalizedDueDate(withDefaultPriority(input)))) });
         if ((res as any)?.createTask) { try { useStore.getState().ingestServerTask((res as any).createTask); } catch { /* non-fatal */ } }
         // Mirror the delegation to the local encrypted map (decoupled from sync, the
         // source of truth the schedulers/executors read), keyed by the new task id.
@@ -2938,7 +2963,7 @@ export const AISidebar = () => {
         }
         const query = `mutation($id:String!,$input:TaskInput!){updateTask(id:$id,input:$input){_id title description dueDate completed priority parentNoteId parentId recurrenceType recurrenceDays reminderEnabled reminderOffsetMinutes createdAt updatedAt}}`;
         if (!args.updates || Object.keys(args.updates).length === 0) throw new Error('update_task kräver updates');
-        const data = await graphQLRequest(query, { id: requireId(args.id), input: withNormalizedDueDate(args.updates || {}) });
+        const data = await graphQLRequest(query, { id: requireId(args.id), input: e2eTaskInput(withNormalizedDueDate(args.updates || {})) });
         if ((data as any)?.updateTask) { try { useStore.getState().ingestServerTask((data as any).updateTask); } catch { /* non-fatal */ } }
         return data;
       }

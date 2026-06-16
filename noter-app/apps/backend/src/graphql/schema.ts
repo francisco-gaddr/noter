@@ -2,7 +2,7 @@ import { GraphQLBoolean, GraphQLInputObjectType, GraphQLList, GraphQLNonNull, Gr
 import mongoose from 'mongoose';
 import Note from '../models/Note';
 import Task from '../models/Task';
-import { decrypt, encrypt } from '@repo/shared';
+import { decrypt, encrypt, isAnyCiphertext } from '@repo/shared';
 
 const decryptText = (value?: string | null) => {
   if (!value) return '';
@@ -26,7 +26,14 @@ const decryptNumber = (value?: string | null) => {
 const encryptText = (value?: string | null) => {
   if (value === undefined) return undefined;
   if (value === null) return null;
-  return encrypt(String(value));
+  const s = String(value);
+  // E2E preservation: if the client already encrypted this value with the USER's key
+  // (true end-to-end — e.g. notes/tasks the AI agent creates now pre-encrypt title/
+  // content/tags), pass the ciphertext through UNCHANGED. Never decrypt it (we can't —
+  // we don't hold the user key) and never re-wrap it under the server key, which would
+  // downgrade it to server-readable. Only genuinely plaintext fields get server-encrypted.
+  if (isAnyCiphertext(s)) return s;
+  return encrypt(s);
 };
 
 type ResolverContext = {

@@ -110,6 +110,46 @@ describe('GraphQL Tool Calls', () => {
     expect(deleteRes.body.data.deleteNote).toBe(true);
   });
 
+  it('E2E: a client-encrypted (v3) note value is stored UNCHANGED — the server never re-wraps or reads it', async () => {
+    // The AI agent now encrypts title/content/tags ON-DEVICE with the user key before the
+    // mutation. The server holds no user key, so it must store the ciphertext verbatim.
+    const v3Title = 'v3:Y2xpZW50LWVuY3J5cHRlZC10aXRsZQ==';
+    const v3Content = 'v3:Y2xpZW50LWVuY3J5cHRlZC1ib2R5';
+    const res = await request(app)
+      .post('/api/graphql')
+      .set('Authorization', 'Bearer demo-token')
+      .send({
+        query: 'mutation($input:NoteInput!){createNote(input:$input){_id title content}}',
+        variables: { input: { title: v3Title, content: v3Content, tags: ['v3:dGFn'] } }
+      });
+    if (res.body.errors?.length) throw new Error(JSON.stringify(res.body.errors));
+    // Round-trips unchanged through the API (server can't decrypt → returns as-is).
+    expect(res.body.data.createNote.title).toBe(v3Title);
+    expect(res.body.data.createNote.content).toBe(v3Content);
+    // And the RAW stored document holds exactly the client ciphertext — never the
+    // plaintext, never a server-key re-encryption of it.
+    const stored = await Note.findById(res.body.data.createNote._id).lean();
+    expect(stored?.title).toBe(v3Title);
+    expect(stored?.content).toBe(v3Content);
+    expect(stored?.tags).toEqual(['v3:dGFn']);
+  });
+
+  it('back-compat: a PLAINTEXT note value is still encrypted at rest by the server', async () => {
+    const res = await request(app)
+      .post('/api/graphql')
+      .set('Authorization', 'Bearer demo-token')
+      .send({
+        query: 'mutation($input:NoteInput!){createNote(input:$input){_id title}}',
+        variables: { input: { title: 'plain text title' } }
+      });
+    if (res.body.errors?.length) throw new Error(JSON.stringify(res.body.errors));
+    const stored = await Note.findById(res.body.data.createNote._id).lean();
+    // Stored value must NOT equal the plaintext (server-side encrypted), yet the API
+    // round-trips it back to plaintext.
+    expect(stored?.title).not.toBe('plain text title');
+    expect(res.body.data.createNote.title).toBe('plain text title');
+  });
+
   it('supports project folders and task lists via note type', async () => {
     const projectRes = await request(app)
       .post('/api/graphql')

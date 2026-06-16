@@ -1401,6 +1401,24 @@ function AIScreenInner() {
     if (note && note._id) { try { useStore.getState().ingestServerNote(note); } catch { /* non-fatal */ } }
   };
 
+  // TRUE end-to-end encryption for AI-created/edited content: encrypt the sensitive fields
+  // ON-DEVICE with the user's active key BEFORE the GraphQL mutation, so the backend stores
+  // ciphertext it cannot read (it passes already-encrypted values through unchanged). encrypt()
+  // uses the v3 user key when E2E is active, else the legacy scheme — same as a typed note.
+  const e2eNoteInput = (input: Record<string, any>): Record<string, any> => {
+    const out = { ...input };
+    if (typeof out.title === 'string') out.title = encrypt(out.title);
+    if (typeof out.content === 'string') out.content = encrypt(out.content);
+    if (Array.isArray(out.tags)) out.tags = out.tags.map((t: any) => (typeof t === 'string' ? encrypt(t) : t));
+    return out;
+  };
+  const e2eTaskInput = (input: Record<string, any>): Record<string, any> => {
+    const out = { ...input };
+    if (typeof out.title === 'string') out.title = encrypt(out.title);
+    if (typeof out.description === 'string') out.description = encrypt(out.description);
+    return out;
+  };
+
   const executeToolCall = async (tool: string, rawArgs: Record<string, any>, intentText: string) => {
       // Statistics: count every tool/skill the AI invokes (for the usage panel).
       void recordToolUse(tool);
@@ -1433,7 +1451,7 @@ function AIScreenInner() {
               const state = useStore.getState();
               const input = (!args.parentId && state.activeProjectId) ? { ...args, parentId: state.activeProjectId } : args;
               const query = `mutation($input:NoteInput!){createNote(input:$input){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
-              const data = await graphQLRequest(query, { input });
+              const data = await graphQLRequest(query, { input: e2eNoteInput(input) });
               applyNoteMutationLocally((data as any)?.createNote);
               return data;
           }
@@ -1442,7 +1460,7 @@ function AIScreenInner() {
               ensureReadableNote(requireId(args.id));
               const query = `mutation($id:String!,$input:NoteInput!){updateNote(id:$id,input:$input){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
               if (!args.updates || Object.keys(args.updates).length === 0) throw new Error('update_note kräver updates');
-              const data = await graphQLRequest(query, { id: requireId(args.id), input: args.updates || {} });
+              const data = await graphQLRequest(query, { id: requireId(args.id), input: e2eNoteInput(args.updates || {}) });
               applyNoteMutationLocally((data as any)?.updateNote);
               return data;
           }
@@ -1466,7 +1484,7 @@ function AIScreenInner() {
           }
           case 'create_project': {
               const query = `mutation($input:NoteInput!){createNote(input:$input){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
-              const data = await graphQLRequest(query, { input: { ...args, type: 'project' } });
+              const data = await graphQLRequest(query, { input: e2eNoteInput({ ...args, type: 'project' }) });
               applyNoteMutationLocally((data as any)?.createNote);
               return data;
           }
@@ -1475,7 +1493,7 @@ function AIScreenInner() {
               ensureReadableNote(requireId(args.id));
               const query = `mutation($id:String!,$input:NoteInput!){updateNote(id:$id,input:$input){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
               if (!args.updates || Object.keys(args.updates).length === 0) throw new Error('update_project kräver updates');
-              const data = await graphQLRequest(query, { id: requireId(args.id), input: { ...args.updates } });
+              const data = await graphQLRequest(query, { id: requireId(args.id), input: e2eNoteInput({ ...args.updates }) });
               applyNoteMutationLocally((data as any)?.updateNote);
               return data;
           }
@@ -1558,7 +1576,7 @@ function AIScreenInner() {
                   (taskArgs as any).aiAgent = serializeAiDelegation(delegation);
               }
               const query = `mutation($input:TaskInput!){createTask(input:$input){_id title description dueDate completed priority parentNoteId parentId recurrenceType recurrenceDays reminderEnabled reminderOffsetMinutes aiAgent createdAt updatedAt}}`;
-              const res = await graphQLRequest(query, { input: withDefaultReminderForDueDate(withNormalizedDueDate(withDefaultPriority(taskArgs))) });
+              const res = await graphQLRequest(query, { input: e2eTaskInput(withDefaultReminderForDueDate(withNormalizedDueDate(withDefaultPriority(taskArgs)))) });
               if ((res as any)?.createTask) { try { useStore.getState().ingestServerTask((res as any).createTask); } catch { /* non-fatal */ } }
               const newId = (res as any)?.createTask?._id;
               if (delegation && newId) {
@@ -1578,7 +1596,7 @@ function AIScreenInner() {
               }
               const query = `mutation($id:String!,$input:TaskInput!){updateTask(id:$id,input:$input){_id title description dueDate completed priority parentNoteId parentId recurrenceType recurrenceDays reminderEnabled reminderOffsetMinutes createdAt updatedAt}}`;
               if (!args.updates || Object.keys(args.updates).length === 0) throw new Error('update_task kräver updates');
-              const data = await graphQLRequest(query, { id: requireId(args.id), input: withNormalizedDueDate(args.updates || {}) });
+              const data = await graphQLRequest(query, { id: requireId(args.id), input: e2eTaskInput(withNormalizedDueDate(args.updates || {})) });
               if ((data as any)?.updateTask) { try { useStore.getState().ingestServerTask((data as any).updateTask); } catch { /* non-fatal */ } }
               return data;
           }
@@ -1667,8 +1685,16 @@ function AIScreenInner() {
                       await useStore.getState().fetchTasks();
                   } catch {}
               }
-              const entitiesRead = buildToolReadTrace(call.tool, result);
-              const resultMsg: ChatMessage = { id: uuidv4(), role: 'tool', content: `Tool result: ${call.tool} ${safePreview({ entitiesRead, result })}`, createdAt: new Date().toISOString() };
+              // Write results now come back END-TO-END ENCRYPTED (the backend can't read the
+              // user-key fields), so the raw result is ciphertext. For the chat trace + the AI's
+              // next turn, show the AI's own plaintext args + the new id instead of the blob.
+              const createdId = (result as any)?.createNote?._id ?? (result as any)?.updateNote?._id
+                  ?? (result as any)?.createTask?._id ?? (result as any)?.updateTask?._id;
+              const traceResult = WRITE_TOOLS.has(call.tool)
+                  ? { _id: createdId, ...(call.arguments || {}) }
+                  : result;
+              const entitiesRead = buildToolReadTrace(call.tool, traceResult);
+              const resultMsg: ChatMessage = { id: uuidv4(), role: 'tool', content: `Tool result: ${call.tool} ${safePreview({ entitiesRead, result: traceResult })}`, createdAt: new Date().toISOString() };
               setMessages(prev => [...prev, resultMsg]);
               await saveMessageLocal(conversationId, resultMsg);
               if (!isConversationLocalOnly(conversationId)) {
