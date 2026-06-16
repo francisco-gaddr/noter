@@ -119,6 +119,7 @@ import { startAgentScheduler, runDueAgentTasks } from '@/services/ai/agentSchedu
 import { registerPushToken } from '@/services/ai/agentBackendSync';
 import { Alert, View } from 'react-native';
 import { useRouter, useSegments } from 'expo-router';
+import { PdfExtractorHost } from '@/components/PdfExtractorHost';
 
 function RootLayoutNav() {
   const { actualTheme } = useThemeContext();
@@ -267,6 +268,7 @@ function RootLayoutNav() {
                 <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
                 <Stack.Screen name="note/[id]" options={{ headerShown: false }} />
               </Stack>
+              <PdfExtractorHost />
             </AppLock>
           </CustomErrorBoundary>
         </ThemeProvider>

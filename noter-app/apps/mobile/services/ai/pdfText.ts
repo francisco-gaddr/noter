@@ -8,7 +8,7 @@
  * job. Decoupling lets any service (Nextcloud ingest) await text without owning a WebView.
  * Returns null on any failure (no host, parse error, timeout) so callers degrade gracefully.
  */
-export type ExtractKind = 'pdf' | 'ocr';
+export type ExtractKind = 'pdf' | 'ocr' | 'docx' | 'xlsx';
 
 export interface ExtractJob {
   id: number;
@@ -70,3 +70,11 @@ export const extractPdfTextMobile = (base64: string, maxPages = 50, maxChars = 2
 /** OCR a base64 image to text via Tesseract.js in the WebView. Resolves text (capped) or null. */
 export const extractImageOcrMobile = (base64: string, lang = 'eng+swe', maxChars = 24_000, timeoutMs = 60_000): Promise<string | null> =>
   enqueue('ocr', base64, { lang, maxChars, timeoutMs });
+
+/** Word .docx → text via mammoth.js in the WebView. */
+export const extractDocxMobile = (base64: string, maxChars = 24_000, timeoutMs = 30_000): Promise<string | null> =>
+  enqueue('docx', base64, { maxChars, timeoutMs });
+
+/** Excel .xlsx → CSV-ish text via SheetJS in the WebView. */
+export const extractXlsxMobile = (base64: string, maxChars = 24_000, timeoutMs = 30_000): Promise<string | null> =>
+  enqueue('xlsx', base64, { maxChars, timeoutMs });

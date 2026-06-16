@@ -18,7 +18,7 @@ import { ApiProviderType, API_PROVIDERS, API_PROVIDER_LIST, resolveChatCompletio
 import { retrieveForChat } from '../services/ai/embeddingsService';
 import { getSourceMinLevels } from '../services/nextcloud';
 import { getUsageSnapshot, recordUsage, recordToolUse, type UsageSnapshot } from '../services/ai/usageTracker';
-import { extractPdfText } from '../services/ai/pdfText';
+import { extractFileText } from '../services/ai/fileText';
 import { pullAiSync, pushAiSync } from '../services/ai/sync';
 import { startAgentScheduler } from '../services/ai/agentScheduler';
 import { connectSocket, socket } from '../services/socket';
@@ -3075,15 +3075,19 @@ export const AISidebar = () => {
         setMessages(prev => [...prev, { id: uuidv4(), role: 'system', content: `Filen ${file.name} är för stor. Max 10 MB.`, createdAt: new Date().toISOString() }]);
         continue;
       }
-      const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-      // PDF: try to extract real text (pdfjs, dynamic) so the model reads it + it can
-      // become a searchable graph node. Falls back to the binary placeholder on failure.
-      if (isPdf) {
-        const text = await extractPdfText(file).catch(() => null);
-        if (text) {
-          next.push({ id: uuidv4(), name: file.name, type: 'text/plain', size: file.size, content: `[PDF: ${file.name}]\n\n${text}`, encoding: 'text' });
-          continue;
+      // Rich files (PDF/Word/Excel/Pages/image): extract real text client-side (pdf.js,
+      // mammoth, SheetJS, Tesseract OCR — all dynamic) so the model reads them and they can
+      // become searchable graph nodes. Falls back to the binary placeholder on failure.
+      const { text: extracted, kind } = await extractFileText(file).catch(() => ({ text: null as string | null, kind: 'skip' as const }));
+      if (extracted && extracted.trim()) {
+        const label = kind === 'pdf' ? 'PDF' : kind === 'docx' ? 'Word' : kind === 'xlsx' ? 'Excel' : kind === 'pages' ? 'Pages' : kind === 'image' ? 'Bild (OCR)' : 'Fil';
+        next.push({ id: uuidv4(), name: file.name, type: 'text/plain', size: file.size, content: `[${label}: ${file.name}]\n\n${extracted}`, encoding: 'text' });
+        // Images also keep their visual form for vision models (add as a second base64 attachment).
+        if (kind === 'image') {
+          const durl = await new Promise<string>((res) => { const r = new FileReader(); r.onload = () => res(String(r.result || '')); r.onerror = () => res(''); r.readAsDataURL(file); });
+          if (durl) next.push({ id: uuidv4(), name: file.name, type: file.type || 'image/*', size: file.size, content: durl, encoding: 'base64' });
         }
+        continue;
       }
       const encoding: 'text' | 'base64' = file.type.startsWith('text/') || file.name.endsWith('.md') ? 'text' : 'base64';
       const content = await new Promise<string>((resolve, reject) => {

@@ -64,7 +64,7 @@ export interface WebdavEntry {
   lastModified: string;
 }
 
-export type IngestFileKind = 'text' | 'pdf' | 'image' | 'skip';
+export type IngestFileKind = 'text' | 'pdf' | 'image' | 'docx' | 'xlsx' | 'pages' | 'skip';
 
 /** Extension allowlist → how the file is turned into note text. */
 const TEXT_EXT = [
@@ -73,6 +73,11 @@ const TEXT_EXT = [
   'sh', 'sql', 'html', 'css', 'xml', 'toml', 'ini', 'org', 'rst',
 ];
 const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'heic', 'tiff'];
+const DOCX_EXT = ['docx', 'doc'];                 // Word (doc = best-effort)
+const XLSX_EXT = ['xlsx', 'xls', 'numbers'];      // Excel + Apple Numbers (best-effort)
+const PAGES_EXT = ['pages'];                       // Apple Pages (best-effort, zip→preview)
+const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 const extOf = (name: string): string => {
   const i = (name || '').lastIndexOf('.');
@@ -84,6 +89,9 @@ export const classifyFile = (name: string, mimeType?: string): IngestFileKind =>
   const ext = extOf(name);
   const mime = (mimeType || '').toLowerCase();
   if (ext === 'pdf' || mime === 'application/pdf') return 'pdf';
+  if (DOCX_EXT.indexOf(ext) !== -1 || mime === DOCX_MIME) return 'docx';
+  if (XLSX_EXT.indexOf(ext) !== -1 || mime === XLSX_MIME || mime === 'application/vnd.ms-excel') return 'xlsx';
+  if (PAGES_EXT.indexOf(ext) !== -1) return 'pages';
   if (IMAGE_EXT.indexOf(ext) !== -1 || mime.indexOf('image/') === 0) return 'image';
   if (TEXT_EXT.indexOf(ext) !== -1 || mime.indexOf('text/') === 0) return 'text';
   // Some text-ish MIME types that don't start with text/.

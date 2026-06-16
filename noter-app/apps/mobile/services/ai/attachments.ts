@@ -6,9 +6,13 @@ import {
   AiAttachment,
   isTextLikeAttachment,
   isImageAttachment,
+  classifyFile,
   MAX_ATTACHMENTS,
   MAX_ATTACHMENT_CHARS,
 } from '@repo/shared';
+import {
+  isPdfHostReady, extractPdfTextMobile, extractDocxMobile, extractXlsxMobile, extractImageOcrMobile,
+} from '@/services/ai/pdfText';
 
 /** Max image bytes to base64-inline for a vision model (~3 MB keeps payloads sane). */
 const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
@@ -33,6 +37,28 @@ const readTextIfPossible = async (uri: string, name: string, mimeType: string): 
     return content.length > MAX_ATTACHMENT_CHARS + 1000
       ? content.slice(0, MAX_ATTACHMENT_CHARS + 1000)
       : content;
+  } catch {
+    return undefined;
+  }
+};
+
+/**
+ * Extract real text from a rich file (PDF/Word/Excel/image) via the WebView pdf.js/mammoth/
+ * SheetJS/Tesseract host, so the model reads its content. Returns undefined if the host isn't
+ * mounted or nothing extractable. Reads base64 once and routes by classified kind.
+ */
+const readRichText = async (uri: string, name: string, mimeType: string): Promise<string | undefined> => {
+  const kind = classifyFile(name, mimeType);
+  if (kind !== 'pdf' && kind !== 'docx' && kind !== 'xlsx' && kind !== 'image') return undefined;
+  if (!isPdfHostReady()) return undefined;
+  try {
+    const b64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+    if (!b64) return undefined;
+    if (kind === 'pdf') return (await extractPdfTextMobile(b64)) || undefined;
+    if (kind === 'docx') return (await extractDocxMobile(b64)) || undefined;
+    if (kind === 'xlsx') return (await extractXlsxMobile(b64)) || undefined;
+    const t = (await extractImageOcrMobile(b64)) || '';
+    return t.trim() ? '[OCR-text ur bild]\n' + t : undefined;
   } catch {
     return undefined;
   }
@@ -75,7 +101,8 @@ export const pickAttachments = async (): Promise<AiAttachment[]> => {
     const name = asset.name || 'fil';
     const mimeType = asset.mimeType || '';
     const size = asset.size ?? undefined;
-    const text = await readTextIfPossible(asset.uri, name, mimeType);
+    let text = await readTextIfPossible(asset.uri, name, mimeType);
+    if (!text) text = await readRichText(asset.uri, name, mimeType); // pdf/docx/xlsx/image-OCR
     const dataUrl = await readImageDataUrl(asset.uri, name, mimeType, size);
     out.push({ name, mimeType, size, text, dataUrl });
   }

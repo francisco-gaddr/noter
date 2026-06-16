@@ -12,18 +12,40 @@ import { registerPdfHost, takeNextPdfJob, type ExtractJob } from '@/services/ai/
 
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174';
 const TESSERACT = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+const MAMMOTH = 'https://cdn.jsdelivr.net/npm/mammoth@1.12.0/mammoth.browser.min.js';
+const SHEETJS = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
 
 const HARNESS = `<!DOCTYPE html><html><head><meta charset="utf-8"/></head><body>
 <script src="${PDFJS}/pdf.min.js"></script>
 <script src="${TESSERACT}"></script>
+<script src="${MAMMOTH}"></script>
+<script src="${SHEETJS}"></script>
 <script>
   function post(o){ try { window.ReactNativeWebView.postMessage(JSON.stringify(o)); } catch(e){} }
+  function b64ToBytes(b64){ var raw=atob(b64); var arr=new Uint8Array(raw.length); for(var i=0;i<raw.length;i++) arr[i]=raw.charCodeAt(i); return arr; }
   function ready(){
-    if (window.pdfjsLib && window.Tesseract) {
+    if (window.pdfjsLib && window.Tesseract && window.mammoth && window.XLSX) {
       pdfjsLib.GlobalWorkerOptions.workerSrc = '${PDFJS}/pdf.worker.min.js';
       post({ ready: true });
     } else { setTimeout(ready, 200); }
   }
+  window.__docx = async function(id, b64, maxChars){
+    try {
+      var res = await mammoth.extractRawText({ arrayBuffer: b64ToBytes(b64).buffer });
+      post({ id: id, ok: true, text: ((res && res.value) || '').slice(0, maxChars) });
+    } catch(e){ post({ id: id, ok: false, text: String((e && e.message) || e) }); }
+  };
+  window.__xlsx = async function(id, b64, maxChars){
+    try {
+      var wb = XLSX.read(b64, { type: 'base64' }); var out='';
+      for (var i=0;i<wb.SheetNames.length;i++){
+        var nm=wb.SheetNames[i]; var csv=XLSX.utils.sheet_to_csv(wb.Sheets[nm]);
+        if (csv && csv.trim()) out += '# '+nm+'\\n'+csv+'\\n\\n';
+        if (out.length>maxChars) break;
+      }
+      post({ id: id, ok: true, text: out.slice(0, maxChars) });
+    } catch(e){ post({ id: id, ok: false, text: String((e && e.message) || e) }); }
+  };
   window.__pdf = async function(id, b64, maxPages, maxChars){
     try {
       var raw = atob(b64); var arr = new Uint8Array(raw.length);
@@ -58,9 +80,11 @@ export const PdfExtractorHost: React.FC = () => {
     const job = takeNextPdfJob();
     if (!job) return;
     currentRef.current = job;
-    const js = job.kind === 'ocr'
-      ? `window.__ocr(${job.id}, '${job.base64}', '${job.lang}', ${job.maxChars}); true;`
-      : `window.__pdf(${job.id}, '${job.base64}', ${job.maxPages}, ${job.maxChars}); true;`;
+    let js: string;
+    if (job.kind === 'ocr') js = `window.__ocr(${job.id}, '${job.base64}', '${job.lang}', ${job.maxChars}); true;`;
+    else if (job.kind === 'docx') js = `window.__docx(${job.id}, '${job.base64}', ${job.maxChars}); true;`;
+    else if (job.kind === 'xlsx') js = `window.__xlsx(${job.id}, '${job.base64}', ${job.maxChars}); true;`;
+    else js = `window.__pdf(${job.id}, '${job.base64}', ${job.maxPages}, ${job.maxChars}); true;`;
     ref.current?.injectJavaScript(js);
   }, []);
 

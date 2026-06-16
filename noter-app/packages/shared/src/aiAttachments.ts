@@ -82,9 +82,14 @@ export const attachmentKindLabel = (att: Pick<AiAttachment, 'name' | 'mimeType'>
  * on `att.text` (e.g. via pdfjs on web/Electron). This is the single gate the rest of
  * the pipeline — model context AND graph-note storage — keys off of.
  */
+const RICH_EXT = new Set(['pdf', 'docx', 'doc', 'xlsx', 'xls', 'numbers', 'pages', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'heic', 'tiff']);
+const RICH_MIME = (mime: string): boolean =>
+  mime === 'application/pdf' || mime.includes('word') || mime.includes('sheet') ||
+  mime.includes('officedocument') || mime.startsWith('image/');
+
 export const hasReadableText = (att: AiAttachment): boolean =>
   typeof att.text === 'string' && att.text.trim().length > 0 &&
-  (isTextLikeAttachment(att) || att.mimeType.toLowerCase() === 'application/pdf' || extensionOf(att.name || '') === 'pdf');
+  (isTextLikeAttachment(att) || RICH_EXT.has(extensionOf(att.name || '')) || RICH_MIME(att.mimeType.toLowerCase()));
 
 /** Truncate text to the per-attachment cap with an honest "…[avkortad]" marker. */
 const capText = (text: string): string =>
