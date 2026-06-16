@@ -313,29 +313,32 @@ export default function NoteTree({
              </React.Fragment>
           ))}
         </View>
-      ) : onReorder ? (
+      ) : (onReorder && !onRefresh) ? (
+        // Drag-reorder mode ONLY when no pull-to-refresh is needed. DraggableFlatList's
+        // Reanimated pan reliably swallows RefreshControl, so we never combine the two.
         <DraggableFlatList<TreeItem>
           data={treeData}
           renderItem={renderItem}
           keyExtractor={(item) => item._id}
           onDragEnd={handleDragEnd}
+          activationDistance={16}
           onDragBegin={(index) => {
             Haptics.selectionAsync();
             draggedItemRef.current = treeData[index];
           }}
-          // Explicit RefreshControl (more reliable than the bare props across list libs) +
-          // a min-height empty component + flexGrow so pull-to-refresh works EVEN when the
-          // folder is empty (otherwise there's nothing to grab and the gesture does nothing).
-          refreshControl={onRefresh ? <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={theme.colors.primary} colors={[theme.colors.primary]} /> : undefined}
-          ListEmptyComponent={onRefresh ? <View style={styles.pullEmptyArea} /> : null}
-          contentContainerStyle={[treeData.length === 0 ? styles.emptyGrow : null, variant === 'cards' ? styles.listContent : null]}
+          contentContainerStyle={variant === 'cards' ? styles.listContent : undefined}
         />
       ) : (
+        // FlashList has a rock-solid native RefreshControl — used whenever pull-to-refresh is
+        // wanted (the main notes screens). ListEmptyComponent + flexGrow makes the gesture work
+        // even when the folder is empty. Long-press a row to reorder via the move menu.
         <FlashList
           data={treeData}
           renderItem={({ item }) => (variant === 'cards' ? renderCardRow(item) : renderCompactRow(item))}
           keyExtractor={(item) => item._id}
-          refreshControl={onRefresh ? <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={theme.colors.primary} colors={[theme.colors.primary]} /> : undefined}
+          onRefresh={onRefresh}
+          refreshing={onRefresh ? !!refreshing : undefined}
+          progressViewOffset={8}
           ListEmptyComponent={onRefresh ? <View style={styles.pullEmptyArea} /> : null}
           contentContainerStyle={variant === 'cards' ? styles.listContent : undefined}
         />

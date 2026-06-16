@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import { StyleSheet, View, RefreshControl, TouchableOpacity, Animated } from 'react-native';
 import DraggableFlatList, { ScaleDecorator, RenderItemParams, ShadowDecorator, OpacityDecorator } from 'react-native-draggable-flatlist';
+import { FlashList } from '@shopify/flash-list';
 import { Text, Checkbox, TouchableRipple, useTheme, Chip, IconButton, SegmentedButtons, Menu, Divider } from 'react-native-paper';
 import { Task, priorityRank } from '@repo/shared';
 import { useRouter } from 'expo-router';
@@ -80,6 +81,19 @@ export default function TaskList({ tasks, onRefresh, refreshing, onToggleComplet
     );
   }, [theme, onToggleComplete, onReorder, isCustomSort, onDelete]);
 
+  // Drag-free row for the FlashList (pull-to-refresh) path. Long-press still opens the task.
+  const renderRow = useCallback((item: Task) => (
+    <TaskItem
+      task={item}
+      onToggleComplete={onToggleComplete}
+      onDelete={onDelete}
+      onPress={handlePress}
+      disabled={false}
+      isActive={false}
+      showDragHandle={false}
+    />
+  ), [onToggleComplete, onDelete]);
+
   if (!scrollEnabled && viewMode === 'list') {
       return (
         <View style={{ flex: 1 }}>
@@ -150,6 +164,19 @@ export default function TaskList({ tasks, onRefresh, refreshing, onToggleComplet
                         </View>
                     ))}
                 </View>
+            ) : onRefresh ? (
+                // FlashList for reliable pull-to-refresh (DraggableFlatList's pan swallows it).
+                // Empty area + offset so the gesture works even in an empty list.
+                <FlashList
+                    data={sortedTasks}
+                    keyExtractor={(item) => item._id}
+                    renderItem={({ item }) => renderRow(item)}
+                    onRefresh={onRefresh}
+                    refreshing={!!refreshing}
+                    progressViewOffset={8}
+                    ListEmptyComponent={<View style={{ minHeight: 500 }} />}
+                    contentContainerStyle={{ paddingTop: 12, paddingBottom: 100 }}
+                />
             ) : (
                 <DraggableFlatList
                     data={sortedTasks}
@@ -160,10 +187,8 @@ export default function TaskList({ tasks, onRefresh, refreshing, onToggleComplet
                     }}
                     keyExtractor={(item) => item._id}
                     renderItem={renderItem}
+                    activationDistance={16}
                     contentContainerStyle={{ paddingTop: 12, paddingBottom: 100 }}
-                    refreshControl={
-                        <RefreshControl refreshing={refreshing || false} onRefresh={onRefresh} />
-                    }
                 />
             )
         )}
