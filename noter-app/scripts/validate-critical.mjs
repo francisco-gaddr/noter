@@ -59,6 +59,7 @@ const steps = [
       '__tests__/utils/cors-origins.test.ts',
       '__tests__/caldav.test.ts',
       '__tests__/markdav.test.ts',
+      '__tests__/neo4j-relay.test.ts',
       '__tests__/routes/keyBundle.test.ts',
       '__tests__/routes/apiKeys.test.ts',
       '__tests__/routes/ownership-isolation.test.ts',

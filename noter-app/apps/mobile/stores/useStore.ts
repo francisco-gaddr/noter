@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import 'react-native-get-random-values';
 import * as Crypto from 'expo-crypto';
-import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, safeDecrypt, parseEntityLinks, serializeEntityLinks } from '@repo/shared';
+import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, safeDecrypt, parseEntityLinks, serializeEntityLinks, parseNoteSource } from '@repo/shared';
 import { fetchWithAuth, login as apiLogin, register as apiRegister, setAuthToken, initApiUrl, setUnauthorizedHandler } from '../services/api';
 import * as Database from '../services/database';
 import { initSocket, disconnectSocket, getSocket } from '../services/socket';
@@ -216,6 +216,7 @@ const materializeOneNote = (note: any, noteMap: any, unlockedIds: Set<string>): 
         })(),
     icon: note.__rawEncryptedIcon ? tryDecryptString(note.__rawEncryptedIcon) : undefined,
     links: parseEntityLinks(note.links ? safeDecrypt(note.links, '') : ''),
+    source: note.source ? parseNoteSource(safeDecrypt(note.source, '')) : null,
     locked: parseNoteLocked(note.locked),
   };
 };
@@ -883,6 +884,7 @@ export const useStore = create<AppState>((set, get) => ({
         type: encrypt(data.type || 'note'),
         locked: encrypt(String(data.locked || false)),
         links: (data as any).links && (data as any).links.length ? encrypt(serializeEntityLinks((data as any).links)) : undefined,
+        source: (data as any).source ? encrypt(JSON.stringify((data as any).source)) : undefined,
         order: data.order !== undefined ? encrypt(String(data.order)) : undefined,
         createdAt: encrypt(new Date().toISOString()),
         updatedAt: encrypt(new Date().toISOString()),
@@ -985,6 +987,7 @@ export const useStore = create<AppState>((set, get) => ({
       if (data.order !== undefined) encryptedData.order = encrypt(String(data.order));
       if (data.password !== undefined) encryptedData.password = data.password;
       if ((data as any).links !== undefined) encryptedData.links = (data as any).links && (data as any).links.length ? encrypt(serializeEntityLinks((data as any).links)) : '';
+      if ((data as any).source !== undefined) encryptedData.source = (data as any).source ? encrypt(JSON.stringify((data as any).source)) : '';
       // Always update updatedAt
       encryptedData.updatedAt = encrypt(new Date().toISOString());
 

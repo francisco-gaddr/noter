@@ -119,6 +119,7 @@ export interface CreateNoteDto {
     locked?: boolean;
     clientId?: string;
     links?: EntityLink[];
+    source?: import('./fileIngest').NoteSource | null;
 }
 
 export interface UpdateNoteDto {
@@ -133,6 +134,7 @@ export interface UpdateNoteDto {
     type?: 'note' | 'task_list' | 'project';
     order?: number;
     links?: EntityLink[];
+    source?: import('./fileIngest').NoteSource | null;
 }
 
 export interface AIModel {

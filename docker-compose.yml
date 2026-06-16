@@ -89,7 +89,8 @@ services:
       # Selective Neo4j sync (opt-in). NEO4J_ENABLED!=1 → the /api/neo4j route is a
       # no-op kill-switch. The bolt URL stays on the internal Docker network.
       - NEO4J_ENABLED=${NEO4J_ENABLED:-0}
-      - NEO4J_URL=${NEO4J_URL:-bolt://neo4j:7687}
+      # HTTP transactional API (no driver dependency); internal network only.
+      - NEO4J_HTTP_URL=${NEO4J_HTTP_URL:-http://neo4j:7474}
       - NEO4J_USER=${NEO4J_USER:-neo4j}
       - NEO4J_PASSWORD=${NEO4J_PASSWORD:-}
       - NEO4J_DATABASE=${NEO4J_DATABASE:-neo4j}

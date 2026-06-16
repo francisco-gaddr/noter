@@ -21,6 +21,7 @@ import { reconcileCalendarFeedIndexes } from './models/CalendarFeed';
 import { caldavRouter, wellKnownCaldavHandler } from './caldav/server';
 import markdownShareRoutes from './routes/markdownShares';
 import { reconcileMarkdownShareIndexes } from './models/MarkdownShare';
+import neo4jRoutes from './routes/neo4j';
 import { markdavRouter } from './markdav/server';
 import { registerMarkdownLive } from './markdav/live';
 import aiSyncRoutes from './routes/aiSync';
@@ -495,6 +496,7 @@ app.use('/api/markdown', markdownShareRoutes);
 app.use('/api/ai/sync', authMiddleware, aiSyncBodyLimit, aiSyncRoutes);
 app.use('/api/push', authMiddleware, pushRoutes);
 app.use('/api/mcp', apiSensitiveLimiter, authMiddleware, mcpRoutes);
+app.use('/api/neo4j', apiSensitiveLimiter, authMiddleware, neo4jRoutes);
 app.use('/api/admin', apiSensitiveLimiter, authMiddleware, adminRoutes);
 app.use('/api/graphql', apiSensitiveLimiter);
 app.use('/api/graphql', (req, res, next) => {

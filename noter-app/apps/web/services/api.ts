@@ -1,4 +1,4 @@
-import { Note, CreateNoteDto, UpdateNoteDto, Task, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, safeDecrypt, AuthResponse, parseEntityLinks, serializeEntityLinks } from '@repo/shared';
+import { Note, CreateNoteDto, UpdateNoteDto, Task, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, safeDecrypt, AuthResponse, parseEntityLinks, serializeEntityLinks, parseNoteSource } from '@repo/shared';
 import { readStoredToken, writeStoredToken } from '../lib/authStorage';
 
 export const getUUID = (): string => {
@@ -212,6 +212,7 @@ const decryptNoteFromApi = (note: any): Note => {
     type: note.type ? (safeDecrypt(note.type, note.type) as any) : 'note',
     locked,
     links: locked ? [] : parseEntityLinks(note.links ? safeDecrypt(note.links, '') : ''),
+    source: locked ? null : ((note as any).source ? parseNoteSource(safeDecrypt((note as any).source, '')) : null),
     order: parseNoteOrder((note as any).order),
     createdAt: safeDecrypt(note.createdAt, note.createdAt),
     updatedAt: safeDecrypt(note.updatedAt, note.updatedAt),
@@ -301,11 +302,12 @@ export const api = {
       type: encrypt(data.type || 'note'),
       locked: encrypt(String(data.locked || false)),
       links: data.links && data.links.length ? encrypt(serializeEntityLinks(data.links)) : undefined,
+      source: (data as any).source ? encrypt(JSON.stringify((data as any).source)) : undefined,
       order: data.order !== undefined ? encrypt(String(data.order)) : undefined,
       createdAt: encrypt(new Date().toISOString()),
       updatedAt: encrypt(new Date().toISOString()),
     };
-    
+
     const res = await fetch(`${getBaseUrl()}/notes`, {
       method: 'POST',
       headers: getHeaders(),
@@ -324,6 +326,7 @@ export const api = {
     if (data.type !== undefined) encryptedData.type = encrypt(String(data.type)) as any;
     if (data.locked !== undefined) encryptedData.locked = encrypt(String(data.locked));
     if (data.links !== undefined) encryptedData.links = data.links && data.links.length ? encrypt(serializeEntityLinks(data.links)) : '';
+    if ((data as any).source !== undefined) encryptedData.source = (data as any).source ? encrypt(JSON.stringify((data as any).source)) : '';
     if (data.order !== undefined) encryptedData.order = encrypt(String(data.order));
     if (data.password !== undefined) encryptedData.password = data.password;
     // Always update updatedAt
