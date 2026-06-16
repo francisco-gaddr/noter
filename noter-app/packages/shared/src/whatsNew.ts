@@ -19,6 +19,20 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    version: '1.7.0',
+    build: '2026.06.16.1',
+    date: '2026-06-16',
+    security: 'security-hardening',
+    highlights: [
+      'Säkerhet (E2E för AI): anteckningar och uppgifter som AI-agenten skapar eller ändrar krypteras nu på din enhet med din nyckel INNAN de skickas — precis som en anteckning du skriver för hand. Servern lagrar chiffertext den inte kan läsa, i transit och i vila, på alla enheter',
+      'Realtid: en anteckning eller uppgift som AI:n skapar dyker upp direkt i appen (mobil + Electron) utan att du behöver tvinga fram en omladdning',
+      'Extern Markdown-delning: dela en enskild anteckning direkt från anteckningens tre-prickarsmeny ("Dela externt"); projektmappar delas både från mappens tre-prickarsmeny och från inställningarna. Allt lås-medvetet (låsta noter delas aldrig), per-objekt, och omedelbart återkallbart',
+      'Stabilitet: AI-modellsökning och AI-chatt (lokal + API) är hårdgjorda mot kraschar — robust felhantering, en återställbar felgräns runt AI-skärmen, och tydliga felmeddelanden i stället för svart skärm, oavsett enhet',
+      'AI-trådar: att trycka på en sparad AI-chatt visar nu innehållet direkt och fortsätter i samma tråd; headern visar trådens titel (horisontellt scrollbar, kapas snyggt innan ikonerna)',
+      'Integritet kvarstår: AI:n läser aldrig låsta anteckningar/projekt; låst innehåll delas aldrig externt',
+    ],
+  },
+  {
     version: '1.4.0',
     build: '2026.06.14.3',
     date: '2026-06-14',

@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 640" font-family="-apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif">
+  <!-- always-readable backdrop (works on light + dark GitHub) -->
+  <rect x="0" y="0" width="860" height="640" rx="16" fill="#ffffff"/>
+  <rect x="0.5" y="0.5" width="859" height="639" rx="16" fill="none" stroke="#e2e4e8"/>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#5b6470"/>
+    </marker>
+  </defs>
+
+  <text x="430" y="40" text-anchor="middle" font-size="22" font-weight="700" fill="#1b1f24">AI-agentens E2E-dataflöde (create_note)</text>
+  <text x="430" y="64" text-anchor="middle" font-size="13" fill="#5b6470">Servern ser aldrig klartext — i transit och i vila, på alla enheter</text>
+
+  <!-- DEVICE zone -->
+  <rect x="40" y="86" width="380" height="470" rx="14" fill="#f3f8ff" stroke="#bcd6f5"/>
+  <text x="60" y="110" font-size="13" font-weight="700" fill="#2f6fd0">DIN ENHET (har nyckeln)</text>
+
+  <!-- 1: AI proposes -->
+  <rect x="70" y="126" width="320" height="62" rx="10" fill="#ffffff" stroke="#c9ced6"/>
+  <text x="86" y="151" font-size="14" font-weight="600" fill="#1b1f24">1 · AI föreslår tool-call</text>
+  <text x="86" y="171" font-size="12" fill="#5b6470">title/content/tags i klartext (lokal eller API-modell)</text>
+
+  <!-- 2: encrypt -->
+  <rect x="70" y="214" width="320" height="74" rx="10" fill="#eafaf0" stroke="#9bdcb4"/>
+  <text x="86" y="239" font-size="14" font-weight="600" fill="#13703a">2 · Klienten krypterar på enheten 🔒</text>
+  <text x="86" y="259" font-size="12" fill="#1f6b41">e2eNoteInput() → encrypt() (v3 AES-256-GCM, din nyckel)</text>
+  <text x="86" y="277" font-size="12" fill="#1f6b41">ai.tsx / AISidebar.tsx</text>
+
+  <!-- 4b: ingest local (return path) -->
+  <rect x="70" y="408" width="320" height="78" rx="10" fill="#ffffff" stroke="#c9ced6"/>
+  <text x="86" y="433" font-size="14" font-weight="600" fill="#1b1f24">5 · Syns direkt (ingen omladdning)</text>
+  <text x="86" y="453" font-size="12" fill="#5b6470">ingestServerNote() → safeDecrypt() med din nyckel</text>
+  <text x="86" y="471" font-size="12" fill="#5b6470">→ läsbar bara för dig</text>
+
+  <text x="60" y="520" font-size="12" fill="#2f6fd0">Andra enheter (Electron/mobil): tar emot via WSS</text>
+  <text x="60" y="538" font-size="12" fill="#2f6fd0">och dekrypterar med sin kopia av din nyckel.</text>
+
+  <!-- SERVER zone -->
+  <rect x="468" y="86" width="352" height="470" rx="14" fill="#fff6f4" stroke="#f3c6bd"/>
+  <text x="488" y="110" font-size="13" font-weight="700" fill="#c0492f">SERVERN (har INTE nyckeln)</text>
+
+  <!-- 3: backend idempotent -->
+  <rect x="496" y="214" width="296" height="92" rx="10" fill="#ffffff" stroke="#c9ced6"/>
+  <text x="512" y="239" font-size="14" font-weight="600" fill="#1b1f24">3 · createNote-resolver</text>
+  <text x="512" y="259" font-size="12" fill="#5b6470">encryptText() är idempotent:</text>
+  <text x="512" y="277" font-size="12" fill="#5b6470">isAnyCiphertext ⇒ släpps igenom ORÖRT</text>
+  <text x="512" y="295" font-size="12" fill="#5b6470">(avkrypterar aldrig, omkrypterar aldrig)</text>
+
+  <!-- store -->
+  <rect x="496" y="332" width="296" height="66" rx="10" fill="#fdece8" stroke="#e8a99a"/>
+  <text x="512" y="357" font-size="14" font-weight="600" fill="#1b1f24">4 · Mongo (i vila)</text>
+  <text x="512" y="377" font-size="12" fill="#5b6470">lagrar användar-chiffertext · servern kan inte läsa</text>
+
+  <!-- WSS emit -->
+  <rect x="496" y="430" width="296" height="58" rx="10" fill="#ffffff" stroke="#c9ced6"/>
+  <text x="512" y="454" font-size="14" font-weight="600" fill="#1b1f24">emitToUser('note:created')</text>
+  <text x="512" y="473" font-size="12" fill="#5b6470">WSS-broadcast — fortfarande chiffertext</text>
+
+  <!-- arrows -->
+  <line x1="230" y1="188" x2="230" y2="212" stroke="#5b6470" stroke-width="2" marker-end="url(#arrow)"/>
+  <!-- encrypt -> backend (HTTPS) -->
+  <path d="M390 251 L444 251 L444 258 L494 258" fill="none" stroke="#5b6470" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="404" y="243" font-size="11" font-weight="600" fill="#13703a">HTTPS · chiffertext</text>
+  <!-- backend -> store -->
+  <line x1="644" y1="306" x2="644" y2="330" stroke="#5b6470" stroke-width="2" marker-end="url(#arrow)"/>
+  <!-- store -> wss -->
+  <line x1="644" y1="398" x2="644" y2="428" stroke="#5b6470" stroke-width="2" marker-end="url(#arrow)"/>
+  <!-- wss/return -> device ingest -->
+  <path d="M494 459 L444 459 L444 447 L392 447" fill="none" stroke="#5b6470" stroke-width="2" marker-end="url(#arrow)"/>
+  <text x="402" y="439" font-size="11" font-weight="600" fill="#2f6fd0">chiffertext → dekrypteras lokalt</text>
+
+  <!-- footer note -->
+  <text x="430" y="600" text-anchor="middle" font-size="12" fill="#5b6470">Förbehåll: E2E-styrka kräver v3-inrullning · moln-AI-leverantörer ser texten under genereringen (lokal modell undviker det)</text>
+  <text x="430" y="622" text-anchor="middle" font-size="11" fill="#9aa1ab">Doc/security/ai-agent-data-handling.md · ADR-0009 · låst i graphql-tools.test.ts</text>
+</svg>

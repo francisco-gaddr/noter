@@ -25,6 +25,8 @@ API-modell) och **var** den lagras (Mongo på servern, lokal SQLite/IndexedDB, W
 
 ## 2. Dataflödet för ett verktygsanrop (create_note som exempel)
 
+![AI-agentens E2E-dataflöde: klienten krypterar på enheten, backend släpper igenom chiffertext, servern kan aldrig läsa innehållet](./ai-e2e-dataflow.svg)
+
 ```
 AI föreslår tool-call ──► klient: e2eNoteInput() krypterar title/content/tags med DIN nyckel
    (ai.tsx / AISidebar.tsx)        (encrypt() → v3 AES-256-GCM när E2E är inrullad)
