@@ -1,6 +1,6 @@
 # ADR 0011 — Ingestion av externa filkällor (Nextcloud) som krypterad, indexerbar kontext
 
-Status: **Proposed** · Date: 2026-06-16 · Plan: [`../nextcloud-ingestion.md`](../nextcloud-ingestion.md)
+Status: **Accepted** (Fas 1 levererad 2026-06-16) · Date: 2026-06-16 · Plan: [`../nextcloud-ingestion.md`](../nextcloud-ingestion.md)
 Bygger på: [ADR 0001](0001-e2e-encryption.md) (krypto), [ADR 0006](0006-knowledge-graph-and-search.md) (graf/sök), [ADR 0008](0008-external-markdown-sync.md) (DAV-mönster), [ADR 0009](0009-e2e-for-ai-created-content.md) (client-encrypt-before-send)
 
 ## Context

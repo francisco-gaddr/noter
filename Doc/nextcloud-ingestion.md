@@ -1,23 +1,42 @@
 # Nextcloud-ingestion — synka in utvalda mappar som krypterad, indexerbar kontext
 
-_Status: **Fas 1 påbörjad** — delad kärna + `NoteSource`-fält + self-hostad Neo4j-infra levererade & testade; plattformstjänster + UI nästa. Beslut: [`adr/0011-external-source-ingestion.md`](./adr/0011-external-source-ingestion.md)._
+_Status: **Fas 1 levererad** (read-only-import + selektiv Neo4j-sync, paritet mobil +
+Electron/web). Kvar: device-validering i EAS-build + Fas 2 (mobil PDF, intervall-sync,
+OAuth2). Beslut: [`adr/0011-external-source-ingestion.md`](./adr/0011-external-source-ingestion.md)._
 _Senast uppdaterat: 2026-06-16._
 
-## Levererat hittills (Fas 1, steg 1)
+## Levererat (Fas 1)
 
-- **Delad kärna (ren, ES5-säker, enhetstestad — 28 tester):**
-  `packages/shared/src/webdavClient.ts` (PROPFIND-body + multistatus-XML-parsning,
-  TLS-tvång, scope-filter under valda rötter, filtyp-allowlist), `fileIngest.ts`
-  (`NoteSource` + `planIngest` create/update/delete-diff via remote-ETag), `neo4jSync.ts`
-  (per-mapp-urval + lås-grind + parametriserad Cypher MERGE/PRUNE).
-- **`NoteSource`-fält** på `Note` (delad typ) + krypterat `source`-fält i backend
-  `Note`-modellen + REST-passthrough (samma idempotenta `encryptText` som `links`).
-- **Self-hostad Neo4j** i `docker-compose.yml` bakom compose-profilen `neo4j`
-  (internt nätverk endast, aldrig publicerad; auth via `.env`; opt-in kill-switch
-  `NEO4J_ENABLED`).
+**Delad kärna (ren, ES5-säker, 28 enhetstester):** `packages/shared/src/webdavClient.ts`
+(PROPFIND-body + multistatus-XML-parsning, TLS-tvång, scope-filter, filtyp-allowlist),
+`fileIngest.ts` (`NoteSource` + `planIngest` create/update/delete-diff via remote-ETag),
+`neo4jSync.ts` (per-mapp-urval + lås-grind + parametriserad Cypher MERGE/PRUNE).
 
-Kvar i Fas 1: plattformstjänster (on-device WebDAV-klient + ingest + Neo4j-relä) och
-inställnings-UI (anslutning + per-mapp-urval) — paritet mobil + Electron/web.
+**`NoteSource`-fält** på `Note` (delad typ + CreateNoteDto/UpdateNoteDto) + krypterat
+`source`-fält i backend `Note`-modellen + REST-passthrough; mobil store + web `api.ts`
+krypterar/dekrypterar `source` som `links`.
+
+**Backend `/api/neo4j`** (JWT, userId-scopad, `NEO4J_ENABLED`-gate) reläar parametriserad
+Cypher till self-hostad Neo4j via dess HTTP-transaktions-API (ingen driver-dep);
+sats-allowlist (ankrade regexar) avvisar godtycklig/injicerad Cypher; auktoritativ
+userId-override per sats. Test: `neo4j-relay.test.ts` (i validate-grinden).
+
+**Self-hostad Neo4j** i `docker-compose.yml` bakom compose-profilen `neo4j` (internt nätverk
+endast, aldrig publicerad; auth via `.env`; default-deploy oförändrad).
+
+**Plattformstjänster (paritet, on-device — credentials lämnar aldrig enheten):**
+`apps/{mobile,web}/services/nextcloud.ts` — krypterad anslutnings-/app-lösenords-lagring
+(SecureStore / krypterad localStorage), PROPFIND/GET WebDAV-klient (TLS, scope-rekursion),
+`planIngest`-driven create/update/delete som krypterade Notes (text inline + PDF via
+`pdfText` på web; mobil-PDF = Fas 2), reindex efter sync; Neo4j-push bygger lås-säkert
+urval on-device och reläar Cypher.
+
+**Inställnings-UI (paritet):** `NextcloudSettings` i web `SettingsModal` + mobil
+`settings.tsx` — anslutning add/test/ta-bort + "Synka nu"; per-mapp Neo4j-urval i tre pooler
+(Projektmappar / Uppgiftslistor / Filmappar) + `includeBody`-växel + "Synka till Neo4j".
+
+Kvar (Fas 2): mobil PDF-extraktion, intervall-/bakgrundssync, OAuth2 Login Flow v2,
+bild→vision/OCR, `minContextLevel` per anslutning. Device-validering kräver EAS-dev-build.
 
 ## Målbild (vad användaren bad om)
 
