@@ -1,9 +1,13 @@
 # External Markdown Sync — serve selected notes/folders as a secure, two-way MD vault
 
-> **STATUS: PROPOSED / NOT YET IMPLEMENTED (plan only).** This is the careful plan and
-> design evaluation requested 2026-06-16. No code exists yet. Decision record:
-> [`adr/0008-external-markdown-sync.md`](./adr/0008-external-markdown-sync.md).
-> When a phase ships, update this header + §"Status per phase" and link the real files.
+> **STATUS: IMPLEMENTED — Phase 1 (WebDAV) + Phase 2 (CRDT Live) both shipped
+> 2026-06-16.** Both transports are live, gated per-share in app settings (mobile +
+> Electron/web), E2E-preserving (only the opted-in, unlocked subset is projected), with
+> instant revoke and an operator kill-switch. Decision record:
+> [`adr/0008-external-markdown-sync.md`](./adr/0008-external-markdown-sync.md) (Accepted).
+> Real files are linked in §"Status per phase". Tests run in CI via
+> `scripts/validate-critical.mjs` (shared `markdownVault`/`markdownLive` + backend
+> `__tests__/markdav.test.ts`).
 
 Goal: let the user expose **specific notes and project-folders** as a **Markdown vault**
 that external tools — **Obsidian**, **macOS apps / Finder**, **Android apps**, and our own
@@ -241,16 +245,22 @@ drain (incl. the recent **per-uid mutation dedup** + empty-item guard):
 
 ## 9. Status per phase
 
-- [ ] **Phase 0 — design sign-off** (this doc + ADR-0008). _← we are here._
-- [ ] **Phase 1 — WebDAV Markdown vault** (shared core, model, `/api/md` DAV + REST,
-      client projection/drain, Settings UI + per-item toggle, kill-switch, egress doc,
-      tests). Reuses ~80% of the CalDAV stack.
-- [ ] **Phase 2 — CRDT Live mode** (Yjs rooms + bridge; optional CouchDB/LiveSync).
-- [ ] **Phase 3 — widget read endpoint** (scoped, signed, read-only MD).
+- [x] **Phase 0 — design sign-off** (this doc + ADR-0008).
+- [x] **Phase 1 — WebDAV Markdown vault** — shipped 2026-06-16. Files:
+  - Shared core: [`packages/shared/src/markdownVault.ts`](../noter-app/packages/shared/src/markdownVault.ts) + [`markdownVault.test.ts`](../noter-app/packages/shared/src/markdownVault.test.ts) (note↔MD, lock-aware projection, traversal-safe paths, etag).
+  - Backend model: [`apps/backend/src/models/MarkdownShare.ts`](../noter-app/apps/backend/src/models/MarkdownShare.ts); WebDAV server [`apps/backend/src/markdav/server.ts`](../noter-app/apps/backend/src/markdav/server.ts) at `/api/md`; REST [`apps/backend/src/routes/markdownShares.ts`](../noter-app/apps/backend/src/routes/markdownShares.ts) at `/api/markdown`; kill-switch [`apps/backend/src/config/markdownExposure.ts`](../noter-app/apps/backend/src/config/markdownExposure.ts); integration tests [`apps/backend/__tests__/markdav.test.ts`](../noter-app/apps/backend/__tests__/markdav.test.ts).
+  - Clients: [`apps/mobile/services/markdownShare.ts`](../noter-app/apps/mobile/services/markdownShare.ts), [`apps/web/lib/markdownShare.ts`](../noter-app/apps/web/lib/markdownShare.ts); Settings UI [`MarkdownSharesSettings.tsx`](../noter-app/apps/mobile/components/MarkdownSharesSettings.tsx) (mobile) + [web](../noter-app/apps/web/components/MarkdownSharesSettings.tsx) — per-folder/per-note opt-in, WebDAV/Live mode + outbound/inbound direction checkboxes, credential rotate/revoke.
+- [x] **Phase 2 — CRDT Live mode** — shipped 2026-06-16. Yjs rooms relayed over the
+      existing JWT-authed socket.io (no extra server). Files:
+  - Shared CRDT core: [`packages/shared/src/markdownLive.ts`](../noter-app/packages/shared/src/markdownLive.ts) + [`markdownLive.test.ts`](../noter-app/packages/shared/src/markdownLive.test.ts) (Y.Doc per note, minimal-splice reconcile, origin-tagged updates, concurrent-merge proof).
+  - Backend relay: [`apps/backend/src/markdav/live.ts`](../noter-app/apps/backend/src/markdav/live.ts) (per-(share,note) authoritative Y.Doc, owner-JWT-or-CRDT-token auth, debounced persist into the projection + durable upsert mutation).
+  - Clients: [`apps/web/lib/markdownLive.ts`](../noter-app/apps/web/lib/markdownLive.ts) + [`apps/mobile/services/markdownLive.ts`](../noter-app/apps/mobile/services/markdownLive.ts) (`useMarkdownLiveSync`, content-level / editor-agnostic).
+- [ ] **Phase 3 — widget read endpoint** (scoped, signed, read-only MD). _Not yet started._
 
-Each phase gates on: `node noter-app/scripts/validate-critical.mjs` green, the IDOR
-route-scoping check, a no-plaintext-egress test for non-shared notes, and a revoke→401
-integration test.
+Each phase gates on: `node noter-app/scripts/validate-critical.mjs` green (now including
+the backend `markdav` integration suite + shared `markdownVault`/`markdownLive`), the IDOR
+route-scoping check, the lock-never-projected test (`markdownVault.test.ts`), and the
+revoke→401 + cross-user-403 + direction/mode-gating tests (`markdav.test.ts`).
 
 ---
 

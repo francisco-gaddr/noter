@@ -24,20 +24,29 @@ it is reachable **only** through the two calendar channels below.
 | 3 | **CalDAV** — `/api/dav/**`, `/.well-known/caldav` | outward, two-way | Projection of **one enabled scope**: title, due, status, description, priority (VTODO); writes enqueue intents | **Basic-Auth**, per-feed hashed secret | **Yes** (opt-in) | `CALENDAR_CALDAV_ENABLED=0` |
 | 4 | Projection push / DAV mint — `POST /api/calendar/subscription`, `PUT /feed`, `POST /dav` | client → server | Writes the plaintext projection into `CalendarFeed.items` | JWT (account) | Yes (the source of 2 & 3) | same flags (mint/push refused 403) |
 | 5 | Mutation drain — `GET /api/calendar/mutations`, `POST /mutations/ack` | server → client | Transient write-back intents `{uid, op, data}` | JWT (account) | Yes (transient) | revoke the DAV credential (queue cleared) |
-| 6 | AI / agents | internal | **Cannot** read locked notes; cannot decrypt without the user key | — | No | see [`ai-locked-notes.md`](./ai-locked-notes.md) |
+| 6 | **Markdown WebDAV vault** — `/api/md/**` | outward, two-way | Lock-aware projection of **opted-in notes/folders** (`MarkdownShare.files`): title, type, tags, body as `.md`; writes enqueue mutations. `direction.outbound` gates reads, `direction.inbound` gates writes | **Basic-Auth**, per-share hashed secret (`davTokenHash`) | **Yes** (opt-in) | `MARKDOWN_SYNC_ENABLED=0` |
+| 7 | **Markdown CRDT Live** — socket.io rooms `mdlive:<share>:<note>` | outward, two-way (real-time) | Same projected note bodies as row 6, keystroke-level via Yjs; only for `modes.crdt` shares | **JWT (owner)** OR per-share CRDT token (`crdtTokenHash`) | **Yes** (opt-in) | `MARKDOWN_SYNC_ENABLED=0` + `MARKDOWN_CRDT_ENABLED=0` |
+| 8 | Markdown projection push / mint — `PUT /api/markdown/shares/:id`, `POST /dav`, `POST /crdt` | client → server | Writes the plaintext projection into `MarkdownShare.files` | JWT (account) | Yes (source of 6 & 7) | kill-switch refuses mint/push 403 |
+| 9 | Markdown mutation drain — `GET /api/markdown/mutations`, `POST /mutations/ack` | server → client | Transient write-back intents `{op, path, body}` | JWT (account) | Yes (transient) | revoke the DAV/CRDT credential (queue cleared) |
+| 10 | AI / agents | internal | **Cannot** read locked notes; cannot decrypt without the user key | — | No | see [`ai-locked-notes.md`](./ai-locked-notes.md) |
 
-Everything not in rows 2–5 is ciphertext. Rows 2–5 are the **entire** plaintext egress
-surface, and all of it derives from `CalendarFeed`.
+Everything not in rows 2–9 is ciphertext. Rows 2–5 derive from `CalendarFeed`; rows 6–9
+from `MarkdownShare`. Both are **opt-in, lock-aware, client-pushed projections** — locked
+notes/projects are NEVER projected (enforced in `buildMarkdownVaultProjection` via
+`isReadableWithLocks`, tested in `markdownVault.test.ts`), and a note outside a share's
+scope is never served.
 
-> **Planned (not yet implemented) — Markdown egress channel.** A future **External
-> Markdown sync** ([`../external-markdown-sync.md`](../external-markdown-sync.md),
-> [`../adr/0008-external-markdown-sync.md`](../adr/0008-external-markdown-sync.md)) will
-> add a second, structurally-identical egress surface: an opt-in, lock-aware, client-pushed
-> **note projection** (`MarkdownShare.files`) served over WebDAV at `/api/md`, with a
-> per-share hashed credential, instant revoke, and a `MARKDOWN_SYNC_ENABLED=0` kill-switch
-> reported at `health/deep → markdownExposure`. When it ships, add rows here for the
-> `/api/md` (outward, two-way), projection-push, and mutation-drain paths — same model as
-> rows 2–5, applied to note *files*. Until then there is **no** Markdown egress path.
+> **Markdown egress — shipped 2026-06-16** (rows 6–9). The **External Markdown sync**
+> ([`../external-markdown-sync.md`](../external-markdown-sync.md),
+> [`../adr/0008-external-markdown-sync.md`](../adr/0008-external-markdown-sync.md))
+> mirrors the CalDAV model exactly: an opt-in, lock-aware, client-pushed **note
+> projection** (`MarkdownShare.files`) served over WebDAV at `/api/md` (Phase 1) and Yjs
+> CRDT rooms over socket.io (Phase 2). Per-share hashed credential, instant revoke, and a
+> `MARKDOWN_SYNC_ENABLED=0` / `MARKDOWN_CRDT_ENABLED=0` kill-switch reported at
+> `health/deep → markdownExposure`. Integration-tested in
+> `noter-app/apps/backend/__tests__/markdav.test.ts` (cross-user 403, revoke→401,
+> direction/mode gating, traversal reject, kill-switch), wired into CI via
+> `scripts/validate-critical.mjs`.
 
 ## What is actually plaintext at rest, and where
 

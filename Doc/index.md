@@ -35,7 +35,7 @@ ska öppna för en given fråga. Läs det här först, sedan den specifika filen
 | Förstå grafvyn (noder/kanter/flödesriktning) + semantisk sök | [`graph-explorer.md`](./graph-explorer.md) |
 | **Kalenderprenumeration (ICS) till Google/Apple-kalender** | [`calendar-subscription.md`](./calendar-subscription.md) ⭐ |
 | **CalDAV-brygga (tvåvägs uppgifter ↔ Påminnelser/Tasks.org)** | [`caldav-bridge.md`](./caldav-bridge.md) ⭐ |
-| **Servera valda anteckningar/mappar som Markdown utåt (Obsidian/macOS/Android/widgets), säkert + 2-vägs realtid** *(planerad)* | [`external-markdown-sync.md`](./external-markdown-sync.md) 🗺️ + [`adr/0008-external-markdown-sync.md`](./adr/0008-external-markdown-sync.md) |
+| **Servera valda anteckningar/mappar som Markdown utåt (Obsidian/macOS/Android/widgets), säkert + 2-vägs realtid** ⭐ *(implementerad: WebDAV + CRDT Live)* | [`external-markdown-sync.md`](./external-markdown-sync.md) + [`adr/0008-external-markdown-sync.md`](./adr/0008-external-markdown-sync.md) |
 | **Vad exponeras utåt? Egress-kontroll + kill-switchar (kalender/uppgifter)** | [`security/calendar-exposure.md`](./security/calendar-exposure.md) 🔒 |
 | Förstå widgets | [`widgets-architecture.md`](./widgets-architecture.md) |
 | Se vad som återstår / nästa steg | [`improvements.md`](./improvements.md) + §4 nedan |
@@ -74,17 +74,22 @@ ska öppna för en given fråga. Läs det här först, sedan den specifika filen
 
 Status 2026-06-13. Uppdatera den här listan när poster blir klara.
 
-**🗺️ Stort planerat initiativ — Extern Markdown-sync (valda anteckningar/mappar utåt):**
-- [ ] Servera **utvalda** anteckningar/projektmappar som en **Markdown-vault** som kan nås
+**✅ Levererat initiativ — Extern Markdown-sync (valda anteckningar/mappar utåt):**
+- [x] Servera **utvalda** anteckningar/projektmappar som en **Markdown-vault** som kan nås
       från **Obsidian, macOS, Android och widgets** — **2-vägs, realtid, per-objekt opt-in,
       omedelbar revoke** från inställningarna, med **bevarad E2E** (bara det utvalda
-      projiceras som klartext; låsta noter aldrig). **Allt kartlagt** så det inte startar
-      från noll: full plan + 2026-utvärdering (WebDAV-baslinje → CRDT-realtidsläge) i
-      [`external-markdown-sync.md`](external-markdown-sync.md), beslut i
+      projiceras som klartext; låsta noter aldrig). **Båda transporterna levererade
+      2026-06-16:** Fas 1 **WebDAV-vault** (`/api/md`, per-share Basic-Auth, mutationskö) +
+      Fas 2 **CRDT Live** (Yjs-rum reläade över befintlig JWT-socket.io). Per-share val av
+      transport (WebDAV och/eller Live) + riktning (utgående/inkommande) i inställningarna
+      (mobil + Electron/web). Plan + utvärdering i
+      [`external-markdown-sync.md`](external-markdown-sync.md), beslut (Accepted) i
       [`adr/0008-external-markdown-sync.md`](adr/0008-external-markdown-sync.md). Bygger på
       CalDAV-bryggans mönster ([`caldav-bridge.md`](caldav-bridge.md)) → ~80 % infra-återbruk.
-      Börja med Fas 1 (WebDAV-vault). Krav: E2E + revoke + self-heal kvarstår; egress-grind i
-      [`security/calendar-exposure.md`](security/calendar-exposure.md).
+      Tester i CI (`scripts/validate-critical.mjs`: backend `markdav` + shared
+      `markdownVault`/`markdownLive`); egress-grind i
+      [`security/calendar-exposure.md`](security/calendar-exposure.md). Kvar: Fas 3
+      (signerad read-only widget-endpoint).
 
 **⭐ Stort planerat initiativ — Desktop Electron → Tauri v2:**
 - [ ] Migrera desktop-appen till Tauri v2. **Allt är redan kartlagt** så det inte startar

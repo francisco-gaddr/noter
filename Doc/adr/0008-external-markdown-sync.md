@@ -1,6 +1,6 @@
 # ADR-0008: External Markdown sync for selected notes/folders
 
-**Status:** Proposed
+**Status:** Accepted — Phase 1 (WebDAV) + Phase 2 (CRDT Live) implemented 2026-06-16
 **Date:** 2026-06-16
 **Author(s):** Noter team
 
