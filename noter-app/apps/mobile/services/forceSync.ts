@@ -6,6 +6,7 @@
  */
 import { listConnections, syncConnection } from '@/services/nextcloud';
 import { refreshShares, pushCalendarFeed, drainCalendarMutations } from '@/services/calendarSubscription';
+import { useStore } from '@/stores/useStore';
 
 export interface ForceSyncResult {
   nextcloud: { created: number; updated: number; deleted: number; pushed: number; connections: number };
@@ -26,6 +27,9 @@ export const forceSyncAllSources = async (): Promise<ForceSyncResult> => {
   };
   if (running) return { ...base, skipped: true };
   running = true;
+  // Drive the "Synkar från servern…" loader for the WHOLE operation (incl. CalDAV-only syncs,
+  // which don't go through syncConnection's own counter).
+  try { useStore.getState().beginSourceSync(); } catch { /* */ }
   try {
     // 1) Nextcloud — every connection, two-way (each syncConnection pushes local edits first).
     for (const conn of await listConnections()) {
@@ -47,5 +51,6 @@ export const forceSyncAllSources = async (): Promise<ForceSyncResult> => {
     return { ...base, ok: false, error: e?.message || 'Synk misslyckades' };
   } finally {
     running = false;
+    try { useStore.getState().endSourceSync(); } catch { /* */ }
   }
 };
