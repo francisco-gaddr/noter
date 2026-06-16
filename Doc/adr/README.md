@@ -35,6 +35,7 @@ nästa lediga.
 | 0005 | [Schemalagda AI-agentuppgifter](0005-scheduled-ai-agent-tasks.md) | Accepted |
 | 0006 | [Kunskapsgraf + sök](0006-knowledge-graph-and-search.md) | Accepted |
 | 0007 | [Desktop Electron → Tauri (beslut: vänta/spike)](0007-electron-vs-tauri.md) — körguide: [`migrations/electron-to-tauri-runbook.md`](../migrations/electron-to-tauri-runbook.md) | Accepted |
+| 0008 | [Extern Markdown-sync för valda anteckningar/mappar](0008-external-markdown-sync.md) — plan: [`external-markdown-sync.md`](../external-markdown-sync.md) | Proposed |
 
 Lägg till nya rader sorterat på nummer.
 

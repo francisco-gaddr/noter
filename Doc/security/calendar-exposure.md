@@ -29,6 +29,16 @@ it is reachable **only** through the two calendar channels below.
 Everything not in rows 2–5 is ciphertext. Rows 2–5 are the **entire** plaintext egress
 surface, and all of it derives from `CalendarFeed`.
 
+> **Planned (not yet implemented) — Markdown egress channel.** A future **External
+> Markdown sync** ([`../external-markdown-sync.md`](../external-markdown-sync.md),
+> [`../adr/0008-external-markdown-sync.md`](../adr/0008-external-markdown-sync.md)) will
+> add a second, structurally-identical egress surface: an opt-in, lock-aware, client-pushed
+> **note projection** (`MarkdownShare.files`) served over WebDAV at `/api/md`, with a
+> per-share hashed credential, instant revoke, and a `MARKDOWN_SYNC_ENABLED=0` kill-switch
+> reported at `health/deep → markdownExposure`. When it ships, add rows here for the
+> `/api/md` (outward, two-way), projection-push, and mutation-drain paths — same model as
+> rows 2–5, applied to note *files*. Until then there is **no** Markdown egress path.
+
 ## What is actually plaintext at rest, and where
 
 Only the `calendarfeeds` MongoDB collection, and only for scopes the user enabled:
