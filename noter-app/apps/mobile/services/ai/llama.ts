@@ -13,6 +13,7 @@
  * degrade gracefully when it isn't compiled in.
  */
 import { initLlama, releaseAllLlama, type LlamaContext } from 'llama.rn';
+import * as FileSystem from 'expo-file-system/legacy';
 import type { ChatMessage } from '@repo/ai';
 
 let context: LlamaContext | null = null;
@@ -21,10 +22,22 @@ let loadedPath: string | null = null;
 const toFileUri = (p: string): string => (p.startsWith('file://') ? p : `file://${p}`);
 
 // A model that never loads / never emits a token must NOT leave the chat spinning
-// forever (the "står och tänker i all evighet" report). These caps turn a native
+// forever (the "står och laddar i all evighet" report). These caps turn a native
 // stall into a clear, surfaced error instead of an infinite hang.
-const LOAD_TIMEOUT_MS = 180_000;        // initLlama: large GGUFs are slow to mmap from storage.
-const COMPLETION_INACTIVITY_MS = 75_000; // abort if no token arrives for this long.
+const LOAD_TIMEOUT_MS = 180_000;          // initLlama: large GGUFs are slow to mmap from storage.
+const COMPLETION_INACTIVITY_MS = 150_000; // abort if no token for this long (a usable phone model
+                                          // streams well within this; a true hang or an unusably
+                                          // slow oversized model is stopped instead of spinning).
+
+/** Size of the GGUF on disk in bytes (0 if unknown) — used to size the context safely. */
+const modelSizeBytes = async (uri: string): Promise<number> => {
+  try {
+    const info = await FileSystem.getInfoAsync(uri);
+    return info.exists && typeof (info as any).size === 'number' ? (info as any).size : 0;
+  } catch {
+    return 0;
+  }
+};
 
 /** Reject if `p` doesn't settle within `ms`. `onTimeout` runs best-effort cleanup. */
 const withTimeout = <T>(p: Promise<T>, ms: number, message: string, onTimeout?: () => void): Promise<T> => {
@@ -62,37 +75,47 @@ export const loadLlamaModel = async (
   if (context && loadedPath === modelPath) return;
   await unloadLlamaModel();
   const uri = toFileUri(modelPath);
-  const attempt = (nCtx: number, nGpu: number, mlock: boolean) =>
+  const gb = (await modelSizeBytes(uri)) / 1e9;
+
+  // CRITICAL for big models: use_mlock pins the ENTIRE model in physical RAM. On a phone
+  // an 8B (~5 GB) can't be locked, so initLlama stalls/thrashes forever — that's the
+  // "står bara och laddar" bug. We never mlock; mmap lets the OS page the weights in on
+  // demand so even a large model loads. The context window is scaled down for big models
+  // to keep the KV-cache memory in check (and inference faster).
+  const ctxFor = (sizeGb: number) => (sizeGb >= 5 ? 1024 : sizeGb >= 3.2 ? 2048 : 4096);
+  const attempt = (nCtx: number, nGpu: number) =>
     withTimeout(
       initLlama(
         {
           model: uri,
           n_ctx: nCtx,
           n_gpu_layers: nGpu,
-          use_mlock: mlock,
+          use_mlock: false,
+          use_mmap: true,
         } as Parameters<typeof initLlama>[0],
         onProgress,
       ),
       LOAD_TIMEOUT_MS,
       'load-timeout',
     );
+
+  const nCtx = opts.nCtx ?? ctxFor(gb);
+  // First try with GPU offload (helps a lot on iOS Metal; llama.cpp clamps/falls back to
+  // CPU on Android where it isn't available). If that fails/times out, retry CPU-only with
+  // an even smaller context — slower but reliable.
   try {
-    context = await attempt(opts.nCtx ?? 4096, opts.nGpuLayers ?? 99, true);
+    context = await attempt(nCtx, opts.nGpuLayers ?? 99);
   } catch (e) {
-    // Large models (e.g. 8B) OOM the mobile GPU at 99 offloaded layers / 4k ctx and
-    // then HANG in the native layer. Fall back to CPU-only (n_gpu_layers: 0), a
-    // smaller 2k context and no mlock — slower but it actually loads instead of
-    // spinning forever. If even this fails, surface a clear, actionable error.
     await unloadLlamaModel();
     try {
-      context = await attempt(2048, 0, false);
+      context = await attempt(Math.min(nCtx, 1536), 0);
     } catch (e2: any) {
       await unloadLlamaModel();
       const why = String(e2?.message || (e as any)?.message || '');
-      const tooBig = why.includes('load-timeout') || /alloc|memory|oom/i.test(why);
+      const tooBig = why.includes('load-timeout') || /alloc|memory|oom|bad_alloc/i.test(why);
       throw new Error(
         tooBig
-          ? 'Modellen kunde inte laddas — den är troligen för stor för den här enheten. Prova en mindre modell (1–3B, t.ex. Q4).'
+          ? `Modellen kunde inte laddas — den är troligen för stor för den här enheten${gb ? ` (~${gb.toFixed(1)} GB` : ''}${gb ? ')' : ''}. Prova en mindre modell (1–3B, t.ex. Q4_K_M).`
           : `Kunde inte ladda modellen (${why || 'okänt fel'}). Prova en mindre modell eller ladda ner den på nytt.`,
       );
     }

@@ -2350,6 +2350,14 @@ export default function AIScreen() {
               <Text style={{ color: theme.colors.onSurfaceVariant }}>Modell</Text>
               <Text style={{ color: theme.colors.onSurface, flexShrink: 1, textAlign: 'right' }} numberOfLines={1}>{activeModelLabel || '—'}</Text>
             </View>
+            {/* Storage/sync status lives here (in the ℹ️ info dialog) instead of as a
+                permanent banner above the composer. */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 }}>
+              <Text style={{ color: theme.colors.onSurfaceVariant }}>Lagring</Text>
+              <Text style={{ color: theme.colors.onSurface, flexShrink: 1, textAlign: 'right' }} numberOfLines={1}>
+                {nextThreadLocalOnly ? '🔒 Endast lokalt (synkas inte)' : 'Synkas krypterat (E2E)'}
+              </Text>
+            </View>
             {tokensPerSecond !== null ? (
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2 }}>
                 <Text style={{ color: theme.colors.onSurfaceVariant }}>Hastighet</Text>
@@ -3212,11 +3220,9 @@ export default function AIScreen() {
               {/* #1: the AI-working animation now renders inside the last assistant
                   bubble (see isThinkingBubble in renderItem) — no bottom-anchored loader
                   eating space, and it hides itself the moment streaming begins. */}
-              {nextThreadLocalOnly && !currentConversationId ? (
-                <Text style={{ paddingHorizontal: 12, paddingBottom: 4, fontSize: 12, color: theme.colors.primary }}>
-                  🔒 Nästa tråd sparas endast lokalt på denna enhet (synkas inte).
-                </Text>
-              ) : null}
+              {/* The "Nästa tråd sparas endast lokalt" status used to sit here permanently;
+                  it now lives in the header ℹ️ info dialog (Lagring row) so it doesn't take
+                  space in local mode. The header icon (cellphone-lock) still signals it. */}
               {attachmentsEnabled && attachments.length > 0 ? (
                 <ScrollView
                   horizontal
