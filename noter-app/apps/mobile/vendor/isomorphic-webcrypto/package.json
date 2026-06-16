@@ -1,0 +1,9 @@
+{
+  "name": "isomorphic-webcrypto",
+  "version": "2.3.8-noter-shim",
+  "description": "Local shim package. lib0 (a yjs dependency) hard-requires isomorphic-webcrypto/src/react-native in React Native; this re-exports the already-polyfilled global.crypto (react-native-get-random-values) so no unmaintained native dep is needed. See apps/mobile/shims/lib0-webcrypto.js. Vendored (not the npm package) so Metro's DEFAULT resolver always finds it — independent of metro.config cache.",
+  "main": "index.js",
+  "react-native": "src/react-native.js",
+  "private": true,
+  "license": "MIT"
+}
