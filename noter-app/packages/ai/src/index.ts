@@ -32,7 +32,9 @@ export interface AIProject {
 export interface LLMProvider {
   generateResponse(messages: ChatMessage[], options?: any): Promise<string>;
   streamResponse?(messages: ChatMessage[], options?: any, onToken?: (token: string) => void): Promise<void>;
-  loadModel?(modelPath: string, options?: { gpuLayers?: number }): Promise<void>;
+  // Second arg is implementation-specific: mobile passes an onProgress callback
+  // (0..1 load progress); the Node provider passes { gpuLayers }. Kept loose so both fit.
+  loadModel?(modelPath: string, onProgressOrOptions?: ((progress: number) => void) | { gpuLayers?: number }): Promise<void>;
 }
 
 export class AIAgent {

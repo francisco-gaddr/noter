@@ -50,6 +50,7 @@ describe('AI E2E', () => {
       { id: 'u1', role: 'user', content: 'Hej', createdAt: new Date().toISOString() },
     ]);
     expect(response).toBe('Svar');
-    expect(mockLoad).toHaveBeenCalledWith(path);
+    // loadModel now forwards an optional onProgress arg (undefined here).
+    expect(mockLoad).toHaveBeenCalledWith(path, undefined);
   });
 });

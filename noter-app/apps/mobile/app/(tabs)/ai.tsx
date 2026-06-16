@@ -283,6 +283,8 @@ export default function AIScreen() {
   // Models
   const [localModels, setLocalModels] = useState<any[]>([]);
   const [activeModel, setActiveModel] = useState<string | null>(null);
+  // 0..1 while a local GGUF is being loaded into the engine; null when idle/loaded.
+  const [modelLoadProgress, setModelLoadProgress] = useState<number | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<HFModel[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -711,6 +713,22 @@ export default function AIScreen() {
     const release = acquireKeepAwake();
     return release;
   }, [loading, allowBackgroundAIWork]);
+
+  // Reduce the "long delay before a local model answers": warm the engine shortly after a
+  // local model is selected so it's already resident when the user sends. Silent + best-
+  // effort (the on-send load shows progress + surfaces real errors); skipped in API mode,
+  // when no model is chosen, when it's already loaded, or while not chatting.
+  useEffect(() => {
+    if (aiUseApiProviders || !activeModel || loading) return;
+    if (!modelManager.isAvailable()) return;
+    if (provider.isLoaded(activeModel)) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      if (cancelled) return;
+      provider.loadModel(activeModel).catch(() => { /* on-send load will report */ });
+    }, 500);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [activeModel, aiUseApiProviders, loading]);
 
   // #3: re-attach to module-owned downloads. A download keeps running even after
   // this screen / the download dialog is closed (it lives in ModelDownloader), so
@@ -2203,7 +2221,17 @@ export default function AIScreen() {
           pushAiSync({ messages: [{ conversationId, message: userMsg }] }).catch(() => {});
       }
       if (!aiUseApiProviders) {
-          await provider.loadModel(activeModel as string);
+          // Surface model-load progress in the chat so the wait before the first token is
+          // visible (loading a multi-GB GGUF is the bulk of the "long delay"). Skip the
+          // progress UI entirely if the model is already resident.
+          if (!provider.isLoaded(activeModel as string)) {
+              setModelLoadProgress(0);
+              try {
+                  await provider.loadModel(activeModel as string, (p) => setModelLoadProgress(Math.max(0, Math.min(1, p))));
+              } finally {
+                  setModelLoadProgress(null);
+              }
+          }
       }
       // Image attachments → vision models (API path); only forwarded on this turn.
       const sentImages = aiUseApiProviders ? imageDataUrls(sentAttachments) : [];
@@ -3239,6 +3267,22 @@ export default function AIScreen() {
               {/* #1: the AI-working animation now renders inside the last assistant
                   bubble (see isThinkingBubble in renderItem) — no bottom-anchored loader
                   eating space, and it hides itself the moment streaming begins. */}
+              {/* Local-model load progress: shown as a chat bubble while the GGUF is being
+                  read into the engine (before any assistant bubble exists), so the wait
+                  before the first token is visible instead of a blank spinner. */}
+              {modelLoadProgress !== null ? (
+                <View style={[styles.messageRow, styles.rowLeft]}>
+                  <View style={[styles.bubble, styles.assistantBubble, { backgroundColor: theme.colors.surfaceVariant, minWidth: 200 }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                      <ActivityIndicator size="small" />
+                      <Text style={{ marginLeft: 8, color: theme.colors.onSurfaceVariant, fontStyle: 'italic' }}>
+                        {t('ai.loadingModel', 'Laddar modell')} {Math.round(modelLoadProgress * 100)}%
+                      </Text>
+                    </View>
+                    <ProgressBar progress={modelLoadProgress} color={theme.colors.primary} style={{ height: 5, borderRadius: 3, marginTop: 6 }} />
+                  </View>
+                </View>
+              ) : null}
               {/* The "Nästa tråd sparas endast lokalt" status used to sit here permanently;
                   it now lives in the header ℹ️ info dialog (Lagring row) so it doesn't take
                   space in local mode. The header icon (cellphone-lock) still signals it. */}

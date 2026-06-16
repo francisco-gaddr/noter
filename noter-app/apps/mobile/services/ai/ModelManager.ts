@@ -19,9 +19,20 @@ import { modelFileExists } from "./ModelDownloader";
  * bridge is gone; this is the only local path now.
  */
 class ModelManager {
+  // Dedupe concurrent loads of the SAME model (e.g. a silent warm-preload racing the
+  // on-send load) so we never call initLlama twice in parallel — that wedges the native
+  // engine. Same-path callers share one in-flight promise; a different path waits its turn.
+  private loadingPath: string | null = null;
+  private loadingPromise: Promise<void> | null = null;
+
   /** Path of the GGUF currently loaded, or null. Backed by the llama context. */
   get currentModelPath(): string | null {
     return loadedModelPath();
+  }
+
+  /** True while a model load is in flight (used to show progress / avoid double work). */
+  get isLoading(): boolean {
+    return this.loadingPromise !== null;
   }
 
   get isModelLoaded(): boolean {
@@ -35,22 +46,34 @@ class ModelManager {
 
   async load(path: string, onProgress?: (progress: number) => void) {
     if (this.isModelLoaded && this.currentModelPath === path) return;
+    // Join an in-flight load of the same model instead of starting a second one.
+    if (this.loadingPromise && this.loadingPath === path) return this.loadingPromise;
     if (!isLlamaLinked()) {
       throw new Error("Lokal AI-motor saknas i detta bygge. Installera EAS-bygget.");
     }
     if (!path) throw new Error("Ingen modell vald. Välj en nedladdad modell.");
-    const exists = await modelFileExists(path);
-    if (!exists) {
-      throw new Error("Modellfilen hittades inte. Ladda ner modellen igen.");
-    }
-    // loadLlamaModel now owns the load timeout + CPU/small-context fallback + a clear
-    // error if even that fails, so an extra retry here would just double the (already
-    // slow) attempts. Reset a possibly-wedged native context, then surface its message.
+
+    this.loadingPath = path;
+    this.loadingPromise = (async () => {
+      const exists = await modelFileExists(path);
+      if (!exists) {
+        throw new Error("Modellfilen hittades inte. Ladda ner modellen igen.");
+      }
+      // loadLlamaModel owns the load timeout + CPU/small-context fallback + a clear error
+      // if even that fails, so an extra retry here would just double the (already slow)
+      // attempts. Reset a possibly-wedged native context, then surface its message.
+      try {
+        await loadLlamaModel(path, {}, onProgress);
+      } catch (e: any) {
+        try { await unloadLlamaModel(); } catch { /* ignore */ }
+        throw e instanceof Error ? e : new Error(String(e?.message || 'Kunde inte ladda modellen.'));
+      }
+    })();
     try {
-      await loadLlamaModel(path, {}, onProgress);
-    } catch (e: any) {
-      try { await unloadLlamaModel(); } catch { /* ignore */ }
-      throw e instanceof Error ? e : new Error(String(e?.message || 'Kunde inte ladda modellen.'));
+      await this.loadingPromise;
+    } finally {
+      this.loadingPromise = null;
+      this.loadingPath = null;
     }
   }
 

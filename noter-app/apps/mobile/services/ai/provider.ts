@@ -12,8 +12,13 @@ export class MobileLlamaProvider implements LLMProvider {
     await modelManager.unload();
   }
 
-  async loadModel(modelPath: string): Promise<void> {
-    await modelManager.load(modelPath);
+  async loadModel(modelPath: string, onProgress?: (progress: number) => void): Promise<void> {
+    await modelManager.load(modelPath, onProgress);
+  }
+
+  /** True when this exact model is already resident (skip the load + its progress UI). */
+  isLoaded(modelPath: string): boolean {
+    return modelManager.isModelLoaded && modelManager.currentModelPath === modelPath;
   }
 
   async generateResponse(messages: ChatMessage[], options?: any): Promise<string> {
