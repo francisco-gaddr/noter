@@ -16,6 +16,7 @@ import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { buildSecurityNoteMap, findBlockingLockedAncestor } from '@/services/ai/security';
 import { exportNoteToMarkdown, exportNoteToPdf } from '@/services/noteExport';
+import { useMarkdownLiveSync } from '@/services/markdownLive';
 
 export default function NoteEditorScreen() {
   const params = useLocalSearchParams<{ id: string | string[]; parentId?: string | string[] }>();
@@ -31,6 +32,9 @@ export default function NoteEditorScreen() {
   
   const isNew = id === 'new';
   const existingNote = id ? notes.find(n => n._id === id) : undefined;
+  // CRDT "Live" real-time sync while this note's screen is open, IF it's in a Live share.
+  // No-op otherwise. Syncs the stored content field (re-encrypted by the store).
+  useMarkdownLiveSync(id, (existingNote as any)?.content);
   const blockingLockedAncestor = useMemo(() => {
     if (!existingNote) return null;
     return findBlockingLockedAncestor(existingNote as any, buildSecurityNoteMap(notes as any), new Set(unlockedProtectedNoteIds));

@@ -74,6 +74,16 @@ const projectionFor = async (share: { shareId: string; folderIds: string[]; note
 
 export const getCachedMarkdownShares = async (): Promise<MarkdownShare[]> => readCache();
 
+/** shareId of a Live (CRDT) share containing this note, or null (used by the live connector). */
+export const liveShareIdForNote = async (noteId: string): Promise<string | null> => {
+  const map = await readPathMap();
+  for (const s of await readCache()) {
+    if (!s.modes?.crdt || !s.crdt?.enabled) continue;
+    if (Object.values(map[s.shareId] || {}).includes(noteId)) return s.shareId;
+  }
+  return null;
+};
+
 export const refreshMarkdownShares = async (): Promise<MarkdownShare[]> => {
   try {
     const body: any = await fetchWithAuth('/markdown/shares', { method: 'GET', skipUnauthorized: true });

@@ -13,12 +13,16 @@ import { loadHotkeys, matchesHotkey } from '../lib/hotkeys';
 import { restoreCryptoFromSession } from '../lib/crypto';
 import { pushCalendarFeed, drainCalendarMutations } from '../lib/calendarSubscription';
 import { pushAllMarkdownShares, drainMarkdownMutations } from '../lib/markdownShare';
+import { useMarkdownLiveSync } from '../lib/markdownLive';
 import { socket } from '../services/socket';
 
 export default function Home() {
   const { initSocket, user, activeTab, isHydrated } = useStore();
   const tasks = useStore((s) => s.tasks);
   const notes = useStore((s) => s.notes);
+
+  // CRDT "Live" real-time sync for the selected note when it's in a Live-enabled share.
+  useMarkdownLiveSync();
 
   // Keep the external calendar feed (ICS subscription) live: push the latest task
   // projection whenever tasks change. No-op unless the user created a subscription.

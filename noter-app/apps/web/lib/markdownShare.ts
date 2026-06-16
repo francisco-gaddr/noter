@@ -72,6 +72,17 @@ const projectionFor = (share: { shareId: string; folderIds: string[]; noteIds: s
 
 export const getCachedMarkdownShares = (): MarkdownShare[] => readCache();
 
+/** The shareId of a Live (CRDT) share that contains this note, or null. Used by the
+ *  live connector to know whether a note is real-time editable + which room to join. */
+export const liveShareIdForNote = (noteId: string): string | null => {
+  const map = readPathMap();
+  for (const s of readCache()) {
+    if (!s.modes?.crdt || !s.crdt?.enabled) continue;
+    if (Object.values(map[s.shareId] || {}).includes(noteId)) return s.shareId;
+  }
+  return null;
+};
+
 export const refreshMarkdownShares = async (): Promise<MarkdownShare[]> => {
   const res = await fetch(`${getApiBaseUrl()}/markdown/shares`, { headers: authHeaders() }).catch(() => null);
   if (!res || !res.ok) return readCache();

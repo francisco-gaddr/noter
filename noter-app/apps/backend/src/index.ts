@@ -22,6 +22,7 @@ import { caldavRouter, wellKnownCaldavHandler } from './caldav/server';
 import markdownShareRoutes from './routes/markdownShares';
 import { reconcileMarkdownShareIndexes } from './models/MarkdownShare';
 import { markdavRouter } from './markdav/server';
+import { registerMarkdownLive } from './markdav/live';
 import aiSyncRoutes from './routes/aiSync';
 import pushRoutes from './routes/push';
 import { runDueBackendAgentTasks } from './services/backendAgentRunner';
@@ -359,6 +360,11 @@ io.on('connection', (socket) => {
   }
   if (userId) {
     socket.join(`user:${userId}`);
+  }
+
+  // External Markdown sync — CRDT "Live" relay (Phase 2). Token/owner-authed per share.
+  try { registerMarkdownLive(io, socket, userId); } catch (err) {
+    logger.warn('markdown-live register failed', { error: (err as Error)?.message });
   }
 
   socket.on('note:join', ({ noteId, user }) => {

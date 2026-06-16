@@ -29,5 +29,6 @@ export * from './agentMemory';
 export * from './calendar';
 export * from './caldav';
 export * from './markdownVault';
+export * from './markdownLive';
 export * from './toolParsing';
 export * from './timeContext';
