@@ -10,7 +10,7 @@ const mockDownloadAsync = jest.fn();
 const mockPauseAsync = jest.fn().mockResolvedValue(undefined);
 const mockResumeAsync = jest.fn();
 const mockCancelAsync = jest.fn().mockResolvedValue(undefined);
-const mockSavable = jest.fn(() => ({ url: 'u', fileUri: 'f', options: {}, resumeData: 'rd' }));
+const mockSavable = jest.fn((..._a: any[]) => ({ url: 'u', fileUri: 'f', options: {}, resumeData: 'rd' }));
 
 jest.mock('expo-file-system/legacy', () => ({
   documentDirectory: '/docs/',
