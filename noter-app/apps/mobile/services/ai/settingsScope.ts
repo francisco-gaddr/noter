@@ -20,7 +20,7 @@ import * as Crypto from 'expo-crypto';
 
 // Settings stored in AsyncStorage (non-secret), keyed `${key}_${scope}`.
 export const AI_ASYNC_SETTING_KEYS = [
-  'ai_system_prompt', 'ai_tool_use_enabled', 'ai_chat_context_level', 'ai_local_convert',
+  'ai_system_prompt', 'ai_tool_use_enabled', 'ai_chat_context_level', 'ai_retrieval_settings', 'ai_local_convert',
   'ai_attachments_enabled', 'ai_next_thread_local_only', 'ai_background_work',
   'ai_api_enabled', 'ai_api_provider', 'ai_openrouter_model', 'ai_gemini_model',
   'ai_groq_model', 'ai_openai_model', 'ai_anthropic_model', 'ai_grok_model',

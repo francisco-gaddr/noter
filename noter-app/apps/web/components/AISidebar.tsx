@@ -15,6 +15,7 @@ import { getApiBaseUrl } from '../services/api';
 import { resolveAuthToken as apiResolveAuthToken, resolveGraphqlUrl as apiResolveGraphqlUrl, graphqlRequest as apiGraphqlRequest } from '../services/apiClient';
 import { shouldStopToolIteration, toToolCallKeys, toToolIterationSignature } from '../services/ai/toolChain';
 import { ApiProviderType, API_PROVIDERS, API_PROVIDER_LIST, resolveChatCompletionsUrl, streamApiProviderResponse } from '../services/ai/apiProviders';
+import { retrieveForChat } from '../services/ai/embeddingsService';
 import { getUsageSnapshot, recordUsage, recordToolUse, type UsageSnapshot } from '../services/ai/usageTracker';
 import { extractPdfText } from '../services/ai/pdfText';
 import { pullAiSync, pushAiSync } from '../services/ai/sync';
@@ -122,6 +123,11 @@ export const AISidebar = () => {
   // How "complex" the chat is allowed to be: gates which tools + searches the model
   // may use this conversation (minimal → just answer, deep → full tools + search).
   const [chatContextLevel, setChatContextLevel] = useState<ContextLevel>('standard');
+  // Semantic retrieval (RAG): retrieve relevant, lock-safe notes/tasks per message and
+  // inject them as context (lexical+vector → optional GraphRAG → rerank). Persisted.
+  const [retrievalSettings, setRetrievalSettings] = useState<{ enableSemantic: boolean; enableGraphRAG: boolean; enableRerank: boolean }>(
+    { enableSemantic: false, enableGraphRAG: false, enableRerank: true }
+  );
   const [collapsedThinking, setCollapsedThinking] = useState<Record<string, boolean>>({});
   const [collapsedTool, setCollapsedTool] = useState<Record<string, boolean>>({});
   const [emojiOpen, setEmojiOpen] = useState(false);
@@ -508,6 +514,8 @@ export const AISidebar = () => {
 
       const savedContextLevel = await getStoredValue('aiChatContextLevel');
       if (mounted && savedContextLevel) setChatContextLevel(normalizeContextLevel(savedContextLevel));
+      const savedRetrieval = await getStoredValue('aiRetrievalSettings');
+      if (mounted && savedRetrieval) { try { const r = JSON.parse(savedRetrieval); setRetrievalSettings((prev) => ({ ...prev, ...r })); } catch {} }
 
       const savedWidth = await getStoredValue('aiSidebarWidth');
       if (mounted && savedWidth) {
@@ -669,6 +677,11 @@ export const AISidebar = () => {
     if (!settingsLoaded) return;
     setStoredValue('aiChatContextLevel', chatContextLevel);
   }, [chatContextLevel, settingsLoaded]);
+
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    setStoredValue('aiRetrievalSettings', JSON.stringify(retrievalSettings));
+  }, [retrievalSettings, settingsLoaded]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
@@ -3353,7 +3366,22 @@ export const AISidebar = () => {
       if (!isConversationLocalOnly(convId)) {
         pushAiSync({ messages: [{ conversationId: convId, message: userMsg }] }).catch(() => {});
       }
-      const history = buildHistory(userMsg);
+      let history = buildHistory(userMsg);
+      // Semantic retrieval (RAG): inject relevant, LOCK-SAFE notes/tasks as context when
+      // enabled. Two-stage (recall → optional GraphRAG → rerank). Best-effort.
+      if (retrievalSettings.enableSemantic) {
+        try {
+          const st: any = useStore.getState();
+          const block = await retrieveForChat(
+            (userMsg.content || '').replace(/^<bifogade_filer>[\s\S]*?<\/bifogade_filer>\s*/i, '').trim() || (userMsg.content || ''),
+            (st.notes || []) as any,
+            (st.tasks || []) as any,
+            new Set<string>(Array.isArray(st.unlockedProtectedNoteIds) ? st.unlockedProtectedNoteIds : []),
+            { enableSemantic: true, enableGraphRAG: retrievalSettings.enableGraphRAG, enableRerank: retrievalSettings.enableRerank, limit: 6 },
+          );
+          if (block) history = [{ id: crypto.randomUUID?.() || String(Date.now()), role: 'system', content: block, createdAt: new Date().toISOString() } as any, ...history];
+        } catch { /* non-fatal */ }
+      }
       await runAIGeneration(convId, history);
     } catch (error: any) {
         console.error(error);
@@ -3779,6 +3807,28 @@ export const AISidebar = () => {
                                   <span key={cap} className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">{cap}</span>
                                 ))}
                               </div>
+                            </div>
+
+                            {/* Semantisk kontext (RAG): lås-medveten, opt-in per inställning. */}
+                            <div className="mt-3 border-t pt-2 dark:border-gray-700">
+                              <label className="text-[11px] font-semibold uppercase tracking-wider text-gray-600 dark:text-gray-300">Semantisk kontext (RAG)</label>
+                              <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-200 cursor-pointer mt-1">
+                                <input type="checkbox" checked={retrievalSettings.enableSemantic} onChange={(e) => setRetrievalSettings((p) => ({ ...p, enableSemantic: e.target.checked }))} data-testid="rag-enable" />
+                                Hämta relevant kontext per meddelande
+                              </label>
+                              {retrievalSettings.enableSemantic && (
+                                <div className="ml-4 mt-1 space-y-1">
+                                  <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-200 cursor-pointer">
+                                    <input type="checkbox" checked={retrievalSettings.enableGraphRAG} onChange={(e) => setRetrievalSettings((p) => ({ ...p, enableGraphRAG: e.target.checked }))} data-testid="rag-graph" />
+                                    GraphRAG (utöka via grafen)
+                                  </label>
+                                  <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-200 cursor-pointer">
+                                    <input type="checkbox" checked={retrievalSettings.enableRerank} onChange={(e) => setRetrievalSettings((p) => ({ ...p, enableRerank: e.target.checked }))} data-testid="rag-rerank" />
+                                    Rerank (omordna efter relevans)
+                                  </label>
+                                  <p className="text-[10px] text-gray-500 dark:text-gray-400">Två-stegs RAG: lexikal + vektor (RRF) → {retrievalSettings.enableGraphRAG ? 'graf-expansion → ' : ''}{retrievalSettings.enableRerank ? 'rerank' : 'fusionsordning'}. Bara olåsta objekt. Vektor-/GraphRAG kräver semantisk sök (inbäddningar) på.</p>
+                                </div>
+                              )}
                             </div>
                           </div>
                         )}

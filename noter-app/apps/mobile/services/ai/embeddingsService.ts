@@ -27,10 +27,15 @@ import {
   buildIndexableEntities,
   vectorSearch,
   emptyVectorIndex,
+  buildGraph,
+  neighborsOf,
+  retrieveContext,
+  renderRetrievedContext,
   type EmbeddingsConfig,
   type VectorIndex,
   type StoredVector,
   type VectorHit,
+  type RetrievalCandidate,
   type Note,
   type Task,
 } from '@repo/shared';
@@ -169,6 +174,75 @@ export const semanticSearch = async (query: string, limit = 20, signal?: AbortSi
     return vectorSearch(queryVector, indexToEmbeddedItems(index), limit);
   } catch {
     return [];
+  }
+};
+
+export interface ChatRetrievalOptions {
+  /** Master switch — run semantic retrieval at all. */
+  enableSemantic?: boolean;
+  /** GraphRAG: expand the top hits with their graph neighbours. */
+  enableGraphRAG?: boolean;
+  /** Stage-2 query-aware rerank. */
+  enableRerank?: boolean;
+  /** Max items injected into the chat context. */
+  limit?: number;
+}
+
+/**
+ * Retrieve relevant, LOCK-SAFE context for an AI-chat turn and render it as a prompt block
+ * (the full two-stage RAG: lexical + vector recall → optional GraphRAG → rerank). Returns ''
+ * when nothing relevant (or retrieval is off). The candidate set is the readable notes/tasks
+ * only (locked content is filtered by buildIndexableEntities), so neither the lexical rung,
+ * the vector rung, nor a graph neighbour can ever surface a locked note.
+ */
+export const retrieveForChat = async (
+  query: string,
+  notes: Note[],
+  tasks: Task[],
+  unlockedIds: Set<string>,
+  opts: ChatRetrievalOptions = {},
+  signal?: AbortSignal,
+): Promise<string> => {
+  if (!query.trim() || opts.enableSemantic === false) return '';
+  try {
+    const entities = buildIndexableEntities(notes, tasks, unlockedIds); // lock-aware
+    if (entities.length === 0) return '';
+
+    // Dense rung: pull the query vector + per-id vectors from the encrypted index (if on).
+    const config = await getEmbeddingsConfig();
+    const vecById = new Map<string, number[]>();
+    let queryVector: number[] | undefined;
+    if (config.enabled) {
+      const index = await getVectorIndex(config.model);
+      for (const it of index.items) vecById.set(it.id, it.vector);
+      try {
+        const { url, apiKey } = await resolveEndpoint(config);
+        const [qv] = await embedTexts({ url, model: config.model, inputs: [query.trim()], apiKey, signal });
+        if (qv?.length) queryVector = qv;
+      } catch { /* lexical-only fallback */ }
+    }
+
+    const candidates: RetrievalCandidate[] = entities.map((e) => ({
+      id: e.id, kind: e.kind, title: e.title, text: e.body, vector: vecById.get(e.id),
+    }));
+
+    let getNeighbors: ((id: string) => string[]) | undefined;
+    if (opts.enableGraphRAG) {
+      const graph = buildGraph(notes, tasks);
+      getNeighbors = (id: string) => {
+        const n = neighborsOf(graph, id);
+        if (!n) return [];
+        return [...n.outgoing.map((o) => o.node.id), ...n.incoming.map((o) => o.node.id)];
+      };
+    }
+
+    const items = retrieveContext({
+      query, queryVector, candidates, getNeighbors,
+      options: { useGraphExpansion: !!opts.enableGraphRAG, useRerank: opts.enableRerank !== false, limit: opts.limit ?? 6 },
+    });
+    return renderRetrievedContext(items);
+  } catch {
+    return '';
   }
 };
 

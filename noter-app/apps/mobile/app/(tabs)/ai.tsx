@@ -39,6 +39,7 @@ import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, enc
 import { setDelegation as setLocalDelegation } from '@/services/ai/agentDelegations';
 import { syncDelegationToBackend } from '@/services/ai/agentBackendSync';
 import { pickAttachments } from '@/services/ai/attachments';
+import { retrieveForChat } from '@/services/ai/embeddingsService';
 import { CustomErrorBoundary } from '@/components/ErrorBoundary';
 
 const provider = new MobileLlamaProvider();
@@ -261,6 +262,12 @@ function AIScreenInner() {
   // Chat complexity: gates which tools + searches the chat may use (minimal → just
   // answer, deep → full tools + search). Mirrors the web AISidebar.
   const [chatContextLevel, setChatContextLevel] = useState<ContextLevel>('standard');
+  // Semantic retrieval (RAG): when on, the chat retrieves relevant notes/tasks for each
+  // message (lexical+vector → optional GraphRAG → rerank) and injects them as context.
+  // Lock-aware (only readable items). Persisted as JSON in `ai_retrieval_settings`.
+  const [retrievalSettings, setRetrievalSettings] = useState<{ enableSemantic: boolean; enableGraphRAG: boolean; enableRerank: boolean }>(
+    { enableSemantic: false, enableGraphRAG: false, enableRerank: true }
+  );
   const [toolUsageRows, setToolUsageRows] = useState<ToolUsageRow[]>([]);
   // AI-statistik now lives in the AI-instruktioner tab; load it when that opens.
   useEffect(() => { if (settingsVisible && settingsTab === 'instructions') { getToolUsageRows().then(setToolUsageRows).catch(() => {}); } }, [settingsVisible, settingsTab]);
@@ -577,6 +584,8 @@ function AIScreenInner() {
       if (savedToolUse !== null) setEnableToolUse(savedToolUse === 'true');
       const savedContextLevel = await AsyncStorage.getItem(`ai_chat_context_level_${scopeKey}`);
       if (savedContextLevel) setChatContextLevel(normalizeContextLevel(savedContextLevel));
+      const savedRetrieval = await AsyncStorage.getItem(`ai_retrieval_settings_${scopeKey}`);
+      if (savedRetrieval) { try { const r = JSON.parse(savedRetrieval); setRetrievalSettings((prev) => ({ ...prev, ...r })); } catch {} }
       const savedAttachmentsEnabled = await AsyncStorage.getItem(`ai_attachments_enabled_${scopeKey}`);
       if (savedAttachmentsEnabled !== null) setAttachmentsEnabled(savedAttachmentsEnabled === 'true');
       const savedNextLocalOnly = await AsyncStorage.getItem(`ai_next_thread_local_only_${scopeKey}`);
@@ -674,6 +683,11 @@ function AIScreenInner() {
     if (!userScopeKey || !settingsHydratedRef.current) return;
     AsyncStorage.setItem(`ai_chat_context_level_${userScopeKey}`, chatContextLevel);
   }, [chatContextLevel, userScopeKey]);
+
+  useEffect(() => {
+    if (!userScopeKey || !settingsHydratedRef.current) return;
+    AsyncStorage.setItem(`ai_retrieval_settings_${userScopeKey}`, JSON.stringify(retrievalSettings));
+  }, [retrievalSettings, userScopeKey]);
 
   useEffect(() => {
     if (!userScopeKey || !settingsHydratedRef.current) return;
@@ -2441,7 +2455,23 @@ function AIScreenInner() {
       }
       // Image attachments → vision models (API path); only forwarded on this turn.
       const sentImages = aiUseApiProviders ? imageDataUrls(sentAttachments) : [];
-      await runAIGeneration(conversationId, buildHistory(modelUserMsg), sentImages);
+      // Semantic retrieval (RAG): inject relevant, LOCK-SAFE notes/tasks as context when
+      // enabled in settings. Two-stage (recall → optional GraphRAG → rerank). Best-effort.
+      let history = buildHistory(modelUserMsg);
+      if (retrievalSettings.enableSemantic) {
+        try {
+          const st: any = useStore.getState();
+          const block = await retrieveForChat(
+            input,
+            (st.notes || []) as any,
+            (st.tasks || []) as any,
+            new Set<string>(Array.isArray(st.unlockedProtectedNoteIds) ? st.unlockedProtectedNoteIds : []),
+            { enableSemantic: true, enableGraphRAG: retrievalSettings.enableGraphRAG, enableRerank: retrievalSettings.enableRerank, limit: 6 },
+          );
+          if (block) history = [{ id: uuidv4(), role: 'system', content: block, createdAt: new Date().toISOString() } as any, ...history];
+        } catch { /* non-fatal — chat continues without retrieval context */ }
+      }
+      await runAIGeneration(conversationId, history, sentImages);
     } catch (error) {
       console.error(error);
       setMessages(prev => [...prev, { id: uuidv4(), role: 'system', content: `${t('ai.errorPrefix')}${formatError(error)}`, createdAt: new Date().toISOString() }]);
@@ -2968,6 +2998,30 @@ function AIScreenInner() {
                   <Chip key={cap} compact textStyle={{ fontSize: 10 }}>{cap}</Chip>
                 ))}
               </View>
+
+              {/* Semantisk kontext (RAG): hämta relevanta anteckningar/uppgifter och injicera
+                  som kontext. Lås-medvetet. Kräver semantisk sök (inbäddningar) påslagen för
+                  vektor-/GraphRAG-steget; det lexikala steget + rerank funkar ändå. */}
+              <Text style={{ marginTop: 16, fontWeight: '600', color: theme.colors.onSurface }}>Semantisk kontext (RAG)</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+                <Text style={{ color: theme.colors.onSurface, flex: 1, marginRight: 8 }}>Hämta relevant kontext per meddelande</Text>
+                <Switch value={retrievalSettings.enableSemantic} onValueChange={(v) => setRetrievalSettings((p) => ({ ...p, enableSemantic: v }))} />
+              </View>
+              {retrievalSettings.enableSemantic && (
+                <>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+                    <Text style={{ color: theme.colors.onSurface, flex: 1, marginRight: 8 }}>GraphRAG (utöka med relaterade via grafen)</Text>
+                    <Switch value={retrievalSettings.enableGraphRAG} onValueChange={(v) => setRetrievalSettings((p) => ({ ...p, enableGraphRAG: v }))} />
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
+                    <Text style={{ color: theme.colors.onSurface, flex: 1, marginRight: 8 }}>Rerank (omordna träffar efter relevans)</Text>
+                    <Switch value={retrievalSettings.enableRerank} onValueChange={(v) => setRetrievalSettings((p) => ({ ...p, enableRerank: v }))} />
+                  </View>
+                  <Text style={{ marginTop: 6, fontSize: 12, color: theme.colors.onSurfaceVariant }}>
+                    Två-stegs RAG: lexikal + vektor-träff (RRF) → {retrievalSettings.enableGraphRAG ? 'graf-expansion → ' : ''}{retrievalSettings.enableRerank ? 'rerank' : 'fusionsordning'}. Bara läsbara (olåsta) objekt. Vektor-/GraphRAG-steget kräver att semantisk sök (inbäddningar) är på.
+                  </Text>
+                </>
+              )}
               <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12 }}>
                 <Text style={{ color: theme.colors.onSurface }}>{t('ai.backgroundWorkLabel')}</Text>
                 <Switch value={allowBackgroundAIWork} onValueChange={setAllowBackgroundAIWork} />
