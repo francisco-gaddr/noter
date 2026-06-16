@@ -429,7 +429,7 @@ export const useStore = create<AppState>((set, get) => ({
         }
     }
   },
-  setViewMode: (mode) => set({ viewMode: mode }),
+  setViewMode: (mode) => { set({ viewMode: mode }); AsyncStorage.setItem('notesViewMode', mode).catch(() => {}); },
   ingestServerNote: (note) => set(state => {
     if (!note || !(note as any)._id) return state;
     const merged = [normalizeEncryptedNote(note), ...state.notes];
@@ -483,11 +483,16 @@ export const useStore = create<AppState>((set, get) => ({
     const storedToken = await SecureStore.getItemAsync('token');
     const storedNotifications = await AsyncStorage.getItem('notificationsEnabled');
     const storedActiveProjectId = await AsyncStorage.getItem('activeProjectId');
+    const storedViewMode = await AsyncStorage.getItem('notesViewMode');
     if (storedNotifications !== null) {
       set({ notificationsEnabled: storedNotifications === 'true' });
     }
     if (storedActiveProjectId && storedActiveProjectId !== 'null') {
       set({ activeProjectId: storedActiveProjectId });
+    }
+    // Restore the last-used notes view; default stays 'tree' (cards) when unset.
+    if (storedViewMode === 'list' || storedViewMode === 'tree') {
+      set({ viewMode: storedViewMode });
     }
     if (storedToken) {
       setAuthToken(storedToken);

@@ -189,6 +189,11 @@ export default function GraphScreen() {
         <View style={{ width: 1, height: 22, backgroundColor: theme.colors.outlineVariant, marginHorizontal: 2 }} />
         <Chip compact selected={view === 'graph'} icon="graph" onPress={() => setView('graph')} testID="graph-view-graph">Graf</Chip>
         <Chip compact selected={view === 'list'} icon="format-list-bulleted" onPress={() => setView('list')} testID="graph-view-list">Lista</Chip>
+        <View style={{ width: 1, height: 22, backgroundColor: theme.colors.outlineVariant, marginHorizontal: 2 }} />
+        {/* Quick switch back to the notes screen in a chosen view (graph is a pushed
+            route, so this sets the notes view AND pops back in one tap). */}
+        <Chip compact icon="view-grid-outline" onPress={() => { useStore.getState().setViewMode('tree'); router.back(); }} testID="graph-back-cards">Kortvy</Chip>
+        <Chip compact icon="view-list-outline" onPress={() => { useStore.getState().setViewMode('list'); router.back(); }} testID="graph-back-list">Listvy</Chip>
       </ScrollView>
 
       {semantic && !semanticEnabled && (

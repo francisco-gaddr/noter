@@ -3163,21 +3163,40 @@ export default function AIScreen() {
                         { backgroundColor: item.role === 'user' ? theme.colors.primaryContainer : theme.colors.surfaceVariant }
                       ]}>
                         {split && split.thinking ? (
-                          <View style={[styles.toolCard, { borderColor: theme.colors.outlineVariant, marginBottom: 6 }]}>
+                          // Reasoning ("thinking") is visually set apart from the answer: a
+                          // tinted card with a coloured left accent + brain icon, collapsed by
+                          // default, so the actual answer below is unmistakably the response.
+                          <View style={{
+                            marginBottom: 8,
+                            borderRadius: 10,
+                            borderWidth: StyleSheet.hairlineWidth,
+                            borderColor: theme.colors.tertiary,
+                            borderLeftWidth: 3,
+                            borderLeftColor: theme.colors.tertiary,
+                            backgroundColor: (theme.colors as any).tertiaryContainer || theme.colors.surface,
+                            overflow: 'hidden',
+                          }}>
                             <Pressable
-                              style={styles.toolHeader}
+                              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 10, paddingVertical: 7 }}
                               onPress={() => setCollapsedThinking(prev => ({ ...prev, [thinkKey]: !thinkingCollapsed }))}
                               accessibilityRole="button"
-                              accessibilityLabel="Agentens tankegång"
+                              accessibilityLabel={t('ai.reasoning', 'Tänkande')}
                             >
-                              <View style={styles.toolHeaderLeft}>
-                                <FontAwesome5 name="brain" size={13} color={theme.colors.onSurfaceVariant} />
-                                <Text style={[styles.toolTitle, { color: theme.colors.onSurfaceVariant }]}>Tankegång</Text>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                                <FontAwesome5 name="brain" size={13} color={(theme.colors as any).onTertiaryContainer || theme.colors.tertiary} />
+                                <Text style={{ fontSize: 13, fontWeight: '700', color: (theme.colors as any).onTertiaryContainer || theme.colors.tertiary }}>
+                                  {t('ai.reasoning', 'Tänkande')}
+                                </Text>
                               </View>
-                              <FontAwesome5 name={thinkingCollapsed ? 'chevron-down' : 'chevron-up'} size={11} color={theme.colors.onSurfaceVariant} />
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                <Text style={{ fontSize: 11, color: (theme.colors as any).onTertiaryContainer || theme.colors.tertiary, opacity: 0.8 }}>
+                                  {thinkingCollapsed ? t('ai.showReasoning', 'Visa') : t('ai.hideReasoning', 'Dölj')}
+                                </Text>
+                                <FontAwesome5 name={thinkingCollapsed ? 'chevron-down' : 'chevron-up'} size={11} color={(theme.colors as any).onTertiaryContainer || theme.colors.tertiary} />
+                              </View>
                             </Pressable>
                             {!thinkingCollapsed && (
-                              <Text style={[styles.toolBody, { color: theme.colors.onSurfaceVariant, fontStyle: 'italic' }]}>
+                              <Text selectable style={{ paddingHorizontal: 10, paddingBottom: 8, fontSize: 12.5, lineHeight: 18, fontStyle: 'italic', color: (theme.colors as any).onTertiaryContainer || theme.colors.onSurfaceVariant }}>
                                 {split.thinking}
                               </Text>
                             )}

@@ -3531,15 +3531,26 @@ export const AISidebar = () => {
                             <span>{formatTime(msg.createdAt)}</span>
                           </div>
                           {isAssistant && showThinking && thinking && (
-                            <div className="mb-2 border border-purple-200 dark:border-purple-700 rounded">
+                            // Reasoning ("thinking") is clearly set apart from the answer:
+                            // an indigo card with a left accent + brain icon, collapsed by
+                            // default, so the response below is unmistakably the answer.
+                            <div className="mb-2 rounded-md border border-indigo-200 dark:border-indigo-700/60 border-l-[3px] border-l-indigo-400 dark:border-l-indigo-500 bg-indigo-50/70 dark:bg-indigo-900/25 overflow-hidden">
                               <button
-                                className="w-full text-left px-2 py-1 text-xs font-semibold text-purple-700 dark:text-purple-200 bg-purple-50 dark:bg-purple-900/40"
+                                className="w-full flex items-center justify-between px-2.5 py-1.5 text-xs font-semibold text-indigo-700 dark:text-indigo-200"
                                 onClick={() => setCollapsedThinking(prev => ({ ...prev, [key]: !collapsed }))}
+                                aria-expanded={!collapsed}
                               >
-                                {collapsed ? 'Visa tänkande' : 'Dölj tänkande'}
+                                <span className="flex items-center gap-1.5">
+                                  {FaIcons.FaBrain ? <FaIcons.FaBrain className="opacity-80" /> : null}
+                                  Tänkande
+                                </span>
+                                <span className="flex items-center gap-1.5 opacity-80 font-normal">
+                                  {collapsed ? 'Visa' : 'Dölj'}
+                                  {collapsed ? <FaIcons.FaChevronDown size={10} /> : <FaIcons.FaChevronUp size={10} />}
+                                </span>
                               </button>
                               {!collapsed && (
-                                <div className="px-2 py-2 text-xs text-gray-700 dark:text-gray-200 whitespace-pre-wrap">
+                                <div className="px-2.5 py-2 text-xs italic leading-relaxed text-indigo-900/80 dark:text-indigo-100/80 whitespace-pre-wrap border-t border-indigo-200/60 dark:border-indigo-700/40">
                                   {thinking}
                                 </div>
                               )}
