@@ -194,7 +194,10 @@ const putText = async (conn: WebdavConnection, path: string, content: string): P
 const TARGET_KEY = 'nextcloud_target_folder_v1';
 export const getTargetFolderId = (): string | null => { try { return ls()?.getItem(TARGET_KEY) || null; } catch { return null; } };
 export const setTargetFolderId = (id: string | null): void => { try { if (id) ls()?.setItem(TARGET_KEY, id); else ls()?.removeItem(TARGET_KEY); } catch { /* */ } };
-const resolveTargetFolderId = async (): Promise<string | null> => {
+// Single-flight: concurrent syncs (forceSyncAllSources loops connections) must not each
+// create their own "Nextcloud" parent — that produced duplicate folders.
+let targetResolveInFlight: Promise<string | null> | null = null;
+const resolveTargetFolderIdInner = async (): Promise<string | null> => {
   const store: any = useStore.getState();
   const notes: Note[] = store.notes || [];
   const wanted = getTargetFolderId();
@@ -207,6 +210,31 @@ const resolveTargetFolderId = async (): Promise<string | null> => {
   } catch { /* */ }
   return null;
 };
+const resolveTargetFolderId = async (): Promise<string | null> => {
+  if (targetResolveInFlight) return targetResolveInFlight;
+  targetResolveInFlight = resolveTargetFolderIdInner().finally(() => { targetResolveInFlight = null; });
+  return targetResolveInFlight;
+};
+
+// The web editor stores content as HTML; a .md/.txt file must receive plain text, never raw
+// HTML tags. Strip tags + decode the few entities the editor emits so the pushed file stays
+// readable markdown/text.
+const htmlToPlainText = (html: string): string => {
+  if (!html) return '';
+  if (!/<\/?[a-z][\s\S]*>/i.test(html)) return html; // already plain (e.g. synced-in markdown)
+  return html
+    .replace(/<\s*br\s*\/?>/gi, '\n')
+    .replace(/<\/\s*(p|div|h[1-6]|li|tr)\s*>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+};
 
 /** OUTBOUND (two-way): push local edits of editable text/md notes back to Nextcloud. */
 const pushLocalEditsForConnection = async (conn: WebdavConnection): Promise<number> => {
@@ -217,7 +245,9 @@ const pushLocalEditsForConnection = async (conn: WebdavConnection): Promise<numb
     if (n.deleted) continue;
     const src = (n as any).source as any;
     if (!src || src.connectionId !== conn.id || !syncedFileIsEditable(src)) continue;
-    const body = n.content || '';
+    // Flatten HTML→plain text and hash that SAME representation: an unedited note matches
+    // src.contentHash (no spurious push), and a pushed note won't loop.
+    const body = htmlToPlainText(n.content || '');
     const hash = embeddingContentHash(body);
     if (src.contentHash && src.contentHash === hash) continue;
     try {

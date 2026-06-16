@@ -7,7 +7,7 @@ import { FaPlus, FaTrash, FaSort, FaChevronRight, FaChevronDown, FaFolder, FaFol
 import * as FaIcons from 'react-icons/fa';
 import Fuse from 'fuse.js';
 import { orderBy } from 'lodash';
-import { Note, normalizeNoteType } from '@repo/shared';
+import { Note, normalizeNoteType, isHiddenSyncedNote } from '@repo/shared';
 import { IconPicker } from './IconPicker';
 import { CreateNodeModal } from './CreateNodeModal';
 import { ConfirmationModal } from './ConfirmationModal';
@@ -348,6 +348,9 @@ export default function SidebarTree() {
     let invalid = 0;
     notes.forEach((n) => {
       if (n && typeof n._id === 'string' && n._id.length > 0) {
+        // Non-editable synced files (images/PDF/Word/Excel) stay indexed + graphed but never
+        // appear in the notes tree/list — only editable text files from Nextcloud are shown.
+        if (isHiddenSyncedNote(n as any)) return;
         valid.push(n);
       } else {
         invalid += 1;

@@ -1,6 +1,6 @@
 import * as SQLite from 'expo-sqlite';
 import CryptoJS from 'crypto-js';
-import { Note, Task, Conversation, Message, AIModel, AIProject, encrypt, decrypt, safeDecrypt } from '@repo/shared';
+import { Note, Task, Conversation, Message, AIModel, AIProject, encrypt, decrypt, safeDecrypt, serializeEntityLinks } from '@repo/shared';
 
 type LocalConversation = Conversation & { localOnly?: boolean };
 type LocalAIProject = AIProject & { localOnly?: boolean };
@@ -256,6 +256,12 @@ export const initDatabase = async () => {
       // Column likely exists
   }
 
+  // Provenance for externally-synced notes (Nextcloud `source`) + explicit links. Without these,
+  // offline save dropped them → synced notes lost their `source` on reload (duplicate folders,
+  // info showed "local", hidden-file filter + outbound push stopped working).
+  try { await db.execAsync('ALTER TABLE notes ADD COLUMN source TEXT'); } catch (e) { /* exists */ }
+  try { await db.execAsync('ALTER TABLE notes ADD COLUMN links TEXT'); } catch (e) { /* exists */ }
+
   try {
       await db.execAsync('ALTER TABLE notes ADD COLUMN icon TEXT');
   } catch (e) {
@@ -434,9 +440,23 @@ export const saveNoteLocal = async (note: Note, isSynced: boolean = true) => {
   const encryptedLocked = encrypt(String(!!note.locked));
   const encryptedIsSynced = encryptText(isSynced ? '1' : '0');
 
+  // Provenance + explicit links must survive offline save, otherwise a synced note loses
+  // its `source` on reload — which broke folder dedup, the info view, the hidden-file
+  // filter and the outbound Nextcloud push (they all key off note.source).
+  const rawSource = (note as any).__rawEncryptedSource;
+  const encryptedSource = typeof rawSource === 'string' && rawSource
+    ? rawSource
+    : ((note as any).source ? encrypt(JSON.stringify((note as any).source)) : null);
+  const rawLinks = (note as any).__rawEncryptedLinks;
+  const encryptedLinks = typeof rawLinks === 'string' && rawLinks
+    ? rawLinks
+    : (((note as any).links && (note as any).links.length)
+        ? encrypt(serializeEntityLinks((note as any).links))
+        : null);
+
   await run(
-    `INSERT OR REPLACE INTO notes (_id, title, content, tags, createdAt, updatedAt, userId, clientId, type, parentId, noteOrder, icon, iconColor, locked, password, isSynced)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO notes (_id, title, content, tags, createdAt, updatedAt, userId, clientId, type, parentId, noteOrder, icon, iconColor, locked, password, isSynced, source, links)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       note._id,
       encryptedTitle,
@@ -453,7 +473,9 @@ export const saveNoteLocal = async (note: Note, isSynced: boolean = true) => {
       encryptedIconColor,
       encryptedLocked,
       encryptedPassword,
-      encryptedIsSynced
+      encryptedIsSynced,
+      encryptedSource,
+      encryptedLinks
     ]
   );
 };
@@ -512,10 +534,16 @@ export const getNotesLocal = async (): Promise<Note[]> => {
         iconColor: iconColor || undefined,
         locked: locked,
         password: password || undefined,
+        // Hand the still-encrypted provenance/links straight back; materializeOneNote
+        // decrypts them (parseNoteSource / parseEntityLinks) like the server payload.
+        source: row.source || undefined,
+        links: row.links || undefined,
         __rawEncryptedTitle: row.title,
         __rawEncryptedContent: row.content,
         __rawEncryptedTags: row.tags,
         __rawEncryptedIcon: row.icon,
+        __rawEncryptedSource: row.source,
+        __rawEncryptedLinks: row.links,
     };
   });
   return notes.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());

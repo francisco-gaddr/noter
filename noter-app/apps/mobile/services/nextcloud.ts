@@ -46,6 +46,7 @@ import { fetchWithAuth } from '@/services/api';
 import { useStore } from '@/stores/useStore';
 import { indexEntities } from '@/services/ai/embeddingsService';
 import { extractPdfTextMobile, extractImageOcrMobile, extractDocxMobile, extractXlsxMobile, isPdfHostReady, waitForPdfHost } from '@/services/ai/pdfText';
+import { noteContentToPlainText } from '@/utils/tiptap';
 
 const CONNECTIONS_KEY = 'nextcloud_connections_v1';
 const NEO4J_KEY = 'nextcloud_neo4j_config_v1';
@@ -107,12 +108,16 @@ export const setTargetFolderId = async (id: string | null): Promise<void> => {
   try { if (id) await AsyncStorage.setItem(TARGET_KEY, id); else await AsyncStorage.removeItem(TARGET_KEY); } catch { /* */ }
 };
 /** Resolve the project folder synced content nests under; create a "Nextcloud" folder if unset/stale. */
-const resolveTargetFolderId = async (): Promise<string | null> => {
+// Single-flight guard: concurrent syncs (forceSyncAllSources loops every connection) must NOT
+// each create their own "Nextcloud" parent — that was a source of duplicate folders.
+let targetResolveInFlight: Promise<string | null> | null = null;
+const resolveTargetFolderIdInner = async (): Promise<string | null> => {
   const store: any = useStore.getState();
   const notes: Note[] = store.notes || [];
   const wanted = await getTargetFolderId();
   if (wanted && notes.some((n) => n._id === wanted && !n.deleted)) return wanted;
   // Reuse an existing top-level "Nextcloud" project folder if present, else create one.
+  // (A synced root carries `source`; the local container we create here does not.)
   const existing = notes.find((n) => !n.deleted && (n.type === 'project') && !(n as any).source && (n.title || '').trim().toLowerCase() === 'nextcloud');
   if (existing) { await setTargetFolderId(existing._id); return existing._id; }
   try {
@@ -120,6 +125,11 @@ const resolveTargetFolderId = async (): Promise<string | null> => {
     if (created?._id) { await setTargetFolderId(created._id); return created._id; }
   } catch { /* fall through */ }
   return null;
+};
+const resolveTargetFolderId = async (): Promise<string | null> => {
+  if (targetResolveInFlight) return targetResolveInFlight;
+  targetResolveInFlight = resolveTargetFolderIdInner().finally(() => { targetResolveInFlight = null; });
+  return targetResolveInFlight;
 };
 
 const newConnId = () => 'nc_' + Math.abs(Date.now()).toString(36) + Math.floor(Math.random() * 1e6).toString(36);
@@ -338,7 +348,10 @@ const pushLocalEditsForConnection = async (conn: WebdavConnection): Promise<numb
     if (n.deleted) continue;
     const src = (n as any).source as NoteSource | null;
     if (!src || src.connectionId !== conn.id || !syncedFileIsEditable(src)) continue;
-    const body = n.content || '';
+    // The mobile editor stores rich content as HTML; a .md/.txt file must receive plain text,
+    // never raw HTML tags. Flatten to plain text and hash that SAME representation so an
+    // unedited note matches src.contentHash (no spurious push) and a pushed note doesn't loop.
+    const body = noteContentToPlainText(n.content || '');
     const hash = embeddingContentHash(body);
     if (src.contentHash && src.contentHash === hash) continue; // unchanged since last sync
     try {

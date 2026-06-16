@@ -9,7 +9,7 @@ import ProjectSelector from '@/components/ProjectSelector';
 import IconPickerModal from '@/components/IconPickerModal';
 import { SvgUri } from 'react-native-svg';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
-import { Note, isBlankNote, buildSecurityNoteMap, isReadableWithLocks } from '@repo/shared';
+import { Note, isBlankNote, buildSecurityNoteMap, isReadableWithLocks, isHiddenSyncedNote } from '@repo/shared';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { parseSettings } from '@/services/storage';
 import { getSocket } from '@/services/socket';
@@ -316,6 +316,9 @@ export default function NotesScreen() {
     let filtered = notes.filter((n) => {
       if (!isReadableWithLocks(n as any, securityMap as any, unlockedSet)) return false;
       const type = normalizeNoteType((n as any).type);
+      // Non-editable synced files (images/PDF/Word/Excel) stay indexed + in the graph but never
+      // appear in the notes list — only editable text files from Nextcloud are shown.
+      if (isHiddenSyncedNote(n as any)) return false;
       // Only plain notes with real content — folders and completely-empty notes
       // (junk from failed syncs) never appear in the notes list.
       return type !== 'project' && type !== 'task_list' && !isBlankNote({ title: n.title, content: n.content, type: 'note' });
