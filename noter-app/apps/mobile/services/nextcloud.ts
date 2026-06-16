@@ -43,6 +43,7 @@ import {
 import { fetchWithAuth } from '@/services/api';
 import { useStore } from '@/stores/useStore';
 import { indexEntities } from '@/services/ai/embeddingsService';
+import { extractPdfTextMobile, isPdfHostReady } from '@/services/ai/pdfText';
 
 const CONNECTIONS_KEY = 'nextcloud_connections_v1';
 const NEO4J_KEY = 'nextcloud_neo4j_config_v1';
@@ -198,6 +199,38 @@ const getText = async (conn: WebdavConnection, path: string): Promise<string> =>
   return res.text();
 };
 
+const PDF_MAX_BYTES = 8_000_000; // cap PDFs pulled through the WebView bridge
+
+/** Fetch a binary file and return its base64 (no data: prefix), or '' on failure/oversize. */
+const getBase64 = async (conn: WebdavConnection, path: string): Promise<string> => {
+  const pw = await getPassword(conn.id);
+  const res = await fetch(joinDavUrl(conn.baseUrl, path), { headers: { Authorization: basicAuth(conn.username, pw) } });
+  if (!res.ok) return '';
+  const blob = await res.blob();
+  if ((blob as any).size && (blob as any).size > PDF_MAX_BYTES) return '';
+  const dataUrl: string = await new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onerror = () => reject(fr.error);
+    fr.onload = () => resolve(String(fr.result || ''));
+    fr.readAsDataURL(blob);
+  });
+  return dataUrl.indexOf(',') >= 0 ? dataUrl.slice(dataUrl.indexOf(',') + 1) : '';
+};
+
+/** Extract readable text for a file by kind: text inline, PDF via the WebView pdf.js host. */
+const extractFileText = async (conn: WebdavConnection, path: string, name: string, mime?: string): Promise<string> => {
+  const kind = classifyFile(name, mime);
+  if (kind === 'text') { try { return (await getText(conn, path)).slice(0, TEXT_BYTE_CAP); } catch { return ''; } }
+  if (kind === 'pdf' && isPdfHostReady()) {
+    try {
+      const b64 = await getBase64(conn, path);
+      if (!b64) return '';
+      return (await extractPdfTextMobile(b64)) || '';
+    } catch { return ''; }
+  }
+  return ''; // pdf without host, or image (vision/OCR is later)
+};
+
 /** Verify a connection by listing the root (or first selected folder). */
 export const testConnection = async (conn: WebdavConnection): Promise<{ ok: boolean; error?: string }> => {
   try { await propfind(conn, conn.rootPaths[0] || ''); return { ok: true }; }
@@ -270,14 +303,9 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
   for (const draft of plan.creates) {
     const parentId = draft.parentRemotePath ? pathToId.get(draft.parentRemotePath) || null : null;
     let content = '';
-    if (draft.needsContent && classifyFile(draft.title, draft.source.mimeType) === 'text') {
-      try {
-        const raw = await getText(conn, draft.source.remotePath);
-        content = ingestProvenanceHeader(draft.source) + '\n\n' + raw.slice(0, TEXT_BYTE_CAP);
-      } catch { content = ingestProvenanceHeader(draft.source); }
-    } else if (draft.needsContent) {
-      // pdf/image on mobile: provenance placeholder for now (extraction is Fas 2).
-      content = ingestProvenanceHeader(draft.source) + '\n\n[Innehåll ej extraherat på mobil ännu]';
+    if (draft.needsContent) {
+      const body = await extractFileText(conn, draft.source.remotePath, draft.title, draft.source.mimeType);
+      content = ingestProvenanceHeader(draft.source) + (body ? '\n\n' + body : '\n\n[Inget extraherbart innehåll]');
     }
     try {
       const note = await store.createNote({
@@ -293,10 +321,8 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
     } catch { /* skip this file, continue */ }
   }
   for (const u of plan.updates) {
-    let content = ingestProvenanceHeader(u.source);
-    if (classifyFile(u.title, u.source.mimeType) === 'text') {
-      try { content += '\n\n' + (await getText(conn, u.source.remotePath)).slice(0, TEXT_BYTE_CAP); } catch { /* keep header */ }
-    }
+    const body = await extractFileText(conn, u.source.remotePath, u.title, u.source.mimeType);
+    const content = ingestProvenanceHeader(u.source) + (body ? '\n\n' + body : '');
     try { await store.updateNote(u.noteId, { content, source: u.source }); updated += 1; } catch { /* continue */ }
   }
   for (const id of plan.deletes) {

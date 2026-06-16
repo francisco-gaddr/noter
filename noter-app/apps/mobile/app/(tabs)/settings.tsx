@@ -17,6 +17,7 @@ import { hasActiveDataKey } from '@repo/shared';
 import { AdminDashboard } from '@/components/AdminDashboard';
 import { EmbeddingsSettings } from '@/components/EmbeddingsSettings';
 import { NextcloudSettings } from '@/components/NextcloudSettings';
+import { PdfExtractorHost } from '@/components/PdfExtractorHost';
 import * as Clipboard from 'expo-clipboard';
 import { CalendarSharesSettings } from '@/components/CalendarSharesSettings';
 import { MarkdownSharesSettings } from '@/components/MarkdownSharesSettings';
@@ -458,6 +459,7 @@ export default function SettingsScreen() {
       <Divider />
 
       <NextcloudSettings />
+      <PdfExtractorHost />
 
       <Divider />
 
