@@ -30,7 +30,9 @@ const lib0WebcryptoShim = path.resolve(projectRoot, 'shims/lib0-webcrypto.js');
 
 // Workaround for expo-sqlite/wa-sqlite resolution in monorepo/metro
 config.resolver.resolveRequest = (context, moduleName, platform) => {
-  if (moduleName === 'isomorphic-webcrypto/src/react-native' || moduleName === 'isomorphic-webcrypto') {
+  // Match the bare package AND any subpath (…/src/react-native, …/index, etc.) so lib0's
+  // RN webcrypto variant always resolves to our global.crypto-backed shim.
+  if (moduleName === 'isomorphic-webcrypto' || moduleName.startsWith('isomorphic-webcrypto/')) {
     return { filePath: lib0WebcryptoShim, type: 'sourceFile' };
   }
   if (moduleName.endsWith('wa-sqlite.wasm')) {
