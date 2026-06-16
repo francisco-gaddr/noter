@@ -24,7 +24,8 @@ import {
   baseUrlFromLoginResult,
   normalizePath,
   planIngest,
-  ingestProvenanceHeader,
+  syncedFileIsEditable,
+  embeddingContentHash,
   buildNeo4jSyncPlan,
   parseNeo4jConfig,
   serializeNeo4jConfig,
@@ -177,6 +178,62 @@ const getBytes = async (conn: WebdavConnection, path: string): Promise<ArrayBuff
   return res.arrayBuffer();
 };
 
+const stripQuotesEtag = (s: string): string => (s || '').replace(/^W\//i, '').replace(/^"+|"+$/g, '');
+/** Upload (PUT) text content back to a WebDAV file; returns the new ETag (or ''). */
+const putText = async (conn: WebdavConnection, path: string, content: string): Promise<string> => {
+  const res = await fetch(joinDavUrl(conn.baseUrl, path), {
+    method: 'PUT',
+    headers: { Authorization: basicAuth(conn.username, getPassword(conn.id)), 'Content-Type': 'text/plain; charset=utf-8' },
+    body: content,
+  });
+  if (!res.ok && res.status !== 201 && res.status !== 204) throw new Error('Uppladdning misslyckades ' + res.status);
+  return stripQuotesEtag(res.headers.get('etag') || '');
+};
+
+// ---- target project folder (where synced content lands + is shown) -----------
+const TARGET_KEY = 'nextcloud_target_folder_v1';
+export const getTargetFolderId = (): string | null => { try { return ls()?.getItem(TARGET_KEY) || null; } catch { return null; } };
+export const setTargetFolderId = (id: string | null): void => { try { if (id) ls()?.setItem(TARGET_KEY, id); else ls()?.removeItem(TARGET_KEY); } catch { /* */ } };
+const resolveTargetFolderId = async (): Promise<string | null> => {
+  const store: any = useStore.getState();
+  const notes: Note[] = store.notes || [];
+  const wanted = getTargetFolderId();
+  if (wanted && notes.some((n) => n._id === wanted && !n.deleted)) return wanted;
+  const existing = notes.find((n) => !n.deleted && n.type === 'project' && !(n as any).source && (n.title || '').trim().toLowerCase() === 'nextcloud');
+  if (existing) { setTargetFolderId(existing._id); return existing._id; }
+  try {
+    const created = await api.createNote({ title: 'Nextcloud', content: '', tags: [], parentId: null, type: 'project' } as any);
+    if (created?._id) { setTargetFolderId(created._id); await store.fetchNotes?.(); return created._id; }
+  } catch { /* */ }
+  return null;
+};
+
+/** OUTBOUND (two-way): push local edits of editable text/md notes back to Nextcloud. */
+const pushLocalEditsForConnection = async (conn: WebdavConnection): Promise<number> => {
+  const store: any = useStore.getState();
+  const notes: Note[] = store.notes || [];
+  let pushed = 0;
+  for (const n of notes) {
+    if (n.deleted) continue;
+    const src = (n as any).source as any;
+    if (!src || src.connectionId !== conn.id || !syncedFileIsEditable(src)) continue;
+    const body = n.content || '';
+    const hash = embeddingContentHash(body);
+    if (src.contentHash && src.contentHash === hash) continue;
+    try {
+      const newEtag = await putText(conn, src.remotePath, body);
+      await api.updateNote(n._id, { source: { ...src, remoteEtag: newEtag || src.remoteEtag, contentHash: hash, syncedAt: new Date().toISOString() } } as any);
+      pushed += 1;
+    } catch { /* */ }
+  }
+  return pushed;
+};
+export const pushAllLocalEdits = async (): Promise<number> => {
+  let total = 0;
+  for (const conn of listConnections()) { try { total += await pushLocalEditsForConnection(conn); } catch { /* */ } }
+  return total;
+};
+
 export const testConnection = async (conn: WebdavConnection): Promise<{ ok: boolean; error?: string }> => {
   try { await propfind(conn, conn.rootPaths[0] || ''); return { ok: true }; }
   catch (e: any) { return { ok: false, error: e?.message || 'Anslutning misslyckades' }; }
@@ -211,7 +268,7 @@ const toIngest = (e: WebdavEntry): IngestEntry => ({
 
 const decodeText = (buf: ArrayBuffer): string => new TextDecoder('utf-8').decode(buf).slice(0, TEXT_CAP);
 
-export interface SyncResult { created: number; updated: number; deleted: number; ok: boolean; error?: string }
+export interface SyncResult { created: number; updated: number; deleted: number; pushed?: number; ok: boolean; error?: string }
 
 export const syncConnection = async (connectionId: string): Promise<SyncResult> => {
   const conn = listConnections().find((c) => c.id === connectionId);
@@ -224,7 +281,12 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
   try { entries = await enumerateAll(conn); }
   catch (e: any) { return { created: 0, updated: 0, deleted: 0, ok: false, error: e?.message || 'Sync misslyckades' }; }
 
+  // OUTBOUND first (two-way): push local edits of editable text/md notes back to Nextcloud.
+  let pushed = 0;
+  try { pushed = await pushLocalEditsForConnection(conn); } catch { /* non-fatal */ }
+
   const plan = planIngest(entries, existingRefs, connectionId, new Date().toISOString());
+  const targetFolderId = await resolveTargetFolderId();
 
   const pathToId = new Map<string, string>();
   for (const n of allNotes) {
@@ -239,39 +301,31 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
       const buf = await getBytes(conn, path);
       if (kind === 'text') return decodeText(buf);
       const t = await extractBufferText(buf, name, mime || ''); // pdf/docx/xlsx/pages/image(OCR)
-      if (!t.trim()) return '';
-      return kind === 'image' ? '[OCR-text ur bild]\n' + t : t;
+      return t.trim() ? t : '';
     } catch { return ''; }
   };
 
   let created = 0, updated = 0, deleted = 0;
-  // Self-heal: a rich file whose extraction came back empty (transient CDN/download error, a
-  // scanned PDF the OCR missed) gets an EMPTY stored ETag so the next sync retries it instead of
-  // being stuck on a provenance-only note.
-  const richEmptyRetry = (src: typeof plan.creates[number]['source'], body: string) => {
+  // Stamp source: content hash (outbound edit-detection) + self-heal empty rich extractions.
+  const stampSource = (src: typeof plan.creates[number]['source'], body: string) => {
     const k = classifyFile(src.remotePath, src.mimeType);
     const isRich = k === 'pdf' || k === 'docx' || k === 'xlsx' || k === 'image' || k === 'pages';
-    return isRich && !body.trim() ? { ...src, remoteEtag: '' } : src;
+    return { ...src, remoteEtag: isRich && !body.trim() ? '' : src.remoteEtag, contentHash: embeddingContentHash(body || '') };
   };
 
   for (const draft of plan.creates) {
-    const parentId = draft.parentRemotePath ? pathToId.get(draft.parentRemotePath) || null : null;
-    let content = '';
+    const parentId = draft.parentRemotePath ? pathToId.get(draft.parentRemotePath) || null : targetFolderId;
     let body = '';
-    if (draft.needsContent) {
-      body = await extract(draft.source.remotePath, draft.title, draft.source.mimeType);
-      content = ingestProvenanceHeader(draft.source) + (body ? '\n\n' + body : '\n\n[Inget extraherbart innehåll]');
-    }
+    if (draft.needsContent) body = await extract(draft.source.remotePath, draft.title, draft.source.mimeType);
     try {
-      const note = await api.createNote({ title: draft.title, content, tags: [], parentId, type: draft.type, source: richEmptyRetry(draft.source, body) } as any);
+      const note = await api.createNote({ title: draft.title, content: body, tags: [], parentId, type: draft.type, source: stampSource(draft.source, body) } as any);
       pathToId.set(draft.source.remotePath, note._id);
       created += 1;
     } catch { /* continue */ }
   }
   for (const u of plan.updates) {
     const body = await extract(u.source.remotePath, u.title, u.source.mimeType);
-    const content = ingestProvenanceHeader(u.source) + (body ? '\n\n' + body : '');
-    try { await api.updateNote(u.noteId, { content, source: richEmptyRetry(u.source, body) } as any); updated += 1; } catch { /* */ }
+    try { await api.updateNote(u.noteId, { content: body, source: stampSource(u.source, body) } as any); updated += 1; } catch { /* */ }
   }
   for (const id of plan.deletes) {
     try { await api.deleteNote(id); deleted += 1; } catch { /* */ }
@@ -284,7 +338,7 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
   } catch { /* best-effort */ }
 
   saveConnection({ ...conn, lastSyncAt: new Date().toISOString() });
-  return { created, updated, deleted, ok: true };
+  return { created, updated, deleted, pushed, ok: true };
 };
 
 /** Sync every connection whose auto-sync interval has elapsed (call on load / interval tick). */

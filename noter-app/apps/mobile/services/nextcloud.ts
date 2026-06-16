@@ -28,7 +28,8 @@ import {
   baseUrlFromLoginResult,
   normalizePath,
   planIngest,
-  ingestProvenanceHeader,
+  syncedFileIsEditable,
+  embeddingContentHash,
   buildNeo4jSyncPlan,
   parseNeo4jConfig,
   serializeNeo4jConfig,
@@ -96,6 +97,30 @@ export const deleteConnection = async (connectionId: string): Promise<void> => {
 };
 const getPassword = async (connectionId: string): Promise<string> =>
   (await SecureStore.getItemAsync(credKey(connectionId)).catch(() => null)) || '';
+
+// ---- target project folder (where synced content lands + is shown) -----------
+const TARGET_KEY = 'nextcloud_target_folder_v1';
+export const getTargetFolderId = async (): Promise<string | null> => {
+  try { return (await AsyncStorage.getItem(TARGET_KEY)) || null; } catch { return null; }
+};
+export const setTargetFolderId = async (id: string | null): Promise<void> => {
+  try { if (id) await AsyncStorage.setItem(TARGET_KEY, id); else await AsyncStorage.removeItem(TARGET_KEY); } catch { /* */ }
+};
+/** Resolve the project folder synced content nests under; create a "Nextcloud" folder if unset/stale. */
+const resolveTargetFolderId = async (): Promise<string | null> => {
+  const store: any = useStore.getState();
+  const notes: Note[] = store.notes || [];
+  const wanted = await getTargetFolderId();
+  if (wanted && notes.some((n) => n._id === wanted && !n.deleted)) return wanted;
+  // Reuse an existing top-level "Nextcloud" project folder if present, else create one.
+  const existing = notes.find((n) => !n.deleted && (n.type === 'project') && !(n as any).source && (n.title || '').trim().toLowerCase() === 'nextcloud');
+  if (existing) { await setTargetFolderId(existing._id); return existing._id; }
+  try {
+    const created = await store.createNote({ title: 'Nextcloud', content: '', tags: [], parentId: null, type: 'project' });
+    if (created?._id) { await setTargetFolderId(created._id); return created._id; }
+  } catch { /* fall through */ }
+  return null;
+};
 
 const newConnId = () => 'nc_' + Math.abs(Date.now()).toString(36) + Math.floor(Math.random() * 1e6).toString(36);
 
@@ -204,6 +229,19 @@ const getText = async (conn: WebdavConnection, path: string): Promise<string> =>
   return res.text();
 };
 
+/** Upload (PUT) text content back to a WebDAV file. Returns the new ETag (or '' if not given). */
+const putText = async (conn: WebdavConnection, path: string, content: string): Promise<string> => {
+  const pw = await getPassword(conn.id);
+  const res = await fetch(joinDavUrl(conn.baseUrl, path), {
+    method: 'PUT',
+    headers: { Authorization: basicAuth(conn.username, pw), 'Content-Type': 'text/plain; charset=utf-8' },
+    body: content,
+  });
+  if (!res.ok && res.status !== 201 && res.status !== 204) throw new Error('Uppladdning misslyckades ' + res.status);
+  return stripQuotesEtag(res.headers.get('etag') || '');
+};
+const stripQuotesEtag = (s: string): string => (s || '').replace(/^W\//i, '').replace(/^"+|"+$/g, '');
+
 const PDF_MAX_BYTES = 8_000_000; // cap PDFs pulled through the WebView bridge
 
 /** Fetch a binary file and return its base64 (no data: prefix), or '' on failure/oversize. */
@@ -285,7 +323,42 @@ const enumerateAll = async (conn: WebdavConnection): Promise<IngestEntry[]> => {
   return out;
 };
 
-export interface SyncResult { created: number; updated: number; deleted: number; ok: boolean; error?: string }
+export interface SyncResult { created: number; updated: number; deleted: number; pushed?: number; ok: boolean; error?: string }
+
+/**
+ * OUTBOUND (two-way): push local edits of editable text/md notes back to Nextcloud. A note is
+ * "edited" when the hash of its current body differs from `source.contentHash` (set at the last
+ * sync). Only editable text files are pushed (binaries are read-only). Returns the count pushed.
+ */
+const pushLocalEditsForConnection = async (conn: WebdavConnection): Promise<number> => {
+  const store: any = useStore.getState();
+  const notes: Note[] = store.notes || [];
+  let pushed = 0;
+  for (const n of notes) {
+    if (n.deleted) continue;
+    const src = (n as any).source as NoteSource | null;
+    if (!src || src.connectionId !== conn.id || !syncedFileIsEditable(src)) continue;
+    const body = n.content || '';
+    const hash = embeddingContentHash(body);
+    if (src.contentHash && src.contentHash === hash) continue; // unchanged since last sync
+    try {
+      const newEtag = await putText(conn, src.remotePath, body);
+      const nextSrc: NoteSource = { ...src, remoteEtag: newEtag || src.remoteEtag, contentHash: hash, syncedAt: new Date().toISOString() };
+      await store.updateNote(n._id, { source: nextSrc });
+      pushed += 1;
+    } catch { /* skip this file; retried next sync */ }
+  }
+  return pushed;
+};
+
+/** Public: push edits for ALL connections (called by the on-save hook + 'Synka nu'). */
+export const pushAllLocalEdits = async (): Promise<number> => {
+  let total = 0;
+  for (const conn of await listConnections()) {
+    try { total += await pushLocalEditsForConnection(conn); } catch { /* */ }
+  }
+  return total;
+};
 
 /**
  * Pull the selected folders, diff against already-synced notes, and apply creates/updates/
@@ -312,19 +385,30 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
   });
   if (needsHost) await waitForPdfHost(6000);
 
+  // OUTBOUND first (two-way): push local edits of editable text/md notes back to Nextcloud.
+  let pushed = 0;
+  try { pushed = await pushLocalEditsForConnection(conn); } catch { /* non-fatal */ }
+
   const syncedAt = new Date().toISOString();
   const plan = planIngest(entries, existingRefs, connectionId, syncedAt);
 
-  // Self-heal: a rich file whose extraction came back empty (host still warming up, a transient
-  // download error, a scanned PDF the OCR missed) gets an EMPTY stored ETag so the next sync
-  // sees a "change" and retries — instead of being stuck on a provenance-only note forever.
-  const richEmptyRetry = (src: NoteSource, body: string): NoteSource => {
+  // Where synced content lands + is shown (a chosen/auto project folder). Top-level synced root
+  // folders nest UNDER it instead of at the app root.
+  const targetFolderId = await resolveTargetFolderId();
+
+  // Stamp the source: content hash (for outbound edit-detection) + self-heal. A rich file whose
+  // extraction came back empty (host warming up / transient error / scanned PDF) gets an EMPTY
+  // ETag so the next sync retries it instead of being stuck on a placeholder note forever.
+  const stampSource = (src: NoteSource, body: string): NoteSource => {
     const k = classifyFile(src.remotePath, src.mimeType);
     const isRich = k === 'pdf' || k === 'docx' || k === 'xlsx' || k === 'image';
-    return isRich && !body.trim() ? { ...src, remoteEtag: '' } : src;
+    return {
+      ...src,
+      remoteEtag: isRich && !body.trim() ? '' : src.remoteEtag,
+      contentHash: embeddingContentHash(body || ''),
+    };
   };
 
-  // Resolve a remotePath → noteId map as we create folders (so children get the right parent).
   const pathToId = new Map<string, string>();
   for (const n of allNotes) {
     const src = toSyncedRef(n as any).source;
@@ -334,21 +418,20 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
   let created = 0, updated = 0, deleted = 0;
   // creates are already ordered folders→files, shallow→deep by planIngest.
   for (const draft of plan.creates) {
-    const parentId = draft.parentRemotePath ? pathToId.get(draft.parentRemotePath) || null : null;
-    let content = '';
+    // Top-level roots → under the chosen target folder; nested → under their parent note.
+    const parentId = draft.parentRemotePath ? pathToId.get(draft.parentRemotePath) || null : targetFolderId;
     let body = '';
     if (draft.needsContent) {
       body = await extractFileText(conn, draft.source.remotePath, draft.title, draft.source.mimeType);
-      content = ingestProvenanceHeader(draft.source) + (body ? '\n\n' + body : '\n\n[Inget extraherbart innehåll]');
     }
     try {
       const note = await store.createNote({
         title: draft.title,
-        content,
+        content: body, // body only — no metadata header (metadata lives in `source`, shown via ⋯→info)
         tags: [],
         parentId,
         type: draft.type,
-        source: richEmptyRetry(draft.source, body),
+        source: stampSource(draft.source, body),
       });
       pathToId.set(draft.source.remotePath, note._id);
       created += 1;
@@ -356,8 +439,7 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
   }
   for (const u of plan.updates) {
     const body = await extractFileText(conn, u.source.remotePath, u.title, u.source.mimeType);
-    const content = ingestProvenanceHeader(u.source) + (body ? '\n\n' + body : '');
-    try { await store.updateNote(u.noteId, { content, source: richEmptyRetry(u.source, body) }); updated += 1; } catch { /* continue */ }
+    try { await store.updateNote(u.noteId, { content: body, source: stampSource(u.source, body) }); updated += 1; } catch { /* continue */ }
   }
   for (const id of plan.deletes) {
     try { await store.deleteNote(id); deleted += 1; } catch { /* continue */ }
@@ -372,7 +454,7 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
   // Persist last-sync timestamp on the connection (drives isSyncDue).
   await saveConnection({ ...conn, lastSyncAt: new Date().toISOString() }, undefined).catch(() => {});
 
-  return { created, updated, deleted, ok: true };
+  return { created, updated, deleted, pushed, ok: true };
 };
 
 /** Sync every connection whose auto-sync interval has elapsed (call on app foreground / tick). */

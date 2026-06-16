@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, View, TouchableOpacity } from 'react-native';
 import { Card, Chip, Text, IconButton, useTheme } from 'react-native-paper';
-import { Note } from '@repo/shared';
+import { Note, isHiddenSyncedNote } from '@repo/shared';
 import { useRouter } from 'expo-router';
 import { FlashList } from '@shopify/flash-list';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
@@ -53,7 +53,10 @@ export default function NoteTree({
   const draggedItemRef = useRef<TreeItem | null>(null);
   const visibleNotes = useMemo(() => notes.filter((n) => {
     const type = normalizeNoteType((n as any).type);
-    return type !== 'task_list' && type !== 'project';
+    if (type === 'task_list' || type === 'project') return false;
+    // Non-editable Nextcloud files (image/PDF/Word/Excel) stay synced + indexed but are hidden
+    // from the notes list — only editable text/md synced files show.
+    return !isHiddenSyncedNote(n as any);
   }), [notes]);
 
   const toggleExpand = (id: string) => {

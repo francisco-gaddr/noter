@@ -22,6 +22,9 @@ export interface NoteSource {
   remoteModified?: string;
   mimeType?: string;
   syncedAt?: string;
+  /** Hash of the note body at last sync — used to detect LOCAL edits for the outbound push
+   *  (two-way sync) without relying on timestamps. */
+  contentHash?: string;
 }
 
 /** Minimal shape the planner needs from an already-synced note. */
@@ -169,6 +172,7 @@ export const parseNoteSource = (raw: unknown): NoteSource | null => {
     remoteModified: obj.remoteModified ? String(obj.remoteModified) : undefined,
     mimeType: obj.mimeType ? String(obj.mimeType) : undefined,
     syncedAt: obj.syncedAt ? String(obj.syncedAt) : undefined,
+    contentHash: obj.contentHash ? String(obj.contentHash) : undefined,
   };
 };
 

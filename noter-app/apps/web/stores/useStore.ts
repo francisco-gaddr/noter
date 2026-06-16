@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Note, Task, UpdateTaskDto, User, decrypt, encrypt, safeDecrypt, normalizeNoteType, parseEntityLinks } from '@repo/shared';
+import { Note, Task, UpdateTaskDto, User, decrypt, encrypt, safeDecrypt, normalizeNoteType, parseEntityLinks, parseNoteSource } from '@repo/shared';
 import { api, getApiBaseUrl, getUUID, setApiBaseUrl, setApiToken } from '../services/api';
 import { socket, connectSocket, disconnectSocket, setSocketToken } from '../services/socket';
 import { db } from '../services/db';
@@ -317,6 +317,7 @@ const materializeNotesFromEncrypted = (notes: Note[], unlockedIds: Set<string>):
       icon: note.__rawEncryptedIcon ? (() => { try { return decrypt(note.__rawEncryptedIcon) } catch { return note.__rawEncryptedIcon } })() : undefined,
       iconColor: note.__rawEncryptedIconColor ? (() => { try { return decrypt(note.__rawEncryptedIconColor) } catch { return note.__rawEncryptedIconColor } })() : undefined,
       links: parseEntityLinks(note.links ? safeDecrypt(note.links, '') : ''),
+      source: (note as any).source ? parseNoteSource(safeDecrypt((note as any).source, '')) : null,
       locked: parseNoteLocked(note.locked),
     };
   });

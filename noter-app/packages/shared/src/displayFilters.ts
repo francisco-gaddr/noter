@@ -10,6 +10,7 @@
  */
 import type { Note, Task } from './types';
 import { normalizeNoteType } from './noteType';
+import { classifyFile } from './webdavClient';
 
 /** Strip HTML tags + entities + whitespace; '' means visually empty. */
 const stripToText = (raw: string): string =>
@@ -63,6 +64,28 @@ export const isBlankNote = (note: Pick<Note, 'title' | 'content' | 'type'>): boo
 /** A task with no title is junk. */
 export const isBlankTask = (task: Pick<Task, 'title'>): boolean => !((task.title ?? '').trim());
 
+/**
+ * True when a Nextcloud-synced file is editable as plain text in the note editor (md/txt/code/
+ * json/csv…). PDFs, Word/Excel, images and other binaries are NOT editable here — their note
+ * holds extracted text for search/graph only. `source` may be a decrypted NoteSource object.
+ */
+export const syncedFileIsEditable = (source: any): boolean => {
+  if (!source || (source.origin !== 'nextcloud' && source.origin !== 'webdav')) return true;
+  return classifyFile(String(source.remotePath || ''), source.mimeType) === 'text';
+};
+
+/**
+ * True when a note is a Nextcloud-synced file that should be HIDDEN from the notes list — i.e.
+ * a non-editable file (image/PDF/Word/Excel). It still lives in the store (so it's indexed,
+ * graphed, and mirrored to Neo4j); it just doesn't clutter the notes list. Editable text/md
+ * synced files stay visible.
+ */
+export const isHiddenSyncedNote = (note: { source?: any }): boolean => {
+  const src = (note as any)?.source;
+  if (!src || (src.origin !== 'nextcloud' && src.origin !== 'webdav')) return false;
+  return !syncedFileIsEditable(src);
+};
+
 const notDeleted = (x: { deleted?: boolean | string }): boolean =>
   x.deleted !== true && x.deleted !== 'true';
 
@@ -71,8 +94,8 @@ const notDeleted = (x: { deleted?: boolean | string }): boolean =>
  * Projects and task-lists are intentionally excluded (they render in their own
  * sections), satisfying "project folders must never appear among notes".
  */
-export const visibleNotes = <T extends Pick<Note, 'title' | 'content' | 'type' | 'deleted'>>(notes: T[]): T[] =>
-  (notes || []).filter((n) => isPlainNote(n) && notDeleted(n) && !isBlankNote(n));
+export const visibleNotes = <T extends Pick<Note, 'title' | 'content' | 'type' | 'deleted' | 'source'>>(notes: T[]): T[] =>
+  (notes || []).filter((n) => isPlainNote(n) && notDeleted(n) && !isBlankNote(n) && !isHiddenSyncedNote(n));
 
 /** Tasks that belong in a task list: not deleted, not blank (titleless). */
 export const visibleTasks = <T extends Pick<Task, 'title' | 'deleted'>>(tasks: T[]): T[] =>
