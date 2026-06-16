@@ -55,10 +55,16 @@ CORS-varningen; mobil/Electron opåverkade. Sista bevilja-steget device-validera
 nu PDF via base64→WebView (tak 8MB/50 sidor/24k tecken, 30s timeout). pdf.js-körningen
 device-valideras i EAS-build (react-native-webview är native).
 
-**Kvar — kräver native OCR-beroende + EAS-build (ej headless-byggbart):**
-- **Bild→vision/OCR** — on-device OCR (ML Kit / Tesseract) är inte ett nuvarande beroende; att
-  lägga till det kräver en native build för att ens kompilera/validera. Bilder ingestas i dag som
-  noder med proveniens (sökbara på filnamn) tills OCR/vision wiras. Detta är nästa EAS-steg.
+**Bild→OCR (levererat):** insåg att OCR är headless-byggbart via samma WebView-mönster som PDF —
+Tesseract.js är ren WASM/JS, inget native beroende. Mobil: extraktor-kön (`pdfText.ts`)
+generaliserad till `ExtractJob` med `kind 'pdf'|'ocr'`; `PdfExtractorHost`-harnessen laddar även
+pinnad Tesseract.js (5.1.1) och OCR:ar bilder. Web: lat-laddar Tesseract.js från pinnad CDN
+(inget bundlat beroende) och OCR:ar i webbläsaren. Båda prefixar "[OCR-text ur bild]". Bild-bytes
+lämnar aldrig enheten/WebView:en.
+
+**Allt headless-byggbart är klart.** Varje filtyp användaren nämnde (PDF, MD, bild) extraheras nu
+på enheten. Det enda som återstår är **att köra EAS-bygget** för att skarpt validera WebView-/OCR-/
+PDF-/OAuth-flödena på riktig hårdvara — det är ett byggsteg i användarens miljö, ingen ny kod.
 
 ## Målbild (vad användaren bad om)
 
