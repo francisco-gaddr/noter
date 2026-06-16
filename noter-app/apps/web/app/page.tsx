@@ -12,11 +12,13 @@ import { HTML5Backend } from 'react-dnd-html5-backend';
 import { loadHotkeys, matchesHotkey } from '../lib/hotkeys';
 import { restoreCryptoFromSession } from '../lib/crypto';
 import { pushCalendarFeed, drainCalendarMutations } from '../lib/calendarSubscription';
+import { pushAllMarkdownShares, drainMarkdownMutations } from '../lib/markdownShare';
 import { socket } from '../services/socket';
 
 export default function Home() {
   const { initSocket, user, activeTab, isHydrated } = useStore();
   const tasks = useStore((s) => s.tasks);
+  const notes = useStore((s) => s.notes);
 
   // Keep the external calendar feed (ICS subscription) live: push the latest task
   // projection whenever tasks change. No-op unless the user created a subscription.
@@ -24,6 +26,34 @@ export default function Home() {
     const handle = setTimeout(() => { void pushCalendarFeed(); }, 1500);
     return () => clearTimeout(handle);
   }, [tasks]);
+
+  // Same for external Markdown shares: re-push the lock-aware note projection when notes
+  // change. No-op unless a Markdown share exists.
+  useEffect(() => {
+    const handle = setTimeout(() => { void pushAllMarkdownShares().catch(() => {}); }, 1500);
+    return () => clearTimeout(handle);
+  }, [notes]);
+
+  // Two-way Markdown sync: drain inbound external edits (Obsidian/Finder/Android) on the
+  // `markdown:mutation` nudge + focus/online/visible + interval. No-op unless a share exists.
+  useEffect(() => {
+    if (!user) return;
+    let draining = false;
+    const drain = async () => { if (draining) return; draining = true; try { await drainMarkdownMutations(); } finally { draining = false; } };
+    void drain();
+    const onFocus = () => void drain();
+    const onMutation = () => void drain();
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('online', onFocus);
+    socket.on('markdown:mutation', onMutation);
+    const id = window.setInterval(() => void drain(), 30_000);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('online', onFocus);
+      socket.off('markdown:mutation', onMutation);
+      window.clearInterval(id);
+    };
+  }, [user]);
 
   // Two-way CalDAV: pull any task changes made from an external CalDAV widget
   // (Tasks.org / Reminders) and apply them with the user's key. Drains INSTANTLY

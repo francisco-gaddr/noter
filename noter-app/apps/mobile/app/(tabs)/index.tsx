@@ -12,6 +12,8 @@ import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import { Note, isBlankNote, buildSecurityNoteMap, isReadableWithLocks } from '@repo/shared';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { parseSettings } from '@/services/storage';
+import { getSocket } from '@/services/socket';
+import { pushAllMarkdownShares, drainMarkdownMutations } from '@/services/markdownShare';
 import { SkeletonRow } from '@/components/Skeleton';
 import { useRefreshControl } from '@/hooks/useRefreshControl';
 
@@ -127,8 +129,27 @@ export default function NotesScreen() {
         fetchNotes();
         loadedRef.current = true;
       }
+      // External Markdown sync: drain any inbound edits made from Obsidian/Finder/Android
+      // when the notes screen regains focus (no-op unless a share exists).
+      void drainMarkdownMutations().catch(() => {});
     }, [])
   );
+
+  // Keep external Markdown shares' projection live: re-push (lock-aware) when notes change.
+  // Debounced so a burst of edits is one push. No-op unless a share exists.
+  useEffect(() => {
+    const h = setTimeout(() => { void pushAllMarkdownShares().catch(() => {}); }, 1500);
+    return () => clearTimeout(h);
+  }, [notes]);
+
+  // Fast two-way: drain INSTANTLY on the backend `markdown:mutation` nudge.
+  useEffect(() => {
+    const s = getSocket();
+    if (!s) return;
+    const onMutation = () => { void drainMarkdownMutations().catch(() => {}); };
+    s.on('markdown:mutation', onMutation);
+    return () => { s.off('markdown:mutation', onMutation); };
+  }, []);
 
   useEffect(() => {
     AsyncStorage.getItem(NOTES_SORT_KEY)
