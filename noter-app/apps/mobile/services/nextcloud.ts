@@ -107,29 +107,18 @@ export const getTargetFolderId = async (): Promise<string | null> => {
 export const setTargetFolderId = async (id: string | null): Promise<void> => {
   try { if (id) await AsyncStorage.setItem(TARGET_KEY, id); else await AsyncStorage.removeItem(TARGET_KEY); } catch { /* */ }
 };
-/** Resolve the project folder synced content nests under; create a "Nextcloud" folder if unset/stale. */
-// Single-flight guard: concurrent syncs (forceSyncAllSources loops every connection) must NOT
-// each create their own "Nextcloud" parent — that was a source of duplicate folders.
-let targetResolveInFlight: Promise<string | null> | null = null;
-const resolveTargetFolderIdInner = async (): Promise<string | null> => {
+/**
+ * Resolve the local project folder that synced content nests under. We NEVER auto-create a
+ * "Nextcloud" wrapper folder — the synced folder(s) appear at the app root with their own real
+ * names. Only an EXPLICIT user choice (the optional picker in settings) that still exists is
+ * honored; anything else → null (root).
+ */
+const resolveTargetFolderId = async (): Promise<string | null> => {
+  const wanted = await getTargetFolderId();
+  if (!wanted) return null;
   const store: any = useStore.getState();
   const notes: Note[] = store.notes || [];
-  const wanted = await getTargetFolderId();
-  if (wanted && notes.some((n) => n._id === wanted && !n.deleted)) return wanted;
-  // Reuse an existing top-level "Nextcloud" project folder if present, else create one.
-  // (A synced root carries `source`; the local container we create here does not.)
-  const existing = notes.find((n) => !n.deleted && (n.type === 'project') && !(n as any).source && (n.title || '').trim().toLowerCase() === 'nextcloud');
-  if (existing) { await setTargetFolderId(existing._id); return existing._id; }
-  try {
-    const created = await store.createNote({ title: 'Nextcloud', content: '', tags: [], parentId: null, type: 'project' });
-    if (created?._id) { await setTargetFolderId(created._id); return created._id; }
-  } catch { /* fall through */ }
-  return null;
-};
-const resolveTargetFolderId = async (): Promise<string | null> => {
-  if (targetResolveInFlight) return targetResolveInFlight;
-  targetResolveInFlight = resolveTargetFolderIdInner().finally(() => { targetResolveInFlight = null; });
-  return targetResolveInFlight;
+  return notes.some((n) => n._id === wanted && !n.deleted) ? wanted : null;
 };
 
 const newConnId = () => 'nc_' + Math.abs(Date.now()).toString(36) + Math.floor(Math.random() * 1e6).toString(36);

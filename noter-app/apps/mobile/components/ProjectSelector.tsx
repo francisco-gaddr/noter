@@ -272,9 +272,8 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
     }
   };
 
-  const handleDelete = async () => {
+  const performDelete = async () => {
     if (!selectedProjectForMenu) return;
-    // Confirm delete?
     try {
       if (activeProjectId === selectedProjectForMenu._id) {
           setActiveProject(null);
@@ -286,6 +285,19 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
       console.error(e);
       alert('Failed to delete project');
     }
+  };
+
+  const handleDelete = () => {
+    if (!selectedProjectForMenu) return;
+    const name = (selectedProjectForMenu.title || '').trim() || 'projektmappen';
+    Alert.alert(
+      'Ta bort projektmapp',
+      `Är du säker på att du vill ta bort "${name}"? Anteckningar och undermappar i mappen tas också bort. Detta går inte att ångra.`,
+      [
+        { text: 'Avbryt', style: 'cancel' },
+        { text: 'Ta bort', style: 'destructive', onPress: () => { void performDelete(); } },
+      ],
+    );
   };
 
   const handleLockProject = async () => {

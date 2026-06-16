@@ -543,8 +543,12 @@ export const useStore = create<AppState>((set, get) => ({
     if (!get().securityLocked) {
       const localNotes = await Database.getNotesLocal();
       const localTasks = await Database.getTasksLocal();
+      // Materialize (decrypt source/links/etc) here too — NOT a raw set. A raw set left
+      // `source` as ciphertext, so source.origin was undefined: images leaked into the list,
+      // the in-note info button stayed hidden, and the sync dedup (which reads store.notes)
+      // couldn't match remotePaths → it recreated folders/files every sync.
       set({
-        notes: localNotes.map(processLocalNote),
+        notes: materializeNotesFromEncrypted(localNotes.map(processLocalNote) as any, new Set(get().unlockedProtectedNoteIds)),
         tasks: localTasks.map(processLocalTask)
       });
     }

@@ -194,26 +194,15 @@ const putText = async (conn: WebdavConnection, path: string, content: string): P
 const TARGET_KEY = 'nextcloud_target_folder_v1';
 export const getTargetFolderId = (): string | null => { try { return ls()?.getItem(TARGET_KEY) || null; } catch { return null; } };
 export const setTargetFolderId = (id: string | null): void => { try { if (id) ls()?.setItem(TARGET_KEY, id); else ls()?.removeItem(TARGET_KEY); } catch { /* */ } };
-// Single-flight: concurrent syncs (forceSyncAllSources loops connections) must not each
-// create their own "Nextcloud" parent — that produced duplicate folders.
-let targetResolveInFlight: Promise<string | null> | null = null;
-const resolveTargetFolderIdInner = async (): Promise<string | null> => {
+// We NEVER auto-create a "Nextcloud" wrapper folder — synced folders appear at the app root
+// with their own real names. Only an EXPLICIT user choice (the optional settings picker) that
+// still exists is honored; anything else → null (root).
+const resolveTargetFolderId = async (): Promise<string | null> => {
+  const wanted = getTargetFolderId();
+  if (!wanted) return null;
   const store: any = useStore.getState();
   const notes: Note[] = store.notes || [];
-  const wanted = getTargetFolderId();
-  if (wanted && notes.some((n) => n._id === wanted && !n.deleted)) return wanted;
-  const existing = notes.find((n) => !n.deleted && n.type === 'project' && !(n as any).source && (n.title || '').trim().toLowerCase() === 'nextcloud');
-  if (existing) { setTargetFolderId(existing._id); return existing._id; }
-  try {
-    const created = await api.createNote({ title: 'Nextcloud', content: '', tags: [], parentId: null, type: 'project' } as any);
-    if (created?._id) { setTargetFolderId(created._id); await store.fetchNotes?.(); return created._id; }
-  } catch { /* */ }
-  return null;
-};
-const resolveTargetFolderId = async (): Promise<string | null> => {
-  if (targetResolveInFlight) return targetResolveInFlight;
-  targetResolveInFlight = resolveTargetFolderIdInner().finally(() => { targetResolveInFlight = null; });
-  return targetResolveInFlight;
+  return notes.some((n) => n._id === wanted && !n.deleted) ? wanted : null;
 };
 
 // The web editor stores content as HTML; a .md/.txt file must receive plain text, never raw
