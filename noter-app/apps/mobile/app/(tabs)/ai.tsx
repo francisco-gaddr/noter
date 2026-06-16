@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { StyleSheet, View, FlatList, TextInput, KeyboardAvoidingView, Platform, ScrollView, Pressable, AppState, Linking, useWindowDimensions, Modal } from 'react-native';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { StyleSheet, View, FlatList, TextInput, KeyboardAvoidingView, Platform, ScrollView, Pressable, AppState, Linking, useWindowDimensions, Modal, RefreshControl } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text, Button, useTheme, IconButton, List, ActivityIndicator, ProgressBar, Portal, Dialog, TextInput as PaperTextInput, Switch, Menu, Divider, Chip } from 'react-native-paper';
 import { useLocalSearchParams, useNavigation } from 'expo-router';
@@ -253,11 +253,16 @@ function AIScreenInner() {
   const stopRequestedRef = useRef(false);
   // Chat list ref so opening a thread (and new messages) scrolls to the latest.
   const messagesListRef = useRef<FlatList<any>>(null);
+  // The message list is INVERTED (newest first in data → rendered at the visual bottom), so
+  // "scroll to newest" = scroll to offset 0, and pull-UP at the bottom drives the RefreshControl.
   const scrollChatToEnd = useCallback((animated = false) => {
     requestAnimationFrame(() => {
-      try { messagesListRef.current?.scrollToEnd({ animated }); } catch {}
+      try { messagesListRef.current?.scrollToOffset({ offset: 0, animated }); } catch {}
     });
   }, []);
+  const [chatRefreshing, setChatRefreshing] = useState(false);
+  // Newest-first copy for the INVERTED message list (item 0 renders at the visual bottom).
+  const invertedMessages = useMemo(() => messages.slice().reverse(), [messages]);
   const [tokensPerSecond, setTokensPerSecond] = useState<number | null>(null);
   const [enableToolUse, setEnableToolUse] = useState(true);
   // Chat complexity: gates which tools + searches the chat may use (minimal → just
@@ -2056,6 +2061,24 @@ function AIScreenInner() {
       }
   };
 
+  // Pull-UP-to-refresh at the bottom of the chat: force a server pull for the current thread
+  // (unless it's local-only) then reload its messages from the local DB.
+  const reloadCurrentChat = useCallback(async () => {
+    if (!currentConversationId) return;
+    setChatRefreshing(true);
+    try {
+      if (!isConversationLocalOnly(currentConversationId)) {
+        try {
+          const remote = await pullAiSync({ force: true });
+          await mergeRemoteSync(remote, userScopeKey || undefined);
+        } catch { /* offline / no key */ }
+      }
+      try { setMessages(await getMessagesLocal(currentConversationId)); } catch { /* keep current */ }
+    } finally {
+      setChatRefreshing(false);
+    }
+  }, [currentConversationId, userScopeKey]);
+
   const deleteChat = async (id: string) => {
       await deleteConversationLocal(id);
       pushAiSync({ deletedConversationIds: [id] }).catch(() => {});
@@ -2531,6 +2554,14 @@ function AIScreenInner() {
     ? conversations.filter(c => c.projectId === activeProjectId)
     : conversations;
 
+  // Pull-DOWN-to-refresh on the chat-thread list: re-pull threads from the server.
+  const [threadsRefreshing, setThreadsRefreshing] = useState(false);
+  const refreshThreads = useCallback(async () => {
+    setThreadsRefreshing(true);
+    try { await loadConversations(); } catch { /* offline */ }
+    finally { setThreadsRefreshing(false); }
+  }, []);
+
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {sidebarVisible && (
@@ -2544,7 +2575,12 @@ function AIScreenInner() {
                 {t('ai.project.createTitle')}
               </Button>
             </View>
-            <ScrollView style={{ flex: 1 }}>
+            <ScrollView
+              style={{ flex: 1 }}
+              refreshControl={
+                <RefreshControl refreshing={threadsRefreshing} onRefresh={refreshThreads} tintColor={theme.colors.primary} colors={[theme.colors.primary]} />
+              }
+            >
               <List.Item
                 title={t('common.all')}
                 onPress={() => handleSelectProject(null)}
@@ -3462,9 +3498,20 @@ function AIScreenInner() {
               style={{ flex: 1 }}
               keyboardVerticalOffset={headerOffset}
             >
+              {/* Discreet loading bar while the thread loads/streams (and there's already
+                  content on screen — the empty state shows its own "Laddar…" hint). */}
+              {(loading || chatRefreshing) && messages.length > 0 ? (
+                <ProgressBar indeterminate color={theme.colors.primary} style={{ height: 2 }} />
+              ) : null}
               <FlatList
                 ref={messagesListRef}
-                data={messages}
+                data={invertedMessages}
+                inverted={messages.length > 0}
+                refreshControl={
+                  currentConversationId ? (
+                    <RefreshControl refreshing={chatRefreshing} onRefresh={reloadCurrentChat} tintColor={theme.colors.primary} colors={[theme.colors.primary]} />
+                  ) : undefined
+                }
                 keyExtractor={(item, index) => item.id ?? String(index)}
                 contentContainerStyle={messages.length === 0 ? { flexGrow: 1, justifyContent: 'center' } : styles.listContent}
                 keyboardShouldPersistTaps="handled"
@@ -3560,7 +3607,7 @@ function AIScreenInner() {
                   // so it never overlaps the streaming text and never eats footer space.
                   const isThinkingBubble = isAssistant
                     && loading
-                    && index === messages.length - 1
+                    && index === 0 // inverted list: newest message is at data index 0
                     && !displayText
                     && !(split && split.thinking);
                   return (
