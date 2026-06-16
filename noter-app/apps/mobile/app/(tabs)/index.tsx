@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { StyleSheet, View, TouchableOpacity, Alert } from 'react-native';
-import { FAB, ActivityIndicator, IconButton, Menu, Divider, Text, Button, Avatar, useTheme } from 'react-native-paper';
+import { FAB, ActivityIndicator, IconButton, Menu, Divider, Text, Button, Avatar, useTheme, Snackbar } from 'react-native-paper';
 import { useRouter, useNavigation, useFocusEffect } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { useStore } from '@/stores/useStore';
@@ -101,22 +101,35 @@ export default function NotesScreen() {
   // multiple drags can't queue parallel fetches. Section-aware: inside a
   // Nextcloud-backed project folder it pulls THAT folder fresh from the server;
   // at the notes root it forces every source (Nextcloud + CalDAV) then refetches.
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const { refreshing: pullRefreshing, onRefresh: onPullRefresh } = useRefreshControl(
     async () => {
+      let msg = '';
       try {
         if (activeProjectId) {
           const nc = await import('@/services/nextcloud');
-          const synced = await nc.forceSyncFolder(activeProjectId);
-          if (!synced) {
+          const r = await nc.forceSyncFolder(activeProjectId);
+          if (r.matched) {
+            msg = r.ok
+              ? `Synkad: ${r.created} nya, ${r.updated} uppdaterade, ${r.deleted} borttagna, ${r.pushed} skickade`
+              : `Synk-fel: ${r.error || 'okänt'}`;
+          } else {
             const fs = await import('@/services/forceSync');
-            await fs.forceSyncAllSources();
+            const fr = await fs.forceSyncAllSources();
+            msg = fr.ok
+              ? `Synkade alla källor (${fr.nextcloud.created + fr.nextcloud.updated} ändringar)`
+              : `Synk-fel: ${fr.error || 'okänt'}`;
           }
         } else {
           const fs = await import('@/services/forceSync');
-          await fs.forceSyncAllSources();
+          const fr = await fs.forceSyncAllSources();
+          msg = fr.ok
+            ? `Synkade alla källor (${fr.nextcloud.created + fr.nextcloud.updated} ändringar)`
+            : `Synk-fel: ${fr.error || 'okänt'}`;
         }
-      } catch { /* best-effort; fetchNotes still refreshes the list */ }
+      } catch (e: any) { msg = `Synk-fel: ${e?.message || 'okänt'}`; }
       await fetchNotes();
+      setSyncMsg(msg || 'Uppdaterat');
     },
   );
   
@@ -439,6 +452,14 @@ export default function NotesScreen() {
         onPress={handleCreateNote}
         label={t('note.new')}
       />
+      <Snackbar
+        visible={!!syncMsg}
+        onDismiss={() => setSyncMsg(null)}
+        duration={4000}
+        action={{ label: 'OK', onPress: () => setSyncMsg(null) }}
+      >
+        {syncMsg || ''}
+      </Snackbar>
     </View>
   );
 }

@@ -522,8 +522,15 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
                     setMenuAnchor(null);
                     if (!folder?._id) return;
                     // Force-sync THIS folder's Nextcloud source (pull latest + push edits), then refresh.
-                    try { await forceSyncFolder(folder._id); } catch { /* */ }
+                    let msg = '';
+                    try {
+                        const r = await forceSyncFolder(folder._id);
+                        if (!r.matched) msg = 'Den här mappen är inte synkad mot Nextcloud.';
+                        else if (!r.ok) msg = `Synk misslyckades: ${r.error || 'okänt fel'}`;
+                        else msg = `Synkad mot Nextcloud:\n${r.created} nya, ${r.updated} uppdaterade, ${r.deleted} borttagna, ${r.pushed} skickade till servern.`;
+                    } catch (e: any) { msg = `Synk misslyckades: ${e?.message || 'okänt fel'}`; }
                     try { await fetchNotes(); } catch { /* */ }
+                    Alert.alert('Synk', msg);
                 }}
                 title="Synka nu"
                 leadingIcon="sync"

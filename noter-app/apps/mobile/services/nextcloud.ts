@@ -519,10 +519,13 @@ export const syncOnEnterFolder = async (folderId: string | null): Promise<void> 
 /**
  * Force a full, un-throttled sync of the Nextcloud connection(s) backing a project folder — used
  * by pull-to-refresh / the per-folder "Synka nu" button. Awaitable (so the spinner reflects real
- * work) and pushes local edits out too. Returns true if a Nextcloud connection was synced.
+ * work) and pushes local edits out too. Returns an observable result (counts + first error) so the
+ * UI can show the user what actually happened instead of failing silently.
  */
-export const forceSyncFolder = async (folderId: string | null): Promise<boolean> => {
-  if (!folderId) return false;
+export interface FolderSyncOutcome { matched: boolean; created: number; updated: number; deleted: number; pushed: number; ok: boolean; error?: string }
+export const forceSyncFolder = async (folderId: string | null): Promise<FolderSyncOutcome> => {
+  const out: FolderSyncOutcome = { matched: false, created: 0, updated: 0, deleted: 0, pushed: 0, ok: true };
+  if (!folderId) return out;
   try {
     const store: any = useStore.getState();
     const notes: Note[] = store.notes || [];
@@ -538,13 +541,18 @@ export const forceSyncFolder = async (folderId: string | null): Promise<boolean>
       hops += 1;
     }
     if (folderId === (await getTargetFolderId())) (await listConnections()).forEach((c) => connIds.add(c.id));
-    if (connIds.size === 0) return false;
+    if (connIds.size === 0) return out; // not a Nextcloud-backed folder → caller falls back
+    out.matched = true;
     for (const id of connIds) {
       lastEnterSync.set(id, Date.now()); // reset throttle so the next auto-enter doesn't double-fire
-      try { await syncConnection(id); } catch { /* continue */ }
+      try {
+        const r = await syncConnection(id);
+        out.created += r.created; out.updated += r.updated; out.deleted += r.deleted; out.pushed += r.pushed || 0;
+        if (!r.ok && !out.error) { out.ok = false; out.error = r.error; }
+      } catch (e: any) { out.ok = false; if (!out.error) out.error = e?.message || 'Synk misslyckades'; }
     }
-    return true;
-  } catch { return false; }
+    return out;
+  } catch (e: any) { return { ...out, ok: false, error: e?.message || 'Synk misslyckades' }; }
 };
 
 /** Sync every connection whose auto-sync interval has elapsed (call on app foreground / tick). */
@@ -568,7 +576,13 @@ export const neo4jStatus = async (): Promise<{ enabled: boolean }> => {
 /** Build the lock-safe selection on-device and relay the parameterized Cypher to the backend. */
 export const pushNeo4j = async (): Promise<{ ok: boolean; applied?: number; error?: string }> => {
   const cfg = await getNeo4jConfig();
-  if (!cfg.enabled) return { ok: false, error: 'Neo4j-sync är avstängd' };
+  if (!cfg.enabled) return { ok: false, error: 'Neo4j-sync är avstängd i appens inställningar.' };
+  // Server gate: /neo4j/sync 404s ("API Endpoint Not Found") when NEO4J_ENABLED!=1 on the backend.
+  // Check status first so the user gets an actionable message instead of a cryptic 404.
+  const status = await neo4jStatus().catch(() => ({ enabled: false }));
+  if (!status?.enabled) {
+    return { ok: false, error: 'Neo4j-sync är inte aktiverad på servern. Aktivera NEO4J_ENABLED=1 och starta neo4j-tjänsten på servern.' };
+  }
   const s: any = useStore.getState();
   const userId = s.user?._id || s.user?.id || 'me';
   const statements = buildNeo4jSyncPlan(

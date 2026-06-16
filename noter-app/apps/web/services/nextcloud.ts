@@ -458,7 +458,12 @@ export const neo4jStatus = async (): Promise<{ enabled: boolean }> => {
 
 export const pushNeo4j = async (): Promise<{ ok: boolean; applied?: number; error?: string }> => {
   const cfg = getNeo4jConfig();
-  if (!cfg.enabled) return { ok: false, error: 'Neo4j-sync är avstängd' };
+  if (!cfg.enabled) return { ok: false, error: 'Neo4j-sync är avstängd i appens inställningar.' };
+  // /neo4j/sync 404s ("API Endpoint Not Found") when NEO4J_ENABLED!=1 on the backend — check first.
+  const status = await neo4jStatus().catch(() => ({ enabled: false }));
+  if (!status?.enabled) {
+    return { ok: false, error: 'Neo4j-sync är inte aktiverad på servern. Aktivera NEO4J_ENABLED=1 och starta neo4j-tjänsten på servern.' };
+  }
   const s: any = useStore.getState();
   const userId = s.user?._id || s.user?.id || 'me';
   const statements = buildNeo4jSyncPlan(userId, s.notes || [], s.tasks || [], cfg, new Set(s.unlockedProtectedNoteIds || []));

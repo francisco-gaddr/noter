@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, View, TouchableOpacity } from 'react-native';
+import { StyleSheet, View, TouchableOpacity, RefreshControl } from 'react-native';
 import { Card, Chip, Text, IconButton, useTheme } from 'react-native-paper';
 import { Note, isHiddenSyncedNote } from '@repo/shared';
 import { useRouter } from 'expo-router';
@@ -323,17 +323,20 @@ export default function NoteTree({
             Haptics.selectionAsync();
             draggedItemRef.current = treeData[index];
           }}
-          refreshing={refreshing}
-          onRefresh={onRefresh}
-          contentContainerStyle={variant === 'cards' ? styles.listContent : undefined}
+          // Explicit RefreshControl (more reliable than the bare props across list libs) +
+          // a min-height empty component + flexGrow so pull-to-refresh works EVEN when the
+          // folder is empty (otherwise there's nothing to grab and the gesture does nothing).
+          refreshControl={onRefresh ? <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={theme.colors.primary} colors={[theme.colors.primary]} /> : undefined}
+          ListEmptyComponent={onRefresh ? <View style={styles.pullEmptyArea} /> : null}
+          contentContainerStyle={[treeData.length === 0 ? styles.emptyGrow : null, variant === 'cards' ? styles.listContent : null]}
         />
       ) : (
         <FlashList
           data={treeData}
           renderItem={({ item }) => (variant === 'cards' ? renderCardRow(item) : renderCompactRow(item))}
           keyExtractor={(item) => item._id}
-          onRefresh={onRefresh}
-          refreshing={refreshing}
+          refreshControl={onRefresh ? <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={theme.colors.primary} colors={[theme.colors.primary]} /> : undefined}
+          ListEmptyComponent={onRefresh ? <View style={styles.pullEmptyArea} /> : null}
           contentContainerStyle={variant === 'cards' ? styles.listContent : undefined}
         />
       )}
@@ -345,6 +348,13 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     width: '100%',
+  },
+  // Gives pull-to-refresh a grabbable area when the list is empty.
+  pullEmptyArea: {
+    minHeight: 500,
+  },
+  emptyGrow: {
+    flexGrow: 1,
   },
   row: {
     flexDirection: 'row',
