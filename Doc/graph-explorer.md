@@ -62,3 +62,8 @@ En kraftfullare layout (cytoscape.js / force-directed) är en ren uppgradering o
 nuvarande SVG-vyn; se ADR `Doc/adr/0006-knowledge-graph-and-search.md` (Fas 2). Den
 explicita länk-**redigeringen** i skapa/ändra-formulären + persistens av `links`-fältet är
 nästa steg (modellen + visualiseringen finns redan).
+
+Grafen + den semantiska sökningen driver också **AI-chattens RAG-hämtning**: GraphRAG
+expanderar topp-träffarna med samma grafgrannar innan reranken. Se
+[`ai-retrieval-rag.md`](./ai-retrieval-rag.md) (Del 2) + ADR 0010 — samma lås-grind
+(`buildIndexableEntities`) gör att inget låst innehåll någonsin ytförs.

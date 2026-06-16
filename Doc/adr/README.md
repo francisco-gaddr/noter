@@ -33,10 +33,11 @@ nästa lediga.
 | 0003 | [GraphQL trusted documents](0003-graphql-trusted-documents.md) | Accepted |
 | 0004 | [En offline-sync-kö (SQLite) med latest-wins-dedupe](0004-offline-sync-queue.md) | Accepted |
 | 0005 | [Schemalagda AI-agentuppgifter](0005-scheduled-ai-agent-tasks.md) | Accepted |
-| 0006 | [Kunskapsgraf + sök](0006-knowledge-graph-and-search.md) | Accepted |
+| 0006 | [Kunskapsgraf + sök](0006-knowledge-graph-and-search.md) | Accepted (Fas 3 fullföljd av 0010) |
 | 0007 | [Desktop Electron → Tauri (beslut: vänta/spike)](0007-electron-vs-tauri.md) — körguide: [`migrations/electron-to-tauri-runbook.md`](../migrations/electron-to-tauri-runbook.md) | Accepted |
 | 0008 | [Extern Markdown-sync för valda anteckningar/mappar](0008-external-markdown-sync.md) — plan: [`external-markdown-sync.md`](../external-markdown-sync.md) | Accepted (Fas 1+2 levererad) |
 | 0009 | [End-to-end-kryptering för AI-skapat innehåll](0009-e2e-for-ai-created-content.md) — datakarta: [`security/ai-agent-data-handling.md`](../security/ai-agent-data-handling.md) | Accepted |
+| 0010 | [Två-stegs RAG-hämtning (rerank) + leverantörs-format-diskriminator](0010-two-stage-rag-retrieval.md) — plan: [`ai-retrieval-rag.md`](../ai-retrieval-rag.md) | Accepted (fullföljer 0006 Fas 3) |
 
 Lägg till nya rader sorterat på nummer.
 

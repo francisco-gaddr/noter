@@ -19,6 +19,19 @@ export type WhatsNewEntry = {
 
 export const WHATS_NEW_ENTRIES: WhatsNewEntry[] = [
   {
+    version: '1.8.0',
+    build: '2026.06.16.2',
+    date: '2026-06-16',
+    security: 'feature',
+    highlights: [
+      'Fler AI-leverantörer: lägg till och välj OpenAI, Anthropic (Claude) och xAI Grok vid sidan av OpenRouter, Groq, Gemini och din egen Hermes/Ollama-server — på mobil, Electron och web. Nyckel och modellval per leverantör sparas krypterat lokalt',
+      'Smartare AI-kontext (RAG): AI-chatten kan nu hämta dina mest relevanta anteckningar och uppgifter automatiskt och ge dem till modellen — bred sökning (text + semantisk vektor) följt av en omrankning som lyfter det verkligt relevanta överst',
+      'GraphRAG: hämtningen kan följa kopplingarna i din kunskapsgraf och ta med närliggande anteckningar/uppgifter, så svaret förstår sammanhanget — inte bara den enskilda träffen',
+      'Du styr allt i inställningarna: en egen sektion "Semantisk kontext (RAG)" där du slår på/av hämtning, GraphRAG och omrankning var för sig; valen sparas krypterat lokalt',
+      'Integritet kvarstår: hämtningen ser bara dina läsbara anteckningar — låsta anteckningar och låsta projekt tas aldrig med, varken via text-, vektor- eller graf-sökning. Allt sker på din enhet på avkrypterad data och lagras aldrig',
+    ],
+  },
+  {
     version: '1.7.0',
     build: '2026.06.16.1',
     date: '2026-06-16',

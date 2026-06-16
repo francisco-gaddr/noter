@@ -31,6 +31,7 @@ ska öppna för en given fråga. Läs det här först, sedan den specifika filen
 | Driftsätta / härda servern | [`ops/server-hardening.md`](./ops/server-hardening.md), [`ops/disaster-recovery.md`](./ops/disaster-recovery.md) |
 | Förstå CI/kvalitet & död-kod-grinden | [`ops/ci-quality.md`](./ops/ci-quality.md) |
 | Förstå AI-runtime (web/mobil/Electron) | [`App AI.md`](./App%20AI.md), [`AI impl.md`](./AI%20impl.md) |
+| **AI-leverantörer (OpenAI/Anthropic/Grok m.fl.) + RAG-hämtning (semantisk/GraphRAG/rerank)** ⭐ | [`ai-retrieval-rag.md`](./ai-retrieval-rag.md) + [`adr/0010-two-stage-rag-retrieval.md`](./adr/0010-two-stage-rag-retrieval.md) |
 | **Köra AI lokalt på mobilen (llama.rn, GGUF direkt)** | [`on-device-ai-llama.md`](./on-device-ai-llama.md) ⭐ (ersätter [`MLC AI.md`](./MLC%20AI.md)) |
 | Förstå AI tool-use + GraphQL-kontrakt | [`Tool Calls.md`](./Tool%20Calls.md) |
 | **Förstå admin, AI-orkestrering, inställningar + mätbarhet** | [`admin-orchestration-and-settings.md`](./admin-orchestration-and-settings.md) ⭐ |
@@ -51,7 +52,8 @@ ska öppna för en given fråga. Läs det här först, sedan den specifika filen
 | Backend-rutter | `noter-app/apps/backend/src/routes/` | Varje `/:id`-rutt **måste** scopa på `userId` (se IDOR-regeln, §3). |
 | Backend write-guard | `…/src/utils/encryption.ts` | `isEncryptedPayload` accepterar v1+v3-envelopes. |
 | Mobil-state/sync | `noter-app/apps/mobile/stores/useStore.ts` | Offline-först, chunked dekryptering. |
-| Mobil-AI-leverantörer | `…/mobile/services/ai/apiProviders.ts` | Registry; lägg till leverantör här + binding i `ai.tsx`. |
+| AI-leverantörer (alla plattformar) | `apps/{mobile,web}/services/ai/apiProviders.ts` | Registry med `format`-fält (openai/gemini/anthropic); OpenAI/Grok återbrukar OpenAI-vägen, Anthropic egen gren. Lägg till leverantör här (+ binding i mobil `ai.tsx`, switch-gren i web `AISidebar.tsx`). Se [`ai-retrieval-rag.md`](./ai-retrieval-rag.md). |
+| RAG-hämtning till AI-chatten (två-stegs) | `packages/shared/src/retrieval.ts` | Ren pipeline: lexikal+vektor→RRF → GraphRAG → rerank. Lås-säker via `buildIndexableEntities`; kopplas in med `retrieveForChat` i `embeddingsService.ts`. |
 | Web-API-klient | `noter-app/apps/web/services/api.ts` | `decryptNoteFromApi`/`decryptTaskFromApi`. |
 | Graf + layout | `packages/shared/src/{graphModel,graphLayout}.ts` | `buildGraph`/`layoutGraph`/`edgeGeometry` (riktade kanter + pilar); renderas i `apps/web/components/GraphExplorer.tsx` + `apps/mobile/app/graph.tsx`. |
 | Semantisk sök (vektor + RRF) | `packages/shared/src/{vectorSearch,embeddings,embeddingsClient,vectorStore}.ts` | Krypterat index på enheten; tjänst i `apps/{web,mobile}/services/ai/embeddingsService.ts`; inställningar `EmbeddingsSettings`. Låsta noter indexeras aldrig. |
