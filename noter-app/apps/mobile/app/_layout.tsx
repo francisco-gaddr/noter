@@ -120,6 +120,11 @@ import { registerPushToken } from '@/services/ai/agentBackendSync';
 import { Alert, View } from 'react-native';
 import { useRouter, useSegments } from 'expo-router';
 import { PdfExtractorHost } from '@/components/PdfExtractorHost';
+import { installGlobalErrorGuard } from '@/services/globalErrorGuard';
+
+// Install the last-resort error net as early as possible (module load), before any screen
+// mounts — so an uncaught async error can't hard-crash the app.
+installGlobalErrorGuard();
 
 function RootLayoutNav() {
   const { actualTheme } = useThemeContext();
@@ -268,7 +273,9 @@ function RootLayoutNav() {
                 <Stack.Screen name="modal" options={{ presentation: 'modal' }} />
                 <Stack.Screen name="note/[id]" options={{ headerShown: false }} />
               </Stack>
-              <PdfExtractorHost />
+              <CustomErrorBoundary fallback={null}>
+                <PdfExtractorHost />
+              </CustomErrorBoundary>
             </AppLock>
           </CustomErrorBoundary>
         </ThemeProvider>

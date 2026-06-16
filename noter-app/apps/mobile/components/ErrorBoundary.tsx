@@ -4,6 +4,9 @@ import { Text, Button, Surface } from 'react-native-paper';
 
 interface Props {
   children: ReactNode;
+  /** Rendered instead of the default error UI when a child throws (e.g. `null` for a
+   *  hidden/non-essential subtree that should fail silently). */
+  fallback?: ReactNode;
 }
 
 interface State {
@@ -72,6 +75,7 @@ export class CustomErrorBoundary extends Component<Props, State> {
 
   public render() {
     if (this.state.hasError) {
+      if (this.props.fallback !== undefined) return this.props.fallback;
       return (
         <View style={styles.container}>
           <Surface style={styles.surface} elevation={2}>

@@ -33,8 +33,18 @@ export const NextcloudSettings: React.FC = () => {
   const [msg, setMsg] = React.useState<string>('');
   const [busy, setBusy] = React.useState(false);
 
-  // new-connection form
+  // new/edit-connection form
   const [form, setForm] = React.useState({ name: '', host: '', username: '', password: '', roots: '' });
+  const [editingId, setEditingId] = React.useState<string | null>(null);
+
+  const hostFromBaseUrl = (baseUrl: string): string => (baseUrl || '').replace(/^https?:\/\//i, '').split('/')[0];
+  const startEdit = (c: WebdavConnection) => {
+    setEditingId(c.id);
+    setForm({ name: c.name, host: hostFromBaseUrl(c.baseUrl), username: c.username, password: '', roots: (c.rootPaths || []).join(', ') });
+    setMsg('Redigerar — ändra och tryck "Uppdatera". Lämna lösenordet tomt för att behålla det.');
+  };
+  const cancelEdit = () => { setEditingId(null); setForm({ name: '', host: '', username: '', password: '', roots: '' }); setMsg(''); };
+  const toggleIncludeInChat = (c: WebdavConnection) => { saveConnection({ ...c, includeInChat: c.includeInChat === false ? true : false }); refresh(); };
 
   // folder-browser picker state
   const [picker, setPicker] = React.useState<{ connId: string; path: string; entries: WebdavEntry[]; loading: boolean } | null>(null);
@@ -68,20 +78,26 @@ export const NextcloudSettings: React.FC = () => {
     saveNeo4jConfig(next);
   };
 
-  const addConnection = () => {
+  const saveConnectionForm = () => {
     setMsg('');
     try {
       const baseUrl = normalizeNextcloudBaseUrl(form.host.trim(), form.username.trim());
-      const conn: WebdavConnection = {
-        id: newId(),
-        name: form.name.trim() || form.host.trim(),
-        baseUrl,
-        username: form.username.trim(),
-        rootPaths: form.roots.split(/[\n,]/).map((s) => s.trim()).filter(Boolean),
-        createdAt: new Date().toISOString(),
-      };
-      saveConnection(conn, form.password);
+      const rootPaths = form.roots.split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
+      if (editingId) {
+        const existing = listConnections().find((c) => c.id === editingId);
+        if (!existing) { setMsg('Anslutningen hittades inte'); setEditingId(null); return; }
+        const updated: WebdavConnection = { ...existing, name: form.name.trim() || form.host.trim(), baseUrl, username: form.username.trim(), rootPaths };
+        saveConnection(updated, form.password.trim() ? form.password : undefined);
+        setMsg('✓ Anslutning uppdaterad');
+      } else {
+        const conn: WebdavConnection = {
+          id: newId(), name: form.name.trim() || form.host.trim(), baseUrl, username: form.username.trim(),
+          rootPaths, includeInChat: true, createdAt: new Date().toISOString(),
+        };
+        saveConnection(conn, form.password);
+      }
       setForm({ name: '', host: '', username: '', password: '', roots: '' });
+      setEditingId(null);
       refresh();
     } catch (e: any) {
       setMsg(e?.message || 'Kunde inte spara anslutningen');
@@ -166,10 +182,17 @@ export const NextcloudSettings: React.FC = () => {
         <div key={c.id} className="rounded border border-gray-200 dark:border-gray-700 p-2 space-y-1">
           <div className="flex items-center justify-between">
             <span className="text-sm font-medium text-gray-800 dark:text-gray-100">{c.name}</span>
-            <button onClick={() => onDelete(c)} className="text-xs text-red-600">Ta bort</button>
+            <div className="flex gap-2">
+              <button onClick={() => startEdit(c)} className="text-xs text-blue-600">Redigera</button>
+              <button onClick={() => onDelete(c)} className="text-xs text-red-600">Ta bort</button>
+            </div>
           </div>
           <div className="text-xs text-gray-500 break-all">{c.baseUrl}</div>
           <div className="text-xs text-gray-500">Mappar: {c.rootPaths.join(', ') || '(inga valda)'}</div>
+          <label className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-200 pt-0.5">
+            <input type="checkbox" checked={c.includeInChat !== false} onChange={() => toggleIncludeInChat(c)} />
+            <span>Använd dessa filer i AI-chatten</span>
+          </label>
           <div className="flex flex-wrap items-center gap-2 pt-1">
             <button onClick={() => onTest(c)} disabled={busy} className="px-2 py-1 rounded border text-xs disabled:opacity-50">Testa</button>
             <button onClick={() => (picker?.connId === c.id ? setPicker(null) : openPicker(c))} disabled={busy} className="px-2 py-1 rounded border text-xs disabled:opacity-50">
@@ -206,15 +229,16 @@ export const NextcloudSettings: React.FC = () => {
       ))}
 
       <div className="rounded border border-dashed border-gray-300 dark:border-gray-600 p-2 space-y-2">
-        <div className="text-xs font-medium text-gray-600 dark:text-gray-300">Lägg till anslutning</div>
+        <div className="text-xs font-medium text-gray-600 dark:text-gray-300">{editingId ? 'Redigera anslutning' : 'Lägg till anslutning'}</div>
         <input className={inputCls} placeholder="Namn (valfritt)" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         <input className={inputCls} placeholder="Värd, t.ex. cloud.exempel.se" value={form.host} onChange={(e) => setForm({ ...form, host: e.target.value })} />
         <input className={inputCls} placeholder="Användarnamn" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} autoComplete="off" />
-        <input className={inputCls} type="password" placeholder="App-lösenord" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} autoComplete="off" />
-        <input className={inputCls} placeholder="Mappar (en per rad eller komma), t.ex. Forskning, Anteckningar" value={form.roots} onChange={(e) => setForm({ ...form, roots: e.target.value })} />
+        <input className={inputCls} type="password" placeholder={editingId ? 'App-lösenord (lämna tomt = behåll)' : 'App-lösenord'} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} autoComplete="off" />
+        <input className={inputCls} placeholder="Mappar (eller använd 'Välj mappar' på anslutningen)" value={form.roots} onChange={(e) => setForm({ ...form, roots: e.target.value })} />
         <div className="flex flex-wrap gap-2">
-          <button onClick={addConnection} className="px-3 py-1.5 rounded bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 text-sm">Spara anslutning</button>
-          <button onClick={onOAuth} disabled={busy || !form.host.trim()} className="px-3 py-1.5 rounded border text-sm disabled:opacity-50" title="Logga in i webbläsaren och bevilja ett app-lösenord automatiskt">Logga in via Nextcloud (OAuth)</button>
+          <button onClick={saveConnectionForm} className="px-3 py-1.5 rounded bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 text-sm">{editingId ? 'Uppdatera anslutning' : 'Spara anslutning'}</button>
+          {editingId && <button onClick={cancelEdit} className="px-3 py-1.5 rounded border text-sm">Avbryt</button>}
+          {!editingId && <button onClick={onOAuth} disabled={busy || !form.host.trim()} className="px-3 py-1.5 rounded border text-sm disabled:opacity-50" title="Logga in i webbläsaren och bevilja ett app-lösenord automatiskt">Logga in via Nextcloud (OAuth)</button>}
         </div>
         <p className="text-xs text-gray-400">OAuth kräver bara värden ovan — du loggar in i webbläsaren och beviljar åtkomst; inget lösenord behöver skrivas.</p>
       </div>

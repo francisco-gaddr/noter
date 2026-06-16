@@ -76,6 +76,7 @@ export const contextLevelRank = (level?: unknown): number =>
  */
 export const meetsMinContextLevel = (current?: unknown, min?: unknown): boolean => {
   if (min === undefined || min === null || min === '') return true;
+  if (min === '__never__') return false; // source explicitly excluded from chat context
   return contextLevelRank(current) >= contextLevelRank(min);
 };
 

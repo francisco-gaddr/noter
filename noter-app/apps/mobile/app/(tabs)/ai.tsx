@@ -2346,6 +2346,11 @@ function AIScreenInner() {
     const hasAttachments = attachmentsEnabled && attachments.length > 0;
     if ((!input.trim() && !hasAttachments) || loading) return;
 
+    // Whole-handler guard: an error thrown in an async event handler is NOT caught by the
+    // React error boundary — it becomes an unhandled rejection that can crash the release
+    // app. Wrap everything (incl. pre-flight validation) so the chat can never crash; on any
+    // failure we just show a system message and reset loading.
+    try {
     if (!aiUseApiProviders && !activeModel) {
         alert('Please select a model first');
         setSettingsTab('models');
@@ -2354,6 +2359,11 @@ function AIScreenInner() {
     }
     if (aiUseApiProviders) {
         const meta = activeProviderMeta;
+        if (!meta) {
+            alert('AI-leverantörens konfiguration kunde inte läsas. Välj leverantör och modell i inställningarna.');
+            setSettingsVisible(true);
+            return;
+        }
         if (meta.configurableEndpoint && !activeBaseUrl?.trim()) {
             alert(`Ange bas-URL till din ${meta.label} först`);
             setSettingsVisible(true);
@@ -2479,6 +2489,14 @@ function AIScreenInner() {
     } finally {
       setLoading(false);
       setTokensPerSecond(null);
+    }
+    } catch (outer) {
+      // Pre-flight / setup failure (before the inner generation try). Never let it escape.
+      console.error('[ai] handleSend failed:', outer);
+      try {
+        setMessages(prev => [...prev, { id: uuidv4(), role: 'system', content: `${t('ai.errorPrefix')}${formatError(outer)}`, createdAt: new Date().toISOString() }]);
+      } catch { /* ignore */ }
+      try { setLoading(false); } catch { /* ignore */ }
     }
   };
 

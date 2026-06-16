@@ -35,6 +35,12 @@ export interface WebdavConnection {
    * deeper levels. Undefined = always eligible.
    */
   minContextLevel?: string;
+  /**
+   * Whether this connection's synced files are used as AI-chat context. Default true
+   * (undefined = true). When false they're still synced + searchable, just excluded from the
+   * chat's automatic retrieval — the easy "use these files when chatting?" switch.
+   */
+  includeInChat?: boolean;
   createdAt?: string;
 }
 

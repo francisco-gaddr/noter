@@ -7,8 +7,13 @@
  */
 import React from 'react';
 import { View } from 'react-native';
-import { WebView } from 'react-native-webview';
 import { registerPdfHost, takeNextPdfJob, type ExtractJob } from '@/services/ai/pdfText';
+
+// Defensive load: if react-native-webview's native module is somehow absent from the build,
+// requiring it must NOT crash the app at module load (this host is mounted app-wide). Render
+// nothing instead — text-extraction features degrade gracefully (host stays "not ready").
+let WebView: any = null;
+try { WebView = require('react-native-webview').WebView; } catch { WebView = null; }
 
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174';
 const TESSERACT = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
@@ -71,9 +76,18 @@ const HARNESS = `<!DOCTYPE html><html><head><meta charset="utf-8"/></head><body>
 </script></body></html>`;
 
 export const PdfExtractorHost: React.FC = () => {
-  const ref = React.useRef<WebView>(null);
+  const ref = React.useRef<any>(null);
   const readyRef = React.useRef(false);
   const currentRef = React.useRef<ExtractJob | null>(null);
+
+  // Hard guard: if the WebView native view dies (Android "render process gone"), an OS error,
+  // or any WebView callback throws, the host must recover quietly — never crash the app it's
+  // mounted in. We mark not-ready and fail any in-flight job rather than propagate.
+  const failCurrent = React.useCallback(() => {
+    const job = currentRef.current;
+    if (job) { try { job.resolve(null); } catch { /* ignore */ } currentRef.current = null; }
+    readyRef.current = false;
+  }, []);
 
   const pump = React.useCallback(() => {
     if (!readyRef.current || currentRef.current) return;
@@ -93,14 +107,18 @@ export const PdfExtractorHost: React.FC = () => {
   const onMessage = (e: any) => {
     let data: any;
     try { data = JSON.parse(e.nativeEvent.data); } catch { return; }
-    if (data.ready) { readyRef.current = true; pump(); return; }
-    const job = currentRef.current;
-    if (job && data.id === job.id) {
-      job.resolve(data.ok ? (data.text || '') : null);
-      currentRef.current = null;
-      pump();
-    }
+    try {
+      if (data.ready) { readyRef.current = true; pump(); return; }
+      const job = currentRef.current;
+      if (job && data.id === job.id) {
+        job.resolve(data.ok ? (data.text || '') : null);
+        currentRef.current = null;
+        pump();
+      }
+    } catch { /* never let a message-handler error escape */ }
   };
+
+  if (!WebView) return null;
 
   return (
     <View style={{ width: 0, height: 0, position: 'absolute', opacity: 0 }} pointerEvents="none">
@@ -112,6 +130,10 @@ export const PdfExtractorHost: React.FC = () => {
         domStorageEnabled
         onMessage={onMessage}
         scrollEnabled={false}
+        // Recover from a dead WebView render process / load error instead of crashing.
+        onError={() => failCurrent()}
+        onContentProcessDidTerminate={() => failCurrent()}
+        onRenderProcessGone={() => { failCurrent(); return true; }}
         style={{ width: 0, height: 0 }}
       />
     </View>

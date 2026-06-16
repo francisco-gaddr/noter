@@ -31,7 +31,22 @@ export const NextcloudSettings: React.FC = () => {
   const [msg, setMsg] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [form, setForm] = React.useState({ name: '', host: '', username: '', password: '', roots: '' });
+  const [editingId, setEditingId] = React.useState<string | null>(null);
   const [picker, setPicker] = React.useState<{ connId: string; path: string; entries: WebdavEntry[]; loading: boolean } | null>(null);
+
+  const hostFromBaseUrl = (baseUrl: string): string =>
+    (baseUrl || '').replace(/^https?:\/\//i, '').split('/')[0];
+
+  const startEdit = (c: WebdavConnection) => {
+    setEditingId(c.id);
+    setForm({ name: c.name, host: hostFromBaseUrl(c.baseUrl), username: c.username, password: '', roots: (c.rootPaths || []).join(', ') });
+    setMsg('Redigerar — ändra och tryck "Uppdatera anslutning". Lämna lösenordet tomt för att behålla det.');
+  };
+  const cancelEdit = () => { setEditingId(null); setForm({ name: '', host: '', username: '', password: '', roots: '' }); setMsg(''); };
+  const toggleIncludeInChat = async (c: WebdavConnection) => {
+    await saveConnection({ ...c, includeInChat: c.includeInChat === false ? true : false });
+    await refresh();
+  };
 
   const openPicker = async (conn: WebdavConnection, path = '') => {
     setPicker({ connId: conn.id, path, entries: [], loading: true });
@@ -75,20 +90,38 @@ export const NextcloudSettings: React.FC = () => {
     await saveNeo4jConfig(next);
   };
 
-  const addConnection = async () => {
+  const saveConnectionForm = async () => {
     setMsg('');
     try {
       const baseUrl = normalizeNextcloudBaseUrl(form.host.trim(), form.username.trim());
-      const conn: WebdavConnection = {
-        id: newId(),
-        name: form.name.trim() || form.host.trim(),
-        baseUrl,
-        username: form.username.trim(),
-        rootPaths: form.roots.split(/[\n,]/).map((s) => s.trim()).filter(Boolean),
-        createdAt: new Date().toISOString(),
-      };
-      await saveConnection(conn, form.password);
+      const rootPaths = form.roots.split(/[\n,]/).map((s) => s.trim()).filter(Boolean);
+      if (editingId) {
+        const existing = (await listConnections()).find((c) => c.id === editingId);
+        if (!existing) { setMsg('Anslutningen hittades inte'); setEditingId(null); return; }
+        const updated: WebdavConnection = {
+          ...existing,
+          name: form.name.trim() || form.host.trim(),
+          baseUrl,
+          username: form.username.trim(),
+          rootPaths,
+        };
+        // Only overwrite the stored app-password if a new one was typed.
+        await saveConnection(updated, form.password.trim() ? form.password : undefined);
+        setMsg('✓ Anslutning uppdaterad');
+      } else {
+        const conn: WebdavConnection = {
+          id: newId(),
+          name: form.name.trim() || form.host.trim(),
+          baseUrl,
+          username: form.username.trim(),
+          rootPaths,
+          includeInChat: true,
+          createdAt: new Date().toISOString(),
+        };
+        await saveConnection(conn, form.password);
+      }
       setForm({ name: '', host: '', username: '', password: '', roots: '' });
+      setEditingId(null);
       await refresh();
     } catch (e: any) {
       setMsg(e?.message || 'Kunde inte spara anslutningen');
@@ -174,10 +207,17 @@ export const NextcloudSettings: React.FC = () => {
               <Button compact mode="contained" disabled={busy} onPress={() => onSync(c)}>Synka nu</Button>
             </View>
             <View style={styles.row}>
+              <Switch value={c.includeInChat !== false} onValueChange={() => toggleIncludeInChat(c)} />
+              <Text variant="bodySmall" style={{ flex: 1 }}>Använd dessa filer i AI-chatten</Text>
+            </View>
+            {c.includeInChat !== false && (
+              <Button compact mode="text" onPress={() => cycleMinLevel(c)}>Endast på nivå: {minLevelLabel(c.minContextLevel)}</Button>
+            )}
+            <View style={styles.row}>
               <Button compact mode="text" onPress={() => cycleInterval(c)}>
                 Auto: {INTERVALS.find((i) => i.v === (c.intervalMinutes || 0))?.label || 'Manuell'}
               </Button>
-              <Button compact mode="text" onPress={() => cycleMinLevel(c)}>Kontext: {minLevelLabel(c.minContextLevel)}</Button>
+              <Button compact mode="text" onPress={() => startEdit(c)}>Redigera</Button>
               <Button compact mode="text" textColor={theme.colors.error} disabled={busy} onPress={() => onDelete(c)}>Ta bort</Button>
             </View>
 
@@ -201,15 +241,18 @@ export const NextcloudSettings: React.FC = () => {
         ))}
 
         <Divider style={{ marginVertical: 8 }} />
-        <Text variant="labelMedium" style={{ marginBottom: 4 }}>Lägg till anslutning</Text>
+        <Text variant="labelMedium" style={{ marginBottom: 4 }}>{editingId ? 'Redigera anslutning' : 'Lägg till anslutning'}</Text>
         <TextInput dense mode="outlined" label="Namn (valfritt)" value={form.name} onChangeText={(t) => setForm({ ...form, name: t })} style={styles.input} />
         <TextInput dense mode="outlined" label="Värd (cloud.exempel.se)" autoCapitalize="none" value={form.host} onChangeText={(t) => setForm({ ...form, host: t })} style={styles.input} />
         <TextInput dense mode="outlined" label="Användarnamn" autoCapitalize="none" value={form.username} onChangeText={(t) => setForm({ ...form, username: t })} style={styles.input} />
-        <TextInput dense mode="outlined" label="App-lösenord" secureTextEntry value={form.password} onChangeText={(t) => setForm({ ...form, password: t })} style={styles.input} />
-        <TextInput dense mode="outlined" label="Mappar (komma/rad)" value={form.roots} onChangeText={(t) => setForm({ ...form, roots: t })} style={styles.input} />
-        <Button mode="contained-tonal" onPress={addConnection} style={{ marginTop: 4 }}>Spara anslutning</Button>
-        <Button mode="outlined" disabled={busy || !form.host.trim()} onPress={onOAuth} style={{ marginTop: 4 }}>Logga in via Nextcloud (OAuth)</Button>
-        <Text variant="bodySmall" style={{ opacity: 0.6, marginTop: 2 }}>OAuth: ange bara värden ovan, logga in i webbläsaren och bevilja — inget lösenord behöver skrivas.</Text>
+        <TextInput dense mode="outlined" label={editingId ? 'App-lösenord (lämna tomt = behåll)' : 'App-lösenord'} secureTextEntry value={form.password} onChangeText={(t) => setForm({ ...form, password: t })} style={styles.input} />
+        <TextInput dense mode="outlined" label="Mappar (eller använd Mappar-knappen ovan)" value={form.roots} onChangeText={(t) => setForm({ ...form, roots: t })} style={styles.input} />
+        <View style={styles.row}>
+          <Button mode="contained-tonal" onPress={saveConnectionForm} style={{ marginTop: 4 }}>{editingId ? 'Uppdatera anslutning' : 'Spara anslutning'}</Button>
+          {editingId && <Button mode="text" onPress={cancelEdit} style={{ marginTop: 4 }}>Avbryt</Button>}
+        </View>
+        {!editingId && <Button mode="outlined" disabled={busy || !form.host.trim()} onPress={onOAuth} style={{ marginTop: 4 }}>Logga in via Nextcloud (OAuth)</Button>}
+        {!editingId && <Text variant="bodySmall" style={{ opacity: 0.6, marginTop: 2 }}>OAuth: ange bara värden ovan, logga in i webbläsaren och bevilja — inget lösenord behöver skrivas. Efteråt: tryck "Mappar" på anslutningen för att kryssa i mappar att synka.</Text>}
 
         <Divider style={{ marginVertical: 12 }} />
         <View style={styles.row}>
