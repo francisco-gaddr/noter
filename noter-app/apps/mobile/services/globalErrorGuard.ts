@@ -18,6 +18,9 @@ const MAX_ALERTS = 3;
 export const installGlobalErrorGuard = (): void => {
   if (installed) return;
   installed = true;
+  // Only act in RELEASE builds. In dev / Expo Go we want the normal red-box and must not
+  // touch the global handler (it can interfere with the dev launch flow).
+  if (typeof __DEV__ !== 'undefined' && __DEV__) return;
   const g: any = global as any;
 
   // 1) Uncaught JS errors (incl. those surfaced from async handlers).

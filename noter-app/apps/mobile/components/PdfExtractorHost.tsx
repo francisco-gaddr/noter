@@ -7,6 +7,7 @@
  */
 import React from 'react';
 import { View } from 'react-native';
+import Constants from 'expo-constants';
 import { registerPdfHost, takeNextPdfJob, type ExtractJob } from '@/services/ai/pdfText';
 
 // Defensive load: if react-native-webview's native module is somehow absent from the build,
@@ -14,6 +15,11 @@ import { registerPdfHost, takeNextPdfJob, type ExtractJob } from '@/services/ai/
 // nothing instead — text-extraction features degrade gracefully (host stays "not ready").
 let WebView: any = null;
 try { WebView = require('react-native-webview').WebView; } catch { WebView = null; }
+
+// In Expo Go (`storeClient`) the WebView native view isn't guaranteed to exist; rendering it at
+// the app root would crash startup. Skip the host there — on-device text extraction needs a
+// dev/EAS build anyway, and it degrades gracefully (jobs resolve to null).
+const IN_EXPO_GO = Constants.executionEnvironment === 'storeClient';
 
 const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174';
 const TESSERACT = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
@@ -118,7 +124,7 @@ export const PdfExtractorHost: React.FC = () => {
     } catch { /* never let a message-handler error escape */ }
   };
 
-  if (!WebView) return null;
+  if (!WebView || IN_EXPO_GO) return null;
 
   return (
     <View style={{ width: 0, height: 0, position: 'absolute', opacity: 0 }} pointerEvents="none">
