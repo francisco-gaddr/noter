@@ -1,5 +1,7 @@
 import {
   classifyFile,
+  isSyncDue,
+  type WebdavConnection,
   normalizeNextcloudBaseUrl,
   enforceHttps,
   encodeDavPath,
@@ -55,6 +57,15 @@ describe('webdavClient: classification + url helpers', () => {
     expect(isUnderRoots('ResearchOther/x', ['Research'])).toBe(false);
     expect(isUnderRoots('Private/x', ['Research'])).toBe(false);
     expect(normalizePath('/a//b/')).toBe('a/b');
+  });
+
+  it('isSyncDue respects interval + lastSyncAt', () => {
+    const base: WebdavConnection = { id: 'c', name: 'n', baseUrl: 'https://x/', username: 'u', rootPaths: ['R'] };
+    const now = Date.parse('2026-06-16T12:00:00Z');
+    expect(isSyncDue({ ...base, intervalMinutes: 0 }, now)).toBe(false);
+    expect(isSyncDue({ ...base, intervalMinutes: 60 }, now)).toBe(true); // never synced
+    expect(isSyncDue({ ...base, intervalMinutes: 60, lastSyncAt: '2026-06-16T11:50:00Z' }, now)).toBe(false); // 10 min ago
+    expect(isSyncDue({ ...base, intervalMinutes: 60, lastSyncAt: '2026-06-16T10:30:00Z' }, now)).toBe(true); // 90 min ago
   });
 });
 

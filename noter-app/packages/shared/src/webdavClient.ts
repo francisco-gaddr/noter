@@ -25,10 +25,31 @@ export interface WebdavConnection {
   username: string;
   /** User-selected root folders to ingest (relative to baseUrl), e.g. ['Research', 'Notes']. */
   rootPaths: string[];
-  /** Auto-sync interval in minutes (0 = manual only). */
+  /** Auto-sync interval in minutes (0/undefined = manual only). */
   intervalMinutes?: number;
+  /** ISO timestamp of the last successful sync (drives isSyncDue). */
+  lastSyncAt?: string;
+  /**
+   * Minimum AI context level at which this connection's notes are eligible for retrieval
+   * ('fast' | 'standard' | 'deep'). Lets a heavy archive be pulled into context only on
+   * deeper levels. Undefined = always eligible.
+   */
+  minContextLevel?: string;
   createdAt?: string;
 }
+
+/**
+ * True when an interval-enabled connection is due for an auto-sync. `nowMs` is injected so
+ * this stays pure/testable (the shared build forbids Date.now()).
+ */
+export const isSyncDue = (conn: WebdavConnection, nowMs: number): boolean => {
+  const mins = conn.intervalMinutes || 0;
+  if (mins <= 0) return false;
+  if (!conn.lastSyncAt) return true;
+  const last = Date.parse(conn.lastSyncAt);
+  if (isNaN(last)) return true;
+  return nowMs - last >= mins * 60_000;
+};
 
 /** One file or collection (folder) discovered via PROPFIND. */
 export interface WebdavEntry {

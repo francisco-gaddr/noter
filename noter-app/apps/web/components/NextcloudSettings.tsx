@@ -10,9 +10,14 @@ import React from 'react';
 import { useStore } from '../stores/useStore';
 import { normalizeNoteType, normalizeNextcloudBaseUrl, type WebdavConnection, type Neo4jConfig } from '@repo/shared';
 import {
-  listConnections, saveConnection, deleteConnection, testConnection, syncConnection,
-  getNeo4jConfig, saveNeo4jConfig, neo4jStatus, pushNeo4j,
+  listConnections, saveConnection, deleteConnection, testConnection, syncConnection, browseFolders,
+  syncDueConnections, getNeo4jConfig, saveNeo4jConfig, neo4jStatus, pushNeo4j,
 } from '../services/nextcloud';
+import type { WebdavEntry } from '@repo/shared';
+
+const INTERVALS: Array<{ v: number; label: string }> = [
+  { v: 0, label: 'Manuell' }, { v: 15, label: 'Var 15 min' }, { v: 60, label: 'Varje timme' }, { v: 360, label: 'Var 6:e timme' },
+];
 
 const newId = (): string => {
   try { return (crypto as any).randomUUID(); } catch { return 'nc_' + Math.abs(Date.now()).toString(36); }
@@ -31,10 +36,28 @@ export const NextcloudSettings: React.FC = () => {
   // new-connection form
   const [form, setForm] = React.useState({ name: '', host: '', username: '', password: '', roots: '' });
 
+  // folder-browser picker state
+  const [picker, setPicker] = React.useState<{ connId: string; path: string; entries: WebdavEntry[]; loading: boolean } | null>(null);
+
+  const openPicker = async (conn: WebdavConnection, path = '') => {
+    setPicker({ connId: conn.id, path, entries: [], loading: true });
+    try { const entries = await browseFolders(conn, path); setPicker({ connId: conn.id, path, entries, loading: false }); }
+    catch (e: any) { setMsg(e?.message || 'Kunde inte lista mappar'); setPicker(null); }
+  };
+  const toggleRoot = (conn: WebdavConnection, p: string) => {
+    const set = new Set(conn.rootPaths);
+    if (set.has(p)) set.delete(p); else set.add(p);
+    saveConnection({ ...conn, rootPaths: Array.from(set) });
+    refresh();
+  };
+  const setInterval = (conn: WebdavConnection, v: number) => { saveConnection({ ...conn, intervalMinutes: v }); refresh(); };
+
   React.useEffect(() => {
     setConns(listConnections());
     setNeo4j(getNeo4jConfig());
     neo4jStatus().then((s) => setNeo4jAvailable(!!s.enabled)).catch(() => {});
+    // Run any auto-sync that is due, then refresh the list (best-effort).
+    syncDueConnections().then((n) => { if (n > 0) setConns(listConnections()); }).catch(() => {});
   }, []);
 
   const refresh = () => setConns(listConnections());
@@ -137,10 +160,33 @@ export const NextcloudSettings: React.FC = () => {
           </div>
           <div className="text-xs text-gray-500 break-all">{c.baseUrl}</div>
           <div className="text-xs text-gray-500">Mappar: {c.rootPaths.join(', ') || '(inga valda)'}</div>
-          <div className="flex gap-2 pt-1">
+          <div className="flex flex-wrap items-center gap-2 pt-1">
             <button onClick={() => onTest(c)} disabled={busy} className="px-2 py-1 rounded border text-xs disabled:opacity-50">Testa</button>
+            <button onClick={() => (picker?.connId === c.id ? setPicker(null) : openPicker(c))} disabled={busy} className="px-2 py-1 rounded border text-xs disabled:opacity-50">
+              {picker?.connId === c.id ? 'Stäng mappar' : 'Välj mappar'}
+            </button>
             <button onClick={() => onSync(c)} disabled={busy} className="px-2 py-1 rounded bg-blue-600 text-white text-xs disabled:opacity-50">Synka nu</button>
+            <select value={c.intervalMinutes || 0} onChange={(e) => setInterval(c, Number(e.target.value))} className="text-xs rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-1">
+              {INTERVALS.map((i) => <option key={i.v} value={i.v}>{i.label}</option>)}
+            </select>
           </div>
+
+          {picker?.connId === c.id && (
+            <div className="mt-2 rounded border border-gray-200 dark:border-gray-700 p-2">
+              <div className="flex items-center gap-2 mb-1 text-xs">
+                <button onClick={() => openPicker(c, '')} className="underline">Roten</button>
+                {picker.path && <span className="text-gray-500">/ {picker.path}</span>}
+              </div>
+              {picker.loading ? <p className="text-xs text-gray-400">Laddar…</p> : picker.entries.length === 0 ? (
+                <p className="text-xs text-gray-400">Inga undermappar.</p>
+              ) : picker.entries.map((e) => (
+                <div key={e.path} className="flex items-center gap-2 text-xs py-0.5">
+                  <input type="checkbox" checked={c.rootPaths.includes(e.path)} onChange={() => toggleRoot(c, e.path)} />
+                  <button className="underline truncate" onClick={() => openPicker(c, e.path)}>{e.name}/</button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       ))}
 

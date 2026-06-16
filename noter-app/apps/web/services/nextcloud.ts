@@ -16,6 +16,7 @@ import {
   enforceHttps,
   joinDavUrl,
   isUnderRoots,
+  isSyncDue,
   normalizePath,
   planIngest,
   ingestProvenanceHeader,
@@ -204,7 +205,20 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
     await indexEntities(s2.notes || [], s2.tasks || [], new Set(s2.unlockedProtectedNoteIds || []));
   } catch { /* best-effort */ }
 
+  saveConnection({ ...conn, lastSyncAt: new Date().toISOString() });
   return { created, updated, deleted, ok: true };
+};
+
+/** Sync every connection whose auto-sync interval has elapsed (call on load / interval tick). */
+export const syncDueConnections = async (): Promise<number> => {
+  const now = Date.now();
+  let ran = 0;
+  for (const conn of listConnections()) {
+    if (isSyncDue(conn, now)) {
+      try { await syncConnection(conn.id); ran += 1; } catch { /* continue */ }
+    }
+  }
+  return ran;
 };
 
 // ---- Neo4j push --------------------------------------------------------------

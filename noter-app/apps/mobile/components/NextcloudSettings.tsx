@@ -8,12 +8,16 @@
 import React from 'react';
 import { View, StyleSheet, ScrollView } from 'react-native';
 import { List, Switch, Text, Button, TextInput, Checkbox, Divider, useTheme } from 'react-native-paper';
-import { normalizeNoteType, normalizeNextcloudBaseUrl, type WebdavConnection, type Neo4jConfig } from '@repo/shared';
+import { normalizeNoteType, normalizeNextcloudBaseUrl, type WebdavConnection, type WebdavEntry, type Neo4jConfig } from '@repo/shared';
 import { useStore } from '@/stores/useStore';
 import {
-  listConnections, saveConnection, deleteConnection, testConnection, syncConnection,
-  getNeo4jConfig, saveNeo4jConfig, neo4jStatus, pushNeo4j,
+  listConnections, saveConnection, deleteConnection, testConnection, syncConnection, browseFolders,
+  syncDueConnections, getNeo4jConfig, saveNeo4jConfig, neo4jStatus, pushNeo4j,
 } from '@/services/nextcloud';
+
+const INTERVALS: Array<{ v: number; label: string }> = [
+  { v: 0, label: 'Manuell' }, { v: 15, label: '15 min' }, { v: 60, label: '1 tim' }, { v: 360, label: '6 tim' },
+];
 
 const newId = (): string => 'nc_' + Math.abs(Date.now()).toString(36) + Math.floor(Math.random() * 1e6).toString(36);
 
@@ -27,12 +31,32 @@ export const NextcloudSettings: React.FC = () => {
   const [msg, setMsg] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [form, setForm] = React.useState({ name: '', host: '', username: '', password: '', roots: '' });
+  const [picker, setPicker] = React.useState<{ connId: string; path: string; entries: WebdavEntry[]; loading: boolean } | null>(null);
+
+  const openPicker = async (conn: WebdavConnection, path = '') => {
+    setPicker({ connId: conn.id, path, entries: [], loading: true });
+    try { const entries = await browseFolders(conn, path); setPicker({ connId: conn.id, path, entries, loading: false }); }
+    catch (e: any) { setMsg(e?.message || 'Kunde inte lista mappar'); setPicker(null); }
+  };
+  const toggleRoot = async (conn: WebdavConnection, p: string) => {
+    const set = new Set(conn.rootPaths);
+    if (set.has(p)) set.delete(p); else set.add(p);
+    await saveConnection({ ...conn, rootPaths: Array.from(set) });
+    await refresh();
+  };
+  const cycleInterval = async (conn: WebdavConnection) => {
+    const cur = INTERVALS.findIndex((i) => i.v === (conn.intervalMinutes || 0));
+    const next = INTERVALS[(cur + 1) % INTERVALS.length];
+    await saveConnection({ ...conn, intervalMinutes: next.v });
+    await refresh();
+  };
 
   React.useEffect(() => {
     (async () => {
       setConns(await listConnections());
       setNeo4j(await getNeo4jConfig());
       try { setNeo4jAvailable(!!(await neo4jStatus()).enabled); } catch { /* */ }
+      try { const n = await syncDueConnections(); if (n > 0) setConns(await listConnections()); } catch { /* */ }
     })();
   }, []);
 
@@ -128,9 +152,34 @@ export const NextcloudSettings: React.FC = () => {
             <Text variant="bodySmall" style={{ opacity: 0.6 }}>Mappar: {c.rootPaths.join(', ') || '(inga)'}</Text>
             <View style={styles.row}>
               <Button compact mode="outlined" disabled={busy} onPress={() => onTest(c)}>Testa</Button>
+              <Button compact mode="outlined" disabled={busy} onPress={() => (picker?.connId === c.id ? setPicker(null) : openPicker(c))}>
+                {picker?.connId === c.id ? 'Stäng' : 'Mappar'}
+              </Button>
               <Button compact mode="contained" disabled={busy} onPress={() => onSync(c)}>Synka nu</Button>
-              <Button compact textColor={theme.colors.error} disabled={busy} onPress={() => onDelete(c)}>Ta bort</Button>
             </View>
+            <View style={styles.row}>
+              <Button compact mode="text" onPress={() => cycleInterval(c)}>
+                Auto: {INTERVALS.find((i) => i.v === (c.intervalMinutes || 0))?.label || 'Manuell'}
+              </Button>
+              <Button compact mode="text" textColor={theme.colors.error} disabled={busy} onPress={() => onDelete(c)}>Ta bort</Button>
+            </View>
+
+            {picker?.connId === c.id && (
+              <View style={styles.picker}>
+                <View style={styles.row}>
+                  <Button compact mode="text" onPress={() => openPicker(c, '')}>Roten</Button>
+                  {!!picker.path && <Text variant="bodySmall" style={{ opacity: 0.6 }}>/ {picker.path}</Text>}
+                </View>
+                {picker.loading ? <Text variant="bodySmall" style={{ opacity: 0.6 }}>Laddar…</Text>
+                  : picker.entries.length === 0 ? <Text variant="bodySmall" style={{ opacity: 0.6 }}>Inga undermappar.</Text>
+                  : picker.entries.map((e) => (
+                    <View key={e.path} style={styles.pickerRow}>
+                      <Checkbox status={c.rootPaths.includes(e.path) ? 'checked' : 'unchecked'} onPress={() => toggleRoot(c, e.path)} />
+                      <Button compact mode="text" onPress={() => openPicker(c, e.path)} style={{ flex: 1 }} contentStyle={{ justifyContent: 'flex-start' }}>{e.name}/</Button>
+                    </View>
+                  ))}
+              </View>
+            )}
           </View>
         ))}
 
@@ -176,6 +225,8 @@ const styles = StyleSheet.create({
   box: { paddingHorizontal: 16, paddingBottom: 8 },
   conn: { borderWidth: StyleSheet.hairlineWidth, borderColor: '#8884', borderRadius: 8, padding: 8, marginBottom: 8 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' },
+  picker: { marginTop: 6, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: '#8884', paddingTop: 4 },
+  pickerRow: { flexDirection: 'row', alignItems: 'center' },
   input: { marginBottom: 6 },
 });
 
