@@ -16,6 +16,7 @@ import { getSocket } from '@/services/socket';
 import { pushAllMarkdownShares, drainMarkdownMutations } from '@/services/markdownShare';
 import { SkeletonRow } from '@/components/Skeleton';
 import { useRefreshControl } from '@/hooks/useRefreshControl';
+import { useGuardedMenu } from '@/hooks/useGuardedMenu';
 
 const normalizeNoteType = (value: unknown): string => {
   if (typeof value !== 'string') return 'note';
@@ -133,8 +134,8 @@ export default function NotesScreen() {
     },
   );
   
-  const [sortMenuVisible, setSortMenuVisible] = useState(false);
-  const [viewMenuVisible, setViewMenuVisible] = useState(false);
+  const sortMenuCtl = useGuardedMenu();
+  const viewMenuCtl = useGuardedMenu();
   const [projectSelectorVisible, setProjectSelectorVisible] = useState(false);
   const [iconPickerVisible, setIconPickerVisible] = useState(false);
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
@@ -259,42 +260,39 @@ export default function NotesScreen() {
             onPress={() => router.push('/(tabs)/settings')}
           />
           <Menu
-            visible={sortMenuVisible}
-            onDismiss={() => setSortMenuVisible(false)}
+            visible={sortMenuCtl.visible}
+            onDismiss={sortMenuCtl.dismiss}
             anchor={
               <IconButton
                 icon="sort"
-                onPress={() => {
-                  setSortMenuVisible(false);
-                  setTimeout(() => setSortMenuVisible(true), 0);
-                }}
+                onPress={sortMenuCtl.open}
               />
             }
           >
             <Menu.Item
-              onPress={() => { setSortBy('custom'); setSortOrder('asc'); setSortMenuVisible(false); }}
+              onPress={() => { setSortBy('custom'); setSortOrder('asc'); sortMenuCtl.dismiss(); }}
               title="Custom"
               leadingIcon={sortBy === 'custom' ? 'check' : undefined}
             />
             <Divider />
             <Menu.Item 
-              onPress={() => { setSortBy('createdAt'); setSortOrder('desc'); setSortMenuVisible(false); }} 
+              onPress={() => { setSortBy('createdAt'); setSortOrder('desc'); sortMenuCtl.dismiss(); }} 
               title="Newest first" 
               leadingIcon={sortBy === 'createdAt' && sortOrder === 'desc' ? 'check' : undefined}
             />
             <Menu.Item 
-              onPress={() => { setSortBy('createdAt'); setSortOrder('asc'); setSortMenuVisible(false); }} 
+              onPress={() => { setSortBy('createdAt'); setSortOrder('asc'); sortMenuCtl.dismiss(); }} 
               title="Oldest first"
               leadingIcon={sortBy === 'createdAt' && sortOrder === 'asc' ? 'check' : undefined}
             />
             <Divider />
             <Menu.Item 
-              onPress={() => { setSortBy('title'); setSortOrder('asc'); setSortMenuVisible(false); }} 
+              onPress={() => { setSortBy('title'); setSortOrder('asc'); sortMenuCtl.dismiss(); }} 
               title="Title A-Z"
               leadingIcon={sortBy === 'title' && sortOrder === 'asc' ? 'check' : undefined}
             />
             <Menu.Item 
-              onPress={() => { setSortBy('updatedAt'); setSortOrder('desc'); setSortMenuVisible(false); }} 
+              onPress={() => { setSortBy('updatedAt'); setSortOrder('desc'); sortMenuCtl.dismiss(); }} 
               title="Recently Updated"
               leadingIcon={sortBy === 'updatedAt' && sortOrder === 'desc' ? 'check' : undefined}
             />
@@ -303,29 +301,29 @@ export default function NotesScreen() {
               graph button + toggle. The anchor force-reopens (close→reopen on the next
               tick) so the Menu never gets wedged after a couple of taps. */}
           <Menu
-            visible={viewMenuVisible}
-            onDismiss={() => setViewMenuVisible(false)}
+            visible={viewMenuCtl.visible}
+            onDismiss={viewMenuCtl.dismiss}
             anchor={
               <IconButton
                 icon={viewMode === 'tree' ? 'view-grid-outline' : 'view-list-outline'}
-                onPress={() => { setViewMenuVisible(false); setTimeout(() => setViewMenuVisible(true), 0); }}
+                onPress={viewMenuCtl.open}
                 testID="open-view-menu"
               />
             }
           >
             <Menu.Item
-              onPress={() => { setViewMode('list'); setViewMenuVisible(false); }}
+              onPress={() => { setViewMode('list'); viewMenuCtl.dismiss(); }}
               title={t('view.list', 'Listvy')}
               leadingIcon={viewMode === 'list' ? 'check' : 'view-list-outline'}
             />
             <Menu.Item
-              onPress={() => { setViewMode('tree'); setViewMenuVisible(false); }}
+              onPress={() => { setViewMode('tree'); viewMenuCtl.dismiss(); }}
               title={t('view.card', 'Kortvy')}
               leadingIcon={viewMode === 'tree' ? 'check' : 'view-grid-outline'}
             />
             <Divider />
             <Menu.Item
-              onPress={() => { setViewMenuVisible(false); router.push('/graph'); }}
+              onPress={() => { viewMenuCtl.dismiss(); router.push('/graph'); }}
               title={t('view.graph', 'Grafvy')}
               leadingIcon="graph-outline"
               testID="open-graph-explorer"
@@ -334,7 +332,7 @@ export default function NotesScreen() {
         </View>
       ),
     });
-  }, [navigation, viewMode, setViewMode, sortMenuVisible, viewMenuVisible, sortOrder, sortBy, activeProjectId, activeProject]);
+  }, [navigation, viewMode, setViewMode, sortMenuCtl.visible, viewMenuCtl.visible, sortOrder, sortBy, activeProjectId, activeProject]);
 
   const sortedNotes = useMemo(() => {
     // SECURITY (hard guarantee): a note whose ancestor project/folder is locked-and-not-

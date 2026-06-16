@@ -9,6 +9,7 @@ import { CreateNoteDto, UpdateNoteDto, toggleEntityLink, type EntityLink } from 
 import { RichEditor, RichToolbar, actions } from 'react-native-pell-rich-editor';
 import PasswordModal from '@/components/PasswordModal';
 import { tiptapJsonToHtml, noteContentToPlainText } from '@/utils/tiptap';
+import { useGuardedMenu } from '@/hooks/useGuardedMenu';
 import { getVideoEmbedHtml } from '@/utils/video';
 import IconPickerModal from '@/components/IconPickerModal';
 import ProjectSelector from '@/components/ProjectSelector';
@@ -60,7 +61,11 @@ export default function NoteEditorScreen() {
   const [passwordMode, setPasswordMode] = useState<'unlock' | 'lock'>('unlock');
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const [unlocking, setUnlocking] = useState(false);
-  const [showMenu, setShowMenu] = useState(false);
+  // Guarded menu (open-only anchor + post-dismiss guard) so the ⋯ menu never wedges after a
+  // couple taps. setShowMenu(true/false) is kept as an alias so existing item handlers work.
+  const menuCtl = useGuardedMenu();
+  const showMenu = menuCtl.visible;
+  const setShowMenu = (v: boolean) => { if (v) menuCtl.open(); else menuCtl.dismiss(); };
   const [showMdShare, setShowMdShare] = useState(false);
 
   // Video Modal State
@@ -564,10 +569,7 @@ export default function NoteEditorScreen() {
         <Menu
           visible={showMenu}
           onDismiss={() => setShowMenu(false)}
-          anchor={<IconButton icon="dots-vertical" size={22} style={styles.headerIcon} onPress={() => {
-            setShowMenu(false);
-            setTimeout(() => setShowMenu(true), 0);
-          }} />}
+          anchor={<IconButton icon="dots-vertical" size={22} style={styles.headerIcon} onPress={menuCtl.open} />}
         >
           <Menu.Item
             onPress={() => {

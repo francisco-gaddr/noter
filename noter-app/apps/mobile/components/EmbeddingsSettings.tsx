@@ -13,6 +13,7 @@ import {
   type EmbeddingSource, type EmbeddingsConfig,
 } from '@repo/shared';
 import { useStore } from '@/stores/useStore';
+import { useGuardedMenu } from '@/hooks/useGuardedMenu';
 import {
   getEmbeddingsConfig, saveEmbeddingsConfig, getEmbeddingsApiKey, saveEmbeddingsApiKey,
   indexEntities, clearVectorIndex, getIndexInfo, type IndexResult,
@@ -32,7 +33,7 @@ export const EmbeddingsSettings: React.FC = () => {
 
   const [config, setConfig] = React.useState<EmbeddingsConfig | null>(null);
   const [apiKey, setApiKey] = React.useState('');
-  const [sourceMenu, setSourceMenu] = React.useState(false);
+  const sourceMenuCtl = useGuardedMenu();
   const [busy, setBusy] = React.useState(false);
   const [progress, setProgress] = React.useState<{ done: number; toDo: number } | null>(null);
   const [result, setResult] = React.useState<IndexResult | null>(null);
@@ -89,16 +90,16 @@ export const EmbeddingsSettings: React.FC = () => {
           </Text>
 
           <Menu
-            visible={sourceMenu}
-            onDismiss={() => setSourceMenu(false)}
+            visible={sourceMenuCtl.visible}
+            onDismiss={sourceMenuCtl.dismiss}
             anchor={
-              <Button mode="outlined" onPress={() => setSourceMenu(true)} style={styles.row} testID="embeddings-source">
+              <Button mode="outlined" onPress={sourceMenuCtl.open} style={styles.row} testID="embeddings-source">
                 {SOURCE_LABELS[config.source]}
               </Button>
             }
           >
             {(Object.keys(SOURCE_LABELS) as EmbeddingSource[]).map((s) => (
-              <Menu.Item key={s} onPress={() => { update({ source: s }); setSourceMenu(false); }} title={SOURCE_LABELS[s]} />
+              <Menu.Item key={s} onPress={() => { update({ source: s }); sourceMenuCtl.dismiss(); }} title={SOURCE_LABELS[s]} />
             ))}
           </Menu>
 

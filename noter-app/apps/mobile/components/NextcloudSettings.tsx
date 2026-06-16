@@ -10,6 +10,7 @@ import { View, StyleSheet, ScrollView, Linking } from 'react-native';
 import { List, Switch, Text, Button, TextInput, Checkbox, Divider, Menu, useTheme } from 'react-native-paper';
 import { normalizeNoteType, normalizeNextcloudBaseUrl, type WebdavConnection, type WebdavEntry, type Neo4jConfig } from '@repo/shared';
 import { useStore } from '@/stores/useStore';
+import { useGuardedMenu } from '@/hooks/useGuardedMenu';
 import {
   listConnections, saveConnection, deleteConnection, testConnection, syncConnection, browseFolders,
   syncDueConnections, getNeo4jConfig, saveNeo4jConfig, neo4jStatus, pushNeo4j, startNextcloudOAuth,
@@ -36,11 +37,11 @@ export const NextcloudSettings: React.FC = () => {
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [picker, setPicker] = React.useState<{ connId: string; path: string; entries: WebdavEntry[]; loading: boolean } | null>(null);
   const [targetFolderId, setTargetFolderIdState] = React.useState<string | null>(null);
-  const [targetMenu, setTargetMenu] = React.useState(false);
+  const targetMenuCtl = useGuardedMenu();
 
   const targetFolders = (notes || []).filter((n: any) => !n.deleted && normalizeNoteType(n.type) === 'project' && !n.source);
   const targetLabel = targetFolderId ? (targetFolders.find((f: any) => f._id === targetFolderId)?.title || 'Vald mapp') : 'Auto ("Nextcloud")';
-  const chooseTarget = async (id: string | null) => { await setTargetFolderId(id); setTargetFolderIdState(id); setTargetMenu(false); };
+  const chooseTarget = async (id: string | null) => { await setTargetFolderId(id); setTargetFolderIdState(id); targetMenuCtl.dismiss(); };
 
   const hostFromBaseUrl = (baseUrl: string): string =>
     (baseUrl || '').replace(/^https?:\/\//i, '').split('/')[0];
@@ -205,9 +206,9 @@ export const NextcloudSettings: React.FC = () => {
         <View style={styles.row}>
           <Text variant="bodySmall">Projektmapp för synkat innehåll:</Text>
           <Menu
-            visible={targetMenu}
-            onDismiss={() => setTargetMenu(false)}
-            anchor={<Button compact mode="outlined" onPress={() => setTargetMenu(true)}>{targetLabel}</Button>}
+            visible={targetMenuCtl.visible}
+            onDismiss={targetMenuCtl.dismiss}
+            anchor={<Button compact mode="outlined" onPress={targetMenuCtl.open}>{targetLabel}</Button>}
           >
             <Menu.Item onPress={() => chooseTarget(null)} title={'Auto ("Nextcloud")'} />
             {targetFolders.map((f: any) => (

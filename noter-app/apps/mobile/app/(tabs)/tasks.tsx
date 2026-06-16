@@ -17,6 +17,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { Platform } from 'react-native';
 import { SkeletonRow } from '@/components/Skeleton';
 import { useRefreshControl } from '@/hooks/useRefreshControl';
+import { useGuardedMenu } from '@/hooks/useGuardedMenu';
 import IconPickerModal from '@/components/IconPickerModal';
 
 import { EditListDialog } from '@/components/EditListDialog';
@@ -124,7 +125,7 @@ export default function TasksScreen() {
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'list' | 'board' | 'calendar'>('list');
 
-  const [sortMenuVisible, setSortMenuVisible] = useState(false);
+  const sortMenuCtl = useGuardedMenu();
   const [iconPickerVisible, setIconPickerVisible] = useState(false);
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const [sortBy, setSortBy] = useState<'createdAt' | 'title' | 'dueDate' | 'priority' | 'custom'>('custom');
@@ -447,54 +448,51 @@ export default function TasksScreen() {
               size={20}
             />
             <Menu
-              visible={sortMenuVisible}
-              onDismiss={() => setSortMenuVisible(false)}
+              visible={sortMenuCtl.visible}
+              onDismiss={sortMenuCtl.dismiss}
               anchor={
                 <IconButton
                   icon="sort"
-                  onPress={() => {
-                      setSortMenuVisible(false);
-                      setTimeout(() => setSortMenuVisible(true), 0);
-                  }}
+                  onPress={sortMenuCtl.open}
                 />
               }
             >
               <Menu.Item 
-                onPress={() => { setSortBy('custom'); setSortMenuVisible(false); }} 
+                onPress={() => { setSortBy('custom'); sortMenuCtl.dismiss(); }} 
                 title="Custom Order"
                 leadingIcon={sortBy === 'custom' ? 'check' : undefined}
               />
               <Divider />
               <Menu.Item 
-                onPress={() => { setSortBy('createdAt'); setSortOrder('desc'); setSortMenuVisible(false); }} 
+                onPress={() => { setSortBy('createdAt'); setSortOrder('desc'); sortMenuCtl.dismiss(); }} 
                 title="Newest first" 
                 leadingIcon={sortBy === 'createdAt' && sortOrder === 'desc' ? 'check' : undefined}
               />
               <Menu.Item 
-                onPress={() => { setSortBy('createdAt'); setSortOrder('asc'); setSortMenuVisible(false); }} 
+                onPress={() => { setSortBy('createdAt'); setSortOrder('asc'); sortMenuCtl.dismiss(); }} 
                 title="Oldest first"
                 leadingIcon={sortBy === 'createdAt' && sortOrder === 'asc' ? 'check' : undefined}
               />
               <Divider />
               <Menu.Item 
-                onPress={() => { setSortBy('dueDate'); setSortOrder('asc'); setSortMenuVisible(false); }} 
+                onPress={() => { setSortBy('dueDate'); setSortOrder('asc'); sortMenuCtl.dismiss(); }} 
                 title="Due Date (Earliest)"
                 leadingIcon={sortBy === 'dueDate' && sortOrder === 'asc' ? 'check' : undefined}
               />
               <Menu.Item 
-                onPress={() => { setSortBy('dueDate'); setSortOrder('desc'); setSortMenuVisible(false); }} 
+                onPress={() => { setSortBy('dueDate'); setSortOrder('desc'); sortMenuCtl.dismiss(); }} 
                 title="Due Date (Latest)"
                 leadingIcon={sortBy === 'dueDate' && sortOrder === 'desc' ? 'check' : undefined}
               />
               <Divider />
               <Menu.Item 
-                onPress={() => { setSortBy('priority'); setSortOrder('asc'); setSortMenuVisible(false); }} 
+                onPress={() => { setSortBy('priority'); setSortOrder('asc'); sortMenuCtl.dismiss(); }} 
                 title="Priority (High first)"
                 leadingIcon={sortBy === 'priority' ? 'check' : undefined}
               />
               <Divider />
               <Menu.Item 
-                onPress={() => { setSortBy('title'); setSortOrder('asc'); setSortMenuVisible(false); }} 
+                onPress={() => { setSortBy('title'); setSortOrder('asc'); sortMenuCtl.dismiss(); }} 
                 title="Title A-Z"
                 leadingIcon={sortBy === 'title' && sortOrder === 'asc' ? 'check' : undefined}
               />
