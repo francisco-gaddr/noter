@@ -207,6 +207,32 @@ const toIngest = (e: WebdavEntry): IngestEntry => ({
 
 const decodeText = (buf: ArrayBuffer): string => new TextDecoder('utf-8').decode(buf).slice(0, TEXT_CAP);
 
+// ---- image OCR (lazy Tesseract.js from a pinned CDN — no bundled dep) ---------
+let tesseractLoading: Promise<any> | null = null;
+const loadTesseract = (): Promise<any> => {
+  if (typeof document === 'undefined') return Promise.reject(new Error('no dom'));
+  const w = window as any;
+  if (w.Tesseract) return Promise.resolve(w.Tesseract);
+  if (!tesseractLoading) {
+    tesseractLoading = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+      s.onload = () => resolve((window as any).Tesseract);
+      s.onerror = () => reject(new Error('Tesseract kunde inte laddas'));
+      document.head.appendChild(s);
+    });
+  }
+  return tesseractLoading;
+};
+const ocrImage = async (buf: ArrayBuffer, mime: string): Promise<string> => {
+  try {
+    const T = await loadTesseract();
+    const url = URL.createObjectURL(new Blob([buf], { type: mime || 'image/png' }));
+    try { const res = await T.recognize(url, 'eng+swe'); return (res?.data?.text || '').slice(0, TEXT_CAP); }
+    finally { URL.revokeObjectURL(url); }
+  } catch { return ''; }
+};
+
 export interface SyncResult { created: number; updated: number; deleted: number; ok: boolean; error?: string }
 
 export const syncConnection = async (connectionId: string): Promise<SyncResult> => {
@@ -238,7 +264,13 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
         return (await extractPdfText(file)) || '';
       } catch { return ''; }
     }
-    return ''; // images: vision/OCR is Fas 2
+    if (kind === 'image') {
+      try {
+        const t = await ocrImage(await getBytes(conn, path), mime || '');
+        return t.trim() ? '[OCR-text ur bild]\n' + t : '';
+      } catch { return ''; }
+    }
+    return '';
   };
 
   let created = 0, updated = 0, deleted = 0;

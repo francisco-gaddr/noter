@@ -43,7 +43,7 @@ import {
 import { fetchWithAuth } from '@/services/api';
 import { useStore } from '@/stores/useStore';
 import { indexEntities } from '@/services/ai/embeddingsService';
-import { extractPdfTextMobile, isPdfHostReady } from '@/services/ai/pdfText';
+import { extractPdfTextMobile, extractImageOcrMobile, isPdfHostReady } from '@/services/ai/pdfText';
 
 const CONNECTIONS_KEY = 'nextcloud_connections_v1';
 const NEO4J_KEY = 'nextcloud_neo4j_config_v1';
@@ -228,7 +228,15 @@ const extractFileText = async (conn: WebdavConnection, path: string, name: strin
       return (await extractPdfTextMobile(b64)) || '';
     } catch { return ''; }
   }
-  return ''; // pdf without host, or image (vision/OCR is later)
+  if (kind === 'image' && isPdfHostReady()) {
+    try {
+      const b64 = await getBase64(conn, path);
+      if (!b64) return '';
+      const text = (await extractImageOcrMobile(b64)) || '';
+      return text.trim() ? '[OCR-text ur bild]\n' + text : '';
+    } catch { return ''; }
+  }
+  return ''; // host absent → provenance-only note
 };
 
 /** Verify a connection by listing the root (or first selected folder). */
