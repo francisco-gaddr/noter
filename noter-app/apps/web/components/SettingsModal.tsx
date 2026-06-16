@@ -12,6 +12,7 @@ import { enrollOrUnlockCrypto, changeCryptoPassword } from '../lib/crypto';
 import { AdminDashboard } from './AdminDashboard';
 import EmbeddingsSettings from './EmbeddingsSettings';
 import CalendarSharesSettings from './CalendarSharesSettings';
+import MarkdownSharesSettings from './MarkdownSharesSettings';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -204,6 +205,8 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         </div>
 
         <CalendarSharesSettings />
+
+        <MarkdownSharesSettings />
 
         <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
           <AdminDashboard />

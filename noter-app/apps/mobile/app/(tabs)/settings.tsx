@@ -18,6 +18,7 @@ import { AdminDashboard } from '@/components/AdminDashboard';
 import { EmbeddingsSettings } from '@/components/EmbeddingsSettings';
 import * as Clipboard from 'expo-clipboard';
 import { CalendarSharesSettings } from '@/components/CalendarSharesSettings';
+import { MarkdownSharesSettings } from '@/components/MarkdownSharesSettings';
 
 export default function SettingsScreen() {
   const { t, i18n } = useTranslation();
@@ -444,6 +445,10 @@ export default function SettingsScreen() {
       <Divider />
 
       <CalendarSharesSettings />
+
+      <Divider />
+
+      <MarkdownSharesSettings />
 
       <Divider />
 
