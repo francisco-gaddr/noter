@@ -270,7 +270,12 @@ const decodeText = (buf: ArrayBuffer): string => new TextDecoder('utf-8').decode
 
 export interface SyncResult { created: number; updated: number; deleted: number; pushed?: number; ok: boolean; error?: string }
 
+const inFlightSync = new Set<string>();
 export const syncConnection = async (connectionId: string): Promise<SyncResult> => {
+  // Stability: never overlap two syncs of the same connection.
+  if (inFlightSync.has(connectionId)) return { created: 0, updated: 0, deleted: 0, ok: true };
+  inFlightSync.add(connectionId);
+  try {
   const conn = listConnections().find((c) => c.id === connectionId);
   if (!conn) return { created: 0, updated: 0, deleted: 0, ok: false, error: 'Anslutning saknas' };
 
@@ -339,6 +344,31 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
 
   saveConnection({ ...conn, lastSyncAt: new Date().toISOString() });
   return { created, updated, deleted, pushed, ok: true };
+  } finally { inFlightSync.delete(connectionId); }
+};
+
+// Throttle on-enter-folder syncs.
+const lastEnterSync = new Map<string, number>();
+const ENTER_SYNC_THROTTLE_MS = 30_000;
+/** On entering a Nextcloud-backed project folder, pull fresh changes for its connection(s).
+ *  Throttled per connection, fire-and-forget. */
+export const syncOnEnterFolder = (folderId: string | null): void => {
+  if (!folderId) return;
+  try {
+    const store: any = useStore.getState();
+    const notes: Note[] = store.notes || [];
+    const folder = notes.find((n) => n._id === folderId);
+    const connIds = new Set<string>();
+    const fsrc = (folder as any)?.source;
+    if (fsrc?.connectionId) connIds.add(fsrc.connectionId);
+    if (folderId === getTargetFolderId()) listConnections().forEach((c) => connIds.add(c.id));
+    const now = Date.now();
+    for (const id of connIds) {
+      if ((lastEnterSync.get(id) || 0) > now - ENTER_SYNC_THROTTLE_MS) continue;
+      lastEnterSync.set(id, now);
+      void syncConnection(id).catch(() => {});
+    }
+  } catch { /* never block */ }
 };
 
 /** Sync every connection whose auto-sync interval has elapsed (call on load / interval tick). */

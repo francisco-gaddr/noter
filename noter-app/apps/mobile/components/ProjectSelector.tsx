@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { syncOnEnterFolder } from '@/services/nextcloud';
+import { getCachedMarkdownShares } from '@/services/markdownShare';
 import { Modal, Portal, Text, Button, IconButton, TextInput, Menu, useTheme, Divider, Dialog, HelperText } from 'react-native-paper';
 import { useStore } from '@/stores/useStore';
 import { Note } from '@repo/shared';
@@ -232,6 +234,9 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
     } else {
         setActiveProject(id);
     }
+    // On entering a Nextcloud-backed folder, pull fresh changes from other clients (throttled,
+    // fire-and-forget — never blocks navigation).
+    void syncOnEnterFolder(id);
     onDismiss();
   };
 
@@ -498,6 +503,26 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
                 leadingIcon="cloud-sync-outline"
               />
             )}
+            <Menu.Item
+                onPress={async () => {
+                    const folder = selectedProjectForMenu;
+                    setMenuVisible(false);
+                    setMenuAnchor(null);
+                    if (!folder?._id) return;
+                    const shares = await getCachedMarkdownShares().catch(() => []);
+                    const shared = shares.some((s: any) => (s.folderIds || []).includes(folder._id));
+                    const src = (folder as any).source;
+                    Alert.alert('Mappinfo', [
+                        `Namn: ${folder.title || '(namnlös)'}`,
+                        `Externt delad (Markdown): ${shared ? 'Ja' : 'Nej'}`,
+                        src?.origin ? `Serverkälla: Nextcloud (${src.connectionId ? 'kopplad' : ''})` : 'Serverkälla: Nej (lokal mapp)',
+                        src?.remotePath ? `Sökväg: ${src.remotePath}` : null,
+                        src?.syncedAt ? `Senast synkad: ${new Date(src.syncedAt).toLocaleString()}` : null,
+                    ].filter(Boolean).join('\n'));
+                }}
+                title="Info om mappen"
+                leadingIcon="information-outline"
+            />
             <Menu.Item
                 onPress={handleDelete}
                 title="Delete"

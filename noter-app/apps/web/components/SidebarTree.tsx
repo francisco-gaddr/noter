@@ -14,6 +14,8 @@ import { ConfirmationModal } from './ConfirmationModal';
 import { PasswordModal } from './PasswordModal';
 import { useTranslation } from 'react-i18next';
 import { buildSecurityNoteMap, findBlockingLockedAncestor } from '../services/ai/security';
+import { syncOnEnterFolder } from '../services/nextcloud';
+import { getCachedMarkdownShares } from '../lib/markdownShare';
 
 interface TreeNodeProps {
     note: Note;
@@ -515,11 +517,14 @@ export default function SidebarTree() {
     const project = noteById.get(projectId);
     if (!project) {
       setActiveProject(projectId);
+      syncOnEnterFolder(projectId);
       return;
     }
     const blocking = findBlockingLockedAncestor(project as any, securityMap as any, unlockedSet as any);
     if (!blocking) {
       setActiveProject(projectId);
+      // On entering a Nextcloud-backed folder, pull fresh changes (throttled, fire-and-forget).
+      syncOnEnterFolder(projectId);
       return;
     }
     setProjectUnlockModal({ isOpen: true, projectId });
@@ -793,6 +798,26 @@ export default function SidebarTree() {
                             title={t('project.rename') || 'Rename Project'}
                         >
                             <FaIcons.FaPen size={12} />
+                        </button>
+                        <button
+                            onClick={() => {
+                                const proj = noteById.get(activeProjectId);
+                                if (!proj) return;
+                                const shares = getCachedMarkdownShares();
+                                const shared = shares.some((s) => (s.folderIds || []).includes(activeProjectId));
+                                const src = (proj as any).source;
+                                alert([
+                                    `Mapp: ${proj.title || '(namnlös)'}`,
+                                    `Externt delad (Markdown): ${shared ? 'Ja' : 'Nej'}`,
+                                    src?.origin ? `Serverkälla: Nextcloud` : 'Serverkälla: Nej (lokal mapp)',
+                                    src?.remotePath ? `Sökväg: ${src.remotePath}` : null,
+                                    src?.syncedAt ? `Senast synkad: ${new Date(src.syncedAt).toLocaleString()}` : null,
+                                ].filter(Boolean).join('\n'));
+                            }}
+                            className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-800 rounded"
+                            title="Info om mappen (delning / server­källa)"
+                        >
+                            <FaIcons.FaInfoCircle size={12} />
                         </button>
                         <button
                             onClick={handleDeleteProject}

@@ -17,6 +17,7 @@ import { hasActiveDataKey } from '@repo/shared';
 import { AdminDashboard } from '@/components/AdminDashboard';
 import { EmbeddingsSettings } from '@/components/EmbeddingsSettings';
 import { NextcloudSettings } from '@/components/NextcloudSettings';
+import { forceSyncAllSources } from '@/services/forceSync';
 import * as Clipboard from 'expo-clipboard';
 import { CalendarSharesSettings } from '@/components/CalendarSharesSettings';
 import { MarkdownSharesSettings } from '@/components/MarkdownSharesSettings';
@@ -53,9 +54,21 @@ export default function SettingsScreen() {
   // Calendar/CalDAV links live in the "Kalender & CalDAV — delningar" section
   // (CalendarSharesSettings): one link/login per chosen set of lists.
 
+  const [sourceSyncMsg, setSourceSyncMsg] = useState<string>('');
   const handleSyncNow = async () => {
     await syncOfflineChanges();
     await refreshPendingSync();
+  };
+  // Force-sync external sources (Nextcloud two-way + CalDAV/calendar) so we catch up with
+  // changes made on other clients.
+  const handleSyncSources = async () => {
+    setSourceSyncMsg('Synkar mot källor…');
+    try {
+      const r = await forceSyncAllSources();
+      setSourceSyncMsg(r.ok
+        ? `✓ Nextcloud: ${r.nextcloud.created} nya, ${r.nextcloud.updated} uppdat., ${r.nextcloud.pushed} skickade · Kalender: ${r.calendarPushed} push / ${r.calendarDrained} in`
+        : `✗ ${r.error}`);
+    } catch (e: any) { setSourceSyncMsg('✗ ' + (e?.message || 'Synk misslyckades')); }
   };
 
   // Enhanced (v3) end-to-end encryption enrolment.
@@ -439,6 +452,14 @@ export default function SettingsScreen() {
           onPress={isOffline || isSyncingOffline ? undefined : handleSyncNow}
           right={() => (isSyncingOffline ? <ActivityIndicator style={{ marginRight: 12 }} /> : undefined)}
           disabled={isOffline || isSyncingOffline}
+          rippleColor={touchRippleColor}
+        />
+        <List.Item
+          title="Synka mot källor (Nextcloud + kalender)"
+          description={sourceSyncMsg || 'Tvingar synk mot Nextcloud (tvåvägs) + CalDAV/kalender-länkar — hämtar ändringar från andra klienter'}
+          left={props => <List.Icon {...props} icon="sync" />}
+          onPress={isOffline ? undefined : handleSyncSources}
+          disabled={isOffline}
           rippleColor={touchRippleColor}
         />
       </List.Section>

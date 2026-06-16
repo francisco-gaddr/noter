@@ -8,6 +8,7 @@ import ApiUrlModal from './ApiUrlModal';
 import { FaCog } from 'react-icons/fa';
 import { WHATS_NEW_ENTRIES, hasActiveDataKey } from '@repo/shared';
 import { getDefaultHotkeys } from '../lib/hotkeys';
+import { forceSyncAllSources } from '../lib/forceSync';
 import { enrollOrUnlockCrypto, changeCryptoPassword } from '../lib/crypto';
 import { AdminDashboard } from './AdminDashboard';
 import EmbeddingsSettings from './EmbeddingsSettings';
@@ -38,6 +39,17 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const handleSyncNow = async () => {
     setSyncing(true);
     try { await syncOfflineChanges(); await Promise.all([fetchNotes(), fetchTasks()]); } finally { setSyncing(false); await refreshPending(); }
+  };
+  const [sourceSyncMsg, setSourceSyncMsg] = React.useState('');
+  const [sourceSyncing, setSourceSyncing] = React.useState(false);
+  const handleSyncSources = async () => {
+    setSourceSyncing(true); setSourceSyncMsg('Synkar mot källor…');
+    try {
+      const r = await forceSyncAllSources();
+      setSourceSyncMsg(r.ok
+        ? `✓ Nextcloud: ${r.nextcloud.created} nya, ${r.nextcloud.updated} uppdat., ${r.nextcloud.pushed} skickade · Kalender: ${r.calendarPushed}/${r.calendarDrained}`
+        : `✗ ${r.error}`);
+    } catch (e: any) { setSourceSyncMsg('✗ ' + (e?.message || 'fel')); } finally { setSourceSyncing(false); }
   };
 
   const tasks = useStore((s) => s.tasks);
@@ -181,6 +193,19 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
               data-testid="settings-sync-now"
             >
               {syncing ? 'Synkar…' : 'Synka nu'}
+            </button>
+          </div>
+          <div className="flex items-center justify-between rounded-lg border border-gray-200 dark:border-gray-700 p-3 mt-2">
+            <div className="text-xs text-gray-600 dark:text-gray-300">
+              {sourceSyncMsg || 'Tvinga synk mot Nextcloud (tvåvägs) + CalDAV/kalender-länkar — hämtar ändringar från andra klienter'}
+            </div>
+            <button
+              type="button"
+              onClick={handleSyncSources}
+              disabled={sourceSyncing || isOffline}
+              className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm disabled:opacity-50 whitespace-nowrap"
+            >
+              {sourceSyncing ? 'Synkar…' : 'Synka mot källor'}
             </button>
           </div>
         </div>
