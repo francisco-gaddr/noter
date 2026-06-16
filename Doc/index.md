@@ -32,7 +32,8 @@ ska öppna för en given fråga. Läs det här först, sedan den specifika filen
 | Förstå CI/kvalitet & död-kod-grinden | [`ops/ci-quality.md`](./ops/ci-quality.md) |
 | Förstå AI-runtime (web/mobil/Electron) | [`App AI.md`](./App%20AI.md), [`AI impl.md`](./AI%20impl.md) |
 | **AI-leverantörer (OpenAI/Anthropic/Grok m.fl.) + RAG-hämtning (semantisk/GraphRAG/rerank)** ⭐ | [`ai-retrieval-rag.md`](./ai-retrieval-rag.md) + [`adr/0010-two-stage-rag-retrieval.md`](./adr/0010-two-stage-rag-retrieval.md) |
-| **Synka in utvalda Nextcloud-mappar som krypterad, indexerbar kontext (PDF/MD/bild)** 🔒 *(plan/kartläggning — ej implementerad)* | [`nextcloud-ingestion.md`](./nextcloud-ingestion.md) + [`adr/0011-external-source-ingestion.md`](./adr/0011-external-source-ingestion.md) |
+| **Hur Nextcloud-synken funkar (steg för steg, stabilitet, säkerhet, valda mappar)** ⭐🔒 | [`nextcloud-sync.md`](./nextcloud-sync.md) |
+| Synka in utvalda Nextcloud-mappar — design/beslut + selektiv Neo4j | [`nextcloud-ingestion.md`](./nextcloud-ingestion.md) + [`adr/0011-external-source-ingestion.md`](./adr/0011-external-source-ingestion.md) |
 | **Köra AI lokalt på mobilen (llama.rn, GGUF direkt)** | [`on-device-ai-llama.md`](./on-device-ai-llama.md) ⭐ (ersätter [`MLC AI.md`](./MLC%20AI.md)) |
 | Förstå AI tool-use + GraphQL-kontrakt | [`Tool Calls.md`](./Tool%20Calls.md) |
 | **Förstå admin, AI-orkestrering, inställningar + mätbarhet** | [`admin-orchestration-and-settings.md`](./admin-orchestration-and-settings.md) ⭐ |

@@ -35,6 +35,25 @@ export const registerPdfHost = (notify: () => void): (() => void) => {
 
 export const isPdfHostReady = (): boolean => notifyHost !== null;
 
+/**
+ * Wait (briefly) for the WebView extractor host to mount — avoids the cold-start race where a
+ * Nextcloud sync fired before the host is ready would land rich files (PDF/Word/Excel/image)
+ * with empty text and never re-extract (unchanged ETag). Resolves true once ready, false on
+ * timeout. Note: readiness here = the React host is mounted; the in-WebView libs signal their
+ * own readiness separately, but jobs queue safely until then.
+ */
+export const waitForPdfHost = (timeoutMs = 6000): Promise<boolean> =>
+  new Promise((resolve) => {
+    if (notifyHost) { resolve(true); return; }
+    const start = Date.now();
+    const tick = () => {
+      if (notifyHost) { resolve(true); return; }
+      if (Date.now() - start >= timeoutMs) { resolve(false); return; }
+      setTimeout(tick, 150);
+    };
+    tick();
+  });
+
 /** The host pulls the next pending job (or null). */
 export const takeNextPdfJob = (): ExtractJob | null => queue.shift() || null;
 

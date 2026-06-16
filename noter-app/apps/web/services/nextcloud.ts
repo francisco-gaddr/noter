@@ -241,15 +241,25 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
   };
 
   let created = 0, updated = 0, deleted = 0;
+  // Self-heal: a rich file whose extraction came back empty (transient CDN/download error, a
+  // scanned PDF the OCR missed) gets an EMPTY stored ETag so the next sync retries it instead of
+  // being stuck on a provenance-only note.
+  const richEmptyRetry = (src: typeof plan.creates[number]['source'], body: string) => {
+    const k = classifyFile(src.remotePath, src.mimeType);
+    const isRich = k === 'pdf' || k === 'docx' || k === 'xlsx' || k === 'image' || k === 'pages';
+    return isRich && !body.trim() ? { ...src, remoteEtag: '' } : src;
+  };
+
   for (const draft of plan.creates) {
     const parentId = draft.parentRemotePath ? pathToId.get(draft.parentRemotePath) || null : null;
     let content = '';
+    let body = '';
     if (draft.needsContent) {
-      const body = await extract(draft.source.remotePath, draft.title, draft.source.mimeType);
+      body = await extract(draft.source.remotePath, draft.title, draft.source.mimeType);
       content = ingestProvenanceHeader(draft.source) + (body ? '\n\n' + body : '\n\n[Inget extraherbart innehåll]');
     }
     try {
-      const note = await api.createNote({ title: draft.title, content, tags: [], parentId, type: draft.type, source: draft.source } as any);
+      const note = await api.createNote({ title: draft.title, content, tags: [], parentId, type: draft.type, source: richEmptyRetry(draft.source, body) } as any);
       pathToId.set(draft.source.remotePath, note._id);
       created += 1;
     } catch { /* continue */ }
@@ -257,7 +267,7 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
   for (const u of plan.updates) {
     const body = await extract(u.source.remotePath, u.title, u.source.mimeType);
     const content = ingestProvenanceHeader(u.source) + (body ? '\n\n' + body : '');
-    try { await api.updateNote(u.noteId, { content, source: u.source } as any); updated += 1; } catch { /* */ }
+    try { await api.updateNote(u.noteId, { content, source: richEmptyRetry(u.source, body) } as any); updated += 1; } catch { /* */ }
   }
   for (const id of plan.deletes) {
     try { await api.deleteNote(id); deleted += 1; } catch { /* */ }

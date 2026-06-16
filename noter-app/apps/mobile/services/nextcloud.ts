@@ -38,12 +38,13 @@ import {
   type WebdavEntry,
   type IngestEntry,
   type Neo4jConfig,
+  type NoteSource,
   type Note,
 } from '@repo/shared';
 import { fetchWithAuth } from '@/services/api';
 import { useStore } from '@/stores/useStore';
 import { indexEntities } from '@/services/ai/embeddingsService';
-import { extractPdfTextMobile, extractImageOcrMobile, extractDocxMobile, extractXlsxMobile, isPdfHostReady } from '@/services/ai/pdfText';
+import { extractPdfTextMobile, extractImageOcrMobile, extractDocxMobile, extractXlsxMobile, isPdfHostReady, waitForPdfHost } from '@/services/ai/pdfText';
 
 const CONNECTIONS_KEY = 'nextcloud_connections_v1';
 const NEO4J_KEY = 'nextcloud_neo4j_config_v1';
@@ -298,8 +299,26 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
   try { entries = await enumerateAll(conn); }
   catch (e: any) { return { created: 0, updated: 0, deleted: 0, ok: false, error: e?.message || 'Sync misslyckades' }; }
 
+  // If any selected file needs the WebView extractor (PDF/Word/Excel/image), wait briefly for
+  // the host to mount — otherwise a cold-start sync would land them empty and (unchanged ETag)
+  // never re-extract. Cheap no-op once the host is ready.
+  const needsHost = entries.some((e) => {
+    const k = classifyFile(e.name, e.mimeType);
+    return k === 'pdf' || k === 'docx' || k === 'xlsx' || k === 'image';
+  });
+  if (needsHost) await waitForPdfHost(6000);
+
   const syncedAt = new Date().toISOString();
   const plan = planIngest(entries, existingRefs, connectionId, syncedAt);
+
+  // Self-heal: a rich file whose extraction came back empty (host still warming up, a transient
+  // download error, a scanned PDF the OCR missed) gets an EMPTY stored ETag so the next sync
+  // sees a "change" and retries — instead of being stuck on a provenance-only note forever.
+  const richEmptyRetry = (src: NoteSource, body: string): NoteSource => {
+    const k = classifyFile(src.remotePath, src.mimeType);
+    const isRich = k === 'pdf' || k === 'docx' || k === 'xlsx' || k === 'image';
+    return isRich && !body.trim() ? { ...src, remoteEtag: '' } : src;
+  };
 
   // Resolve a remotePath → noteId map as we create folders (so children get the right parent).
   const pathToId = new Map<string, string>();
@@ -313,8 +332,9 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
   for (const draft of plan.creates) {
     const parentId = draft.parentRemotePath ? pathToId.get(draft.parentRemotePath) || null : null;
     let content = '';
+    let body = '';
     if (draft.needsContent) {
-      const body = await extractFileText(conn, draft.source.remotePath, draft.title, draft.source.mimeType);
+      body = await extractFileText(conn, draft.source.remotePath, draft.title, draft.source.mimeType);
       content = ingestProvenanceHeader(draft.source) + (body ? '\n\n' + body : '\n\n[Inget extraherbart innehåll]');
     }
     try {
@@ -324,7 +344,7 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
         tags: [],
         parentId,
         type: draft.type,
-        source: draft.source,
+        source: richEmptyRetry(draft.source, body),
       });
       pathToId.set(draft.source.remotePath, note._id);
       created += 1;
@@ -333,7 +353,7 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
   for (const u of plan.updates) {
     const body = await extractFileText(conn, u.source.remotePath, u.title, u.source.mimeType);
     const content = ingestProvenanceHeader(u.source) + (body ? '\n\n' + body : '');
-    try { await store.updateNote(u.noteId, { content, source: u.source }); updated += 1; } catch { /* continue */ }
+    try { await store.updateNote(u.noteId, { content, source: richEmptyRetry(u.source, body) }); updated += 1; } catch { /* continue */ }
   }
   for (const id of plan.deletes) {
     try { await store.deleteNote(id); deleted += 1; } catch { /* continue */ }
