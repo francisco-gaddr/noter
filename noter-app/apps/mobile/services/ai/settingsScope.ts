@@ -23,12 +23,14 @@ export const AI_ASYNC_SETTING_KEYS = [
   'ai_system_prompt', 'ai_tool_use_enabled', 'ai_chat_context_level', 'ai_local_convert',
   'ai_attachments_enabled', 'ai_next_thread_local_only', 'ai_background_work',
   'ai_api_enabled', 'ai_api_provider', 'ai_openrouter_model', 'ai_gemini_model',
-  'ai_groq_model', 'ai_hermes_model', 'ai_hermes_base_url',
+  'ai_groq_model', 'ai_openai_model', 'ai_anthropic_model', 'ai_grok_model',
+  'ai_hermes_model', 'ai_hermes_base_url',
   'embeddings_config', 'embeddings_index', 'ai_active_project',
 ];
 // Secrets stored in SecureStore (encrypted), keyed `${key}_${scope}`.
 export const AI_SECURE_SETTING_KEYS = [
   'ai_custom_providers', 'ai_openrouter_key', 'ai_gemini_key', 'ai_groq_key',
+  'ai_openai_key', 'ai_anthropic_key', 'ai_grok_key',
   'ai_hermes_key', 'ai_mcp_settings', 'embeddings_api_key',
 ];
 

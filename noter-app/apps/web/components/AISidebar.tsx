@@ -188,6 +188,12 @@ export const AISidebar = () => {
   // OpenAI-compatible path with a user-supplied base URL and an optional key.
   const [groqApiKey, setGroqApiKey] = useState('');
   const [groqModel, setGroqModel] = useState('llama-3.3-70b-versatile');
+  const [openaiApiKey, setOpenaiApiKey] = useState('');
+  const [openaiModel, setOpenaiModel] = useState('gpt-4o-mini');
+  const [anthropicApiKey, setAnthropicApiKey] = useState('');
+  const [anthropicModel, setAnthropicModel] = useState('claude-sonnet-4-6');
+  const [grokApiKey, setGrokApiKey] = useState('');
+  const [grokModel, setGrokModel] = useState('grok-4.3');
   const [hermesApiKey, setHermesApiKey] = useState('');
   const [hermesModel, setHermesModel] = useState('qwen2.5:3b-instruct');
   const [hermesBaseUrl, setHermesBaseUrl] = useState('');
@@ -255,6 +261,9 @@ export const AISidebar = () => {
     if (activeProvider === 'mlc') return modelPath;
     if (activeProvider === 'openrouter') return openRouterModel;
     if (activeProvider === 'groq') return groqModel;
+    if (activeProvider === 'openai') return openaiModel;
+    if (activeProvider === 'anthropic') return anthropicModel;
+    if (activeProvider === 'grok') return grokModel;
     if (activeProvider === 'hermes') return hermesModel;
     return geminiModel;
   };
@@ -427,7 +436,7 @@ export const AISidebar = () => {
       if (mounted && typeof savedApiProvider === 'string' && savedApiProvider.startsWith('custom:')) {
         const id = savedApiProvider.slice('custom:'.length);
         if (loadedCustom.some((p) => p.id === id)) setActiveCustomId(id);
-      } else if (mounted && (savedApiProvider === 'openrouter' || savedApiProvider === 'gemini' || savedApiProvider === 'groq' || savedApiProvider === 'hermes')) {
+      } else if (mounted && typeof savedApiProvider === 'string' && savedApiProvider in API_PROVIDERS) {
         setApiProvider(savedApiProvider as ApiProviderType);
       }
       const savedOpenRouterKey = await getStoredValue('openrouterApiKey');
@@ -442,6 +451,18 @@ export const AISidebar = () => {
       if (mounted && savedGroqKey) setGroqApiKey(decrypt(savedGroqKey) || savedGroqKey);
       const savedGroqModel = await getStoredValue('groqModel');
       if (mounted && savedGroqModel) setGroqModel(savedGroqModel);
+      const savedOpenaiKey = await getStoredValue('openaiApiKey');
+      if (mounted && savedOpenaiKey) setOpenaiApiKey(decrypt(savedOpenaiKey) || savedOpenaiKey);
+      const savedOpenaiModel = await getStoredValue('openaiModel');
+      if (mounted && savedOpenaiModel) setOpenaiModel(savedOpenaiModel);
+      const savedAnthropicKey = await getStoredValue('anthropicApiKey');
+      if (mounted && savedAnthropicKey) setAnthropicApiKey(decrypt(savedAnthropicKey) || savedAnthropicKey);
+      const savedAnthropicModel = await getStoredValue('anthropicModel');
+      if (mounted && savedAnthropicModel) setAnthropicModel(savedAnthropicModel);
+      const savedGrokKey = await getStoredValue('grokApiKey');
+      if (mounted && savedGrokKey) setGrokApiKey(decrypt(savedGrokKey) || savedGrokKey);
+      const savedGrokModel = await getStoredValue('grokModel');
+      if (mounted && savedGrokModel) setGrokModel(savedGrokModel);
       const savedHermesKey = await getStoredValue('hermesApiKey');
       if (mounted && savedHermesKey) setHermesApiKey(decrypt(savedHermesKey) || savedHermesKey);
       const savedHermesModel = await getStoredValue('hermesModel');
@@ -568,6 +589,13 @@ export const AISidebar = () => {
     if (!settingsLoaded) return;
     setStoredValue('groqModel', groqModel || null);
   }, [groqModel, settingsLoaded]);
+
+  useEffect(() => { if (!settingsLoaded) return; setStoredValue('openaiApiKey', openaiApiKey ? encrypt(openaiApiKey) : null); }, [openaiApiKey, settingsLoaded]);
+  useEffect(() => { if (!settingsLoaded) return; setStoredValue('openaiModel', openaiModel || null); }, [openaiModel, settingsLoaded]);
+  useEffect(() => { if (!settingsLoaded) return; setStoredValue('anthropicApiKey', anthropicApiKey ? encrypt(anthropicApiKey) : null); }, [anthropicApiKey, settingsLoaded]);
+  useEffect(() => { if (!settingsLoaded) return; setStoredValue('anthropicModel', anthropicModel || null); }, [anthropicModel, settingsLoaded]);
+  useEffect(() => { if (!settingsLoaded) return; setStoredValue('grokApiKey', grokApiKey ? encrypt(grokApiKey) : null); }, [grokApiKey, settingsLoaded]);
+  useEffect(() => { if (!settingsLoaded) return; setStoredValue('grokModel', grokModel || null); }, [grokModel, settingsLoaded]);
 
   useEffect(() => {
     if (!settingsLoaded) return;
@@ -1422,6 +1450,9 @@ export const AISidebar = () => {
       case 'openrouter': return { apiKey: openRouterApiKey, model: openRouterModel };
       case 'gemini': return { apiKey: geminiApiKey, model: geminiModel };
       case 'groq': return { apiKey: groqApiKey, model: groqModel };
+      case 'openai': return { apiKey: openaiApiKey, model: openaiModel };
+      case 'anthropic': return { apiKey: anthropicApiKey, model: anthropicModel };
+      case 'grok': return { apiKey: grokApiKey, model: grokModel };
       case 'hermes': return { apiKey: hermesApiKey, model: hermesModel, baseUrl: hermesBaseUrl };
       default: return { apiKey: '', model: '' };
     }
@@ -4052,6 +4083,34 @@ export const AISidebar = () => {
                 <UsageBar usage={apiUsage} />
               </div>
             )}
+
+            {/* OpenAI / Anthropic / xAI Grok — generic key+model block (one input pair). */}
+            {aiUseApiProviders && !activeCustomId && (apiProvider === 'openai' || apiProvider === 'anthropic' || apiProvider === 'grok') && (() => {
+              const cfg = { openai: { key: openaiApiKey, setKey: setOpenaiApiKey, model: openaiModel, setModel: setOpenaiModel, ph: 'sk-...' },
+                            anthropic: { key: anthropicApiKey, setKey: setAnthropicApiKey, model: anthropicModel, setModel: setAnthropicModel, ph: 'sk-ant-...' },
+                            grok: { key: grokApiKey, setKey: setGrokApiKey, model: grokModel, setModel: setGrokModel, ph: 'xai-...' } }[apiProvider as 'openai' | 'anthropic' | 'grok'];
+              const label = API_PROVIDERS[apiProvider as ApiProviderType]?.label || apiProvider;
+              return (
+                <div className="mb-6 p-3 border rounded bg-gray-50 dark:bg-gray-800">
+                  <div className="mb-3">
+                    <label className="text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider mb-1 block">{label} API Key</label>
+                    <input
+                      type="password"
+                      className="w-full border rounded p-2 text-sm dark:bg-gray-900"
+                      value={cfg.key}
+                      onChange={(e) => cfg.setKey(e.target.value)}
+                      placeholder={cfg.ph}
+                      data-testid={`${apiProvider}-api-key`}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wider mb-1 block">{label} Modell</label>
+                    <ModelPicker provider={apiProvider as ApiProviderType} value={cfg.model} onChange={cfg.setModel} testId={`${apiProvider}-model`} />
+                  </div>
+                  <UsageBar usage={apiUsage} />
+                </div>
+              );
+            })()}
 
             {aiUseApiProviders && !activeCustomId && apiProvider === 'hermes' && (
               <div className="mb-6 p-3 border rounded bg-gray-50 dark:bg-gray-800">

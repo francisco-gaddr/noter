@@ -8,11 +8,74 @@ describe('mobile apiProviders', () => {
     jest.restoreAllMocks();
   });
 
-  it('exposes openrouter, groq, gemini and hermes in the provider registry', () => {
-    expect(API_PROVIDER_LIST.map((p) => p.id).sort()).toEqual(['gemini', 'groq', 'hermes', 'openrouter']);
+  it('exposes all built-in providers (incl. OpenAI, Anthropic, Grok) in the registry', () => {
+    expect(API_PROVIDER_LIST.map((p) => p.id).sort()).toEqual(
+      ['anthropic', 'gemini', 'grok', 'groq', 'hermes', 'openai', 'openrouter']
+    );
     expect(API_PROVIDERS.groq.endpoint).toContain('api.groq.com');
+    expect(API_PROVIDERS.openai.endpoint).toBe('https://api.openai.com/v1/chat/completions');
+    expect(API_PROVIDERS.openai.format).toBe('openai');
+    expect(API_PROVIDERS.grok.endpoint).toBe('https://api.x.ai/v1/chat/completions');
+    expect(API_PROVIDERS.anthropic.endpoint).toBe('https://api.anthropic.com/v1/messages');
+    expect(API_PROVIDERS.anthropic.format).toBe('anthropic');
     expect(API_PROVIDERS.hermes.configurableEndpoint).toBe(true);
     expect(API_PROVIDERS.hermes.apiKeyOptional).toBe(true);
+  });
+
+  it('routes OpenAI + Grok through the OpenAI-compatible path with a Bearer token', async () => {
+    for (const [provider, host] of [['openai', 'https://api.openai.com/v1/chat/completions'], ['grok', 'https://api.x.ai/v1/chat/completions']] as const) {
+      const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ choices: [{ message: { content: `hi ${provider}` } }], usage: { total_tokens: 5 } }) });
+      global.fetch = fetchMock as any;
+      const result = await generateApiProviderResponse({
+        provider, apiKey: 'key123', model: 'm',
+        history: [{ id: '1', role: 'user', content: 'Hej', createdAt: new Date().toISOString() }],
+      });
+      expect(result.text).toBe(`hi ${provider}`);
+      const [url, init] = fetchMock.mock.calls[0];
+      expect(url).toBe(host);
+      expect((init.headers as any).Authorization).toBe('Bearer key123');
+    }
+  });
+
+  it('routes Anthropic through /v1/messages with x-api-key, version, system + content blocks', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ content: [{ type: 'text', text: 'Hej Claude' }], usage: { input_tokens: 10, output_tokens: 7 } }),
+    });
+    global.fetch = fetchMock as any;
+    const result = await generateApiProviderResponse({
+      provider: 'anthropic',
+      apiKey: 'sk-ant-xyz',
+      model: 'claude-sonnet-4-6',
+      history: [
+        { id: 's', role: 'system', content: 'Du är hjälpsam', createdAt: new Date().toISOString() },
+        { id: '1', role: 'user', content: 'Hej', createdAt: new Date().toISOString() },
+      ],
+    });
+    expect(result.text).toBe('Hej Claude');
+    expect(result.totalTokens).toBe(17); // input + output
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('https://api.anthropic.com/v1/messages');
+    expect((init.headers as any)['x-api-key']).toBe('sk-ant-xyz');
+    expect((init.headers as any)['anthropic-version']).toBe('2023-06-01');
+    const body = JSON.parse((init as any).body);
+    expect(body.system).toBe('Du är hjälpsam');           // system is a top-level field
+    expect(body.max_tokens).toBeGreaterThan(0);            // required by Anthropic
+    expect(body.messages).toEqual([{ role: 'user', content: 'Hej' }]); // system stripped from messages
+  });
+
+  it('attaches images as Anthropic base64 image blocks on the last user turn', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ content: [{ type: 'text', text: 'ok' }], usage: {} }) });
+    global.fetch = fetchMock as any;
+    await generateApiProviderResponse({
+      provider: 'anthropic', apiKey: 'sk-ant', model: 'claude-3-5-haiku-latest',
+      history: [{ id: '1', role: 'user', content: 'vad ser du?', createdAt: new Date().toISOString() }],
+      images: ['data:image/png;base64,AAA'],
+    });
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as any).body);
+    const last = body.messages[body.messages.length - 1];
+    expect(Array.isArray(last.content)).toBe(true);
+    expect(last.content[1]).toEqual({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAA' } });
   });
 
   it('routes Groq through the OpenAI-compatible path with a Bearer token', async () => {

@@ -1,14 +1,19 @@
 import { ChatMessage } from '@repo/ai';
 import { parseDataUrl } from '@repo/shared';
-import { SseBuffer, sseDataPayloads, openAiDelta, openAiUsageTokens, geminiDelta, geminiUsageTokens } from './sseParser';
+import { SseBuffer, sseDataPayloads, openAiDelta, openAiUsageTokens, geminiDelta, geminiUsageTokens, anthropicDelta, anthropicUsage } from './sseParser';
 
 // Mirrors apps/mobile/services/ai/apiProviders.ts so the desktop/web AI chat
-// supports the same providers (OpenRouter, Groq, Gemini, self-hosted Hermes) and
-// the same vision + true-SSE-streaming behaviour. The only platform difference is
-// the streaming transport: the browser's native `fetch` already exposes a real
-// ReadableStream body, so there is no expo/fetch shim here.
+// supports the same providers (OpenRouter, Groq, OpenAI, Anthropic, xAI Grok, Gemini,
+// self-hosted Hermes) and the same vision + true-SSE-streaming behaviour. The only
+// platform difference is the streaming transport: the browser's native `fetch` already
+// exposes a real ReadableStream body, so there is no expo/fetch shim here.
 
-export type ApiProviderType = 'openrouter' | 'gemini' | 'groq' | 'hermes';
+export type ApiProviderType = 'openrouter' | 'openai' | 'anthropic' | 'grok' | 'gemini' | 'groq' | 'hermes';
+
+/** Wire format of a provider's API. 'openai' = OpenAI-compatible /chat/completions
+ *  (OpenRouter, Groq, OpenAI, xAI Grok, Hermes); 'gemini' = Google generateContent;
+ *  'anthropic' = Anthropic /v1/messages (content blocks + x-api-key). */
+export type ApiProviderFormat = 'openai' | 'gemini' | 'anthropic';
 
 export interface ApiProviderMeta {
   id: ApiProviderType;
@@ -16,6 +21,8 @@ export interface ApiProviderMeta {
   /** OpenAI-compatible chat-completions endpoint, or null for bespoke (Gemini)
    *  / for providers whose endpoint the user configures at runtime (Hermes). */
   endpoint: string | null;
+  /** Wire format. Defaults to 'openai' when omitted. */
+  format?: ApiProviderFormat;
   /** Where the user gets an API key — shown in settings. */
   apiKeyUrl: string;
   /** A couple of sensible default model ids for the picker. */
@@ -28,6 +35,10 @@ export interface ApiProviderMeta {
   /** Short hint shown in settings for configurable providers. */
   hint?: string;
 }
+
+/** Default max output tokens for providers that require it (Anthropic). */
+const ANTHROPIC_MAX_TOKENS = 4096;
+const ANTHROPIC_VERSION = '2023-06-01';
 
 // Single source of truth for the supported third-party providers. Add a provider
 // here (+ to ApiProviderType) and the OpenAI-compatible ones work with no further
@@ -60,11 +71,41 @@ export const API_PROVIDERS: Record<ApiProviderType, ApiProviderMeta> = {
     id: 'gemini',
     label: 'Google Gemini',
     endpoint: null,
+    format: 'gemini',
     apiKeyUrl: 'https://aistudio.google.com/app/apikey',
     defaultModels: [
       'gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash-lite',
       'gemini-1.5-pro', 'gemini-1.5-flash',
     ],
+  },
+  openai: {
+    id: 'openai',
+    label: 'OpenAI',
+    endpoint: 'https://api.openai.com/v1/chat/completions',
+    format: 'openai',
+    apiKeyUrl: 'https://platform.openai.com/api-keys',
+    defaultModels: [
+      'gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini', 'gpt-4.1', 'gpt-5', 'gpt-5-mini', 'o4-mini',
+    ],
+  },
+  anthropic: {
+    id: 'anthropic',
+    label: 'Anthropic (Claude)',
+    endpoint: 'https://api.anthropic.com/v1/messages',
+    format: 'anthropic',
+    apiKeyUrl: 'https://console.anthropic.com/settings/keys',
+    defaultModels: [
+      'claude-opus-4-7', 'claude-sonnet-4-6', 'claude-3-7-sonnet-latest',
+      'claude-3-5-haiku-latest',
+    ],
+  },
+  grok: {
+    id: 'grok',
+    label: 'xAI (Grok)',
+    endpoint: 'https://api.x.ai/v1/chat/completions',
+    format: 'openai',
+    apiKeyUrl: 'https://console.x.ai',
+    defaultModels: ['grok-4.3', 'grok-4', 'grok-3', 'grok-3-mini'],
   },
   // Self-hosted Hermes agents on the user's MacBook / Raspberry Pi. These expose
   // an OpenAI-compatible /v1/chat/completions (llama.cpp, Ollama, LM Studio, vLLM,
@@ -137,6 +178,52 @@ const toGeminiContents = (history: ChatMessage[], images: string[] = []) => {
   });
 };
 
+/** Effective wire format for a provider (defaults to OpenAI-compatible). */
+export const providerFormat = (meta?: ApiProviderMeta): ApiProviderFormat =>
+  meta?.format || (meta?.endpoint || meta?.configurableEndpoint ? 'openai' : 'gemini');
+
+/**
+ * Anthropic Messages format. The system prompt is a top-level `system` field (not a
+ * message role), and user/assistant turns use content blocks. Images attach to the last
+ * user turn as base64 `image` source blocks. Tool messages collapse into assistant text.
+ */
+const toAnthropicMessages = (history: ChatMessage[], images: string[] = []): { system: string; messages: any[] } => {
+  const systemParts: string[] = [];
+  const turns: ChatMessage[] = [];
+  for (const m of history) {
+    if (m.role === 'system') { if (m.content) systemParts.push(m.content); continue; }
+    turns.push(m);
+  }
+  const imgIdx = images.length ? (() => { for (let i = turns.length - 1; i >= 0; i--) if (turns[i].role === 'user') return i; return -1; })() : -1;
+  const messages = turns.map((m, i) => {
+    const role = m.role === 'assistant' || m.role === 'tool' ? 'assistant' : 'user';
+    if (i === imgIdx && images.length) {
+      const blocks: any[] = [{ type: 'text', text: m.content || '' }];
+      for (const url of images) {
+        const parsed = parseDataUrl(url);
+        if (parsed) blocks.push({ type: 'image', source: { type: 'base64', media_type: parsed.mimeType, data: parsed.base64 } });
+      }
+      return { role, content: blocks };
+    }
+    return { role, content: m.content || '' };
+  });
+  return { system: systemParts.join('\n\n'), messages };
+};
+
+/** Headers for an Anthropic Messages request. The browser-access header lets the web/
+ *  Electron renderer call the API directly (mobile/RN ignores CORS entirely). */
+const anthropicHeaders = (apiKey: string): Record<string, string> => ({
+  'Content-Type': 'application/json',
+  'x-api-key': apiKey,
+  'anthropic-version': ANTHROPIC_VERSION,
+  'anthropic-dangerous-direct-browser-access': 'true',
+});
+
+const anthropicBody = (model: string, history: ChatMessage[], images: string[], stream: boolean): string => {
+  const { system, messages } = toAnthropicMessages(history, images);
+  return JSON.stringify({ model, max_tokens: ANTHROPIC_MAX_TOKENS, ...(system ? { system } : {}), messages, stream });
+};
+
 export interface ApiProviderResult {
   text: string;
   /** Total tokens the provider reported for this call (0 if not reported). */
@@ -157,9 +244,28 @@ export const generateApiProviderResponse = async (params: {
   const meta = API_PROVIDERS[provider];
   if (!apiKey && !meta?.apiKeyOptional) throw new Error('API-nyckel saknas');
   if (!model) throw new Error('API-modell saknas');
+  const format = providerFormat(meta);
 
-  // OpenAI-compatible providers (OpenRouter, Groq, Hermes, …) share one path.
-  if (meta?.endpoint || meta?.configurableEndpoint) {
+  // Anthropic Messages API — content blocks, x-api-key, system as a top-level field.
+  if (format === 'anthropic') {
+    const response = await fetch(meta.endpoint || 'https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: anthropicHeaders(apiKey),
+      body: anthropicBody(model, history, images, false),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      throw new Error(text || `${meta?.label ?? 'Anthropic'} request failed`);
+    }
+    const json = await response.json();
+    const blocks = Array.isArray(json?.content) ? json.content : [];
+    const text = blocks.filter((b: any) => b?.type === 'text').map((b: any) => String(b?.text || '')).join('');
+    const usage = json?.usage || {};
+    return { text, totalTokens: (Number(usage.input_tokens) || 0) + (Number(usage.output_tokens) || 0) };
+  }
+
+  // OpenAI-compatible providers (OpenRouter, Groq, OpenAI, Grok, Hermes, …) share one path.
+  if (format === 'openai') {
     const url = resolveChatCompletionsUrl(meta, baseUrl);
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
@@ -174,7 +280,7 @@ export const generateApiProviderResponse = async (params: {
     });
     if (!response.ok) {
       const text = await response.text().catch(() => '');
-      throw new Error(text || `${meta.label} request failed`);
+      throw new Error(text || `${meta?.label ?? provider} request failed`);
     }
     const json = await response.json();
     return {
@@ -228,17 +334,23 @@ export const streamApiProviderResponse = async (params: {
   if (!apiKey && !meta?.apiKeyOptional) throw new Error('API-nyckel saknas');
   if (!model) throw new Error('API-modell saknas');
 
-  const isOpenAi = !!meta?.endpoint || !!meta?.configurableEndpoint;
+  const format = providerFormat(meta);
 
-  const url = isOpenAi
-    ? resolveChatCompletionsUrl(meta, baseUrl)
-    : `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`;
-  const headers: Record<string, string> = isOpenAi
-    ? { 'Content-Type': 'application/json', ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) }
-    : { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey };
-  const body = isOpenAi
-    ? JSON.stringify({ model, messages: toOpenAiMessages(history, images), stream: true, stream_options: { include_usage: true } })
-    : JSON.stringify({ contents: toGeminiContents(history, images) });
+  const url = format === 'anthropic'
+    ? (meta.endpoint || 'https://api.anthropic.com/v1/messages')
+    : format === 'openai'
+      ? resolveChatCompletionsUrl(meta, baseUrl)
+      : `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse`;
+  const headers: Record<string, string> = format === 'anthropic'
+    ? anthropicHeaders(apiKey)
+    : format === 'openai'
+      ? { 'Content-Type': 'application/json', ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) }
+      : { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey };
+  const body = format === 'anthropic'
+    ? anthropicBody(model, history, images, true)
+    : format === 'openai'
+      ? JSON.stringify({ model, messages: toOpenAiMessages(history, images), stream: true, stream_options: { include_usage: true } })
+      : JSON.stringify({ contents: toGeminiContents(history, images) });
 
   try {
     const response = await fetch(url, { method: 'POST', headers, body, signal });
@@ -252,10 +364,19 @@ export const streamApiProviderResponse = async (params: {
     const sse = new SseBuffer();
     let full = '';
     let totalTokens = 0;
+    let inTok = 0;
+    let outTok = 0;
 
     const handlePayloads = (payloads: string[]) => {
       for (const payload of payloads) {
-        if (isOpenAi) {
+        if (format === 'anthropic') {
+          const delta = anthropicDelta(payload);
+          if (delta) { full += delta; onToken(delta); }
+          const u = anthropicUsage(payload);
+          if (typeof u.input === 'number') inTok = u.input;
+          if (typeof u.output === 'number') outTok = u.output;
+          totalTokens = inTok + outTok || totalTokens;
+        } else if (format === 'openai') {
           const delta = openAiDelta(payload);
           if (delta) { full += delta; onToken(delta); }
           totalTokens = openAiUsageTokens(payload) || totalTokens;

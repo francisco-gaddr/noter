@@ -78,3 +78,40 @@ export const geminiUsageTokens = (payload: string): number => {
     return 0;
   }
 };
+
+/**
+ * Anthropic Messages SSE delta. The `data:` payload is JSON with a `type`; the
+ * incremental text lives in `content_block_delta` events with a `text_delta`.
+ */
+export const anthropicDelta = (payload: string): string => {
+  try {
+    const json = JSON.parse(payload);
+    if (json?.type === 'content_block_delta' && json?.delta?.type === 'text_delta') {
+      return typeof json.delta.text === 'string' ? json.delta.text : '';
+    }
+    return '';
+  } catch {
+    return '';
+  }
+};
+
+/**
+ * Anthropic usage from a stream event. `message_start` carries `usage.input_tokens`;
+ * `message_delta` carries the running `usage.output_tokens`.
+ */
+export const anthropicUsage = (payload: string): { input?: number; output?: number } => {
+  try {
+    const json = JSON.parse(payload);
+    if (json?.type === 'message_start') {
+      const n = Number(json?.message?.usage?.input_tokens);
+      return Number.isFinite(n) ? { input: n } : {};
+    }
+    if (json?.type === 'message_delta') {
+      const n = Number(json?.usage?.output_tokens);
+      return Number.isFinite(n) ? { output: n } : {};
+    }
+    return {};
+  } catch {
+    return {};
+  }
+};

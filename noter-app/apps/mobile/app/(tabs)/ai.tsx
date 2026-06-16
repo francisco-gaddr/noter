@@ -348,6 +348,12 @@ function AIScreenInner() {
   const [geminiModel, setGeminiModel] = useState('gemini-2.5-flash');
   const [groqApiKey, setGroqApiKey] = useState('');
   const [groqModel, setGroqModel] = useState('llama-3.3-70b-versatile');
+  const [openaiApiKey, setOpenaiApiKey] = useState('');
+  const [openaiModel, setOpenaiModel] = useState('gpt-4o-mini');
+  const [anthropicApiKey, setAnthropicApiKey] = useState('');
+  const [anthropicModel, setAnthropicModel] = useState('claude-sonnet-4-6');
+  const [grokApiKey, setGrokApiKey] = useState('');
+  const [grokModel, setGrokModel] = useState('grok-4.3');
   // Self-hosted Hermes agent (MacBook / Raspberry Pi): user-supplied base URL,
   // model id, and an optional key. Stored encrypted at rest like the other keys.
   const [hermesApiKey, setHermesApiKey] = useState('');
@@ -365,6 +371,9 @@ function AIScreenInner() {
     openrouter: { key: openRouterApiKey, setKey: setOpenRouterApiKey, model: openRouterModel, setModel: setOpenRouterModel },
     gemini: { key: geminiApiKey, setKey: setGeminiApiKey, model: geminiModel, setModel: setGeminiModel },
     groq: { key: groqApiKey, setKey: setGroqApiKey, model: groqModel, setModel: setGroqModel },
+    openai: { key: openaiApiKey, setKey: setOpenaiApiKey, model: openaiModel, setModel: setOpenaiModel },
+    anthropic: { key: anthropicApiKey, setKey: setAnthropicApiKey, model: anthropicModel, setModel: setAnthropicModel },
+    grok: { key: grokApiKey, setKey: setGrokApiKey, model: grokModel, setModel: setGrokModel },
     hermes: { key: hermesApiKey, setKey: setHermesApiKey, model: hermesModel, setModel: setHermesModel, baseUrl: hermesBaseUrl, setBaseUrl: setHermesBaseUrl },
   };
   // Custom providers are resolved separately from the static binding map.
@@ -612,6 +621,12 @@ function AIScreenInner() {
       if (savedGeminiModel) setGeminiModel(savedGeminiModel);
       const savedGroqModel = safeDecrypt(await AsyncStorage.getItem(`ai_groq_model_${scopeKey}`) || '', '');
       if (savedGroqModel) setGroqModel(savedGroqModel);
+      const savedOpenaiModel = safeDecrypt(await AsyncStorage.getItem(`ai_openai_model_${scopeKey}`) || '', '');
+      if (savedOpenaiModel) setOpenaiModel(savedOpenaiModel);
+      const savedAnthropicModel = safeDecrypt(await AsyncStorage.getItem(`ai_anthropic_model_${scopeKey}`) || '', '');
+      if (savedAnthropicModel) setAnthropicModel(savedAnthropicModel);
+      const savedGrokModel = safeDecrypt(await AsyncStorage.getItem(`ai_grok_model_${scopeKey}`) || '', '');
+      if (savedGrokModel) setGrokModel(savedGrokModel);
       const savedHermesModel = safeDecrypt(await AsyncStorage.getItem(`ai_hermes_model_${scopeKey}`) || '', '');
       if (savedHermesModel) setHermesModel(savedHermesModel);
       const savedHermesBaseUrl = safeDecrypt(await AsyncStorage.getItem(`ai_hermes_base_url_${scopeKey}`) || '', '');
@@ -622,6 +637,12 @@ function AIScreenInner() {
       if (geminiKeyEnc) setGeminiApiKey(safeDecrypt(geminiKeyEnc) || '');
       const groqKeyEnc = await SecureStore.getItemAsync(`ai_groq_key_${scopeKey}`);
       if (groqKeyEnc) setGroqApiKey(safeDecrypt(groqKeyEnc) || '');
+      const openaiKeyEnc = await SecureStore.getItemAsync(`ai_openai_key_${scopeKey}`);
+      if (openaiKeyEnc) setOpenaiApiKey(safeDecrypt(openaiKeyEnc) || '');
+      const anthropicKeyEnc = await SecureStore.getItemAsync(`ai_anthropic_key_${scopeKey}`);
+      if (anthropicKeyEnc) setAnthropicApiKey(safeDecrypt(anthropicKeyEnc) || '');
+      const grokKeyEnc = await SecureStore.getItemAsync(`ai_grok_key_${scopeKey}`);
+      if (grokKeyEnc) setGrokApiKey(safeDecrypt(grokKeyEnc) || '');
       const hermesKeyEnc = await SecureStore.getItemAsync(`ai_hermes_key_${scopeKey}`);
       if (hermesKeyEnc) setHermesApiKey(safeDecrypt(hermesKeyEnc) || '');
       const mcpSettingsRaw = await SecureStore.getItemAsync(`ai_mcp_settings_${scopeKey}`);
@@ -715,6 +736,21 @@ function AIScreenInner() {
 
   useEffect(() => {
     if (!userScopeKey || !settingsHydratedRef.current) return;
+    AsyncStorage.setItem(`ai_openai_model_${userScopeKey}`, openaiModel ? encrypt(openaiModel) : '');
+  }, [openaiModel, userScopeKey]);
+
+  useEffect(() => {
+    if (!userScopeKey || !settingsHydratedRef.current) return;
+    AsyncStorage.setItem(`ai_anthropic_model_${userScopeKey}`, anthropicModel ? encrypt(anthropicModel) : '');
+  }, [anthropicModel, userScopeKey]);
+
+  useEffect(() => {
+    if (!userScopeKey || !settingsHydratedRef.current) return;
+    AsyncStorage.setItem(`ai_grok_model_${userScopeKey}`, grokModel ? encrypt(grokModel) : '');
+  }, [grokModel, userScopeKey]);
+
+  useEffect(() => {
+    if (!userScopeKey || !settingsHydratedRef.current) return;
     AsyncStorage.setItem(`ai_hermes_model_${userScopeKey}`, hermesModel ? encrypt(hermesModel) : '');
   }, [hermesModel, userScopeKey]);
 
@@ -738,6 +774,21 @@ function AIScreenInner() {
     if (!userScopeKey || !settingsHydratedRef.current) return;
     SecureStore.setItemAsync(`ai_groq_key_${userScopeKey}`, groqApiKey ? encrypt(groqApiKey) : '');
   }, [groqApiKey, userScopeKey]);
+
+  useEffect(() => {
+    if (!userScopeKey || !settingsHydratedRef.current) return;
+    SecureStore.setItemAsync(`ai_openai_key_${userScopeKey}`, openaiApiKey ? encrypt(openaiApiKey) : '');
+  }, [openaiApiKey, userScopeKey]);
+
+  useEffect(() => {
+    if (!userScopeKey || !settingsHydratedRef.current) return;
+    SecureStore.setItemAsync(`ai_anthropic_key_${userScopeKey}`, anthropicApiKey ? encrypt(anthropicApiKey) : '');
+  }, [anthropicApiKey, userScopeKey]);
+
+  useEffect(() => {
+    if (!userScopeKey || !settingsHydratedRef.current) return;
+    SecureStore.setItemAsync(`ai_grok_key_${userScopeKey}`, grokApiKey ? encrypt(grokApiKey) : '');
+  }, [grokApiKey, userScopeKey]);
 
   useEffect(() => {
     if (!userScopeKey || !settingsHydratedRef.current) return;

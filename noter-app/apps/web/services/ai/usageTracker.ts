@@ -62,6 +62,9 @@ export const PROVIDER_LIMITS: Record<ApiProviderType, ProviderLimit> = {
   gemini: { callsPerDay: 1500, tokensPerDay: 1_000_000 },
   groq: { callsPerDay: 1000, tokensPerDay: 500_000 },
   openrouter: { callsPerDay: 50, tokensPerDay: null }, // free models: ~50/day
+  openai: { callsPerDay: null, tokensPerDay: null }, // paid usage-based — no fixed free cap
+  anthropic: { callsPerDay: null, tokensPerDay: null }, // paid usage-based
+  grok: { callsPerDay: null, tokensPerDay: null }, // paid usage-based
   hermes: { callsPerDay: null, tokensPerDay: null }, // self-hosted — no provider cap
 };
 
