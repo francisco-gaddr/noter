@@ -3,7 +3,7 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { useStore } from '../stores/useStore';
 import { Task } from '@repo/shared';
-import { FaPlus, FaTrash, FaCheckCircle, FaRegCircle, FaExclamationCircle, FaSort, FaBars, FaList, FaColumns, FaCalendar, FaFilter, FaBell } from 'react-icons/fa';
+import { FaPlus, FaTrash, FaCheckCircle, FaRegCircle, FaExclamationCircle, FaSort, FaBars, FaList, FaColumns, FaCalendar, FaFilter, FaBell, FaSync } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
 import { TaskDetailModal } from './TaskDetailModal';
 import TaskBoard from './TaskBoard';
@@ -210,6 +210,14 @@ export default function TaskList() {
     const [initialDate, setInitialDate] = useState<Date | null>(null);
     const [sortBy, setSortBy] = useState<'createdAt' | 'custom' | 'dueDate' | 'title' | 'priority'>('custom'); // Default to custom
     const [viewMode, setViewMode] = useState<'list' | 'board' | 'calendar'>('list');
+    const [refreshingList, setRefreshingList] = useState(false);
+    const handleForceSyncList = async () => {
+        if (refreshingList) return;
+        setRefreshingList(true);
+        try { const fs = await import('../lib/forceSync'); await fs.forceSyncAllSources(); } catch { /* */ }
+        try { await fetchTasks(selectedTaskListId || undefined); } catch { /* */ }
+        setRefreshingList(false);
+    };
     const [filterDateRange, setFilterDateRange] = useState<{ start: string | null; end: string | null }>({ start: null, end: null });
     const [quickFilter, setQuickFilter] = useState<string | null>(null);
     const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'completed'>('all');
@@ -504,7 +512,16 @@ export default function TaskList() {
                         <h2 className="font-semibold text-gray-700 dark:text-gray-200">{t('tasks.header')}</h2>
                     )}
                     <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1 gap-2 items-center">
-                        <button 
+                        <button
+                            onClick={handleForceSyncList}
+                            disabled={refreshingList}
+                            className="p-2 rounded text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 disabled:opacity-50"
+                            title="Synka nu (hämta senaste från servern/CalDAV)"
+                            aria-label="Synka uppgiftslistan"
+                        >
+                            <FaSync className={refreshingList ? 'animate-spin' : ''} />
+                        </button>
+                        <button
                             onClick={() => setViewMode('list')}
                             className={`p-2 rounded ${viewMode === 'list' ? 'bg-white dark:bg-gray-600 shadow text-blue-600 dark:text-blue-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
                             title={t('tasks.viewList')}

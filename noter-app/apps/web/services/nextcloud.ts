@@ -407,6 +407,34 @@ export const syncOnEnterFolder = (folderId: string | null): void => {
   } catch { /* never block */ }
 };
 
+/**
+ * Force a full, un-throttled sync of the Nextcloud connection(s) backing a project folder — used
+ * by the per-folder refresh button. Awaitable; pushes local edits too. Returns true if synced.
+ */
+export const forceSyncFolder = async (folderId: string | null): Promise<boolean> => {
+  if (!folderId) return false;
+  try {
+    const store: any = useStore.getState();
+    const notes: Note[] = store.notes || [];
+    const connIds = new Set<string>();
+    let cur: any = notes.find((n) => n._id === folderId);
+    let hops = 0;
+    while (cur && hops < 50) {
+      const s = (cur as any)?.source;
+      if (s?.connectionId) { connIds.add(s.connectionId); break; }
+      cur = notes.find((n) => n._id === cur.parentId);
+      hops += 1;
+    }
+    if (folderId === getTargetFolderId()) listConnections().forEach((c) => connIds.add(c.id));
+    if (connIds.size === 0) return false;
+    for (const id of connIds) {
+      lastEnterSync.set(id, Date.now());
+      try { await syncConnection(id); } catch { /* continue */ }
+    }
+    return true;
+  } catch { return false; }
+};
+
 /** Sync every connection whose auto-sync interval has elapsed (call on load / interval tick). */
 export const syncDueConnections = async (): Promise<number> => {
   const now = Date.now();

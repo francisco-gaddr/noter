@@ -528,6 +528,16 @@ export default function TasksScreen() {
               {list.title || 'Lista'}
             </Chip>
           ))}
+          <IconButton
+            icon="sync"
+            size={18}
+            disabled={syncingSources}
+            onPress={async () => {
+              // Force-update the current task list from its sources (CalDAV / calendar feeds).
+              try { const fs = await import('@/services/forceSync'); await fs.forceSyncAllSources(); } catch { /* */ }
+              try { await Promise.all([fetchTasks(), fetchNotes()]); } catch { /* */ }
+            }}
+          />
           <IconButton icon="plus" size={18} onPress={handleCreateList} />
         </ScrollView>
       </View>

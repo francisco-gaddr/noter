@@ -14,7 +14,7 @@ import { ConfirmationModal } from './ConfirmationModal';
 import { PasswordModal } from './PasswordModal';
 import { useTranslation } from 'react-i18next';
 import { buildSecurityNoteMap, findBlockingLockedAncestor } from '../services/ai/security';
-import { syncOnEnterFolder } from '../services/nextcloud';
+import { syncOnEnterFolder, forceSyncFolder } from '../services/nextcloud';
 import { getCachedMarkdownShares } from '../lib/markdownShare';
 
 interface TreeNodeProps {
@@ -512,6 +512,18 @@ export default function SidebarTree() {
 
   }, [safeNotes, searchQuery, sortOrder, viewMode, activeTab, activeProjectId, projects, noteById, securityMap, unlockedSet, activeProjectBlocked, inferredTaskListIds, inferredProjectIds]);
 
+  const [refreshingProject, setRefreshingProject] = useState(false);
+  const handleForceSyncProject = async () => {
+    if (!activeProjectId || refreshingProject) return;
+    setRefreshingProject(true);
+    try {
+      const synced = await forceSyncFolder(activeProjectId);
+      if (!synced) { try { const fs = await import('../lib/forceSync'); await fs.forceSyncAllSources(); } catch { /* */ } }
+    } catch { /* */ }
+    try { await fetchNotes(); } catch { /* */ }
+    setRefreshingProject(false);
+  };
+
   const handleProjectSelect = async (projectId: string | null) => {
     if (!projectId) {
       setActiveProject(null);
@@ -821,6 +833,14 @@ export default function SidebarTree() {
                             title="Info om mappen (delning / server­källa)"
                         >
                             <FaIcons.FaInfoCircle size={12} />
+                        </button>
+                        <button
+                            onClick={handleForceSyncProject}
+                            disabled={refreshingProject}
+                            className="p-2 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-800 rounded disabled:opacity-50"
+                            title="Synka nu (hämta senaste från servern)"
+                        >
+                            <FaIcons.FaSync size={12} className={refreshingProject ? 'animate-spin' : ''} />
                         </button>
                         <button
                             onClick={handleDeleteProject}
