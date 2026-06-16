@@ -35,14 +35,22 @@ urval on-device och reläar Cypher.
 `settings.tsx` — anslutning add/test/ta-bort + "Synka nu"; per-mapp Neo4j-urval i tre pooler
 (Projektmappar / Uppgiftslistor / Filmappar) + `includeBody`-växel + "Synka till Neo4j".
 
-**Fas 2 (delvis levererad 2026-06-16):** PROPFIND-mappväljare (bläddra + bocka i mappar
-istället för att skriva sökvägar) + auto-sync-intervall per anslutning (`isSyncDue` +
-`syncDueConnections`, körs vid inställnings-mount) — paritet båda apparna.
+**Fas 2 (levererat headless-verifierbart 2026-06-16):**
+- PROPFIND-**mappväljare** (bläddra + bocka i mappar istället för att skriva sökvägar) —
+  paritet båda apparna.
+- **Auto-sync-intervall** per anslutning (`isSyncDue` + `syncDueConnections`, körs vid
+  inställnings-mount).
+- **`minContextLevel` per anslutning fullt inkopplat:** shared `meetsMinContextLevel` +
+  `contextLevelRank` (testade), `retrieveForChat` släpper kandidater vars källas minnivå inte
+  möts av chattens kontextnivå, `getSourceMinLevels` + chatt-anropen skickar nivån, UI-väljare
+  i båda apparna (Alltid / Från standard / Endast deep). Detta är "i de sammanhang jag valt".
 
-Kvar (Fas 2, device-validering krävs / EAS-dev-build): **mobil PDF-extraktion** (WebView-pdfjs
-eller native modul — kan ej verifieras headless), **OAuth2 Login Flow v2** (enhets-flöde),
-**bild→vision/OCR**, samt att koppla `minContextLevel` (fältet sparas redan per anslutning) in
-i `retrieveForChat`-grinden. Dessa kräver en EAS-dev-build för skarp enhetsvalidering.
+**Hård gräns — kräver fysisk enhet / EAS-dev-build / live Nextcloud-OAuth (ej headless-byggbart):**
+- **Mobil PDF-extraktion** — native modul eller WebView-pdfjs; kan bara testas på enhet.
+- **OAuth2 Login Flow v2** — webbläsar-/enhets-flöde mot din Nextcloud (plattform-glue + poll-loop;
+  ren protokoll-helper utan glue vore död kod och trippar knip-grinden).
+- **Bild→vision/OCR** — kräver modeller på enhet.
+Dessa är inte en mjuk paus utan ett externt beroende: nästa steg är att köra EAS-bygget.
 
 ## Målbild (vad användaren bad om)
 
