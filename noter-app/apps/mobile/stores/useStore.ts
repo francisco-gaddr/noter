@@ -44,6 +44,9 @@ interface AppState {
    *  the AI chat, which creates notes via GraphQL — guarantees instant display even
    *  if the realtime socket event is missed). Idempotent by _id. */
   ingestServerNote: (note: Note) => void;
+  ingestServerNoteDeletion: (id: string) => void;
+  ingestServerTask: (task: Task) => void;
+  ingestServerTaskDeletion: (id: string) => void;
   setNotificationsEnabled: (enabled: boolean) => Promise<void>;
   setSecurityLocked: (locked: boolean) => Promise<void>;
   init: () => Promise<void>;
@@ -444,6 +447,27 @@ export const useStore = create<AppState>((set, get) => ({
     Database.saveNoteLocal(parsed, true);
     const deduped = [parsed, ...state.notes].filter((n, idx, arr) => arr.findIndex(x => x._id === n._id) === idx);
     return { notes: deduped };
+  }),
+  // Mirror the socket handlers so a mutation made BY this device (e.g. an AI tool call over
+  // HTTP/GraphQL) updates the local store immediately — no wait for the WSS echo, no reload.
+  ingestServerNoteDeletion: (id) => set(state => {
+    if (!id) return state;
+    Database.deleteNoteLocal(id);
+    return { notes: state.notes.filter(n => n._id !== id) };
+  }),
+  ingestServerTask: (task) => set(state => {
+    if (!task || !(task as any)._id) return state;
+    const parsed = processApiTask(task);
+    Database.saveTaskLocal(parsed, true);
+    if (state.tasks.find(t => t._id === parsed._id)) {
+      return { tasks: state.tasks.map(t => t._id === parsed._id ? parsed : t) };
+    }
+    return { tasks: [...state.tasks, parsed] };
+  }),
+  ingestServerTaskDeletion: (id) => set(state => {
+    if (!id) return state;
+    Database.deleteTaskLocal(id);
+    return { tasks: state.tasks.filter(t => t._id !== id) };
   }),
   setSecurityLocked: async (locked) => {
     if (get().securityLocked === locked) return;

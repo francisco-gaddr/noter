@@ -362,6 +362,13 @@ interface StoreState {
   
   fetchNotes: () => Promise<void>;
   fetchTasks: (parentNoteId?: string) => Promise<void>;
+  // Apply a server mutation made BY this client (e.g. an AI tool call over GraphQL) to the
+  // local store immediately — no wait for the WSS echo, no reload. Idempotent with the
+  // note:created/task:created socket handlers.
+  ingestServerNote: (note: Note) => void;
+  ingestServerNoteDeletion: (id: string) => void;
+  ingestServerTask: (task: any) => void;
+  ingestServerTaskDeletion: (id: string) => void;
   selectNote: (id: string | null) => void;
   createNote: (title: string, parentId?: string | null, type?: 'note' | 'task_list' | 'project', order?: number, icon?: string) => Promise<void>;
   updateNote: (id: string, dataOrTitle?: string | Partial<Note>, content?: string, locked?: boolean, password?: string, icon?: string, type?: string, iconColor?: string) => Promise<void>;
@@ -985,6 +992,47 @@ export const useStore = create<StoreState>((set, get) => ({
                console.error('Sync failed for task', task._id, e);
           }
       }
+  },
+
+  ingestServerNote: (note: Note) => {
+    if (!note || !(note as any)._id) return;
+    const id = (note as any)._id;
+    const exists = get().notes.some((n) => n._id === id);
+    const merged = exists
+      ? get().notes.map((n) => (n._id === id ? normalizeEncryptedNote(note) : n))
+      : [normalizeEncryptedNote(note), ...get().notes];
+    const secured = materializeNotesFromEncrypted(merged as any, new Set(get().unlockedProtectedNoteIds));
+    const decrypted = secured.find((n) => n._id === id);
+    if (!decrypted) return;
+    set({ notes: secured });
+    try { db.saveNote(decrypted); } catch { /* cache best-effort */ }
+  },
+  ingestServerNoteDeletion: (id: string) => {
+    if (!id) return;
+    set((state) => ({
+      notes: state.notes.filter((n) => n._id !== id),
+      selectedNoteId: state.selectedNoteId === id ? null : state.selectedNoteId,
+      selectedTaskListId: state.selectedTaskListId === id ? null : state.selectedTaskListId,
+    }));
+    try { db.deleteNote(id); } catch { /* best-effort */ }
+  },
+  ingestServerTask: (task: any) => {
+    if (!task || !task._id) return;
+    // Reuse the same decryption the task list uses, then upsert.
+    api.decryptTasks([task]).then((decryptedList) => {
+      const decrypted = decryptedList && decryptedList[0];
+      if (!decrypted) return;
+      set((state) => {
+        const exists = state.tasks.some((t) => t._id === decrypted._id);
+        return { tasks: exists ? state.tasks.map((t) => (t._id === decrypted._id ? decrypted : t)) : uniqBy([decrypted, ...state.tasks], '_id') };
+      });
+      try { db.saveTask(decrypted); } catch { /* best-effort */ }
+    }).catch(() => { /* non-fatal */ });
+  },
+  ingestServerTaskDeletion: (id: string) => {
+    if (!id) return;
+    set((state) => ({ tasks: state.tasks.filter((t) => t._id !== id) }));
+    try { db.deleteTask(id); } catch { /* best-effort */ }
   },
 
   fetchNotes: async () => {

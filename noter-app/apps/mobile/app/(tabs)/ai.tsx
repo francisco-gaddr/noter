@@ -1394,6 +1394,13 @@ function AIScreenInner() {
       return [];
   };
 
+  // Apply an AI tool's note/project mutation to the local store immediately, so the new/
+  // changed note appears in the app right away (no wait for the WSS echo, no forced reload).
+  // Idempotent with the note:created/updated socket handler (dedupes by _id).
+  const applyNoteMutationLocally = (note: any) => {
+    if (note && note._id) { try { useStore.getState().ingestServerNote(note); } catch { /* non-fatal */ } }
+  };
+
   const executeToolCall = async (tool: string, rawArgs: Record<string, any>, intentText: string) => {
       // Statistics: count every tool/skill the AI invokes (for the usage panel).
       void recordToolUse(tool);
@@ -1426,20 +1433,26 @@ function AIScreenInner() {
               const state = useStore.getState();
               const input = (!args.parentId && state.activeProjectId) ? { ...args, parentId: state.activeProjectId } : args;
               const query = `mutation($input:NoteInput!){createNote(input:$input){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
-              return graphQLRequest(query, { input });
+              const data = await graphQLRequest(query, { input });
+              applyNoteMutationLocally((data as any)?.createNote);
+              return data;
           }
           case 'update_note': {
               const { ensureReadableNote } = getAISecurityContext();
               ensureReadableNote(requireId(args.id));
               const query = `mutation($id:String!,$input:NoteInput!){updateNote(id:$id,input:$input){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
               if (!args.updates || Object.keys(args.updates).length === 0) throw new Error('update_note kräver updates');
-              return graphQLRequest(query, { id: requireId(args.id), input: args.updates || {} });
+              const data = await graphQLRequest(query, { id: requireId(args.id), input: args.updates || {} });
+              applyNoteMutationLocally((data as any)?.updateNote);
+              return data;
           }
           case 'delete_note': {
               const { ensureReadableNote } = getAISecurityContext();
               ensureReadableNote(requireId(args.id));
               const query = `mutation($id:String!){deleteNote(id:$id)}`;
-              return graphQLRequest(query, { id: requireId(args.id) });
+              const data = await graphQLRequest(query, { id: requireId(args.id) });
+              useStore.getState().ingestServerNoteDeletion(requireId(args.id));
+              return data;
           }
           case 'list_projects': {
               const { notes, noteMap, unlockedIds, toNotePayload } = getAISecurityContext();
@@ -1453,20 +1466,26 @@ function AIScreenInner() {
           }
           case 'create_project': {
               const query = `mutation($input:NoteInput!){createNote(input:$input){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
-              return graphQLRequest(query, { input: { ...args, type: 'project' } });
+              const data = await graphQLRequest(query, { input: { ...args, type: 'project' } });
+              applyNoteMutationLocally((data as any)?.createNote);
+              return data;
           }
           case 'update_project': {
               const { ensureReadableNote } = getAISecurityContext();
               ensureReadableNote(requireId(args.id));
               const query = `mutation($id:String!,$input:NoteInput!){updateNote(id:$id,input:$input){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
               if (!args.updates || Object.keys(args.updates).length === 0) throw new Error('update_project kräver updates');
-              return graphQLRequest(query, { id: requireId(args.id), input: { ...args.updates } });
+              const data = await graphQLRequest(query, { id: requireId(args.id), input: { ...args.updates } });
+              applyNoteMutationLocally((data as any)?.updateNote);
+              return data;
           }
           case 'delete_project': {
               const { ensureReadableNote } = getAISecurityContext();
               ensureReadableNote(requireId(args.id));
               const query = `mutation($id:String!){deleteNote(id:$id)}`;
-              return graphQLRequest(query, { id: requireId(args.id) });
+              const data = await graphQLRequest(query, { id: requireId(args.id) });
+              useStore.getState().ingestServerNoteDeletion(requireId(args.id));
+              return data;
           }
           case 'list_tasklists': {
               const { notes, noteMap, unlockedIds, toNotePayload } = getAISecurityContext();
@@ -1540,6 +1559,7 @@ function AIScreenInner() {
               }
               const query = `mutation($input:TaskInput!){createTask(input:$input){_id title description dueDate completed priority parentNoteId parentId recurrenceType recurrenceDays reminderEnabled reminderOffsetMinutes aiAgent createdAt updatedAt}}`;
               const res = await graphQLRequest(query, { input: withDefaultReminderForDueDate(withNormalizedDueDate(withDefaultPriority(taskArgs))) });
+              if ((res as any)?.createTask) { try { useStore.getState().ingestServerTask((res as any).createTask); } catch { /* non-fatal */ } }
               const newId = (res as any)?.createTask?._id;
               if (delegation && newId) {
                   try { await setLocalDelegation(String(newId), delegation); } catch { /* best-effort */ }
@@ -1558,7 +1578,9 @@ function AIScreenInner() {
               }
               const query = `mutation($id:String!,$input:TaskInput!){updateTask(id:$id,input:$input){_id title description dueDate completed priority parentNoteId parentId recurrenceType recurrenceDays reminderEnabled reminderOffsetMinutes createdAt updatedAt}}`;
               if (!args.updates || Object.keys(args.updates).length === 0) throw new Error('update_task kräver updates');
-              return graphQLRequest(query, { id: requireId(args.id), input: withNormalizedDueDate(args.updates || {}) });
+              const data = await graphQLRequest(query, { id: requireId(args.id), input: withNormalizedDueDate(args.updates || {}) });
+              if ((data as any)?.updateTask) { try { useStore.getState().ingestServerTask((data as any).updateTask); } catch { /* non-fatal */ } }
+              return data;
           }
           case 'delete_task': {
               const { tasks, noteMap, unlockedIds } = getAISecurityContext();
@@ -1570,7 +1592,9 @@ function AIScreenInner() {
                   }
               }
               const query = `mutation($id:String!){deleteTask(id:$id)}`;
-              return graphQLRequest(query, { id: requireId(args.id) });
+              const data = await graphQLRequest(query, { id: requireId(args.id) });
+              useStore.getState().ingestServerTaskDeletion(requireId(args.id));
+              return data;
           }
           case 'mcp_list_tools': {
               const service = String(args.service || '').trim();
