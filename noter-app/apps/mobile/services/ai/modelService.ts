@@ -53,7 +53,7 @@ export const downloadModel = async (
         options?.onStageChange?.('queued');
         try {
             options?.onStageChange?.('downloading');
-            await downloadGgufModel(file.url, model.id, file.quantization, onProgress);
+            await downloadGgufModel(file.url, model.id, file.quantization, onProgress, { name: model.name, totalBytes: file.size });
             options?.onStageChange?.('completed');
         } catch (e) {
             options?.onStageChange?.('failed');

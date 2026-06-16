@@ -9,9 +9,9 @@ import { useStore } from '@/stores/useStore';
 import { ChatMessage, Conversation, HFModel, HFFile, AIProject, normalizeToolArguments, sortModels, type HFModelSort } from '@repo/ai';
 import { searchHuggingFaceModels, getModelFiles } from '@/services/ai/huggingface';
 import { downloadModel as serviceDownloadModel, getBestQuantization, deleteModel as serviceDeleteModel, cancelDownload as cancelModelDownload } from '@/services/ai/modelService';
-import { isNativeFileSystemAvailable, subscribeDownloads, getDownloadSnapshot } from '@/services/ai/ModelDownloader';
+import { isNativeFileSystemAvailable, subscribeDownloads, getDownloadSnapshot, getActiveDownloads, pauseModelDownload, resumeModelDownload, resumePersistedDownloads, getModelPath as getLocalModelPath, type DownloadState } from '@/services/ai/ModelDownloader';
 import { recommendFileForDevice, assessModelFit, describeHardwareBudget, formatBytes } from '@/services/ai/hardware';
-import { saveConversationLocal, getConversationsLocal, deleteConversationLocal, saveMessageLocal, getMessagesLocal, getModelsLocal, saveProjectLocal, getProjectsLocal, deleteProjectLocal } from '@/services/database';
+import { saveConversationLocal, getConversationsLocal, deleteConversationLocal, saveMessageLocal, getMessagesLocal, getModelsLocal, saveModelLocal, saveProjectLocal, getProjectsLocal, deleteProjectLocal } from '@/services/database';
 import { combineSystemPrompts, buildToolUseNotice } from '@/services/ai/prompt';
 import { API_URL, fetchWithAuth } from '@/services/api';
 import { buildToolSystemPrompt, extractToolCalls } from '@/services/ai/tooling';
@@ -403,6 +403,8 @@ export default function AIScreen() {
   // Per-model available quant files (lazy-fetched when a row is expanded) for the picker.
   const [modelFiles, setModelFiles] = useState<Record<string, HFFile[]>>({});
   const [modelFilesLoading, setModelFilesLoading] = useState<Record<string, boolean>>({});
+  // Live list of in-progress/paused downloads for the "Aktiva nedladdningar" panel.
+  const [activeDownloadsList, setActiveDownloadsList] = useState<DownloadState[]>([]);
 
   // History
   const [conversations, setConversations] = useState<LocalConversation[]>([]);
@@ -754,6 +756,7 @@ export default function AIScreen() {
   // reopening the model list always shows the real, ongoing progress.
   useEffect(() => {
     const apply = (modelId: string, percent: number, stage: string) => {
+      // 'paused'/'retrying' are still in-progress; only these three end a download.
       const finished = stage === 'completed' || stage === 'failed' || stage === 'cancelled';
       setDownloadProgress(prev => {
         const next = { ...prev };
@@ -766,9 +769,26 @@ export default function AIScreen() {
         if (finished) delete next[modelId]; else next[modelId] = true;
         return next;
       });
+      setActiveDownloadsList(getActiveDownloads());
     };
     for (const s of getDownloadSnapshot()) apply(s.modelId, s.percent, s.stage);
+    setActiveDownloadsList(getActiveDownloads());
     const unsub = subscribeDownloads((s) => apply(s.modelId, s.percent, s.stage));
+    // Resume any downloads interrupted by an app kill; register them in the DB on finish.
+    resumePersistedDownloads(async (_modelId, meta) => {
+      try {
+        await saveModelLocal({
+          id: uuidv4(),
+          name: meta.name || 'Modell',
+          filename: meta.quantization ? `${meta.quantization}.gguf` : 'model.gguf',
+          path: meta.target,
+          size: meta.totalBytes || 0,
+          downloaded: true,
+          quantization: meta.quantization,
+        } as any);
+        await loadModels();
+      } catch { /* best-effort */ }
+    }).catch(() => {});
     return unsub;
   }, []);
 
@@ -930,6 +950,9 @@ export default function AIScreen() {
           downloading: t('ai.downloadStageDownloadingGguf'),
           completed: t('ai.downloadStageCompleted'),
           failed: t('ai.downloadStageLocalFailed'),
+          paused: 'Pausad',
+          retrying: 'Återförsöker…',
+          cancelled: 'Avbruten',
       };
       return map[stage] || stage;
   };
@@ -3037,6 +3060,35 @@ export default function AIScreen() {
                   />
                   <Button mode="contained" onPress={handleSearch} loading={isSearching}>Sök</Button>
                 </View>
+                {/* Active downloads panel: always visible while anything is downloading/
+                    paused, so all in-progress transfers are listed with pause/resume/cancel
+                    even if you search away or collapse the row that started them. */}
+                {activeDownloadsList.length > 0 && (
+                  <View style={{ marginBottom: 10, padding: 8, borderRadius: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.outlineVariant, backgroundColor: theme.colors.surfaceVariant }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.onSurface, marginBottom: 4 }}>Aktiva nedladdningar ({activeDownloadsList.length})</Text>
+                    {activeDownloadsList.map((d) => (
+                      <View key={d.modelId} style={{ marginTop: 6 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <Text numberOfLines={1} style={{ flex: 1, marginRight: 8, fontSize: 12, color: theme.colors.onSurface }}>
+                            {d.name || d.modelId}{d.quantization ? ` · ${d.quantization}` : ''}
+                          </Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            {d.stage === 'paused' ? (
+                              <IconButton icon="play" size={18} onPress={() => resumeModelDownload(d.modelId)} accessibilityLabel="Återuppta" style={{ margin: 0 }} />
+                            ) : (d.stage === 'downloading' || d.stage === 'queued' || d.stage === 'retrying') ? (
+                              <IconButton icon="pause" size={18} onPress={() => pauseModelDownload(d.modelId)} accessibilityLabel="Pausa" style={{ margin: 0 }} />
+                            ) : null}
+                            <IconButton icon="close" size={18} onPress={() => handleCancelDownload(d.modelId)} accessibilityLabel="Avbryt" style={{ margin: 0 }} />
+                          </View>
+                        </View>
+                        <ProgressBar progress={typeof d.percent === 'number' ? d.percent : 0} color={d.stage === 'paused' ? theme.colors.onSurfaceVariant : theme.colors.primary} style={{ height: 6, borderRadius: 3 }} />
+                        <Text style={{ fontSize: 10.5, color: theme.colors.onSurfaceVariant, marginTop: 2 }}>
+                          {Math.round((d.percent || 0) * 100)}% · {formatDownloadStage(d.stage)}{d.error ? ` · ${d.error}` : ''}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
                 {/* Sort: downloads, likes (rating) or release date — client-side re-sort. */}
                 {searchResults.length > 0 && (
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
