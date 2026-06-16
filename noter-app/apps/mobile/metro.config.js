@@ -23,8 +23,16 @@ config.resolver.nodeModulesPaths = [
 config.resolver.assetExts.push('wasm');
 config.resolver.sourceExts = config.resolver.sourceExts.filter(ext => ext !== 'wasm');
 
+// Redirect lib0's RN webcrypto (yjs CRDT "Live" sync) off the unmaintained
+// `isomorphic-webcrypto` and onto our shim backed by the already-polyfilled
+// global.crypto (react-native-get-random-values). See shims/lib0-webcrypto.js.
+const lib0WebcryptoShim = path.resolve(projectRoot, 'shims/lib0-webcrypto.js');
+
 // Workaround for expo-sqlite/wa-sqlite resolution in monorepo/metro
 config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (moduleName === 'isomorphic-webcrypto/src/react-native' || moduleName === 'isomorphic-webcrypto') {
+    return { filePath: lib0WebcryptoShim, type: 'sourceFile' };
+  }
   if (moduleName.endsWith('wa-sqlite.wasm')) {
     const fs = require('fs');
     const path = require('path');
