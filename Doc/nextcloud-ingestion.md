@@ -45,12 +45,20 @@ urval on-device och reläar Cypher.
   möts av chattens kontextnivå, `getSourceMinLevels` + chatt-anropen skickar nivån, UI-väljare
   i båda apparna (Alltid / Från standard / Endast deep). Detta är "i de sammanhang jag valt".
 
-**Hård gräns — kräver fysisk enhet / EAS-dev-build / live Nextcloud-OAuth (ej headless-byggbart):**
-- **Mobil PDF-extraktion** — native modul eller WebView-pdfjs; kan bara testas på enhet.
-- **OAuth2 Login Flow v2** — webbläsar-/enhets-flöde mot din Nextcloud (plattform-glue + poll-loop;
-  ren protokoll-helper utan glue vore död kod och trippar knip-grinden).
-- **Bild→vision/OCR** — kräver modeller på enhet.
-Dessa är inte en mjuk paus utan ett externt beroende: nästa steg är att köra EAS-bygget.
+**OAuth2 Login Flow v2 (levererat):** shared `nextcloudAuth.ts` (5 tester) + `startNextcloudOAuth`
+i båda tjänsterna (öppna inloggning i webbläsaren via injicerad opener, polla tills app-lösenord
+beviljas, spara anslutning) + "Logga in via Nextcloud (OAuth)"-knapp i båda apparna. Webb har
+CORS-varningen; mobil/Electron opåverkade. Sista bevilja-steget device-valideras i EAS-build.
+
+**Mobil PDF-extraktion (levererat):** `services/ai/pdfText.ts` (jobbkö) + `PdfExtractorHost`
+(dold WebView med pinnad pdf.js 3.11.174) monterad i inställningsskärmen; mobil-ingest extraherar
+nu PDF via base64→WebView (tak 8MB/50 sidor/24k tecken, 30s timeout). pdf.js-körningen
+device-valideras i EAS-build (react-native-webview är native).
+
+**Kvar — kräver native OCR-beroende + EAS-build (ej headless-byggbart):**
+- **Bild→vision/OCR** — on-device OCR (ML Kit / Tesseract) är inte ett nuvarande beroende; att
+  lägga till det kräver en native build för att ens kompilera/validera. Bilder ingestas i dag som
+  noder med proveniens (sökbara på filnamn) tills OCR/vision wiras. Detta är nästa EAS-steg.
 
 ## Målbild (vad användaren bad om)
 
