@@ -28,5 +28,6 @@ export * from './toolUsage';
 export * from './agentMemory';
 export * from './calendar';
 export * from './caldav';
+export * from './markdownVault';
 export * from './toolParsing';
 export * from './timeContext';

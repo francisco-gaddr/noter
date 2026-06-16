@@ -1,6 +1,7 @@
 import express from 'express';
 import mongoose from 'mongoose';
 import { calendarExposureStatus } from '../config/calendarExposure';
+import { markdownExposureStatus } from '../config/markdownExposure';
 
 const router = express.Router();
 
@@ -96,6 +97,8 @@ router.get('/', authGuard, async (_req, res) => {
     // Egress channels for (opt-in) plaintext task projections. See
     // Doc/security/calendar-exposure.md. Lets an operator confirm what's live.
     calendarExposure: calendarExposureStatus(),
+    // External Markdown sync egress (the note/files twin). See Doc/external-markdown-sync.md.
+    markdownExposure: markdownExposureStatus(),
   });
 });
 

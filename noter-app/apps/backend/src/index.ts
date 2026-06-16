@@ -19,6 +19,9 @@ import aiModelRoutes from './routes/aiModels';
 import calendarRoutes from './routes/calendar';
 import { reconcileCalendarFeedIndexes } from './models/CalendarFeed';
 import { caldavRouter, wellKnownCaldavHandler } from './caldav/server';
+import markdownShareRoutes from './routes/markdownShares';
+import { reconcileMarkdownShareIndexes } from './models/MarkdownShare';
+import { markdavRouter } from './markdav/server';
 import aiSyncRoutes from './routes/aiSync';
 import pushRoutes from './routes/push';
 import { runDueBackendAgentTasks } from './services/backendAgentRunner';
@@ -109,6 +112,10 @@ app.use('/.well-known/caldav', wellKnownCaldavHandler);
 // /dav is kept as a direct-access alias for setups that route it explicitly.
 app.use('/api/dav', caldavRouter);
 app.use('/dav', caldavRouter);
+// Markdown WebDAV vault (the note/files twin of CalDAV). Same rationale: mounted before
+// the browser middleware so WebDAV verbs + raw bodies survive. /md is a direct alias.
+app.use('/api/md', markdavRouter);
+app.use('/md', markdavRouter);
 
 const corsOptions: cors.CorsOptions = {
   origin: (origin, callback) => {
@@ -478,6 +485,7 @@ app.use('/api/ai/models', aiModelRoutes);
 // Calendar ICS feed: GET /:token.ics is public (token-scoped); POST/PUT/DELETE are
 // auth-gated per-route inside the router, so no mount-level authMiddleware here.
 app.use('/api/calendar', calendarRoutes);
+app.use('/api/markdown', markdownShareRoutes);
 app.use('/api/ai/sync', authMiddleware, aiSyncBodyLimit, aiSyncRoutes);
 app.use('/api/push', authMiddleware, pushRoutes);
 app.use('/api/mcp', apiSensitiveLimiter, authMiddleware, mcpRoutes);
@@ -591,6 +599,9 @@ const startServer = async () => {
       // are allowed, ensure the (userId, listId) compound unique. Idempotent.
       reconcileCalendarFeedIndexes().catch((err) => {
         logger.warn('calendarfeed index reconcile failed', { error: (err as Error)?.message });
+      });
+      reconcileMarkdownShareIndexes().catch((err) => {
+        logger.warn('markdownshare index reconcile failed', { error: (err as Error)?.message });
       });
       startChangeStreamInvalidator(io).catch((err) => {
         logger.warn('changeStream startup failed', { error: (err as Error)?.message });
