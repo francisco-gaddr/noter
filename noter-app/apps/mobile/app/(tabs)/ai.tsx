@@ -39,8 +39,30 @@ import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, enc
 import { setDelegation as setLocalDelegation } from '@/services/ai/agentDelegations';
 import { syncDelegationToBackend } from '@/services/ai/agentBackendSync';
 import { pickAttachments } from '@/services/ai/attachments';
+import { CustomErrorBoundary } from '@/components/ErrorBoundary';
 
 const provider = new MobileLlamaProvider();
+
+// Defensive wrappers around the shared parsers used while RENDERING messages. A single
+// malformed/corrupted message row must never throw inside renderItem and crash the whole
+// chat list — on any parse failure we degrade to a safe empty result.
+const safeExtractToolCalls = (text: unknown): { calls: any[]; cleaned: string } => {
+  const s = typeof text === 'string' ? text : '';
+  try { return extractToolCalls(s); } catch { return { calls: [], cleaned: s }; }
+};
+const safeExtractThinking = (text: unknown): { thinking: string; answer: string } | null => {
+  const s = typeof text === 'string' ? text : '';
+  try { return extractThinking(s); } catch { return { thinking: '', answer: s }; }
+};
+const safeSummarizeTool = (text: unknown): string => {
+  const s = typeof text === 'string' ? text : '';
+  try { return summarizeToolMessage(s)?.summary || ''; } catch { return ''; }
+};
+const safeToolFields = (text: unknown): { label: string; value: string }[] => {
+  const s = typeof text === 'string' ? text : '';
+  try { const f = formatToolFields(s); return Array.isArray(f) ? f : []; } catch { return []; }
+};
+
 type LocalConversation = Conversation & { localOnly?: boolean };
 type LocalAIProject = AIProject & { localOnly?: boolean; userId?: string };
 // A user-added custom provider — an OpenAI-compatible endpoint (Ollama/Hermes/
@@ -197,11 +219,11 @@ const ChatDialog = React.memo(({
   );
 });
 
-export default function AIScreen() {
+function AIScreenInner() {
   const theme = useTheme();
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
-  const { height: windowHeight } = useWindowDimensions();
+  const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   // Offset = the stack header height so the composer lands exactly above the
   // keyboard (the KeyboardAvoidingView sits below the header).
   const headerOffset = insets.top + (Platform.OS === 'ios' ? 44 : 56);
@@ -453,9 +475,35 @@ export default function AIScreen() {
   };
 
   useEffect(() => {
+    // Title of the thread you're currently in (if any), so the header clearly says which
+    // chat is open. It's horizontally scrollable and width-capped to the space left of the
+    // header icons (left menu + 4 right icons), so a long title never overlaps them —
+    // it's cut off right before the icons and you can scroll sideways to read the rest.
+    const activeConv = currentConversationId
+      ? conversations.find((c) => c.id === currentConversationId)
+      : null;
+    const threadTitle = (activeConv?.title || '').trim();
+    // left menu icon ≈ 48, right cluster (4 icons) ≈ 184, + breathing room.
+    const titleMaxWidth = Math.max(96, windowWidth - 48 - 184 - 16);
     navigation.setOptions({
+      headerTitleAlign: 'left',
+      headerTitleContainerStyle: { maxWidth: titleMaxWidth },
       headerTitle: () => (
-        <Text variant="titleMedium" style={{ color: theme.colors.onSurface }}>{t('tabs.ai')}</Text>
+        threadTitle ? (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            style={{ maxWidth: titleMaxWidth }}
+            contentContainerStyle={{ alignItems: 'center' }}
+          >
+            <Text variant="titleMedium" numberOfLines={1} style={{ color: theme.colors.onSurface }}>
+              {threadTitle}
+            </Text>
+          </ScrollView>
+        ) : (
+          <Text variant="titleMedium" style={{ color: theme.colors.onSurface }}>{t('tabs.ai')}</Text>
+        )
       ),
       headerLeft: () => (
         <IconButton
@@ -484,7 +532,7 @@ export default function AIScreen() {
         </View>
       ),
     });
-  }, [navigation, theme, settingsVisible, activeModel, activeProjectId, nextThreadLocalOnly, t]);
+  }, [navigation, theme, settingsVisible, activeModel, activeProjectId, nextThreadLocalOnly, t, currentConversationId, conversations, windowWidth]);
 
   useEffect(() => {
     if (params.openSettings === '1') {
@@ -1549,7 +1597,7 @@ export default function AIScreen() {
   const processToolCalls = async (conversationId: string, assistantId: string, assistantText: string, intentText: string) => {
       const policy = contextLevelConfig(chatContextLevel);
       if (!enableToolUse || !policy.allowReadTools) return [];
-      const { calls: rawCalls, cleaned } = extractToolCalls(assistantText);
+      const { calls: rawCalls, cleaned } = safeExtractToolCalls(assistantText);
       // Gate by context level: write/mutation tools only when the level permits.
       const WRITE_TOOLS = new Set(['create_note', 'update_note', 'delete_note', 'create_project', 'update_project', 'delete_project', 'create_tasklist', 'update_tasklist', 'delete_tasklist', 'create_task', 'update_task', 'delete_task']);
       const calls = policy.allowWriteTools ? rawCalls : rawCalls.filter((c) => !WRITE_TOOLS.has(c.tool));
@@ -1740,7 +1788,7 @@ export default function AIScreen() {
               setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
           }
 
-          const extractedBeforeTools = extractToolCalls(fullContent);
+          const extractedBeforeTools = safeExtractToolCalls(fullContent);
           if (!enableToolUse && extractedBeforeTools.cleaned !== fullContent) {
               fullContent = extractedBeforeTools.cleaned;
               setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
@@ -1755,7 +1803,7 @@ export default function AIScreen() {
 
           const newToolMessages = await processToolCalls(conversationId, assistantId, fullContent, intentText);
           if (newToolMessages.length === 0) break;
-          const extracted = extractToolCalls(fullContent);
+          const extracted = safeExtractToolCalls(fullContent);
           const { calls } = extracted;
           const callKeys = toToolCallKeys(calls);
           const signature = toToolIterationSignature(extracted.cleaned || '', fullContent, callKeys);
@@ -1858,9 +1906,18 @@ export default function AIScreen() {
   };
 
   const loadChat = async (id: string) => {
-      let msgs = await getMessagesLocal(id);
-      setMessages(msgs);
+      // Always switch to the tapped thread and leave settings, even if the message read
+      // below fails — otherwise the screen looks blank/stuck on the previous view.
       setCurrentConversationId(id);
+      setSettingsVisible(false);
+      let msgs: ChatMessage[] = [];
+      try {
+        msgs = await getMessagesLocal(id);
+      } catch (e) {
+        console.error('[ai] getMessagesLocal failed', e);
+        msgs = [];
+      }
+      setMessages(msgs);
       const conv = conversations.find(c => c.id === id);
       if (conv?.projectId) {
         setActiveProjectId(conv.projectId || null);
@@ -3235,34 +3292,50 @@ export default function AIScreen() {
                 ref={messagesListRef}
                 data={messages}
                 keyExtractor={(item, index) => item.id ?? String(index)}
-                contentContainerStyle={styles.listContent}
+                contentContainerStyle={messages.length === 0 ? { flexGrow: 1, justifyContent: 'center' } : styles.listContent}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="interactive"
+                // A selected-but-empty thread (or one whose local copy is still being
+                // self-healed from the server) shows a clear hint instead of a blank screen.
+                ListEmptyComponent={
+                  currentConversationId ? (
+                    <View style={{ alignItems: 'center', paddingHorizontal: 32 }}>
+                      <FontAwesome5 name="comments" size={28} color={theme.colors.onSurfaceVariant} />
+                      <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: 13, marginTop: 10, textAlign: 'center' }}>
+                        {loading ? t('ai.loadingThread', 'Laddar konversationen…') : t('ai.emptyThread', 'Inga meddelanden ännu. Skriv nedan för att fortsätta.')}
+                      </Text>
+                    </View>
+                  ) : null
+                }
                 // Keep the latest message in view: opening a thread loads messages
                 // (content grows) and streaming appends — both fire this.
                 onContentSizeChange={() => scrollChatToEnd(false)}
                 renderItem={({ item, index }) => {
+                  // Defensive: content can be undefined/null on a corrupted or partially-
+                  // synced row. Coerce to a string so no string method below ever throws
+                  // (a single bad row must never crash the whole message list).
+                  const safeContent = typeof item.content === 'string' ? item.content : '';
                   if (item.role === 'tool') {
                     const key = item.id ?? String(index);
                     const collapsed = collapsedTool[key] ?? true;
                     // Colour-code + icon by kind so call/result/error read at a glance.
-                    const kind = item.content.startsWith('Tool error:')
+                    const kind = safeContent.startsWith('Tool error:')
                       ? { label: 'Fel', icon: 'exclamation-triangle', color: theme.colors.error }
-                      : item.content.startsWith('Tool result:')
+                      : safeContent.startsWith('Tool result:')
                       ? { label: 'Resultat', icon: 'check-circle', color: '#2e9e5b' }
-                      : item.content.startsWith('Tool call:')
+                      : safeContent.startsWith('Tool call:')
                       ? { label: 'Anrop', icon: 'play-circle', color: theme.colors.primary }
                       : { label: 'Verktyg', icon: 'tools', color: theme.colors.primary };
                     // Human one-liner ("Skapade uppgift: X", "Sökte…", "Anropade …")
                     // so the card is always informative — never empty.
-                    const summary = summarizeToolMessage(item.content).summary || `Tool use · ${kind.label}`;
+                    const summary = safeSummarizeTool(safeContent) || `Tool use · ${kind.label}`;
                     // Body text with the "Tool call/result:" prefix stripped; falls back to
                     // the summary so the box is never blank. Shown as a 2-line preview when
                     // collapsed (so content is always visible) and in full when expanded.
-                    const bodyText = (item.content || '').replace(/^Tool (call|result|error):\s*/i, '').trim() || summary;
+                    const bodyText = safeContent.replace(/^Tool (call|result|error):\s*/i, '').trim() || summary;
                     // Readable "Label: value" rows from the tool arguments so the user
                     // clearly sees WHAT was done + WHICH values were filled in.
-                    const fields = formatToolFields(item.content);
+                    const fields = safeToolFields(safeContent);
                     return (
                       <View style={[styles.messageRow, styles.rowLeft]}>
                         <View style={[styles.toolCard, { borderColor: kind.color, backgroundColor: theme.colors.surfaceVariant }]}>
@@ -3303,8 +3376,8 @@ export default function AIScreen() {
                     );
                   }
                   const isAssistant = item.role === 'assistant';
-                  const split = isAssistant ? extractThinking(item.content) : null;
-                  const displayText = split ? split.answer : item.content;
+                  const split = isAssistant ? safeExtractThinking(safeContent) : null;
+                  const displayText = split ? split.answer : safeContent;
                   const thinkKey = (item.id ?? String(index)) + '_think';
                   const thinkingCollapsed = collapsedThinking[thinkKey] ?? true;
                   // #1: the "AI is working" animation lives INSIDE the last assistant
@@ -3472,6 +3545,17 @@ export default function AIScreen() {
         </>
       )}
     </View>
+  );
+}
+
+// Screen-scoped error boundary: a render-time crash anywhere in the AI screen (model
+// search, message list, settings) shows a recoverable "try again" card for THIS screen
+// only — the rest of the app keeps working instead of the whole app going blank.
+export default function AIScreen() {
+  return (
+    <CustomErrorBoundary>
+      <AIScreenInner />
+    </CustomErrorBoundary>
   );
 }
 

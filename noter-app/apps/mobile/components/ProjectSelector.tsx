@@ -4,6 +4,7 @@ import { Modal, Portal, Text, Button, IconButton, TextInput, Menu, useTheme, Div
 import { useStore } from '@/stores/useStore';
 import { Note } from '@repo/shared';
 import IconPickerModal from '@/components/IconPickerModal';
+import { MarkdownShareItemDialog } from '@/components/MarkdownShareItemDialog';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
 import { SvgUri } from 'react-native-svg';
 import DraggableFlatList, { RenderItemParams } from 'react-native-draggable-flatlist';
@@ -170,6 +171,7 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
   const [menuVisible, setMenuVisible] = useState(false);
   const [menuAnchor, setMenuAnchor] = useState<{ x: number, y: number } | null>(null);
   const [selectedProjectForMenu, setSelectedProjectForMenu] = useState<Note | null>(null);
+  const [mdShareFolder, setMdShareFolder] = useState<{ id: string; name: string } | null>(null);
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [lockDialogVisible, setLockDialogVisible] = useState(false);
   const [unlockDialogVisible, setUnlockDialogVisible] = useState(false);
@@ -484,9 +486,21 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
                 title={selectedProjectForMenu?.locked ? 'Unlock' : 'Lock'}
                 leadingIcon={selectedProjectForMenu?.locked ? 'lock-open-outline' : 'lock-outline'}
             />
-            <Menu.Item 
-                onPress={handleDelete} 
-                title="Delete" 
+            {!selectedProjectForMenu?.locked && (
+              <Menu.Item
+                onPress={() => {
+                    const folder = selectedProjectForMenu;
+                    setMenuVisible(false);
+                    setMenuAnchor(null);
+                    if (folder?._id) setMdShareFolder({ id: folder._id, name: folder.title || 'Projektmapp' });
+                }}
+                title="Dela externt (Markdown-synk)"
+                leadingIcon="cloud-sync-outline"
+              />
+            )}
+            <Menu.Item
+                onPress={handleDelete}
+                title="Delete"
                 leadingIcon="delete"
                 titleStyle={{ color: theme.colors.error }}
             />
@@ -553,6 +567,13 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
             />
         )}
       </Modal>
+
+      <MarkdownShareItemDialog
+        visible={!!mdShareFolder}
+        onDismiss={() => setMdShareFolder(null)}
+        folderId={mdShareFolder?.id}
+        itemName={mdShareFolder?.name}
+      />
     </Portal>
   );
 }

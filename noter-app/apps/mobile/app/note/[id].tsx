@@ -16,6 +16,7 @@ import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { buildSecurityNoteMap, findBlockingLockedAncestor } from '@/services/ai/security';
 import { exportNoteToMarkdown, exportNoteToPdf } from '@/services/noteExport';
+import { MarkdownShareItemDialog } from '@/components/MarkdownShareItemDialog';
 import { useMarkdownLiveSync } from '@/services/markdownLive';
 
 export default function NoteEditorScreen() {
@@ -60,6 +61,7 @@ export default function NoteEditorScreen() {
   const [unlockError, setUnlockError] = useState<string | null>(null);
   const [unlocking, setUnlocking] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
+  const [showMdShare, setShowMdShare] = useState(false);
 
   // Video Modal State
   const [showVideoModal, setShowVideoModal] = useState(false);
@@ -645,6 +647,13 @@ export default function NoteEditorScreen() {
               leadingIcon="language-markdown"
             />
           )}
+          {!isNew && !existingNote?.locked && (
+            <Menu.Item
+              onPress={() => { setShowMenu(false); setShowMdShare(true); }}
+              title="Dela externt (Markdown-synk)"
+              leadingIcon="cloud-sync-outline"
+            />
+          )}
           {!isNew && (
             <Menu.Item onPress={handleDelete} title={t('common.delete')} leadingIcon="delete" titleStyle={{ color: theme.colors.error }} />
           )}
@@ -736,6 +745,15 @@ export default function NoteEditorScreen() {
         onSelect={setSelectedParentId}
         selectedProjectId={selectedParentId}
       />
+
+      {!isNew && existingNote?._id ? (
+        <MarkdownShareItemDialog
+          visible={showMdShare}
+          onDismiss={() => setShowMdShare(false)}
+          noteId={existingNote._id}
+          itemName={existingNote?.title || 'Anteckning'}
+        />
+      ) : null}
 
       <IconPickerModal
         visible={showIconPicker}

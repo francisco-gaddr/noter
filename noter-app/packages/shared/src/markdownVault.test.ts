@@ -121,5 +121,20 @@ describe('markdownVault', () => {
       expect(parsed.id).toBe('a');
       expect(parsed.body.trim()).toBe('A body');
     });
+
+    // Per-ITEM shares (created from a note's 3-dots menu or a project-folder's 3-dots
+    // menu): the scope is exactly one note or one folder. Same lock-aware guarantees.
+    it('per-item: a single-note share exposes only that note', () => {
+      const proj = buildMarkdownVaultProjection(notes, { noteIds: ['a'], folderIds: [], isLocked: (n) => !!n.locked });
+      expect(proj.map((p) => p.noteId)).toEqual(['a']);
+    });
+
+    it('per-item: a single-folder share exposes its notes but NEVER its locked children', () => {
+      // folder 'proj' contains plain note 'a' and LOCKED note 'b'.
+      const proj = buildMarkdownVaultProjection(notes, { folderIds: ['proj'], noteIds: [], isLocked: (n) => !!n.locked });
+      const ids = proj.map((p) => p.noteId).sort();
+      expect(ids).toContain('a');
+      expect(ids).not.toContain('b'); // locked child stays private even when the folder is shared
+    });
   });
 });
