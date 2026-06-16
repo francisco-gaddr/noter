@@ -11,6 +11,7 @@ import { getDefaultHotkeys } from '../lib/hotkeys';
 import { enrollOrUnlockCrypto, changeCryptoPassword } from '../lib/crypto';
 import { AdminDashboard } from './AdminDashboard';
 import EmbeddingsSettings from './EmbeddingsSettings';
+import NextcloudSettings from './NextcloudSettings';
 import CalendarSharesSettings from './CalendarSharesSettings';
 import MarkdownSharesSettings from './MarkdownSharesSettings';
 
@@ -275,6 +276,11 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
         <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
           <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">Semantisk sök</h3>
           <EmbeddingsSettings />
+        </div>
+
+        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+          <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-2">Nextcloud & kunskapsgraf (Neo4j)</h3>
+          <NextcloudSettings />
         </div>
 
         <div className="mt-4">
