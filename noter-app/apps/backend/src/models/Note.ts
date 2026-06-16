@@ -10,6 +10,7 @@ export interface INote extends Document {
   locked: string; // Encrypted boolean as string
   password?: string;
   links?: string; // Encrypted JSON array of {targetId, rel}
+  source?: string; // Encrypted JSON provenance for externally-ingested notes (NoteSource)
   icon?: string; // Encrypted
   order?: string;
   type?: 'note' | 'task_list' | 'project'; // Encrypted
@@ -27,6 +28,7 @@ const NoteSchema: Schema = new Schema({
   locked: { type: String, default: 'false' }, // Encrypted boolean as string
   password: { type: String, select: false }, // Don't return by default
   links: { type: String, default: '' }, // Encrypted JSON array of {targetId, rel}
+  source: { type: String, default: '' }, // Encrypted JSON provenance (NoteSource) — externally-ingested notes
   icon: { type: String, default: null }, // Encrypted
   order: { type: String, default: '' },
   type: { type: String, default: 'note' }, // Encrypted

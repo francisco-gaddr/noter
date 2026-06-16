@@ -31,5 +31,8 @@ export * from './calendar';
 export * from './caldav';
 export * from './markdownVault';
 export * from './markdownLive';
+export * from './webdavClient';
+export * from './fileIngest';
+export * from './neo4jSync';
 export * from './toolParsing';
 export * from './timeContext';

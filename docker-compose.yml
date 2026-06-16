@@ -44,6 +44,30 @@ services:
       - redis_data:/data
     restart: always
 
+  # Self-hosted knowledge-graph store for the OPT-IN selective Neo4j sync (see
+  # Doc/nextcloud-ingestion.md). Started only with the `neo4j` compose profile
+  # (`docker compose --profile neo4j up -d`), so the default deploy is unchanged.
+  # Like mongodb/redis it is NEVER published to the host — only the backend reaches
+  # it over the internal Docker network (bolt://neo4j:7687). Auth required; password
+  # comes from the gitignored .env (${NEO4J_PASSWORD}). Content reaches here only for
+  # the folders the user explicitly selected, and never for locked notes.
+  neo4j:
+    image: neo4j:5
+    container_name: noter-neo4j
+    profiles: ["neo4j"]
+    expose:
+      - "7687"  # bolt — internal network only
+      - "7474"  # http browser — internal network only
+    environment:
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD}
+      - NEO4J_server_default__listen__address=0.0.0.0
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    restart: always
+
   backend:
     build:
       context: ./noter-app
@@ -62,6 +86,13 @@ services:
       - JWT_SECRET=${JWT_SECRET}
       - JWT_ISSUER=${JWT_ISSUER:-daylited}
       - JWT_AUDIENCE=${JWT_AUDIENCE:-noter}
+      # Selective Neo4j sync (opt-in). NEO4J_ENABLED!=1 → the /api/neo4j route is a
+      # no-op kill-switch. The bolt URL stays on the internal Docker network.
+      - NEO4J_ENABLED=${NEO4J_ENABLED:-0}
+      - NEO4J_URL=${NEO4J_URL:-bolt://neo4j:7687}
+      - NEO4J_USER=${NEO4J_USER:-neo4j}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-}
+      - NEO4J_DATABASE=${NEO4J_DATABASE:-neo4j}
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -117,3 +148,5 @@ services:
 volumes:
   mongodb_data:
   redis_data:
+  neo4j_data:
+  neo4j_logs:

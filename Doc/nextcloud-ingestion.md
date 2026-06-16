@@ -1,7 +1,23 @@
 # Nextcloud-ingestion — synka in utvalda mappar som krypterad, indexerbar kontext
 
-_Status: **Plan / kartläggning** (ej implementerad). Beslut: [`adr/0011-external-source-ingestion.md`](./adr/0011-external-source-ingestion.md) (Proposed)._
+_Status: **Fas 1 påbörjad** — delad kärna + `NoteSource`-fält + self-hostad Neo4j-infra levererade & testade; plattformstjänster + UI nästa. Beslut: [`adr/0011-external-source-ingestion.md`](./adr/0011-external-source-ingestion.md)._
 _Senast uppdaterat: 2026-06-16._
+
+## Levererat hittills (Fas 1, steg 1)
+
+- **Delad kärna (ren, ES5-säker, enhetstestad — 28 tester):**
+  `packages/shared/src/webdavClient.ts` (PROPFIND-body + multistatus-XML-parsning,
+  TLS-tvång, scope-filter under valda rötter, filtyp-allowlist), `fileIngest.ts`
+  (`NoteSource` + `planIngest` create/update/delete-diff via remote-ETag), `neo4jSync.ts`
+  (per-mapp-urval + lås-grind + parametriserad Cypher MERGE/PRUNE).
+- **`NoteSource`-fält** på `Note` (delad typ) + krypterat `source`-fält i backend
+  `Note`-modellen + REST-passthrough (samma idempotenta `encryptText` som `links`).
+- **Self-hostad Neo4j** i `docker-compose.yml` bakom compose-profilen `neo4j`
+  (internt nätverk endast, aldrig publicerad; auth via `.env`; opt-in kill-switch
+  `NEO4J_ENABLED`).
+
+Kvar i Fas 1: plattformstjänster (on-device WebDAV-klient + ingest + Neo4j-relä) och
+inställnings-UI (anslutning + per-mapp-urval) — paritet mobil + Electron/web.
 
 ## Målbild (vad användaren bad om)
 
@@ -233,8 +249,15 @@ mönstret, fast som DAV-*klient* PUT). Default: read-only import (säkrast).
    cross-device, realtid) **vs** enbart on-device-index (maximal integritet, ingen
    cross-device). Rekommendation: **krypterade Notes** (E2E bevaras ändå).
 2. **Riktning:** read-only import (rekommenderat Fas 1) vs två-vägs (Fas 4).
-3. **Neo4j:** default on-device-graf; self-hosted Neo4j endast som opt-in (se ovan).
-4. **Klientplats:** on-device (rekommenderat, E2E) vs backend-konnektor (opt-in, bryter E2E).
+3. **Neo4j (BESLUTAT för selektiv sync):** self-hostad, **internt nätverk endast** (aldrig
+   publicerad bolt-port — säkrast för DB:n), **backend-relä**: enheten beräknar det
+   lås-säkra urvalet + Cypher *på enheten* och POST:ar till en JWT-autad
+   `/api/neo4j/sync`; backenden kör det mot intern Neo4j. `includeBody=false` som default
+   (endast titlar + struktur) → minimal klartext-exponering; brödtext är uttrycklig opt-in.
+   Att lägga *innehåll* i en frågbar graf-DB är i sig ett E2E-undantag — det sker bara för
+   uttryckligt valda, olåsta mappar. On-device-grafen är fortsatt default för allt annat.
+4. **Klientplats (WebDAV):** on-device (valt, E2E — Nextcloud-credentials + filinnehåll
+   stannar på enheten; backend ser bara chiffertext för de ingestade noterna).
 
 ---
 

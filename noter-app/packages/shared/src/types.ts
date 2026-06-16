@@ -22,6 +22,12 @@ export interface Note {
   type?: 'note' | 'task_list' | 'project';
   /** Explicit user-chosen links to other entities (graph edges the user drew). */
   links?: EntityLink[];
+  /**
+   * Provenance when this note was ingested from an external file source (e.g. a
+   * self-hosted Nextcloud folder). Stored encrypted at rest like `links`. See
+   * fileIngest.ts `NoteSource`. Absent for hand-written/AI-created notes.
+   */
+  source?: import('./fileIngest').NoteSource | null;
   createdAt: string;
   updatedAt: string;
   deleted?: boolean | string;
