@@ -34,5 +34,6 @@ export * from './markdownLive';
 export * from './webdavClient';
 export * from './fileIngest';
 export * from './neo4jSync';
+export * from './nextcloudAuth';
 export * from './toolParsing';
 export * from './timeContext';

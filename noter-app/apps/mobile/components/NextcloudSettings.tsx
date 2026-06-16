@@ -6,13 +6,13 @@
  * Noter backend. See Doc/nextcloud-ingestion.md.
  */
 import React from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
+import { View, StyleSheet, ScrollView, Linking } from 'react-native';
 import { List, Switch, Text, Button, TextInput, Checkbox, Divider, useTheme } from 'react-native-paper';
 import { normalizeNoteType, normalizeNextcloudBaseUrl, type WebdavConnection, type WebdavEntry, type Neo4jConfig } from '@repo/shared';
 import { useStore } from '@/stores/useStore';
 import {
   listConnections, saveConnection, deleteConnection, testConnection, syncConnection, browseFolders,
-  syncDueConnections, getNeo4jConfig, saveNeo4jConfig, neo4jStatus, pushNeo4j,
+  syncDueConnections, getNeo4jConfig, saveNeo4jConfig, neo4jStatus, pushNeo4j, startNextcloudOAuth,
 } from '@/services/nextcloud';
 
 const INTERVALS: Array<{ v: number; label: string }> = [
@@ -93,6 +93,15 @@ export const NextcloudSettings: React.FC = () => {
     } catch (e: any) {
       setMsg(e?.message || 'Kunde inte spara anslutningen');
     }
+  };
+
+  const onOAuth = async () => {
+    if (!form.host.trim()) return;
+    setBusy(true); setMsg('Öppnar Nextcloud-inloggning — slutför i webbläsaren…');
+    const r = await startNextcloudOAuth(form.host.trim(), (u) => { Linking.openURL(u).catch(() => {}); }, { name: form.name.trim() || undefined });
+    setMsg(r.ok ? '✓ Inloggning klar — anslutning tillagd' : `✗ ${r.error}`);
+    if (r.ok) { setForm({ name: '', host: '', username: '', password: '', roots: '' }); await refresh(); }
+    setBusy(false);
   };
 
   const onTest = async (conn: WebdavConnection) => {
@@ -199,6 +208,8 @@ export const NextcloudSettings: React.FC = () => {
         <TextInput dense mode="outlined" label="App-lösenord" secureTextEntry value={form.password} onChangeText={(t) => setForm({ ...form, password: t })} style={styles.input} />
         <TextInput dense mode="outlined" label="Mappar (komma/rad)" value={form.roots} onChangeText={(t) => setForm({ ...form, roots: t })} style={styles.input} />
         <Button mode="contained-tonal" onPress={addConnection} style={{ marginTop: 4 }}>Spara anslutning</Button>
+        <Button mode="outlined" disabled={busy || !form.host.trim()} onPress={onOAuth} style={{ marginTop: 4 }}>Logga in via Nextcloud (OAuth)</Button>
+        <Text variant="bodySmall" style={{ opacity: 0.6, marginTop: 2 }}>OAuth: ange bara värden ovan, logga in i webbläsaren och bevilja — inget lösenord behöver skrivas.</Text>
 
         <Divider style={{ marginVertical: 12 }} />
         <View style={styles.row}>

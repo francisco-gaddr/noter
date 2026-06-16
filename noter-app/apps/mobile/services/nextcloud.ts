@@ -21,6 +21,11 @@ import {
   joinDavUrl,
   isUnderRoots,
   isSyncDue,
+  buildLoginFlowInitUrl,
+  parseLoginFlowInit,
+  loginFlowPollBody,
+  parseLoginFlowResult,
+  baseUrlFromLoginResult,
   normalizePath,
   planIngest,
   ingestProvenanceHeader,
@@ -89,6 +94,58 @@ export const deleteConnection = async (connectionId: string): Promise<void> => {
 };
 const getPassword = async (connectionId: string): Promise<string> =>
   (await SecureStore.getItemAsync(credKey(connectionId)).catch(() => null)) || '';
+
+const newConnId = () => 'nc_' + Math.abs(Date.now()).toString(36) + Math.floor(Math.random() * 1e6).toString(36);
+
+/**
+ * Nextcloud Login Flow v2: open the host's login page in the browser (via the injected
+ * `openUrl`) and poll until the user grants an app-password, then persist a connection with
+ * that credential. No password typing; the app-password is revocable in Nextcloud.
+ */
+export const startNextcloudOAuth = async (
+  host: string,
+  openUrl: (url: string) => void | Promise<void>,
+  opts: { name?: string; timeoutMs?: number; intervalMs?: number } = {},
+): Promise<{ ok: boolean; connectionId?: string; error?: string }> => {
+  try {
+    const initUrl = buildLoginFlowInitUrl(host);
+    enforceHttps(initUrl);
+    const initRes = await fetch(initUrl, { method: 'POST', headers: { 'User-Agent': 'Noter' } });
+    if (!initRes.ok) return { ok: false, error: 'Login Flow init misslyckades (' + initRes.status + ')' };
+    const init = parseLoginFlowInit(await initRes.json().catch(() => null));
+    if (!init) return { ok: false, error: 'Oväntat svar från Nextcloud' };
+
+    await openUrl(init.loginUrl);
+
+    const deadline = Date.now() + (opts.timeoutMs ?? 180_000);
+    const interval = opts.intervalMs ?? 3000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, interval));
+      const pollRes = await fetch(init.pollEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: loginFlowPollBody(init.pollToken),
+      }).catch(() => null);
+      if (!pollRes || pollRes.status === 404) continue; // still pending
+      if (!pollRes.ok) return { ok: false, error: 'Login-poll fel (' + pollRes.status + ')' };
+      const result = parseLoginFlowResult(await pollRes.json().catch(() => null));
+      if (!result) continue;
+      const conn: WebdavConnection = {
+        id: newConnId(),
+        name: opts.name || host.replace(/^https?:\/\//, ''),
+        baseUrl: baseUrlFromLoginResult(result),
+        username: result.loginName,
+        rootPaths: [],
+        createdAt: new Date().toISOString(),
+      };
+      await saveConnection(conn, result.appPassword);
+      return { ok: true, connectionId: conn.id };
+    }
+    return { ok: false, error: 'Tidsgräns nådd — försök igen' };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || 'OAuth misslyckades' };
+  }
+};
 
 // ---- Neo4j config storage ----------------------------------------------------
 

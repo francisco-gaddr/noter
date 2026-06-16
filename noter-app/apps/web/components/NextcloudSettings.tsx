@@ -11,7 +11,7 @@ import { useStore } from '../stores/useStore';
 import { normalizeNoteType, normalizeNextcloudBaseUrl, type WebdavConnection, type Neo4jConfig } from '@repo/shared';
 import {
   listConnections, saveConnection, deleteConnection, testConnection, syncConnection, browseFolders,
-  syncDueConnections, getNeo4jConfig, saveNeo4jConfig, neo4jStatus, pushNeo4j,
+  syncDueConnections, getNeo4jConfig, saveNeo4jConfig, neo4jStatus, pushNeo4j, startNextcloudOAuth,
 } from '../services/nextcloud';
 import type { WebdavEntry } from '@repo/shared';
 
@@ -86,6 +86,15 @@ export const NextcloudSettings: React.FC = () => {
     } catch (e: any) {
       setMsg(e?.message || 'Kunde inte spara anslutningen');
     }
+  };
+
+  const onOAuth = async () => {
+    if (!form.host.trim()) return;
+    setBusy(true); setMsg('Öppnar Nextcloud-inloggning i webbläsaren — slutför där…');
+    const r = await startNextcloudOAuth(form.host.trim(), (u) => window.open(u, '_blank', 'noopener'), { name: form.name.trim() || undefined });
+    setMsg(r.ok ? '✓ Inloggning klar — anslutning tillagd' : `✗ ${r.error}`);
+    if (r.ok) { setForm({ name: '', host: '', username: '', password: '', roots: '' }); refresh(); }
+    setBusy(false);
   };
 
   const onTest = async (conn: WebdavConnection) => {
@@ -203,7 +212,11 @@ export const NextcloudSettings: React.FC = () => {
         <input className={inputCls} placeholder="Användarnamn" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} autoComplete="off" />
         <input className={inputCls} type="password" placeholder="App-lösenord" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} autoComplete="off" />
         <input className={inputCls} placeholder="Mappar (en per rad eller komma), t.ex. Forskning, Anteckningar" value={form.roots} onChange={(e) => setForm({ ...form, roots: e.target.value })} />
-        <button onClick={addConnection} className="px-3 py-1.5 rounded bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 text-sm">Spara anslutning</button>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={addConnection} className="px-3 py-1.5 rounded bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 text-sm">Spara anslutning</button>
+          <button onClick={onOAuth} disabled={busy || !form.host.trim()} className="px-3 py-1.5 rounded border text-sm disabled:opacity-50" title="Logga in i webbläsaren och bevilja ett app-lösenord automatiskt">Logga in via Nextcloud (OAuth)</button>
+        </div>
+        <p className="text-xs text-gray-400">OAuth kräver bara värden ovan — du loggar in i webbläsaren och beviljar åtkomst; inget lösenord behöver skrivas.</p>
       </div>
 
       <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
