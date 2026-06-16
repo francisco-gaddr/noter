@@ -16,6 +16,7 @@ import { resolveAuthToken as apiResolveAuthToken, resolveGraphqlUrl as apiResolv
 import { shouldStopToolIteration, toToolCallKeys, toToolIterationSignature } from '../services/ai/toolChain';
 import { ApiProviderType, API_PROVIDERS, API_PROVIDER_LIST, resolveChatCompletionsUrl, streamApiProviderResponse } from '../services/ai/apiProviders';
 import { retrieveForChat } from '../services/ai/embeddingsService';
+import { getSourceMinLevels } from '../services/nextcloud';
 import { getUsageSnapshot, recordUsage, recordToolUse, type UsageSnapshot } from '../services/ai/usageTracker';
 import { extractPdfText } from '../services/ai/pdfText';
 import { pullAiSync, pushAiSync } from '../services/ai/sync';
@@ -3377,7 +3378,7 @@ export const AISidebar = () => {
             (st.notes || []) as any,
             (st.tasks || []) as any,
             new Set<string>(Array.isArray(st.unlockedProtectedNoteIds) ? st.unlockedProtectedNoteIds : []),
-            { enableSemantic: true, enableGraphRAG: retrievalSettings.enableGraphRAG, enableRerank: retrievalSettings.enableRerank, limit: 6 },
+            { enableSemantic: true, enableGraphRAG: retrievalSettings.enableGraphRAG, enableRerank: retrievalSettings.enableRerank, limit: 6, contextLevel: chatContextLevel, sourceMinLevels: getSourceMinLevels() },
           );
           if (block) history = [{ id: crypto.randomUUID?.() || String(Date.now()), role: 'system', content: block, createdAt: new Date().toISOString() } as any, ...history];
         } catch { /* non-fatal */ }

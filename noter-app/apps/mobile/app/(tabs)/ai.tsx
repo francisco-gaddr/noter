@@ -40,6 +40,7 @@ import { setDelegation as setLocalDelegation } from '@/services/ai/agentDelegati
 import { syncDelegationToBackend } from '@/services/ai/agentBackendSync';
 import { pickAttachments } from '@/services/ai/attachments';
 import { retrieveForChat } from '@/services/ai/embeddingsService';
+import { getSourceMinLevels } from '@/services/nextcloud';
 import { CustomErrorBoundary } from '@/components/ErrorBoundary';
 
 const provider = new MobileLlamaProvider();
@@ -2466,7 +2467,7 @@ function AIScreenInner() {
             (st.notes || []) as any,
             (st.tasks || []) as any,
             new Set<string>(Array.isArray(st.unlockedProtectedNoteIds) ? st.unlockedProtectedNoteIds : []),
-            { enableSemantic: true, enableGraphRAG: retrievalSettings.enableGraphRAG, enableRerank: retrievalSettings.enableRerank, limit: 6 },
+            { enableSemantic: true, enableGraphRAG: retrievalSettings.enableGraphRAG, enableRerank: retrievalSettings.enableRerank, limit: 6, contextLevel: chatContextLevel, sourceMinLevels: await getSourceMinLevels() },
           );
           if (block) history = [{ id: uuidv4(), role: 'system', content: block, createdAt: new Date().toISOString() } as any, ...history];
         } catch { /* non-fatal — chat continues without retrieval context */ }

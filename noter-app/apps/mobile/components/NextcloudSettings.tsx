@@ -50,6 +50,13 @@ export const NextcloudSettings: React.FC = () => {
     await saveConnection({ ...conn, intervalMinutes: next.v });
     await refresh();
   };
+  const cycleMinLevel = async (conn: WebdavConnection) => {
+    const order = ['', 'standard', 'deep'];
+    const cur = order.indexOf(conn.minContextLevel || '');
+    await saveConnection({ ...conn, minContextLevel: order[(cur + 1) % order.length] || undefined });
+    await refresh();
+  };
+  const minLevelLabel = (v?: string) => (v === 'deep' ? 'Endast deep' : v === 'standard' ? 'Från standard' : 'Alltid');
 
   React.useEffect(() => {
     (async () => {
@@ -161,6 +168,7 @@ export const NextcloudSettings: React.FC = () => {
               <Button compact mode="text" onPress={() => cycleInterval(c)}>
                 Auto: {INTERVALS.find((i) => i.v === (c.intervalMinutes || 0))?.label || 'Manuell'}
               </Button>
+              <Button compact mode="text" onPress={() => cycleMinLevel(c)}>Kontext: {minLevelLabel(c.minContextLevel)}</Button>
               <Button compact mode="text" textColor={theme.colors.error} disabled={busy} onPress={() => onDelete(c)}>Ta bort</Button>
             </View>
 

@@ -1,4 +1,22 @@
-import { contextLevelConfig, normalizeContextLevel, summarizeToolPolicy, CONTEXT_LEVELS, DEFAULT_CONTEXT_LEVEL } from './contextLevels';
+import { contextLevelConfig, normalizeContextLevel, summarizeToolPolicy, CONTEXT_LEVELS, DEFAULT_CONTEXT_LEVEL, contextLevelRank, meetsMinContextLevel } from './contextLevels';
+
+describe('minContextLevel gate', () => {
+  it('ranks levels in order', () => {
+    expect(contextLevelRank('minimal')).toBe(0);
+    expect(contextLevelRank('deep')).toBe(3);
+    expect(contextLevelRank('bogus')).toBe(contextLevelRank('standard'));
+  });
+  it('an undefined/empty min always passes', () => {
+    expect(meetsMinContextLevel('fast', undefined)).toBe(true);
+    expect(meetsMinContextLevel('minimal', '')).toBe(true);
+  });
+  it('gates by rank', () => {
+    expect(meetsMinContextLevel('deep', 'standard')).toBe(true);
+    expect(meetsMinContextLevel('standard', 'standard')).toBe(true);
+    expect(meetsMinContextLevel('fast', 'standard')).toBe(false);
+    expect(meetsMinContextLevel('standard', 'deep')).toBe(false);
+  });
+});
 
 describe('contextLevels', () => {
   it('minimal allows nothing — just answer', () => {

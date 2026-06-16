@@ -51,6 +51,7 @@ export const NextcloudSettings: React.FC = () => {
     refresh();
   };
   const setInterval = (conn: WebdavConnection, v: number) => { saveConnection({ ...conn, intervalMinutes: v }); refresh(); };
+  const setMinLevel = (conn: WebdavConnection, v: string) => { saveConnection({ ...conn, minContextLevel: v || undefined }); refresh(); };
 
   React.useEffect(() => {
     setConns(listConnections());
@@ -168,6 +169,11 @@ export const NextcloudSettings: React.FC = () => {
             <button onClick={() => onSync(c)} disabled={busy} className="px-2 py-1 rounded bg-blue-600 text-white text-xs disabled:opacity-50">Synka nu</button>
             <select value={c.intervalMinutes || 0} onChange={(e) => setInterval(c, Number(e.target.value))} className="text-xs rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-1">
               {INTERVALS.map((i) => <option key={i.v} value={i.v}>{i.label}</option>)}
+            </select>
+            <select value={c.minContextLevel || ''} onChange={(e) => setMinLevel(c, e.target.value)} className="text-xs rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-1" title="Minsta kontextnivå för att tas med i AI-chatten">
+              <option value="">Kontext: alltid</option>
+              <option value="standard">Från standard</option>
+              <option value="deep">Endast deep</option>
             </select>
           </div>
 

@@ -85,6 +85,13 @@ export const saveNeo4jConfig = (cfg: Neo4jConfig): void => {
   try { ls()?.setItem(NEO4J_KEY, encrypt(serializeNeo4jConfig(cfg))); } catch { /* */ }
 };
 
+/** Map of connectionId → its minContextLevel, for the chat's per-source retrieval gate. */
+export const getSourceMinLevels = (): Record<string, string> => {
+  const out: Record<string, string> = {};
+  for (const c of listConnections()) if (c.minContextLevel) out[c.id] = c.minContextLevel;
+  return out;
+};
+
 // ---- WebDAV fetch ------------------------------------------------------------
 
 const basicAuth = (u: string, p: string): string => 'Basic ' + btoa(unescape(encodeURIComponent(u + ':' + p)));

@@ -30,6 +30,7 @@ import {
   neighborsOf,
   retrieveContext,
   renderRetrievedContext,
+  meetsMinContextLevel,
   type EmbeddingsConfig,
   type VectorIndex,
   type StoredVector,
@@ -210,6 +211,10 @@ export interface ChatRetrievalOptions {
   enableGraphRAG?: boolean;
   enableRerank?: boolean;
   limit?: number;
+  /** Current chat context level — gates per-source minContextLevel eligibility. */
+  contextLevel?: string;
+  /** Map of ingest connectionId → its minContextLevel (notes below the current level are dropped). */
+  sourceMinLevels?: Record<string, string>;
 }
 
 /**
@@ -229,8 +234,22 @@ export const retrieveForChat = async (
 ): Promise<string> => {
   if (!query.trim() || opts.enableSemantic === false) return '';
   try {
-    const entities = buildIndexableEntities(notes, tasks, unlockedIds);
+    let entities = buildIndexableEntities(notes, tasks, unlockedIds);
     if (entities.length === 0) return '';
+
+    // Per-source context-level gate: drop notes from synced connections whose minContextLevel
+    // the current chat level doesn't meet (e.g. a heavy archive only on 'deep').
+    const sourceMinLevels = opts.sourceMinLevels;
+    if (sourceMinLevels && Object.keys(sourceMinLevels).length > 0) {
+      const ineligible = new Set<string>();
+      for (const n of notes as any[]) {
+        const src = (n as any).source;
+        if (src && src.connectionId && !meetsMinContextLevel(opts.contextLevel, sourceMinLevels[src.connectionId])) {
+          ineligible.add(n._id);
+        }
+      }
+      if (ineligible.size > 0) entities = entities.filter((e) => !ineligible.has(e.id));
+    }
 
     const config = getEmbeddingsConfig();
     const vecById = new Map<string, number[]>();

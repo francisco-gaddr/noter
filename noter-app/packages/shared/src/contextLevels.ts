@@ -65,6 +65,20 @@ export const contextLevelConfig = (level?: ContextLevel | string | null): Contex
 export const normalizeContextLevel = (value?: unknown): ContextLevel =>
   CONTEXT_LEVELS.includes(value as ContextLevel) ? (value as ContextLevel) : DEFAULT_CONTEXT_LEVEL;
 
+/** Ordinal rank of a level (minimal=0 … deep=3); unknown → standard's rank. */
+export const contextLevelRank = (level?: unknown): number =>
+  CONTEXT_LEVELS.indexOf(normalizeContextLevel(level));
+
+/**
+ * Does `current` meet a per-source minimum level? An undefined/empty `min` always passes.
+ * Gates whether a synced source's notes are eligible for retrieval at the chat's current
+ * context level (e.g. a heavy archive only included on 'deep').
+ */
+export const meetsMinContextLevel = (current?: unknown, min?: unknown): boolean => {
+  if (min === undefined || min === null || min === '') return true;
+  return contextLevelRank(current) >= contextLevelRank(min);
+};
+
 /**
  * Short, human list of which capabilities a level grants — so the UI can show, in
  * plain terms, how "simple" vs "complex" a given context level makes the agent (the

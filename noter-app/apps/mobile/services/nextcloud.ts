@@ -102,6 +102,13 @@ export const saveNeo4jConfig = async (cfg: Neo4jConfig): Promise<void> => {
   await AsyncStorage.setItem(NEO4J_KEY, serializeNeo4jConfig(cfg));
 };
 
+/** Map of connectionId → its minContextLevel, for the chat's per-source retrieval gate. */
+export const getSourceMinLevels = async (): Promise<Record<string, string>> => {
+  const out: Record<string, string> = {};
+  for (const c of await listConnections()) if (c.minContextLevel) out[c.id] = c.minContextLevel;
+  return out;
+};
+
 // ---- WebDAV fetch helpers ----------------------------------------------------
 
 const propfind = async (conn: WebdavConnection, path: string): Promise<WebdavEntry[]> => {
