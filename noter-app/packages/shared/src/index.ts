@@ -18,6 +18,7 @@ export * from './cleanup';
 export * from './graphModel';
 export * from './graphLayout';
 export * from './vectorSearch';
+export * from './retrieval';
 export * from './embeddings';
 export * from './embeddingsClient';
 export * from './vectorStore';
