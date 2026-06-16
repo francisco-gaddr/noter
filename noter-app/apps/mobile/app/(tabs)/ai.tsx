@@ -6,10 +6,11 @@ import { useLocalSearchParams, useNavigation } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { MobileLlamaProvider } from '@/services/ai/provider';
 import { useStore } from '@/stores/useStore';
-import { ChatMessage, Conversation, HFModel, AIProject, normalizeToolArguments, sortModels, type HFModelSort } from '@repo/ai';
+import { ChatMessage, Conversation, HFModel, HFFile, AIProject, normalizeToolArguments, sortModels, type HFModelSort } from '@repo/ai';
 import { searchHuggingFaceModels, getModelFiles } from '@/services/ai/huggingface';
 import { downloadModel as serviceDownloadModel, getBestQuantization, deleteModel as serviceDeleteModel, cancelDownload as cancelModelDownload } from '@/services/ai/modelService';
 import { isNativeFileSystemAvailable, subscribeDownloads, getDownloadSnapshot } from '@/services/ai/ModelDownloader';
+import { recommendFileForDevice, assessModelFit, describeHardwareBudget, formatBytes } from '@/services/ai/hardware';
 import { saveConversationLocal, getConversationsLocal, deleteConversationLocal, saveMessageLocal, getMessagesLocal, getModelsLocal, saveProjectLocal, getProjectsLocal, deleteProjectLocal } from '@/services/database';
 import { combineSystemPrompts, buildToolUseNotice } from '@/services/ai/prompt';
 import { API_URL, fetchWithAuth } from '@/services/api';
@@ -399,6 +400,9 @@ export default function AIScreen() {
   const [mcpDashboardRows, setMcpDashboardRows] = useState<any[]>([]);
   const [localEngineText, setLocalEngineText] = useState<string>('');
   const [searchSizes, setSearchSizes] = useState<Record<string, number | null>>({});
+  // Per-model available quant files (lazy-fetched when a row is expanded) for the picker.
+  const [modelFiles, setModelFiles] = useState<Record<string, HFFile[]>>({});
+  const [modelFilesLoading, setModelFilesLoading] = useState<Record<string, boolean>>({});
 
   // History
   const [conversations, setConversations] = useState<LocalConversation[]>([]);
@@ -713,6 +717,20 @@ export default function AIScreen() {
     const release = acquireKeepAwake();
     return release;
   }, [loading, allowBackgroundAIWork]);
+
+  // Lazy-fetch the available quant files when a model row is expanded, so the picker can
+  // list every size + flag the recommended one for this device. Cached per model id.
+  useEffect(() => {
+    const id = expandedModelId;
+    if (!id || modelFiles[id] || modelFilesLoading[id]) return;
+    let cancelled = false;
+    setModelFilesLoading(prev => ({ ...prev, [id]: true }));
+    getModelFiles(id)
+      .then((files) => { if (!cancelled) setModelFiles(prev => ({ ...prev, [id]: files })); })
+      .catch(() => { if (!cancelled) setModelFiles(prev => ({ ...prev, [id]: [] })); })
+      .finally(() => { if (!cancelled) setModelFilesLoading(prev => ({ ...prev, [id]: false })); });
+    return () => { cancelled = true; };
+  }, [expandedModelId]);
 
   // Reduce the "long delay before a local model answers": warm the engine shortly after a
   // local model is selected so it's already resident when the user sends. Silent + best-
@@ -2016,7 +2034,7 @@ export default function AIScreen() {
       }
   };
 
-  const downloadModel = async (model: HFModel) => {
+  const downloadModel = async (model: HFModel, pickedFile?: HFFile) => {
       try {
         if (!isNativeFileSystemAvailable()) {
             alert('AI-modeller kräver en dev build (inte Expo Go). Bygg appen med EAS och installera den innan nedladdning.');
@@ -2025,11 +2043,13 @@ export default function AIScreen() {
         setProcessingModels(prev => ({ ...prev, [model.id]: true }));
         setDownloadProgress(prev => ({ ...prev, [model.id]: 0 }));
         setDownloadStage(prev => ({ ...prev, [model.id]: 'queued' }));
-        
-        // Use mobile-specific getModelFiles
-        const files = await getModelFiles(model.id);
-        const file = getBestQuantization(files);
-        
+
+        // Use the explicitly-picked quant if the user chose one; otherwise recommend the
+        // best-fitting variant for THIS device's RAM (falls back to quant-priority when
+        // RAM is unknown). Reuse already-fetched files for the row to avoid a refetch.
+        const files = pickedFile ? [pickedFile] : (modelFiles[model.id] || await getModelFiles(model.id));
+        const file = pickedFile || recommendFileForDevice(files);
+
         if (!file) {
             alert('No suitable GGUF file found for this model');
             setProcessingModels(prev => {
@@ -3065,6 +3085,62 @@ export default function AIScreen() {
                             {Array.isArray(item.tags) && item.tags.length > 0 && (
                               <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>Taggar: {item.tags.slice(0, 8).join(', ')}</Text>
                             )}
+
+                            {/* Quantization / size picker with a per-device recommendation. */}
+                            <Text style={{ fontSize: 12, fontWeight: '700', color: theme.colors.onSurface, marginTop: 8 }}>Välj storlek / kvantisering</Text>
+                            {describeHardwareBudget() ? (
+                              <Text style={{ fontSize: 10.5, color: theme.colors.onSurfaceVariant, marginBottom: 2 }}>{describeHardwareBudget()}</Text>
+                            ) : null}
+                            {modelFilesLoading[item.id] ? (
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 6 }}>
+                                <ActivityIndicator size="small" />
+                                <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>Hämtar varianter…</Text>
+                              </View>
+                            ) : (() => {
+                              const files = [...(modelFiles[item.id] || [])]
+                                .filter((f) => !!f && typeof f.size === 'number')
+                                .sort((a, b) => (a.size || 0) - (b.size || 0));
+                              if (files.length === 0) {
+                                return <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant, paddingVertical: 4 }}>Inga GGUF-varianter hittades.</Text>;
+                              }
+                              const recommended = recommendFileForDevice(files);
+                              return (
+                                <View style={{ gap: 4, marginTop: 2 }}>
+                                  {files.map((f) => {
+                                    const fit = assessModelFit(f.size);
+                                    const isRec = recommended && f.filename === recommended.filename;
+                                    const fitColor = fit.level === 'good' ? '#2e9e5b' : fit.level === 'tight' ? '#c98a00' : fit.level === 'risky' ? theme.colors.error : theme.colors.onSurfaceVariant;
+                                    return (
+                                      <View key={f.filename} style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 4, paddingHorizontal: 8, borderRadius: 8, borderWidth: isRec ? 1.5 : StyleSheet.hairlineWidth, borderColor: isRec ? theme.colors.primary : theme.colors.outlineVariant, backgroundColor: isRec ? ((theme.colors as any).primaryContainer || 'transparent') : 'transparent' }}>
+                                        <View style={{ flex: 1, minWidth: 0, marginRight: 8 }}>
+                                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                            <Text style={{ fontSize: 12, fontWeight: '600', color: theme.colors.onSurface }}>{f.quantization || 'GGUF'}</Text>
+                                            <Text style={{ fontSize: 11, color: theme.colors.onSurfaceVariant }}>{formatBytes(f.size)}</Text>
+                                            {isRec ? (
+                                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: theme.colors.primary, borderRadius: 6, paddingHorizontal: 5, paddingVertical: 1 }}>
+                                                <FontAwesome5 name="star" size={8} solid color={theme.colors.onPrimary} />
+                                                <Text style={{ fontSize: 9, fontWeight: '700', color: theme.colors.onPrimary }}>Rekommenderad</Text>
+                                              </View>
+                                            ) : fit.label ? (
+                                              <Text style={{ fontSize: 9.5, color: fitColor }}>{fit.label}</Text>
+                                            ) : null}
+                                          </View>
+                                        </View>
+                                        <Button
+                                          mode={isRec ? 'contained' : 'outlined'}
+                                          compact
+                                          disabled={!!processingModels[item.id]}
+                                          onPress={() => downloadModel(item, f)}
+                                          labelStyle={{ fontSize: 11 }}
+                                        >
+                                          Ladda ner
+                                        </Button>
+                                      </View>
+                                    );
+                                  })}
+                                </View>
+                              );
+                            })()}
                           </View>
                         )}
                         {typeof downloadProgress[item.id] === 'number' && (
