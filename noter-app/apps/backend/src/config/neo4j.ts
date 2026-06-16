@@ -58,9 +58,27 @@ export interface RelayResult {
  * `userId` is injected authoritatively on every statement (tenant isolation) — the client's
  * own userId param is ignored.
  */
+/** Accept a client-supplied DB name only if it's a safe identifier (no path/scheme injection). */
+const safeDatabase = (db: unknown): string => {
+  const s = String(db ?? '').trim();
+  return /^[a-zA-Z0-9_.-]{1,64}$/.test(s) ? s : neo4jDatabase();
+};
+
+/** Accept a client-supplied HTTP URL override only if it's a well-formed http(s) URL. */
+const safeHttpUrl = (u: unknown): string => {
+  const s = String(u ?? '').trim();
+  if (!s) return neo4jHttpUrl();
+  try {
+    const parsed = new URL(s);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') return s.replace(/\/+$/, '');
+  } catch { /* fall through */ }
+  return neo4jHttpUrl();
+};
+
 export const relayToNeo4j = async (
   userId: string,
   statements: RelayStatement[],
+  opts?: { database?: unknown; httpUrl?: unknown },
 ): Promise<RelayResult> => {
   if (!isNeo4jEnabled()) return { ok: false, applied: 0, error: 'Neo4j-sync är avstängd' };
 
@@ -75,7 +93,8 @@ export const relayToNeo4j = async (
   };
 
   const auth = Buffer.from(`${neo4jUser()}:${neo4jPassword()}`).toString('base64');
-  const url = `${neo4jHttpUrl()}/db/${encodeURIComponent(neo4jDatabase())}/tx/commit`;
+  // Advanced overrides (optional, validated) — default to the server-configured target.
+  const url = `${safeHttpUrl(opts?.httpUrl)}/db/${encodeURIComponent(safeDatabase(opts?.database))}/tx/commit`;
 
   const res = await fetch(url, {
     method: 'POST',

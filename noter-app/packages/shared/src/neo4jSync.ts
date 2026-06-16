@@ -23,6 +23,9 @@ export interface Neo4jConfig {
   enabled: boolean;
   /** bolt:// or neo4j+s:// URL of the SELF-HOSTED instance. */
   boltUrl: string;
+  /** Optional advanced override: Neo4j HTTP transactional URL the backend relay should use
+   *  (e.g. http://neo4j:7474). Empty = use the server's configured default (the normal case). */
+  httpUrl?: string;
   database: string;
   username: string;
   /** Selected project-folder note ids whose subtree is mirrored. */
@@ -38,6 +41,7 @@ export interface Neo4jConfig {
 export const defaultNeo4jConfig = (): Neo4jConfig => ({
   enabled: false,
   boltUrl: '',
+  httpUrl: '',
   database: 'neo4j',
   username: 'neo4j',
   projectFolderIds: [],
@@ -57,6 +61,7 @@ export const parseNeo4jConfig = (raw: unknown): Neo4jConfig => {
   return {
     enabled: !!o.enabled,
     boltUrl: typeof o.boltUrl === 'string' ? o.boltUrl : d.boltUrl,
+    httpUrl: typeof o.httpUrl === 'string' ? o.httpUrl : d.httpUrl,
     database: typeof o.database === 'string' && o.database ? o.database : d.database,
     username: typeof o.username === 'string' && o.username ? o.username : d.username,
     projectFolderIds: strArr(o.projectFolderIds),

@@ -29,6 +29,7 @@ export const NextcloudSettings: React.FC = () => {
   const [conns, setConns] = React.useState<WebdavConnection[]>([]);
   const [neo4j, setNeo4j] = React.useState<Neo4jConfig | null>(null);
   const [neo4jAvailable, setNeo4jAvailable] = React.useState(false);
+  const [neo4jAdvanced, setNeo4jAdvanced] = React.useState(false);
   const [msg, setMsg] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [form, setForm] = React.useState({ name: '', host: '', username: '', password: '', roots: '' });
@@ -294,6 +295,22 @@ export const NextcloudSettings: React.FC = () => {
               <Switch value={neo4j.includeBody} onValueChange={(v) => updateNeo4j({ includeBody: v })} />
               <Text variant="bodySmall" style={{ flex: 1 }}>Inkludera brödtext (annars bara titlar + struktur)</Text>
             </View>
+
+            <Button compact mode="text" onPress={() => setNeo4jAdvanced((v) => !v)} style={{ alignSelf: 'flex-start', marginTop: 4 }}>
+              {neo4jAdvanced ? 'Dölj avancerat' : 'Avancerat (egen URL / databas)…'}
+            </Button>
+            {neo4jAdvanced && (
+              <View style={{ marginTop: 4 }}>
+                <Text variant="bodySmall" style={{ opacity: 0.7, marginBottom: 4 }}>
+                  Standard = serverns konfigurerade Neo4j (via din vanliga server-URL). Fyll bara i nedan om du vill peka mot en egen Neo4j.
+                </Text>
+                <TextInput dense mode="outlined" label="Neo4j HTTP-URL (valfritt, t.ex. http://neo4j:7474)" autoCapitalize="none"
+                  value={neo4j.httpUrl || ''} onChangeText={(t) => updateNeo4j({ httpUrl: t })} style={styles.input} />
+                <TextInput dense mode="outlined" label="Databas (standard: neo4j)" autoCapitalize="none"
+                  value={neo4j.database || ''} onChangeText={(t) => updateNeo4j({ database: t })} style={styles.input} />
+              </View>
+            )}
+
             <Button mode="contained" disabled={busy} onPress={onPushNeo4j} style={{ marginTop: 8 }}>Synka till Neo4j</Button>
           </View>
         )}

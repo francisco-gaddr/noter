@@ -472,7 +472,7 @@ export const pushNeo4j = async (): Promise<{ ok: boolean; applied?: number; erro
     const res = await fetch(`${getApiBaseUrl()}/neo4j/sync`, {
       method: 'POST',
       headers: await buildAuthHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ statements }),
+      body: JSON.stringify({ statements, database: cfg.database || undefined, httpUrl: cfg.httpUrl || undefined }),
     });
     if (!res.ok) return { ok: false, error: 'Neo4j HTTP ' + res.status };
     const json = await res.json();

@@ -33,7 +33,7 @@ router.post('/sync', ensureEnabled, async (req: Request, res: Response, next: Ne
       res.status(413).json({ error: 'För många statements' });
       return;
     }
-    const result = await relayToNeo4j(userId, statements);
+    const result = await relayToNeo4j(userId, statements, { database: body.database, httpUrl: body.httpUrl });
     if (!result.ok) { res.status(502).json(result); return; }
     res.json(result);
   } catch (e) {

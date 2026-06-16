@@ -276,6 +276,18 @@ export const NextcloudSettings: React.FC = () => {
                 <input type="checkbox" checked={neo4j.includeBody} onChange={(e) => updateNeo4j({ includeBody: e.target.checked })} />
                 <span className="text-xs text-gray-600 dark:text-gray-300">Inkludera brödtext (annars bara titlar + struktur)</span>
               </label>
+              <details className="text-xs">
+                <summary className="cursor-pointer text-blue-600 dark:text-blue-400 select-none">Avancerat (egen URL / databas)…</summary>
+                <div className="mt-2 space-y-2">
+                  <p className="text-gray-500 dark:text-gray-400">Standard = serverns konfigurerade Neo4j (via din vanliga server-URL). Fyll bara i nedan om du vill peka mot en egen Neo4j.</p>
+                  <input type="text" placeholder="Neo4j HTTP-URL (valfritt, t.ex. http://neo4j:7474)" value={neo4j.httpUrl || ''}
+                    onChange={(e) => updateNeo4j({ httpUrl: e.target.value })}
+                    className="w-full p-2 text-sm border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800" />
+                  <input type="text" placeholder="Databas (standard: neo4j)" value={neo4j.database || ''}
+                    onChange={(e) => updateNeo4j({ database: e.target.value })}
+                    className="w-full p-2 text-sm border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800" />
+                </div>
+              </details>
               <button onClick={onPushNeo4j} disabled={busy} className="px-3 py-1.5 rounded bg-blue-600 text-white text-sm disabled:opacity-50">Synka till Neo4j</button>
             </div>
           </div>

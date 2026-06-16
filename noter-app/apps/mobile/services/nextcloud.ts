@@ -590,7 +590,10 @@ export const pushNeo4j = async (): Promise<{ ok: boolean; applied?: number; erro
   );
   if (!statements.length) return { ok: true, applied: 0 };
   try {
-    const res = await fetchWithAuth('/neo4j/sync', { method: 'POST', body: JSON.stringify({ statements }) });
+    const res = await fetchWithAuth('/neo4j/sync', {
+      method: 'POST',
+      body: JSON.stringify({ statements, database: cfg.database || undefined, httpUrl: cfg.httpUrl || undefined }),
+    });
     return { ok: true, applied: res?.applied };
   } catch (e: any) {
     return { ok: false, error: e?.message || 'Neo4j-sync misslyckades' };
