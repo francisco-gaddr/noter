@@ -130,11 +130,15 @@ const applyMutation = async (s: any, m: any): Promise<void> => {
     if (typeof d.priority === 'number') { const p = rfcPriorityToTask(d.priority); if (p) patch.priority = p; }
     if (Object.keys(patch).length) await s.updateTask(task._id, patch);
   } else {
+    // Defence-in-depth against the empty-"Uppgift" spam: never create a task without a
+    // real title (backend now drops empty-SUMMARY probes; this guards old queued ones).
+    const title = (typeof d.summary === 'string' ? d.summary : '').trim();
+    if (!title) return;
     // Widget-created task: drop it into the share's list only when unambiguous (1 list).
     const share = readCache().find((x) => x.shareId === m.shareId);
     const listId = share && share.listIds.length === 1 ? share.listIds[0] : undefined;
     const pr = typeof d.priority === 'number' ? rfcPriorityToTask(d.priority) : null;
-    await s.createTask(d.summary || 'Uppgift', listId, d.due ?? null, { description: d.description || undefined, priority: pr || undefined });
+    await s.createTask(title, listId, d.due ?? null, { description: d.description || undefined, priority: pr || undefined });
   }
 };
 

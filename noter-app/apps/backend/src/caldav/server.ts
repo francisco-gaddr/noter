@@ -206,7 +206,15 @@ const enqueueMutation = async (
     data: m.data,
     at: new Date(),
   };
-  // Cap the queue so a misbehaving client can't grow it unbounded.
+  // DEDUP: collapse repeated mutations for the same uid into the latest one. CalDAV
+  // clients re-PUT the same VTODO often (retries, sync probes, periodic re-writes);
+  // without this each repeat appended a new mutation and the drain created/updated a
+  // task again and again — the "spammy empty Uppgift" report. Pull any pending mutation
+  // for this uid first, then push the latest (newest op wins), capped at 500.
+  await CalendarFeed.updateOne(
+    { _id: feed._id },
+    { $pull: { pendingMutations: { uid: mutation.uid } } },
+  );
   await CalendarFeed.updateOne(
     { _id: feed._id },
     { $push: { pendingMutations: { $each: [mutation], $slice: -500 } } },
@@ -331,11 +339,21 @@ const handlePut = async (req: Request, res: Response, feed: ICalendarFeed, dp: D
   const uid = (parsed?.uid || dp.uid || '').trim();
   if (!uid) { res.status(400).end(); return; }
   const existing = findItem(feed, uid);
+  const summary = (parsed?.summary || '').trim();
+  // A VTODO with no SUMMARY for a brand-new uid is a probe / malformed item, not a real
+  // task — creating it produced the empty "Uppgift" spam. Acknowledge it (so the client
+  // doesn't retry-loop) but DON'T enqueue a mutation, so no junk task is created. An
+  // empty summary on an EXISTING task keeps its current title rather than blanking it.
+  if (!summary && !existing) {
+    res.setHeader('DAV', DAV_HEADER);
+    res.status(201).end();
+    return;
+  }
   await enqueueMutation(feed, {
     uid,
     op: 'upsert',
     data: {
-      summary: parsed?.summary ?? undefined,
+      summary: summary || existing?.title || undefined,
       description: parsed?.description ?? undefined,
       due: parsed?.due ?? undefined,
       priority: parsed?.priority || undefined,

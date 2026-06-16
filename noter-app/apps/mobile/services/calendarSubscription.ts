@@ -120,11 +120,16 @@ const applyMutation = async (s: any, m: any, shares: Share[]): Promise<void> => 
     if (typeof d.priority === 'number') { const p = rfcPriorityToTask(d.priority); if (p) patch.priority = p; }
     if (Object.keys(patch).length) await s.updateTask(task._id, patch);
   } else {
+    // Defence-in-depth against the empty-"Uppgift" spam: never CREATE a task from a
+    // mutation that has no real title (backend already drops these, but an old queued
+    // mutation could still arrive). Updates above keep an existing title untouched.
+    const title = (typeof d.summary === 'string' ? d.summary : '').trim();
+    if (!title) return;
     const share = shares.find((x) => x.shareId === m.shareId);
     const listId = share && share.listIds.length === 1 ? share.listIds[0] : undefined;
     const pr = typeof d.priority === 'number' ? rfcPriorityToTask(d.priority) : null;
     await s.createTask({
-      title: d.summary || 'Uppgift',
+      title,
       parentNoteId: listId || undefined,
       dueDate: d.due ?? null,
       description: d.description || undefined,

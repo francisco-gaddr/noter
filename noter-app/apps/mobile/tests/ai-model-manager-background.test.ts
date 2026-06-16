@@ -1,6 +1,5 @@
 const mockUnloadLlama = jest.fn();
 const mockAddEventListener = jest.fn();
-const mockIsBackgroundEnabled = jest.fn();
 
 jest.mock('react-native', () => ({
   AppState: {
@@ -8,8 +7,7 @@ jest.mock('react-native', () => ({
   },
 }));
 
-// ModelManager now reads model files through ModelDownloader (expo-file-system),
-// not the old react-native-fs. Mock that surface so the import graph stays light.
+// ModelManager reads model files through ModelDownloader (expo-file-system).
 jest.mock('../services/ai/ModelDownloader', () => ({
   modelFileExists: jest.fn().mockResolvedValue(true),
 }));
@@ -23,35 +21,19 @@ jest.mock('../services/ai/llama', () => ({
   loadedModelPath: jest.fn(() => null),
 }));
 
-jest.mock('../services/ai/runtimeSettings', () => ({
-  isAiBackgroundWorkEnabled: (...args: any[]) => mockIsBackgroundEnabled(...args),
-}));
-
 describe('ModelManager background behavior', () => {
-  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
-
   beforeEach(() => {
     jest.resetModules();
     mockUnloadLlama.mockReset();
     mockAddEventListener.mockReset();
-    mockIsBackgroundEnabled.mockReset();
   });
 
-  it('unloads model when app backgrounds and background AI is disabled', async () => {
-    mockIsBackgroundEnabled.mockResolvedValue(false);
+  it('keeps the model resident — never auto-unloads on background', () => {
     require('../services/ai/ModelManager');
-    const callback = mockAddEventListener.mock.calls[0][1];
-    callback('background');
-    await flush();
-    expect(mockUnloadLlama).toHaveBeenCalledTimes(1);
-  });
-
-  it('keeps model loaded when app backgrounds and background AI is enabled', async () => {
-    mockIsBackgroundEnabled.mockResolvedValue(true);
-    require('../services/ai/ModelManager');
-    const callback = mockAddEventListener.mock.calls[0][1];
-    callback('background');
-    await flush();
-    expect(mockUnloadLlama).toHaveBeenCalledTimes(0);
+    // The model must stay loaded once loaded, so ModelManager registers NO AppState
+    // 'change' listener that could unload it when the app is backgrounded.
+    const changeListeners = mockAddEventListener.mock.calls.filter((c) => c[0] === 'change');
+    expect(changeListeners.length).toBe(0);
+    expect(mockUnloadLlama).not.toHaveBeenCalled();
   });
 });

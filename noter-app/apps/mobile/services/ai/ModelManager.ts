@@ -1,5 +1,3 @@
-import { AppState } from "react-native";
-
 import type { ChatMessage } from "@repo/ai";
 import {
   loadLlamaModel,
@@ -10,7 +8,6 @@ import {
   loadedModelPath,
   type LlamaCompletionOptions,
 } from "./llama";
-import { isAiBackgroundWorkEnabled } from "./runtimeSettings";
 import { modelFileExists } from "./ModelDownloader";
 
 /**
@@ -95,16 +92,9 @@ class ModelManager {
 
 export const modelManager = new ModelManager();
 
-AppState.addEventListener('change', (state) => {
-  if (state === 'background') {
-    isAiBackgroundWorkEnabled()
-      .then((enabled) => {
-        if (!enabled) {
-          modelManager.unload().catch(() => {});
-        }
-      })
-      .catch(() => {
-        modelManager.unload().catch(() => {});
-      });
-  }
-});
+// A loaded model STAYS loaded for the app's lifetime — we no longer unload it when the
+// app is backgrounded. Re-reading a multi-GB GGUF on every return was the source of the
+// long "Laddar modell…" delay, and unloading mid-generation in the background is exactly
+// what made local AI stop working when the user switched away. The model is released only
+// on an explicit unload() (user deactivates / switches model — handled in load()). The OS
+// may still reclaim the process under memory pressure; load() then transparently reloads.
