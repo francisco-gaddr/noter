@@ -24,6 +24,8 @@ ska öppna för en given fråga. Läs det här först, sedan den specifika filen
 | Förstå hotmodellen | [`security/threat-model.md`](./security/threat-model.md) |
 | Se STRIDE→CWE-liggaren (audit) | [`security/cwe-mapping.md`](./security/cwe-mapping.md) |
 | Förstå nuvarande krypto-läge & spänningar | [`security/encryption-review-2026-06.md`](./security/encryption-review-2026-06.md) |
+| **Hur AI-agenten krypterar/skapar data (E2E) + vad servern ser** 🔒 | [`security/ai-agent-data-handling.md`](./security/ai-agent-data-handling.md) + [`adr/0009-e2e-for-ai-created-content.md`](./adr/0009-e2e-for-ai-created-content.md) |
+| AI får aldrig läsa låsta anteckningar/projekt | [`security/ai-locked-notes.md`](./security/ai-locked-notes.md) 🔒 |
 | Veta varför ett arkitekturbeslut togs | [`adr/`](./adr/) (ADR-register) |
 | **Migrera desktop Electron → Tauri (körguide + beslut)** | [`migrations/electron-to-tauri-runbook.md`](./migrations/electron-to-tauri-runbook.md) ⭐ + [`adr/0007-electron-vs-tauri.md`](./adr/0007-electron-vs-tauri.md) |
 | Driftsätta / härda servern | [`ops/server-hardening.md`](./ops/server-hardening.md), [`ops/disaster-recovery.md`](./ops/disaster-recovery.md) |
@@ -35,7 +37,7 @@ ska öppna för en given fråga. Läs det här först, sedan den specifika filen
 | Förstå grafvyn (noder/kanter/flödesriktning) + semantisk sök | [`graph-explorer.md`](./graph-explorer.md) |
 | **Kalenderprenumeration (ICS) till Google/Apple-kalender** | [`calendar-subscription.md`](./calendar-subscription.md) ⭐ |
 | **CalDAV-brygga (tvåvägs uppgifter ↔ Påminnelser/Tasks.org)** | [`caldav-bridge.md`](./caldav-bridge.md) ⭐ |
-| **Servera valda anteckningar/mappar som Markdown utåt (Obsidian/macOS/Android/widgets), säkert + 2-vägs realtid** ⭐ *(implementerad: WebDAV + CRDT Live)* | [`external-markdown-sync.md`](./external-markdown-sync.md) + [`adr/0008-external-markdown-sync.md`](./adr/0008-external-markdown-sync.md) |
+| **Servera valda anteckningar/mappar som Markdown utåt (Obsidian/macOS/Android/widgets), säkert + 2-vägs realtid** ⭐ *(implementerad: WebDAV + CRDT Live; per-anteckning via 3-prickar, projektmappar via modal + inställningar)* | [`external-markdown-sync.md`](./external-markdown-sync.md) + [`adr/0008-external-markdown-sync.md`](./adr/0008-external-markdown-sync.md) |
 | **Vad exponeras utåt? Egress-kontroll + kill-switchar (kalender/uppgifter)** | [`security/calendar-exposure.md`](./security/calendar-exposure.md) 🔒 |
 | Förstå widgets | [`widgets-architecture.md`](./widgets-architecture.md) |
 | Se vad som återstår / nästa steg | [`improvements.md`](./improvements.md) + §4 nedan |

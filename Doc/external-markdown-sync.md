@@ -209,37 +209,52 @@ drain (incl. the recent **per-uid mutation dedup** + empty-item guard):
 
 ---
 
-## 7. Client UX (revoke + opt-in lives in settings)
+## 7. Client UX — WHERE you turn sharing on (per-item vs settings)
 
-- **Per note / per folder "Synka externt (Markdown)" toggle** — in the note/folder context
-  menu and in **Settings → External sharing**. Toggling on adds it to a MarkdownShare (or
-  creates one); toggling off removes it + purges its server-side plaintext.
-- **Share management screen** (twin of the CalDAV/ICS share UI): list shares, the WebDAV
-  URL + credential (password shown once / rotate), a **Live mode** switch (Phase 2), and a
-  prominent **Revoke** action. Shows what's currently exposed (count of notes/folders).
-- **Setup hints** for Obsidian (Remotely Save → WebDAV URL + creds), macOS Finder (Connect
-  to Server → the WebDAV URL), Android (a WebDAV file app), and widgets (auto-scoped).
-- A persistent, honest **"X notes are shared externally"** indicator (egress transparency).
+Updated 2026-06-16. Entry points were split so the settings page doesn't grow into an
+unwieldy list of every note:
+
+- **A single NOTE** is shared ONLY from the note itself: open the note → the **3-dots menu**
+  → **"Dela externt (Markdown-synk)"**. This opens `MarkdownShareItemDialog`
+  (`apps/mobile/components/MarkdownShareItemDialog.tsx`), scoped to that one note: on/off,
+  WebDAV and/or Live, outbound/inbound direction, copy/rotate/revoke the WebDAV login, Live
+  token. It is **not** in app settings (by design — avoids a giant per-note checklist).
+- **A project FOLDER** can be shared from **two** places (same `MarkdownShareItemDialog`):
+  1. the folder's **3-dots menu** in the project-folder modal (`ProjectSelector.tsx`), and
+  2. **Settings → "Extern Markdown-delning (projektmappar)"** (`MarkdownSharesSettings.tsx`),
+     which now manages **folder shares only** and hides pure single-note shares from its list.
+- **Share management** (settings, folders): list folder shares, scope + file count, the WebDAV
+  URL + credential (shown once / rotate), a **Live** switch, and a prominent **Revoke**.
+- **Setup hints** for Obsidian (Remotely Save → WebDAV URL + creds), macOS Finder (Connect to
+  Server), Android (a WebDAV file app), and widgets (auto-scoped).
+- **Security:** every entry point routes through the same lock-aware projection
+  (`buildMarkdownVaultProjection` + `isReadableWithLocks`) and the same instant-revoke. Locked
+  notes are NEVER projected, including a locked child inside a shared folder (tested in
+  `packages/shared/src/markdownVault.test.ts` — per-item single-note + single-folder cases).
+  Web/Electron settings still expose the note picker (no per-note 3-dots entry there yet).
 
 ---
 
-## 8. Proposed surfaces (names mirror CalDAV for consistency)
+## 8. Surfaces (as implemented — names mirror CalDAV for consistency)
 
 - **Shared core:** `packages/shared/src/markdownVault.ts` (note↔MD serialize/parse,
-  frontmatter, wikilinks, slugging) — dependency-free, unit-tested.
-- **Backend model:** `MarkdownShare` (twin of `CalendarFeed`): `userId`, `scope`
-  (`folderIds[]`, `noteIds[]`), `files[]` (projection), `davUser`/`davTokenHash`,
-  `pendingFileMutations[]`, `live` (bool), lifecycle. Reconcile indexes at boot.
-- **Backend DAV server:** `apps/backend/src/markdav/server.ts` mounted at `/api/md`
-  (PROPFIND/REPORT/GET/PUT/DELETE/MKCOL/MOVE) — twin of `caldav/server.ts`. `/api/md`
-  rides the existing edge `/api/*` proxy (no new edge rule); add a `/.well-known/*`
-  redirect only if a client needs discovery.
-- **Backend REST:** `/api/md/shares` (CRUD), `/api/md/shares/:id/dav` (mint/rotate/revoke
-  credential), `/api/md/mutations` + `/ack` (drain), all **Bearer JWT, userId-scoped**
-  (IDOR rule §3 of the index).
-- **Clients:** `services/markdownShare.ts` (mobile + web) — push projection, drain
-  mutations, manage shares; Settings UI; the per-item toggle.
-- **Live (Phase 2):** a Yjs room server module + editor bindings; optional CouchDB bridge.
+  frontmatter, slugging, lock-aware `buildMarkdownVaultProjection`, traversal-safe paths) +
+  `markdownLive.ts` (Yjs CRDT core) — dependency-light, unit-tested.
+- **Backend model:** `apps/backend/src/models/MarkdownShare.ts` (twin of `CalendarFeed`):
+  `userId`, scope (`folderIds[]`, `noteIds[]`), `files[]` (projection), `modes{webdav,crdt}`,
+  `direction{outbound,inbound}`, `davUser`/`davTokenHash`, `crdtTokenHash`,
+  `pendingMutations[]`. `reconcileMarkdownShareIndexes()` at boot.
+- **Backend DAV server:** `apps/backend/src/markdav/server.ts` mounted at **`/api/md`**
+  (PROPFIND/GET/PUT/DELETE/MOVE/MKCOL/PROPPATCH) — twin of `caldav/server.ts`, rides the
+  existing edge `/api/*` proxy. CRDT relay over socket.io: `apps/backend/src/markdav/live.ts`.
+- **Backend REST:** **`/api/markdown`** (`routes/markdownShares.ts`) — shares CRUD,
+  `/dav` + `/crdt` mint/revoke, `/mutations` + `/ack` (drain). All **Bearer JWT, userId-scoped**
+  (IDOR rule). Kill-switches: `MARKDOWN_SYNC_ENABLED` / `MARKDOWN_CRDT_ENABLED`
+  (`config/markdownExposure.ts`, surfaced at `health/deep → markdownExposure`).
+- **Clients:** `services/markdownShare.ts` (mobile) / `lib/markdownShare.ts` (web) — push
+  projection, drain mutations, manage shares; `markdownLive.ts` connectors;
+  `MarkdownShareItemDialog.tsx` (per-item) + `MarkdownSharesSettings.tsx` (folders, settings).
+- **Egress surface:** documented as rows 6–9 in [`security/calendar-exposure.md`](./security/calendar-exposure.md).
 
 ---
 

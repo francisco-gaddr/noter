@@ -27,6 +27,12 @@ enheternas lokala lagring.
   någonsin tappa innehåll vid fel.
 - **AI-chatt:** lokala modeller på enheten, API-leverantörer (OpenRouter/Groq/Gemini) och
   **egna Hermes-agenter (Mac/Pi)** — alla med streaming, verktygskörning och förbrukningsmätning.
+  Anteckningar/uppgifter som **AI-agenten skapar är också end-to-end-krypterade** (krypteras
+  på enheten med din nyckel innan de skickas; servern ser dem aldrig i klartext) och **syns i
+  realtid** direkt utan omladdning. Se [`Doc/security/ai-agent-data-handling.md`](Doc/security/ai-agent-data-handling.md).
+- **Extern Markdown-delning:** exponera valda anteckningar/projektmappar som en säker, två-vägs
+  Markdown-vault (WebDAV + realtids-CRDT) för Obsidian/Finder/Android/widgets — opt-in per
+  objekt, lås-medveten, omedelbart återkallbar. Se [`Doc/external-markdown-sync.md`](Doc/external-markdown-sync.md).
 - **Offline-först & realtid:** notes/tasks målas lokalt direkt, dekrypteras i bakgrunden i
   bitar, och synkas via WSS när nätet är tillbaka.
 - **Hierarki, rich-text, media, export, uppgifter, widgets, MCP-integrationer.**
@@ -78,6 +84,13 @@ envelopes (`v3:` innehåll, `v3w:` wrapped key, `U2FsdGVkX1` legacy). Vill du f�
 säkerheten? Läs **[`Doc/security/security-upgrade-playbook.md`](Doc/security/security-upgrade-playbook.md)**
 — den har receptet, single-source-kartan och en pre-commit-checklista. Hotmodell +
 CWE-liggare finns i [`Doc/security/`](Doc/security/).
+
+**Vad servern ser / inte ser** (egress + AI-datahantering):
+- [`Doc/security/ai-agent-data-handling.md`](Doc/security/ai-agent-data-handling.md) — hur
+  AI-agenten skapar/krypterar data (E2E), realtidssynk, och exakt vad servern aldrig kan läsa.
+- [`Doc/security/ai-locked-notes.md`](Doc/security/ai-locked-notes.md) — AI läser aldrig låsta noter.
+- [`Doc/security/calendar-exposure.md`](Doc/security/calendar-exposure.md) — hela klartext-egress-ytan
+  (kalender + extern Markdown) med kill-switchar.
 
 ## 📄 Dokumentation
 

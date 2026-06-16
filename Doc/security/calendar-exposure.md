@@ -15,6 +15,11 @@ it is reachable **only** through the two calendar channels below.
 > channels do **not** decrypt anything — they serve a separate, client-pushed plaintext
 > *projection* that the user opted to expose.
 
+> **Also E2E (not a plaintext path):** content the **AI agent** creates/edits is encrypted
+> on-device with the user key before it's sent (the server can't read it) — same guarantee
+> as a hand-typed note. It is NOT part of the egress surface below. Details:
+> [`ai-agent-data-handling.md`](./ai-agent-data-handling.md).
+
 ## Inventory: every path that can reach task data
 
 | # | Path | Direction | What it can see | Auth | Plaintext? | Kill switch |
