@@ -7,7 +7,7 @@ import { withHistory, HistoryEditor } from 'slate-history';
 import { useStore } from '../stores/useStore';
 import { EntityLinkPicker } from './EntityLinkPicker';
 import { debounce } from 'lodash';
-import { FaBold, FaItalic, FaUnderline, FaCode, FaListUl, FaListOl, FaQuoteRight, FaLock, FaUnlock, FaLink, FaImage, FaVideo, FaFilePdf, FaFileDownload, FaFileAlt, FaCheckSquare, FaTable, FaTags } from 'react-icons/fa';
+import { FaBold, FaItalic, FaUnderline, FaCode, FaListUl, FaListOl, FaQuoteRight, FaLock, FaUnlock, FaLink, FaImage, FaVideo, FaFilePdf, FaFileDownload, FaFileAlt, FaCheckSquare, FaTable, FaTags, FaInfoCircle } from 'react-icons/fa';
 import * as FaIcons from 'react-icons/fa';
 import { PasswordModal } from './PasswordModal';
 import { IconPicker } from './IconPicker';
@@ -1633,6 +1633,18 @@ function NoteEditorContent() {
           >
             <FaTags size={20} />
           </button>
+          {!!(selectedNote as any)?.source?.origin && (
+            <button
+              onClick={() => {
+                const s = (selectedNote as any).source;
+                alert([`Synkad fil (Nextcloud)`, `Sökväg: ${s.remotePath || '–'}`, s.mimeType ? `Typ: ${s.mimeType}` : null, s.syncedAt ? `Senast synkad: ${new Date(s.syncedAt).toLocaleString()}` : null].filter(Boolean).join('\n'));
+              }}
+              className="p-2 text-gray-600 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              title="Info om synkad fil"
+            >
+              <FaInfoCircle size={20} />
+            </button>
+          )}
           <button
             onClick={() => {
               if (selectedNote.locked) {

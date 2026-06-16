@@ -654,6 +654,22 @@ export default function NoteEditorScreen() {
               leadingIcon="cloud-sync-outline"
             />
           )}
+          {!!(existingNote as any)?.source?.origin && (
+            <Menu.Item
+              onPress={() => {
+                setShowMenu(false);
+                const s = (existingNote as any).source;
+                Alert.alert('Filinfo (Nextcloud)', [
+                  `Sökväg: ${s.remotePath || '–'}`,
+                  s.mimeType ? `Typ: ${s.mimeType}` : null,
+                  s.syncedAt ? `Senast synkad: ${new Date(s.syncedAt).toLocaleString()}` : null,
+                  'Källa: Nextcloud',
+                ].filter(Boolean).join('\n'));
+              }}
+              title="Info om synkad fil"
+              leadingIcon="information-outline"
+            />
+          )}
           {!isNew && (
             <Menu.Item onPress={handleDelete} title={t('common.delete')} leadingIcon="delete" titleStyle={{ color: theme.colors.error }} />
           )}

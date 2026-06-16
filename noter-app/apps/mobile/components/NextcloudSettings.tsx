@@ -7,12 +7,13 @@
  */
 import React from 'react';
 import { View, StyleSheet, ScrollView, Linking } from 'react-native';
-import { List, Switch, Text, Button, TextInput, Checkbox, Divider, useTheme } from 'react-native-paper';
+import { List, Switch, Text, Button, TextInput, Checkbox, Divider, Menu, useTheme } from 'react-native-paper';
 import { normalizeNoteType, normalizeNextcloudBaseUrl, type WebdavConnection, type WebdavEntry, type Neo4jConfig } from '@repo/shared';
 import { useStore } from '@/stores/useStore';
 import {
   listConnections, saveConnection, deleteConnection, testConnection, syncConnection, browseFolders,
   syncDueConnections, getNeo4jConfig, saveNeo4jConfig, neo4jStatus, pushNeo4j, startNextcloudOAuth,
+  getTargetFolderId, setTargetFolderId,
 } from '@/services/nextcloud';
 
 const INTERVALS: Array<{ v: number; label: string }> = [
@@ -33,6 +34,12 @@ export const NextcloudSettings: React.FC = () => {
   const [form, setForm] = React.useState({ name: '', host: '', username: '', password: '', roots: '' });
   const [editingId, setEditingId] = React.useState<string | null>(null);
   const [picker, setPicker] = React.useState<{ connId: string; path: string; entries: WebdavEntry[]; loading: boolean } | null>(null);
+  const [targetFolderId, setTargetFolderIdState] = React.useState<string | null>(null);
+  const [targetMenu, setTargetMenu] = React.useState(false);
+
+  const targetFolders = (notes || []).filter((n: any) => !n.deleted && normalizeNoteType(n.type) === 'project' && !n.source);
+  const targetLabel = targetFolderId ? (targetFolders.find((f: any) => f._id === targetFolderId)?.title || 'Vald mapp') : 'Auto ("Nextcloud")';
+  const chooseTarget = async (id: string | null) => { await setTargetFolderId(id); setTargetFolderIdState(id); setTargetMenu(false); };
 
   const hostFromBaseUrl = (baseUrl: string): string =>
     (baseUrl || '').replace(/^https?:\/\//i, '').split('/')[0];
@@ -76,6 +83,7 @@ export const NextcloudSettings: React.FC = () => {
   React.useEffect(() => {
     (async () => {
       setConns(await listConnections());
+      setTargetFolderIdState(await getTargetFolderId());
       setNeo4j(await getNeo4jConfig());
       try { setNeo4jAvailable(!!(await neo4jStatus()).enabled); } catch { /* */ }
       try { const n = await syncDueConnections(); if (n > 0) setConns(await listConnections()); } catch { /* */ }
@@ -189,10 +197,23 @@ export const NextcloudSettings: React.FC = () => {
     <List.Section title="Nextcloud & kunskapsgraf (Neo4j)">
       <View style={styles.box}>
         <Text variant="bodySmall" style={{ opacity: 0.7, marginBottom: 8 }}>
-          Anslut din egenhostade Nextcloud och välj mappar att synka in. Filerna blir krypterade, sökbara
-          anteckningar. Använd ett app-lösenord (Nextcloud → Säkerhet), inte ditt kontolösenord — det lagras
-          krypterat på enheten och skickas aldrig till servern.
+          Anslut din egenhostade Nextcloud och välj mappar att synka in. Redigerbara filer (MD/text) blir
+          anteckningar du kan ändra — ändringar synkas tillbaka (tvåvägs). Bilder/PDF/Word/Excel synkas + indexeras
+          men visas inte bland anteckningarna. Använd ett app-lösenord, inte kontolösenordet.
         </Text>
+        <View style={styles.row}>
+          <Text variant="bodySmall">Projektmapp för synkat innehåll:</Text>
+          <Menu
+            visible={targetMenu}
+            onDismiss={() => setTargetMenu(false)}
+            anchor={<Button compact mode="outlined" onPress={() => setTargetMenu(true)}>{targetLabel}</Button>}
+          >
+            <Menu.Item onPress={() => chooseTarget(null)} title={'Auto ("Nextcloud")'} />
+            {targetFolders.map((f: any) => (
+              <Menu.Item key={f._id} onPress={() => chooseTarget(f._id)} title={f.title || '(namnlös)'} />
+            ))}
+          </Menu>
+        </View>
 
         {conns.map((c) => (
           <View key={c.id} style={styles.conn}>

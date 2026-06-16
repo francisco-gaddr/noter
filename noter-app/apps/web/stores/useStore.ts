@@ -14,6 +14,17 @@ let networkListenersReady = false;
 // Debounce handle for the cache:invalidate change-stream fallback (see socket setup).
 let cacheInvalidateTimer: ReturnType<typeof setTimeout> | null = null;
 
+// Debounced two-way push of edited Nextcloud-synced notes back to Nextcloud (dynamic import
+// breaks the store↔service cycle; 4s debounce avoids a PUT per autosave keystroke).
+let nextcloudPushTimer: ReturnType<typeof setTimeout> | null = null;
+const scheduleNextcloudPush = () => {
+  if (nextcloudPushTimer) clearTimeout(nextcloudPushTimer);
+  nextcloudPushTimer = setTimeout(() => {
+    nextcloudPushTimer = null;
+    import('../services/nextcloud').then((m) => m.pushAllLocalEdits?.()).catch(() => {});
+  }, 4000);
+};
+
 const shouldLogElectronDataDebug = (): boolean => {
   if (typeof window === 'undefined') return false;
   if (window.location.protocol !== 'file:') return false;
@@ -1380,6 +1391,8 @@ export const useStore = create<StoreState>((set, get) => ({
         notes: materializeNotesFromEncrypted(state.notes.map((n) => (n._id === id ? updatedNote : n)) as any, new Set(state.unlockedProtectedNoteIds))
       }));
       await db.saveNote(updatedNote, false); // Mark synced
+      // Two-way Nextcloud: push an edited synced text/md note back (debounced, background).
+      if ((updatedNote as any)?.source) scheduleNextcloudPush();
     } catch (error: any) {
       set({ error: error.message });
       // Keep pending sync in DB

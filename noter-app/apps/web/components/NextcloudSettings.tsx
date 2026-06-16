@@ -12,6 +12,7 @@ import { normalizeNoteType, normalizeNextcloudBaseUrl, type WebdavConnection, ty
 import {
   listConnections, saveConnection, deleteConnection, testConnection, syncConnection, browseFolders,
   syncDueConnections, getNeo4jConfig, saveNeo4jConfig, neo4jStatus, pushNeo4j, startNextcloudOAuth,
+  getTargetFolderId, setTargetFolderId,
 } from '../services/nextcloud';
 import type { WebdavEntry } from '@repo/shared';
 
@@ -172,10 +173,22 @@ export const NextcloudSettings: React.FC = () => {
       <div>
         <h4 className="text-sm font-semibold text-gray-800 dark:text-gray-100">Nextcloud-mappar (synka in)</h4>
         <p className="text-xs text-gray-500 dark:text-gray-400">
-          Anslut din egenhostade Nextcloud och välj specifika mappar att synka in. Filerna (MD/text/PDF) blir
-          krypterade, sökbara anteckningar. Använd ett <strong>app-lösenord</strong> (Nextcloud → Inställningar →
-          Säkerhet), inte ditt kontolösenord. Lösenordet lagras krypterat här och skickas aldrig till servern.
+          Anslut din egenhostade Nextcloud och välj specifika mappar att synka in. Redigerbara filer (MD/text)
+          blir anteckningar du kan ändra — ändringar synkas tillbaka till Nextcloud (tvåvägs). Bilder, PDF, Word
+          och Excel synkas in och indexeras men visas inte bland anteckningarna. Använd ett <strong>app-lösenord</strong>.
         </p>
+        <label className="block mt-2 text-xs text-gray-600 dark:text-gray-300">
+          Projektmapp för synkat innehåll:
+          <select
+            value={getTargetFolderId() || ''}
+            onChange={(e) => { setTargetFolderId(e.target.value || null); setMsg('Målmapp uppdaterad'); }}
+            className="ml-2 text-xs rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 p-1"
+          >
+            <option value="">Auto (skapa "Nextcloud"-mapp)</option>
+            {notes.filter((n: any) => !n.deleted && normalizeNoteType(n.type) === 'project' && !n.source)
+              .map((n: any) => <option key={n._id} value={n._id}>{n.title || '(namnlös)'}</option>)}
+          </select>
+        </label>
       </div>
 
       {conns.map((c) => (

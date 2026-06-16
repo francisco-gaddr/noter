@@ -88,6 +88,17 @@ interface AppState {
 // retries so it can't block everything behind it forever on each reconnect.
 const MAX_SYNC_ATTEMPTS = 8;
 
+// Debounced two-way push of edited Nextcloud-synced notes back to Nextcloud. Dynamic import
+// breaks the store↔service cycle; the 4s debounce avoids a PUT per autosave keystroke.
+let nextcloudPushTimer: ReturnType<typeof setTimeout> | null = null;
+const scheduleNextcloudPush = () => {
+  if (nextcloudPushTimer) clearTimeout(nextcloudPushTimer);
+  nextcloudPushTimer = setTimeout(() => {
+    nextcloudPushTimer = null;
+    import('@/services/nextcloud').then((m) => m.pushAllLocalEdits?.()).catch(() => {});
+  }, 4000);
+};
+
 const processLocalNote = (note: Note): Note => ({
   ...note,
 });
@@ -1006,6 +1017,10 @@ export const useStore = create<AppState>((set, get) => ({
               notes: materializeNotesFromEncrypted(state.notes.map(n => n._id === id ? realNote : n) as any, new Set(state.unlockedProtectedNoteIds))
           }));
           await Database.saveNoteLocal(realNote, true);
+
+          // Two-way Nextcloud: if a synced text/md note was edited, push it back (debounced,
+          // background, no-ops when nothing synced changed). Decoupled via dynamic import.
+          if ((realNote as any)?.source?.origin) scheduleNextcloudPush();
 
           return realNote;
         } catch (error) {
