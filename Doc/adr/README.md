@@ -38,6 +38,7 @@ nästa lediga.
 | 0008 | [Extern Markdown-sync för valda anteckningar/mappar](0008-external-markdown-sync.md) — plan: [`external-markdown-sync.md`](../external-markdown-sync.md) | Accepted (Fas 1+2 levererad) |
 | 0009 | [End-to-end-kryptering för AI-skapat innehåll](0009-e2e-for-ai-created-content.md) — datakarta: [`security/ai-agent-data-handling.md`](../security/ai-agent-data-handling.md) | Accepted |
 | 0010 | [Två-stegs RAG-hämtning (rerank) + leverantörs-format-diskriminator](0010-two-stage-rag-retrieval.md) — plan: [`ai-retrieval-rag.md`](../ai-retrieval-rag.md) | Accepted (fullföljer 0006 Fas 3) |
+| 0011 | [Ingestion av externa filkällor (Nextcloud) som krypterad kontext](0011-external-source-ingestion.md) — plan: [`nextcloud-ingestion.md`](../nextcloud-ingestion.md) | Proposed |
 
 Lägg till nya rader sorterat på nummer.
 
