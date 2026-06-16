@@ -80,10 +80,22 @@ export const syncedFileIsEditable = (source: any): boolean => {
  * graphed, and mirrored to Neo4j); it just doesn't clutter the notes list. Editable text/md
  * synced files stay visible.
  */
-export const isHiddenSyncedNote = (note: { source?: any }): boolean => {
+export const isHiddenSyncedNote = (note: { source?: any; title?: string }): boolean => {
   const src = (note as any)?.source;
-  if (!src || (src.origin !== 'nextcloud' && src.origin !== 'webdav')) return false;
-  return !syncedFileIsEditable(src);
+  if (src && (src.origin === 'nextcloud' || src.origin === 'webdav') && !syncedFileIsEditable(src)) {
+    return true;
+  }
+  // Title-based fallback (source-independent): a synced file whose `source` was lost in an older
+  // broken sync is STILL hidden if its title classifies as a binary (e.g. "photo.png",
+  // "rapport.pdf", "ark.xlsx"). Such files only belong in the index/graph, never the notes list.
+  const title = String((note as any)?.title || '').trim();
+  if (title) {
+    const kind = classifyFile(title, src && src.mimeType ? String(src.mimeType) : undefined);
+    if (kind === 'image' || kind === 'pdf' || kind === 'docx' || kind === 'xlsx' || kind === 'pages') {
+      return true;
+    }
+  }
+  return false;
 };
 
 const notDeleted = (x: { deleted?: boolean | string }): boolean =>

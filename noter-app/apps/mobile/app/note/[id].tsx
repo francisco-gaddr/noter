@@ -8,7 +8,7 @@ import { useStore } from '@/stores/useStore';
 import { CreateNoteDto, UpdateNoteDto, toggleEntityLink, type EntityLink } from '@repo/shared';
 import { RichEditor, RichToolbar, actions } from 'react-native-pell-rich-editor';
 import PasswordModal from '@/components/PasswordModal';
-import { tiptapJsonToHtml } from '@/utils/tiptap';
+import { tiptapJsonToHtml, noteContentToPlainText } from '@/utils/tiptap';
 import { getVideoEmbedHtml } from '@/utils/video';
 import IconPickerModal from '@/components/IconPickerModal';
 import ProjectSelector from '@/components/ProjectSelector';
@@ -654,19 +654,29 @@ export default function NoteEditorScreen() {
               leadingIcon="cloud-sync-outline"
             />
           )}
-          {!!(existingNote as any)?.source?.origin && (
+          {!isNew && (
             <Menu.Item
               onPress={() => {
                 setShowMenu(false);
-                const s = (existingNote as any).source;
-                Alert.alert('Filinfo (Nextcloud)', [
-                  `Sökväg: ${s.remotePath || '–'}`,
-                  s.mimeType ? `Typ: ${s.mimeType}` : null,
-                  s.syncedAt ? `Senast synkad: ${new Date(s.syncedAt).toLocaleString()}` : null,
-                  'Källa: Nextcloud',
-                ].filter(Boolean).join('\n'));
+                const n: any = existingNote || {};
+                const plain = noteContentToPlainText(n.content || '');
+                const words = plain.trim() ? plain.trim().split(/\s+/).length : 0;
+                const fmt = (d: any) => { try { return d ? new Date(d).toLocaleString() : '–'; } catch { return '–'; } };
+                const s = n.source;
+                const lines = [
+                  `Titel: ${n.title || '(namnlös)'}`,
+                  `Skapad: ${fmt(n.createdAt)}`,
+                  `Ändrad: ${fmt(n.updatedAt)}`,
+                  `Ord: ${words} · Tecken: ${plain.length}`,
+                  Array.isArray(n.tags) && n.tags.length ? `Taggar: ${n.tags.join(', ')}` : null,
+                  '',
+                  s && s.origin
+                    ? `Källa: Nextcloud (synkad)\nSökväg: ${s.remotePath || '–'}${s.mimeType ? `\nTyp: ${s.mimeType}` : ''}${s.syncedAt ? `\nSenast synkad: ${fmt(s.syncedAt)}` : ''}`
+                    : 'Källa: Lokal anteckning',
+                ].filter((l) => l !== null);
+                Alert.alert('Information', lines.join('\n'));
               }}
-              title="Info om synkad fil"
+              title="Information"
               leadingIcon="information-outline"
             />
           )}

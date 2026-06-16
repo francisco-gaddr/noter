@@ -30,6 +30,11 @@ interface AppState {
   viewMode: 'list' | 'tree';
   isOffline: boolean;
   isSyncingOffline: boolean;
+  // >0 while any external source sync (Nextcloud/CalDAV) is in flight — drives the
+  // "syncing…" loader shown in empty sections. Ref-counted for concurrent syncs.
+  syncingCount: number;
+  beginSourceSync: () => void;
+  endSourceSync: () => void;
   activeProjectId: string | null;
   token: string | null;
   isInitialized: boolean;
@@ -419,6 +424,9 @@ export const useStore = create<AppState>((set, get) => ({
   // Default notes view = Kortvy (cards). 'tree' renders the card variant (see NoteList).
   viewMode: 'tree',
   isOffline: false,
+  syncingCount: 0,
+  beginSourceSync: () => set((s) => ({ syncingCount: s.syncingCount + 1 })),
+  endSourceSync: () => set((s) => ({ syncingCount: Math.max(0, s.syncingCount - 1) })),
   isSyncingOffline: false,
   activeProjectId: null,
   token: null,

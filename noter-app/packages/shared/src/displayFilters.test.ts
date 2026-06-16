@@ -7,6 +7,7 @@ import {
   visibleNotes,
   visibleTasks,
   completedTasks,
+  isHiddenSyncedNote,
 } from './displayFilters';
 
 describe('displayFilters', () => {
@@ -58,6 +59,20 @@ describe('displayFilters', () => {
       { _id: '6', title: 'Keep', content: 'y' }, // undefined type → plain
     ];
     expect(visibleNotes(notes as any).map((n: any) => n._id)).toEqual(['1', '6']);
+  });
+
+  it('isHiddenSyncedNote: hides binaries by source AND by title (source-independent)', () => {
+    // by source (image)
+    expect(isHiddenSyncedNote({ source: { origin: 'nextcloud', remotePath: 'x.png', mimeType: 'image/png' } } as any)).toBe(true);
+    // editable text stays visible
+    expect(isHiddenSyncedNote({ source: { origin: 'nextcloud', remotePath: 'x.md' } } as any)).toBe(false);
+    // by TITLE even with NO source (source was lost)
+    expect(isHiddenSyncedNote({ title: 'photo.png' } as any)).toBe(true);
+    expect(isHiddenSyncedNote({ title: 'rapport.pdf' } as any)).toBe(true);
+    expect(isHiddenSyncedNote({ title: 'ark.xlsx' } as any)).toBe(true);
+    // a plain text note stays visible
+    expect(isHiddenSyncedNote({ title: 'My note' } as any)).toBe(false);
+    expect(isHiddenSyncedNote({ title: 'todo.md' } as any)).toBe(false);
   });
 
   it('visibleTasks + completedTasks', () => {

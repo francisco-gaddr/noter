@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, StyleSheet, TouchableOpacity, Alert } from 'react-native';
-import { syncOnEnterFolder } from '@/services/nextcloud';
+import { syncOnEnterFolder, forceSyncFolder } from '@/services/nextcloud';
 import { getCachedMarkdownShares } from '@/services/markdownShare';
 import { Modal, Portal, Text, Button, IconButton, TextInput, Menu, useTheme, Divider, Dialog, HelperText } from 'react-native-paper';
 import { useStore } from '@/stores/useStore';
@@ -161,7 +161,7 @@ const RenameProjectInput = React.memo(({
 });
 
 export default function ProjectSelector({ visible, onDismiss, onSelect, selectedProjectId }: ProjectSelectorProps) {
-  const { notes, activeProjectId, setActiveProject, createNote, updateNote, deleteNote, verifyNoteLock, reorderNotes } = useStore();
+  const { notes, activeProjectId, setActiveProject, createNote, updateNote, deleteNote, verifyNoteLock, reorderNotes, fetchNotes } = useStore();
   const theme = useTheme();
   const { t, i18n } = useTranslation();
   const isSwedish = i18n.language?.toLowerCase().startsWith('sv');
@@ -515,6 +515,19 @@ export default function ProjectSelector({ visible, onDismiss, onSelect, selected
                 leadingIcon="cloud-sync-outline"
               />
             )}
+            <Menu.Item
+                onPress={async () => {
+                    const folder = selectedProjectForMenu;
+                    setMenuVisible(false);
+                    setMenuAnchor(null);
+                    if (!folder?._id) return;
+                    // Force-sync THIS folder's Nextcloud source (pull latest + push edits), then refresh.
+                    try { await forceSyncFolder(folder._id); } catch { /* */ }
+                    try { await fetchNotes(); } catch { /* */ }
+                }}
+                title="Synka nu"
+                leadingIcon="sync"
+            />
             <Menu.Item
                 onPress={async () => {
                     const folder = selectedProjectForMenu;

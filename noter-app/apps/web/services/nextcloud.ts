@@ -24,6 +24,7 @@ import {
   baseUrlFromLoginResult,
   normalizePath,
   planIngest,
+  normalizeNoteType,
   syncedFileIsEditable,
   embeddingContentHash,
   buildNeo4jSyncPlan,
@@ -342,6 +343,22 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
     let body = '';
     if (draft.needsContent) body = await extract(draft.source.remotePath, draft.title, draft.source.mimeType);
     try {
+      // SELF-HEAL / no-dup: adopt an existing same-name note under this parent (e.g. one whose
+      // `source` was lost) instead of creating a duplicate — re-stamps its provenance.
+      const orphan = ((useStore.getState() as any).notes || []).find((n: any) =>
+        !n.deleted &&
+        (n.parentId || null) === (parentId || null) &&
+        (n.title || '').trim() === draft.title.trim() &&
+        normalizeNoteType(n.type) === draft.type,
+      );
+      if (orphan) {
+        const patch: any = { source: stampSource(draft.source, body), type: draft.type };
+        if (draft.needsContent) patch.content = body;
+        await api.updateNote(orphan._id, patch);
+        pathToId.set(draft.source.remotePath, orphan._id);
+        updated += 1;
+        continue;
+      }
       const note = await api.createNote({ title: draft.title, content: body, tags: [], parentId, type: draft.type, source: stampSource(draft.source, body) } as any);
       pathToId.set(draft.source.remotePath, note._id);
       created += 1;

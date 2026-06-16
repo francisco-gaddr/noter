@@ -78,6 +78,7 @@ export default function TasksScreen() {
   const theme = useTheme();
   const { tasks, notes, isLoading, fetchTasks, fetchNotes, updateTask, reorderTasks, createNote, updateNote, deleteNote, deleteTask } = useStore();
   const unlockedProtectedNoteIds = useStore((s) => s.unlockedProtectedNoteIds);
+  const syncingSources = useStore((s) => s.syncingCount > 0);
 
   // Keep the external calendar feed (ICS subscription) live: push the latest task
   // projection whenever tasks change. No-op unless the user created a subscription.
@@ -109,7 +110,15 @@ export default function TasksScreen() {
 
   // Shared pull-to-refresh with haptic + min-spin + reentrancy guard.
   const { refreshing: pullRefreshing, onRefresh: onPullRefresh } = useRefreshControl(
-    async () => { await Promise.all([fetchTasks(), fetchNotes()]); },
+    async () => {
+      // Pull-to-refresh on tasks forces the external sources (CalDAV shares / calendar feeds)
+      // then refetches, so the current task list reflects changes made on other clients.
+      try {
+        const fs = await import('@/services/forceSync');
+        await fs.forceSyncAllSources();
+      } catch { /* best-effort */ }
+      await Promise.all([fetchTasks(), fetchNotes()]);
+    },
   );
 
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
@@ -523,7 +532,12 @@ export default function TasksScreen() {
         </ScrollView>
       </View>
 
-      {viewMode === 'list' && isLoading && sortedTasks.length === 0 ? (
+      {syncingSources && sortedTasks.length === 0 ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 24, gap: 10 }}>
+          <ActivityIndicator size="small" />
+          <Text style={{ color: theme.colors.onSurfaceVariant }}>Synkar från servern…</Text>
+        </View>
+      ) : viewMode === 'list' && isLoading && sortedTasks.length === 0 ? (
         <SkeletonRow count={6} />
       ) : null}
       {viewMode === 'list' ? (

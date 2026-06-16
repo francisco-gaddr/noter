@@ -28,6 +28,7 @@ import {
   baseUrlFromLoginResult,
   normalizePath,
   planIngest,
+  normalizeNoteType,
   syncedFileIsEditable,
   embeddingContentHash,
   buildNeo4jSyncPlan,
@@ -373,6 +374,7 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
   // can all fire). A second concurrent call is a no-op success.
   if (inFlightSync.has(connectionId)) return { created: 0, updated: 0, deleted: 0, ok: true };
   inFlightSync.add(connectionId);
+  try { useStore.getState().beginSourceSync(); } catch { /* */ }
   try {
   const conn = (await listConnections()).find((c) => c.id === connectionId);
   if (!conn) return { created: 0, updated: 0, deleted: 0, ok: false, error: 'Anslutning saknas' };
@@ -433,6 +435,23 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
       body = await extractFileText(conn, draft.source.remotePath, draft.title, draft.source.mimeType);
     }
     try {
+      // SELF-HEAL / no-dup: if a note already sits under this parent with the same name (e.g. an
+      // older note whose `source` was lost), ADOPT it — re-stamp its source instead of creating a
+      // duplicate. This is what makes folder-info read "synced" and 2-way push work on old notes.
+      const orphan = (useStore.getState().notes || []).find((n: any) =>
+        !n.deleted &&
+        (n.parentId || null) === (parentId || null) &&
+        (n.title || '').trim() === draft.title.trim() &&
+        normalizeNoteType(n.type) === draft.type,
+      );
+      if (orphan) {
+        const patch: any = { source: stampSource(draft.source, body), type: draft.type };
+        if (draft.needsContent) patch.content = body;
+        await store.updateNote(orphan._id, patch);
+        pathToId.set(draft.source.remotePath, orphan._id);
+        updated += 1;
+        continue;
+      }
       const note = await store.createNote({
         title: draft.title,
         content: body, // body only — no metadata header (metadata lives in `source`, shown via ⋯→info)
@@ -463,7 +482,10 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
   await saveConnection({ ...conn, lastSyncAt: new Date().toISOString() }, undefined).catch(() => {});
 
   return { created, updated, deleted, pushed, ok: true };
-  } finally { inFlightSync.delete(connectionId); }
+  } finally {
+    inFlightSync.delete(connectionId);
+    try { useStore.getState().endSourceSync(); } catch { /* */ }
+  }
 };
 
 // Throttle on-enter-folder syncs so re-entering a folder repeatedly doesn't hammer the server.
@@ -492,6 +514,37 @@ export const syncOnEnterFolder = async (folderId: string | null): Promise<void> 
       void syncConnection(id).catch(() => {});
     }
   } catch { /* never block navigation */ }
+};
+
+/**
+ * Force a full, un-throttled sync of the Nextcloud connection(s) backing a project folder — used
+ * by pull-to-refresh / the per-folder "Synka nu" button. Awaitable (so the spinner reflects real
+ * work) and pushes local edits out too. Returns true if a Nextcloud connection was synced.
+ */
+export const forceSyncFolder = async (folderId: string | null): Promise<boolean> => {
+  if (!folderId) return false;
+  try {
+    const store: any = useStore.getState();
+    const notes: Note[] = store.notes || [];
+    const folder = notes.find((n) => n._id === folderId);
+    const connIds = new Set<string>();
+    // The folder itself, or any ancestor, may carry the Nextcloud source.
+    let cur: any = folder;
+    let hops = 0;
+    while (cur && hops < 50) {
+      const s = (cur as any)?.source;
+      if (s?.connectionId) { connIds.add(s.connectionId); break; }
+      cur = notes.find((n) => n._id === cur.parentId);
+      hops += 1;
+    }
+    if (folderId === (await getTargetFolderId())) (await listConnections()).forEach((c) => connIds.add(c.id));
+    if (connIds.size === 0) return false;
+    for (const id of connIds) {
+      lastEnterSync.set(id, Date.now()); // reset throttle so the next auto-enter doesn't double-fire
+      try { await syncConnection(id); } catch { /* continue */ }
+    }
+    return true;
+  } catch { return false; }
 };
 
 /** Sync every connection whose auto-sync interval has elapsed (call on app foreground / tick). */

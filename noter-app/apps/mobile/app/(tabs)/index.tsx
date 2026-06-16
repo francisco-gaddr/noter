@@ -94,12 +94,30 @@ export default function NotesScreen() {
   const theme = useTheme();
   const { notes, isLoading, error, fetchNotes, viewMode, setViewMode, activeProjectId, updateNote, reorderNotes, deleteNote } = useStore();
   const unlockedProtectedNoteIds = useStore((s) => s.unlockedProtectedNoteIds);
+  const syncingSources = useStore((s) => s.syncingCount > 0);
 
   // Standardised pull-to-refresh: haptic on initiation, minimum 350ms spinner
   // so a fast-cached response doesn't flicker the UI, reentrancy-guarded so
-  // multiple drags can't queue parallel fetches.
+  // multiple drags can't queue parallel fetches. Section-aware: inside a
+  // Nextcloud-backed project folder it pulls THAT folder fresh from the server;
+  // at the notes root it forces every source (Nextcloud + CalDAV) then refetches.
   const { refreshing: pullRefreshing, onRefresh: onPullRefresh } = useRefreshControl(
-    async () => { await fetchNotes(); },
+    async () => {
+      try {
+        if (activeProjectId) {
+          const nc = await import('@/services/nextcloud');
+          const synced = await nc.forceSyncFolder(activeProjectId);
+          if (!synced) {
+            const fs = await import('@/services/forceSync');
+            await fs.forceSyncAllSources();
+          }
+        } else {
+          const fs = await import('@/services/forceSync');
+          await fs.forceSyncAllSources();
+        }
+      } catch { /* best-effort; fetchNotes still refreshes the list */ }
+      await fetchNotes();
+    },
   );
   
   const [sortMenuVisible, setSortMenuVisible] = useState(false);
@@ -382,7 +400,14 @@ export default function NotesScreen() {
         onDismiss={() => setIconPickerVisible(false)}
         onSelect={handleIconSelect}
       />
-      {isLoading && sortedNotes.length === 0 ? (
+      {syncingSources && sortedNotes.length === 0 ? (
+        // The current section is empty AND a source sync (Nextcloud/CalDAV) is in flight —
+        // show an explicit "syncing from server" loader so it doesn't look broken/empty.
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 24, gap: 10 }}>
+          <ActivityIndicator size="small" />
+          <Text style={{ color: theme.colors.onSurfaceVariant }}>Synkar från servern…</Text>
+        </View>
+      ) : isLoading && sortedNotes.length === 0 ? (
         // Cold-start placeholder: skeletons let the user see "something is
         // happening" without staring at an empty screen. Reduce-motion is
         // honoured by Skeleton internally.
