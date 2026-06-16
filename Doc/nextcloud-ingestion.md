@@ -35,8 +35,14 @@ urval on-device och reläar Cypher.
 `settings.tsx` — anslutning add/test/ta-bort + "Synka nu"; per-mapp Neo4j-urval i tre pooler
 (Projektmappar / Uppgiftslistor / Filmappar) + `includeBody`-växel + "Synka till Neo4j".
 
-Kvar (Fas 2): mobil PDF-extraktion, intervall-/bakgrundssync, OAuth2 Login Flow v2,
-bild→vision/OCR, `minContextLevel` per anslutning. Device-validering kräver EAS-dev-build.
+**Fas 2 (delvis levererad 2026-06-16):** PROPFIND-mappväljare (bläddra + bocka i mappar
+istället för att skriva sökvägar) + auto-sync-intervall per anslutning (`isSyncDue` +
+`syncDueConnections`, körs vid inställnings-mount) — paritet båda apparna.
+
+Kvar (Fas 2, device-validering krävs / EAS-dev-build): **mobil PDF-extraktion** (WebView-pdfjs
+eller native modul — kan ej verifieras headless), **OAuth2 Login Flow v2** (enhets-flöde),
+**bild→vision/OCR**, samt att koppla `minContextLevel` (fältet sparas redan per anslutning) in
+i `retrieveForChat`-grinden. Dessa kräver en EAS-dev-build för skarp enhetsvalidering.
 
 ## Målbild (vad användaren bad om)
 
