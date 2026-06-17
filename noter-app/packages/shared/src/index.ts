@@ -8,6 +8,7 @@ export * from './insights';
 export * from './aiAttachments';
 export * from './displayFilters';
 export * from './noteType';
+export * from './aiPlacement';
 export * from './locks';
 export * from './shareLists';
 export * from './presetProviders';

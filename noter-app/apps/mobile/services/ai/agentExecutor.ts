@@ -41,6 +41,7 @@ import { buildToolSystemPrompt, type ToolContainer } from './tooling';
 import { patchDelegation, setRunLogEntry } from './agentDelegations';
 import { recordToolUse } from './usageTracker';
 import { useStore } from '@/stores/useStore';
+import { resolveAiNoteParentId, resolveAiTaskParentId } from './placement';
 
 const scopeKeyForToken = async (): Promise<string> => {
   const token = await SecureStore.getItemAsync('token').catch(() => null);
@@ -144,7 +145,12 @@ const buildToolExecutor = () => async (tool: string, args: Record<string, any>):
     case 'create_project':
     case 'create_tasklist': {
       const type = tool === 'create_project' ? 'project' : tool === 'create_tasklist' ? 'task_list' : (args.type || 'note');
-      const note = await store.createNote({ title: args.title || 'Untitled', content: args.content || '', tags: args.tags || [], parentId: args.parentId || null, type } as any);
+      // Plain notes get smart placement (best-match folder → default AI folder); folder/list
+      // creation keeps the caller's parentId.
+      const parentId = (tool === 'create_note' && type === 'note')
+        ? await resolveAiNoteParentId(args)
+        : (args.parentId || null);
+      const note = await store.createNote({ title: args.title || 'Untitled', content: args.content || '', tags: args.tags || [], parentId, type } as any);
       return { note };
     }
     case 'update_note':
@@ -155,9 +161,11 @@ const buildToolExecutor = () => async (tool: string, args: Record<string, any>):
       return { note };
     }
     case 'create_task': {
+      // Smart placement: explicit list → best-matching task list → default AI task list.
+      const parentNoteId = args.parentNoteId || (await resolveAiTaskParentId(args)) || undefined;
       const task = await store.createTask({
         title: args.title || 'Uppgift', description: args.description || '', dueDate: args.dueDate || null,
-        priority: args.priority || 'medium', parentNoteId: args.parentNoteId || undefined,
+        priority: args.priority || 'medium', parentNoteId,
         reminderEnabled: !!args.reminderEnabled,
       } as any);
       return { task };

@@ -23,7 +23,7 @@ const buildContainerLines = (context?: ToolPromptContext): string[] => {
   return [
     `Tillgängliga projektmappar (type=project): ${fmt(context.projects)}.`,
     `Tillgängliga uppgiftslistor (type=task_list): ${fmt(context.taskLists)}.`,
-    'Välj rätt projektmapp/uppgiftslista för uppgiften och sätt parentId (anteckning/projekt/lista) respektive parentNoteId (uppgift) till rätt id ovan. Finns ingen lämplig, använd list_projects/list_tasklists eller skapa en ny först.',
+    'PLACERING: när du skapar en anteckning, välj den MEST RELEVANTA befintliga projektmappen ovan och sätt parentId till dess id. När du skapar en uppgift, välj den mest relevanta uppgiftslistan och sätt parentNoteId. Om ingen mapp/lista passar bra, lämna parentId/parentNoteId tomt — appen placerar då automatiskt i en standardmapp/-lista för AI-skapat (eller den mapp användaren står i). Skapa bara en ny mapp/lista om användaren uttryckligen ber om det.',
   ];
 };
 

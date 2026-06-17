@@ -5,6 +5,7 @@ import { Text, Button, useTheme, IconButton, List, ActivityIndicator, ProgressBa
 import { useLocalSearchParams, useNavigation } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { MobileLlamaProvider } from '@/services/ai/provider';
+import { resolveAiNoteParentId, resolveAiTaskParentId } from '@/services/ai/placement';
 import { useStore } from '@/stores/useStore';
 import { ChatMessage, Conversation, HFModel, HFFile, AIProject, normalizeToolArguments, sortModels, type HFModelSort } from '@repo/ai';
 import { searchHuggingFaceModels, getModelFiles } from '@/services/ai/huggingface';
@@ -1520,8 +1521,12 @@ function AIScreenInner() {
               return { note: toNotePayload(note) };
           }
           case 'create_note': {
-              const state = useStore.getState();
-              const input = (!args.parentId && state.activeProjectId) ? { ...args, parentId: state.activeProjectId } : args;
+              // Smart placement: explicit parentId → current folder → best-match project → default
+              // AI folder (find-or-create). Only for plain notes; project/list creation keeps args.
+              const parentId = ((args.type || 'note') === 'note')
+                ? await resolveAiNoteParentId(args)
+                : (args.parentId ?? null);
+              const input = { ...args, parentId };
               const query = `mutation($input:NoteInput!){createNote(input:$input){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
               const data = await graphQLRequest(query, { input: e2eNoteInput(input) });
               applyNoteMutationLocally((data as any)?.createNote);
@@ -1635,6 +1640,11 @@ function AIScreenInner() {
           case 'create_task': {
               // Pull the agent-only fields out so they don't leak into TaskInput.
               const { delegateToAi, aiInstructions, ...taskArgs } = args as Record<string, any>;
+              // Smart placement: explicit list → best-matching task list → default AI task list.
+              if (!taskArgs.parentNoteId) {
+                  const resolvedList = await resolveAiTaskParentId(taskArgs);
+                  if (resolvedList) taskArgs.parentNoteId = resolvedList;
+              }
               if (taskArgs.parentNoteId) {
                   const { ensureReadableNote } = getAISecurityContext();
                   ensureReadableNote(String(taskArgs.parentNoteId));
