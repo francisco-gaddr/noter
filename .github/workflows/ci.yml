@@ -36,7 +36,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Node 24: the AI-chat-persistence integration test uses the built-in `node:sqlite`
+          # (stable since Node 24) to prove against a REAL SQLite engine that re-saving a
+          # conversation never cascade-wipes its messages.
+          node-version: 24
           cache: npm
           cache-dependency-path: noter-app/package-lock.json
       - run: npm ci
@@ -54,6 +57,14 @@ jobs:
         run: |
           (cd packages/shared && npx jest caldav calendar shareLists noteType)
           (cd apps/backend && npx jest caldav)
+      # The recurring "AI chat history is empty" regressions get their OWN blocking gate
+      # (the broad app suite below stays non-blocking during the flake burn-down, so these
+      # critical persistence/lock tests must be pinned here or a real regression slips through).
+      - name: AI chat persistence + safety (blocking)
+        run: |
+          node scripts/check-sql-cascade-replace.mjs
+          (cd packages/shared && npx jest locks)
+          (cd apps/mobile && npx jest __tests__/database-conversation-cascade.test.ts __tests__/ai-model-safety.test.ts tests/ai-sync-service.test.ts)
       - name: No dead files (knip --include files)
         run: npm run knip:files
 

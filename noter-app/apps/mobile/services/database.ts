@@ -787,9 +787,28 @@ export const saveConversationLocal = async (conversation: LocalConversation) => 
   const encryptedCreatedAt = encrypt(conversation.createdAt);
   const encryptedUpdatedAt = encrypt(conversation.updatedAt);
 
+  // CRITICAL: a true UPSERT (UPDATE-in-place on conflict), NOT `INSERT OR REPLACE`.
+  // The messages table has `FOREIGN KEY(conversationId) REFERENCES conversations(id) ON
+  // DELETE CASCADE` and `PRAGMA foreign_keys = ON`. `INSERT OR REPLACE` resolves a primary-key
+  // conflict by DELETING the existing conversation row and inserting a new one — and that
+  // delete fires the ON DELETE CASCADE, WIPING every message of the thread. Since
+  // saveConversationLocal runs on every sync pull (mergeRemoteSync), on auto-title, on rename
+  // and on socket updates, re-saving a conversation silently erased its history → the
+  // recurring "AI-tråden är tom trots att det finns text" bug. `ON CONFLICT DO UPDATE` mutates
+  // the row in place: no delete, no cascade, messages preserved. createdAt is kept from the
+  // first insert (COALESCE keeps the existing value on update).
   await run(
-    `INSERT OR REPLACE INTO conversations (id, title, model, projectId, icon, iconColor, localOnly, createdAt, updatedAt)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO conversations (id, title, model, projectId, icon, iconColor, localOnly, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       title=excluded.title,
+       model=excluded.model,
+       projectId=excluded.projectId,
+       icon=excluded.icon,
+       iconColor=excluded.iconColor,
+       localOnly=excluded.localOnly,
+       createdAt=COALESCE(conversations.createdAt, excluded.createdAt),
+       updatedAt=excluded.updatedAt`,
     [conversation.id, encryptedTitle, encryptedModel, encryptedProjectId, encryptedIcon, encryptedIconColor, encryptedLocalOnly, encryptedCreatedAt, encryptedUpdatedAt]
   );
 };

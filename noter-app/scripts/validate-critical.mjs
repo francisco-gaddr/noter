@@ -28,6 +28,15 @@ const steps = [
     args: ['scripts/check-route-scoping.mjs'],
   },
   {
+    // Mechanical guard for the data-loss CLASS behind the recurring empty-AI-thread bug:
+    // INSERT OR REPLACE into a table that is the parent of an ON DELETE CASCADE FK silently
+    // wipes its children. Must use ON CONFLICT DO UPDATE instead.
+    label: 'SQL cascade-replace guard (no message-wiping upserts)',
+    cwd: repoRoot,
+    command: 'node',
+    args: ['scripts/check-sql-cascade-replace.mjs'],
+  },
+  {
     // Shared is the crypto/widget foundation — gate it first so a broken
     // encrypt/cryptoV3/widgetData can't reach any app.
     label: 'Shared package tests (crypto, widgets, key bootstrap)',
@@ -129,6 +138,11 @@ const steps = [
       'tests/ai-tool-use-e2e.test.ts',
       'tests/ai-security.test.ts',
       'tests/ai-sync-service.test.ts',
+      // BLOCKING: real-SQLite proof that re-saving a conversation never wipes its messages
+      // (THE root cause of the recurring "AI-tråden är tom trots text" bug).
+      '__tests__/database-conversation-cascade.test.ts',
+      // BLOCKING: model search/picker helpers never throw on malformed data.
+      '__tests__/ai-model-safety.test.ts',
       'tests/api-url-security.test.ts',
       'tests/api-auth-reliability.test.ts',
       'tests/database-at-rest.test.ts',
