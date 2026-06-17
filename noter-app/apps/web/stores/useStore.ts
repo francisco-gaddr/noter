@@ -1284,7 +1284,13 @@ export const useStore = create<StoreState>((set, get) => ({
         },
       ]);
       
-      const newNote = await api.createNote({ title, content: initialContent, parentId, type, order, icon, clientId } as any);
+      const created = await api.createNote({ title, content: initialContent, parentId, type, order, icon, clientId } as any);
+      // DETERMINISTIC TYPE: trust the type WE just requested, not the create-response echo.
+      // The backend response can omit or return `type` still-encrypted; that made a new
+      // task_list/project classify as a plain 'note' → it vanished from the Tasks view and
+      // the project-folder dropdown (the recurring "ny lista/mapp syns inte i Electron" bug).
+      // `type` here is already canonical ('note' | 'task_list' | 'project').
+      const newNote = { ...created, type } as Note;
       set((state) => ({
         notes: uniqBy([newNote, ...state.notes], '_id'),
         ...(type === 'task_list' ? { selectedTaskListId: newNote._id } : { selectedNoteId: newNote._id }),

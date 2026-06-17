@@ -3597,13 +3597,36 @@ function AIScreenInner() {
               {(loading || chatRefreshing) && messages.length > 0 ? (
                 <ProgressBar indeterminate color={theme.colors.primary} style={{ height: 2 }} />
               ) : null}
+              {messages.length === 0 ? (
+                // EMPTY thread → a normal, UPRIGHT view (NOT the inverted FlatList). Rendering
+                // the empty hint inside an inverted list drew it upside-down/mirrored (the
+                // reported bug). Keep pull-to-refresh so an empty/synced thread can self-heal.
+                <ScrollView
+                  style={{ flex: 1 }}
+                  contentContainerStyle={{ flexGrow: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 }}
+                  keyboardShouldPersistTaps="handled"
+                  refreshControl={
+                    currentConversationId ? (
+                      <RefreshControl refreshing={chatRefreshing} onRefresh={reloadCurrentChat} tintColor={theme.colors.primary} colors={[theme.colors.primary]} />
+                    ) : undefined
+                  }
+                >
+                  {currentConversationId ? (
+                    <View style={{ alignItems: 'center' }}>
+                      <FontAwesome5 name="comments" size={28} color={theme.colors.onSurfaceVariant} />
+                      <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: 13, marginTop: 10, textAlign: 'center' }}>
+                        {loading ? t('ai.loadingThread', 'Laddar konversationen…') : t('ai.emptyThread', 'Inga meddelanden ännu. Skriv nedan för att fortsätta.')}
+                      </Text>
+                    </View>
+                  ) : null}
+                </ScrollView>
+              ) : (
               <FlatList
                 ref={messagesListRef}
                 data={invertedMessages}
-                // IMPORTANT: keep `inverted` CONSTANT. Toggling it at runtime (it used to be
-                // `messages.length > 0`) blanks the list on a live FlatList — that was the
-                // "tom tråd när man väljer en chatt" bug: selecting a thread loaded messages,
-                // flipped inverted false→true, and RN failed to render the rows.
+                // `inverted` is CONSTANT here — this branch only renders WITH data, so the list
+                // never toggles inverted at runtime (toggling blanks a live FlatList; that was
+                // the "tom tråd när man väljer en chatt" bug).
                 inverted
                 refreshControl={
                   currentConversationId ? (
@@ -3611,23 +3634,9 @@ function AIScreenInner() {
                   ) : undefined
                 }
                 keyExtractor={(item, index) => item.id ?? String(index)}
-                contentContainerStyle={messages.length === 0 ? { flexGrow: 1, justifyContent: 'center' } : styles.listContent}
+                contentContainerStyle={styles.listContent}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="interactive"
-                // A selected-but-empty thread (or one whose local copy is still being
-                // self-healed from the server) shows a clear hint instead of a blank screen.
-                ListEmptyComponent={
-                  currentConversationId ? (
-                    // Counter-flip: the list is permanently inverted, so its empty component
-                    // renders upside-down unless we mirror it back.
-                    <View style={{ alignItems: 'center', paddingHorizontal: 32, transform: [{ scaleY: -1 }] }}>
-                      <FontAwesome5 name="comments" size={28} color={theme.colors.onSurfaceVariant} />
-                      <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: 13, marginTop: 10, textAlign: 'center' }}>
-                        {loading ? t('ai.loadingThread', 'Laddar konversationen…') : t('ai.emptyThread', 'Inga meddelanden ännu. Skriv nedan för att fortsätta.')}
-                      </Text>
-                    </View>
-                  ) : null
-                }
                 // Keep the latest message in view: opening a thread loads messages
                 // (content grows) and streaming appends — both fire this.
                 onContentSizeChange={() => scrollChatToEnd(false)}
@@ -3804,6 +3813,7 @@ function AIScreenInner() {
                  }
                 }}
               />
+              )}
               {/* #1: the AI-working animation now renders inside the last assistant
                   bubble (see isThinkingBubble in renderItem) — no bottom-anchored loader
                   eating space, and it hides itself the moment streaming begins. */}

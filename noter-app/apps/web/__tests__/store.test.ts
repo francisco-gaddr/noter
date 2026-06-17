@@ -180,4 +180,28 @@ describe('Web Store', () => {
       expect(api.createNote).toHaveBeenCalledWith(expect.objectContaining({ title: 'New Note' }));
   });
 
+  // Regression: the create-response can OMIT or return `type` still-encrypted. The store must
+  // trust the type WE requested, else a new task_list/project classifies as a plain 'note' and
+  // vanishes from the Tasks view + the project-folder dropdown (the recurring Electron bug).
+  it('keeps the requested type for a new task list even when the API omits it', async () => {
+      const { api } = require('../services/api');
+      api.createNote.mockResolvedValueOnce({ _id: 'tl-1', title: 'Inköp', content: '' }); // no `type`
+      await act(async () => {
+          await useStore.getState().createNote('Inköp', null, 'task_list');
+      });
+      const created = useStore.getState().notes.find((n) => n._id === 'tl-1');
+      expect(created?.type).toBe('task_list');
+      expect(useStore.getState().selectedTaskListId).toBe('tl-1');
+  });
+
+  it('keeps the requested type for a new project folder even when the API returns a wrong/encrypted type', async () => {
+      const { api } = require('../services/api');
+      api.createNote.mockResolvedValueOnce({ _id: 'pf-1', title: 'Hem', content: '', type: 'U2FsdGVkX1junk' });
+      await act(async () => {
+          await useStore.getState().createNote('Hem', null, 'project');
+      });
+      const created = useStore.getState().notes.find((n) => n._id === 'pf-1');
+      expect(created?.type).toBe('project');
+  });
+
 });
