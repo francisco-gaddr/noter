@@ -22,6 +22,7 @@ import { useColorScheme } from '@/components/useColorScheme';
 import { ThemeContextProvider, useThemeContext, preloadTheme } from '@/context/ThemeContext';
 import { runKvMigrationIfNeeded } from '@/services/storage';
 import { restoreCryptoFromDevice } from '@/services/crypto';
+import { AnimatedSplash } from '@/components/AnimatedSplash';
 
 export {
   // Catch any errors thrown by the Layout component.
@@ -42,6 +43,8 @@ export default function RootLayout() {
     ...FontAwesome.font,
   });
   const [bootReady, setBootReady] = useState(false);
+  // Keep the branded animated splash mounted until it has finished fading out.
+  const [splashGone, setSplashGone] = useState(false);
   // Failsafe: if font loading ever stalls (flaky asset server / Expo Go quirk), proceed anyway
   // after a few seconds so the app NEVER hangs forever on the blank splash. Icons degrade
   // gracefully (system fallback) — far better than a stuck launch.
@@ -98,14 +101,17 @@ export default function RootLayout() {
   }, [loaded, fontsTimedOut, bootReady]);
 
   // Reveal the UI once bootstrap is done AND fonts are ready OR have timed out — never block
-  // indefinitely on font loading.
-  if ((!loaded && !fontsTimedOut) || !bootReady) {
-    return null;
-  }
+  // indefinitely on font loading. The branded AnimatedSplash covers the full screen while we
+  // boot and then fades itself out (onHidden) once the app tree is mounted, so the launch is a
+  // single continuous, detailed visual rather than a blank native splash.
+  const ready = (loaded || fontsTimedOut) && bootReady;
 
   return (
     <ThemeContextProvider>
-      <RootLayoutNav />
+      {ready ? <RootLayoutNav /> : null}
+      {!splashGone ? (
+        <AnimatedSplash visible={ready} onHidden={() => setSplashGone(true)} />
+      ) : null}
     </ThemeContextProvider>
   );
 }

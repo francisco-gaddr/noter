@@ -240,6 +240,53 @@ function AIScreenInner() {
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
+  // Per-thread UNSENT draft persistence — so leaving a thread (switching chats, leaving
+  // the AI tab, or relaunching) never blanks what you were typing. In-memory cache for
+  // instant restore + AsyncStorage so it survives a remount/relaunch. Keyed per user+thread.
+  const draftsRef = useRef<Record<string, string>>({});
+  const draftSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const draftKey = useCallback(
+    (convId: string) => `ai_draft_${userScopeKeyRef.current}_${convId}`,
+    [],
+  );
+  const persistDraft = useCallback((convId: string | null, text: string) => {
+    if (!convId) return;
+    draftsRef.current[convId] = text;
+    try {
+      if (text && text.trim()) AsyncStorage.setItem(draftKey(convId), text).catch(() => {});
+      else AsyncStorage.removeItem(draftKey(convId)).catch(() => {});
+    } catch { /* best-effort */ }
+  }, [draftKey]);
+  // Debounced writer used while typing (the loadChat/blur paths flush synchronously).
+  const scheduleDraftSave = useCallback((convId: string | null, text: string) => {
+    if (!convId) return;
+    draftsRef.current[convId] = text;
+    if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    draftSaveTimerRef.current = setTimeout(() => persistDraft(convId, text), 400);
+  }, [persistDraft]);
+  const restoreDraft = useCallback(async (convId: string): Promise<string> => {
+    if (convId in draftsRef.current) return draftsRef.current[convId] || '';
+    try {
+      const stored = (await AsyncStorage.getItem(draftKey(convId))) || '';
+      draftsRef.current[convId] = stored;
+      return stored;
+    } catch { return ''; }
+  }, [draftKey]);
+  const onChangeInput = useCallback((text: string) => {
+    setInput(text);
+    scheduleDraftSave(currentConversationIdRef.current, text);
+  }, [scheduleDraftSave]);
+  // Mirror refs so the draft callbacks read the latest scope/thread without re-binding.
+  const userScopeKeyRef = useRef('anon');
+  const currentConversationIdRef = useRef<string | null>(null);
+  useEffect(() => { currentConversationIdRef.current = currentConversationId; }, [currentConversationId]);
+  // Flush the in-flight draft when the screen unmounts (e.g. leaving the AI tab) in case the
+  // debounced write hasn't fired yet — draftsRef holds the latest text synchronously.
+  useEffect(() => () => {
+    if (draftSaveTimerRef.current) clearTimeout(draftSaveTimerRef.current);
+    const cid = currentConversationIdRef.current;
+    if (cid && cid in draftsRef.current) persistDraft(cid, draftsRef.current[cid]);
+  }, [persistDraft]);
   // AI chat file attachments (text files inlined; binary → placeholder). Settings
   // toggle below gates the attach button. Cleared after each send.
   const [attachments, setAttachments] = useState<AiAttachment[]>([]);
@@ -280,6 +327,7 @@ function AIScreenInner() {
   // AI-statistik now lives in the AI-instruktioner tab; load it when that opens.
   useEffect(() => { if (settingsVisible && settingsTab === 'instructions') { getToolUsageRows().then(setToolUsageRows).catch(() => {}); } }, [settingsVisible, settingsTab]);
   const [userScopeKey, setUserScopeKey] = useState<string>('anon');
+  useEffect(() => { userScopeKeyRef.current = userScopeKey || 'anon'; }, [userScopeKey]);
   const [collapsedTool, setCollapsedTool] = useState<Record<string, boolean>>({});
   const [collapsedThinking, setCollapsedThinking] = useState<Record<string, boolean>>({});
 
@@ -1826,6 +1874,16 @@ function AIScreenInner() {
           let tokenCount = 0;
           const startTime = Date.now();
           let lastUpdate = startTime;
+          // Throttled snapshot of the still-streaming reply into the local DB, so leaving
+          // the thread (or the app) mid-generation never loses what's been produced — the
+          // partial is already persisted under this (captured) conversationId.
+          let lastPersist = startTime;
+          const persistPartial = (force = false) => {
+              if (!fullContent) return;
+              if (!force && Date.now() - lastPersist < 1200) return;
+              lastPersist = Date.now();
+              saveMessageLocal(conversationId, { ...assistantMsg, content: fullContent }).catch(() => {});
+          };
 
           const updateTps = () => {
               const elapsed = (Date.now() - startTime) / 1000;
@@ -1857,6 +1915,7 @@ function AIScreenInner() {
                               lastUpdate = Date.now();
                           }
                           setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
+                          persistPartial();
                       },
                   });
                   // Reconcile with the final text (covers the non-streaming fallback path).
@@ -1886,6 +1945,7 @@ function AIScreenInner() {
                               lastUpdate = Date.now();
                           }
                           setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
+                          persistPartial();
                       }
                   );
               } catch (streamError: any) {
@@ -2017,6 +2077,10 @@ function AIScreenInner() {
   };
 
   const createNewChat = async () => {
+      // Keep the draft of the thread we're leaving; a brand-new thread starts empty.
+      const leavingId = currentConversationIdRef.current;
+      if (leavingId) persistDraft(leavingId, input);
+      setInput('');
       const newId = uuidv4();
       const newConv: LocalConversation = {
           id: newId,
@@ -2038,9 +2102,14 @@ function AIScreenInner() {
   };
 
   const loadChat = async (id: string) => {
+      // Preserve the UNSENT draft of the thread we're leaving, then restore the one we're
+      // opening — so switching chats never blanks what you were typing.
+      const leavingId = currentConversationIdRef.current;
+      if (leavingId && leavingId !== id) persistDraft(leavingId, input);
       // Always switch to the tapped thread and leave settings, even if the message read
       // below fails — otherwise the screen looks blank/stuck on the previous view.
       setCurrentConversationId(id);
+      setInput(await restoreDraft(id));
       setSettingsVisible(false);
       let msgs: ChatMessage[] = [];
       try {
@@ -2097,7 +2166,11 @@ function AIScreenInner() {
       if (currentConversationId === id) {
           setCurrentConversationId(null);
           setMessages([]);
+          setInput('');
       }
+      // Drop any saved draft for the deleted thread.
+      delete draftsRef.current[id];
+      AsyncStorage.removeItem(draftKey(id)).catch(() => {});
       if (chatDialogId === id) {
           setChatDialogVisible(false);
           setChatDialogId(null);
@@ -2477,6 +2550,7 @@ function AIScreenInner() {
 
     setMessages(prev => [...prev, userMsg]);
     setInput('');
+    persistDraft(conversationId, ''); // the draft became a sent message — clear it
     setAttachments([]);
     setLoading(true);
     setTokensPerSecond(null);
@@ -3754,7 +3828,7 @@ function AIScreenInner() {
                   placeholder={t('ai.inputPlaceholder')}
                   placeholderTextColor={theme.colors.onSurfaceVariant}
                   value={input}
-                  onChangeText={setInput}
+                  onChangeText={onChangeInput}
                   multiline
                   textAlignVertical="top"
                   autoCorrect
