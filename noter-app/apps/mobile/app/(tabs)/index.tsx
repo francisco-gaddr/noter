@@ -97,40 +97,28 @@ export default function NotesScreen() {
   const unlockedProtectedNoteIds = useStore((s) => s.unlockedProtectedNoteIds);
   const syncingSources = useStore((s) => s.syncingCount > 0);
 
-  // Standardised pull-to-refresh: haptic on initiation, minimum 350ms spinner
-  // so a fast-cached response doesn't flicker the UI, reentrancy-guarded so
-  // multiple drags can't queue parallel fetches. Section-aware: inside a
-  // Nextcloud-backed project folder it pulls THAT folder fresh from the server;
-  // at the notes root it forces every source (Nextcloud + CalDAV) then refetches.
-  const [syncMsg, setSyncMsg] = useState<string | null>(null);
+  // Pull-to-refresh: SCOPED to the current section so it's fast.
+  //  • Inside a project folder → sync ONLY that folder's Nextcloud connection (or nothing if the
+  //    folder isn't externally synced — a local refetch is enough). We never force every source.
+  //  • At "Alla anteckningar" → refresh every source.
+  // No success toaster; only surface an actual error.
+  const [syncErr, setSyncErr] = useState<string | null>(null);
   const { refreshing: pullRefreshing, onRefresh: onPullRefresh } = useRefreshControl(
     async () => {
-      let msg = '';
+      let err = '';
       try {
         if (activeProjectId) {
           const nc = await import('@/services/nextcloud');
-          const r = await nc.forceSyncFolder(activeProjectId);
-          if (r.matched) {
-            msg = r.ok
-              ? `Synkad: ${r.created} nya, ${r.updated} uppdaterade, ${r.deleted} borttagna, ${r.pushed} skickade`
-              : `Synk-fel: ${r.error || 'okänt'}`;
-          } else {
-            const fs = await import('@/services/forceSync');
-            const fr = await fs.forceSyncAllSources();
-            msg = fr.ok
-              ? `Synkade alla källor (${fr.nextcloud.created + fr.nextcloud.updated} ändringar)`
-              : `Synk-fel: ${fr.error || 'okänt'}`;
-          }
+          const r = await nc.forceSyncFolder(activeProjectId); // no-op if folder isn't synced
+          if (r.matched && !r.ok) err = r.error || 'Synk misslyckades';
         } else {
           const fs = await import('@/services/forceSync');
           const fr = await fs.forceSyncAllSources();
-          msg = fr.ok
-            ? `Synkade alla källor (${fr.nextcloud.created + fr.nextcloud.updated} ändringar)`
-            : `Synk-fel: ${fr.error || 'okänt'}`;
+          if (!fr.ok) err = fr.error || 'Synk misslyckades';
         }
-      } catch (e: any) { msg = `Synk-fel: ${e?.message || 'okänt'}`; }
+      } catch (e: any) { err = e?.message || 'Synk misslyckades'; }
       await fetchNotes();
-      setSyncMsg(msg || 'Uppdaterat');
+      if (err) setSyncErr(err);
     },
   );
   
@@ -427,7 +415,7 @@ export default function NotesScreen() {
       <NoteList
         notes={sortedNotes}
         onRefresh={onPullRefresh}
-        refreshing={pullRefreshing || (isLoading && sortedNotes.length > 0)}
+        refreshing={pullRefreshing}
         viewMode={viewMode}
         onReorder={handleReorder}
         sortBy={sortBy}
@@ -451,12 +439,12 @@ export default function NotesScreen() {
         label={t('note.new')}
       />
       <Snackbar
-        visible={!!syncMsg}
-        onDismiss={() => setSyncMsg(null)}
-        duration={4000}
-        action={{ label: 'OK', onPress: () => setSyncMsg(null) }}
+        visible={!!syncErr}
+        onDismiss={() => setSyncErr(null)}
+        duration={5000}
+        action={{ label: 'OK', onPress: () => setSyncErr(null) }}
       >
-        {syncMsg || ''}
+        {syncErr ? `Synk-fel: ${syncErr}` : ''}
       </Snackbar>
     </View>
   );

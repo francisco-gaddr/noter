@@ -57,6 +57,33 @@ describe('fileIngest.planIngest', () => {
   });
 });
 
+describe('fileIngest.planIngest scoped (single-folder pull)', () => {
+  const conn = 'conn1';
+  const synced = (id: string, remotePath: string, etag = 'v1'): SyncedNoteRef => ({
+    _id: id, type: 'note', source: { origin: 'nextcloud', connectionId: conn, remotePath, remoteEtag: etag },
+  });
+
+  it('only deletes notes WITHIN the scoped subtree (never elsewhere in the connection)', () => {
+    const existing = [
+      synced('inA', 'synked/a.md'),       // in scope, gone remotely → delete
+      synced('inB', 'synked/keep.md'),    // in scope, still present → keep
+      synced('outX', 'Other/x.md'),       // OUT of scope → must NOT be deleted by a scoped pull
+      synced('folder', 'synked'),         // the scoped folder itself, still present → keep
+    ];
+    // A scoped pull of "synked" only enumerates that subtree.
+    const entries = [entry('synked', true, 'f1'), entry('synked/keep.md', false, 'v1')];
+    const plan = planIngest(entries, existing, conn, 't', 'synked');
+    expect(plan.deletes).toEqual(['inA']);
+    expect(plan.deletes).not.toContain('outX'); // critical: scoped pull must not touch other folders
+  });
+
+  it('an UNscoped pull still deletes anything gone across the whole connection', () => {
+    const existing = [synced('inA', 'synked/a.md'), synced('outX', 'Other/x.md')];
+    const plan = planIngest([], existing, conn, 't'); // no onlyUnderPath
+    expect(plan.deletes.sort()).toEqual(['inA', 'outX']);
+  });
+});
+
 describe('fileIngest helpers', () => {
   it('parses a source that may be a JSON string or object, rejecting junk', () => {
     const obj = { origin: 'nextcloud', connectionId: 'c', remotePath: 'p', remoteEtag: 'e' };

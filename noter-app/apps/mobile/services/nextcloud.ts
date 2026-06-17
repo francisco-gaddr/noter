@@ -298,9 +298,11 @@ export const browseFolders = async (conn: WebdavConnection, path = ''): Promise<
 
 // ---- recursive enumeration under the selected roots --------------------------
 
-const enumerateAll = async (conn: WebdavConnection): Promise<IngestEntry[]> => {
+const enumerateAll = async (conn: WebdavConnection, onlyUnderPath?: string): Promise<IngestEntry[]> => {
   const out: IngestEntry[] = [];
-  const queue = [...(conn.rootPaths || []).map(normalizePath)];
+  // Scope to a single folder subtree (fast per-folder pull) when asked, else all selected roots.
+  const scoped = onlyUnderPath ? normalizePath(onlyUnderPath) : '';
+  const queue = scoped ? [scoped] : [...(conn.rootPaths || []).map(normalizePath)];
   const visited = new Set<string>();
   let folders = 0;
   while (queue.length && folders < MAX_FOLDERS && out.length < MAX_FILES) {
@@ -312,6 +314,7 @@ const enumerateAll = async (conn: WebdavConnection): Promise<IngestEntry[]> => {
     try { children = await propfind(conn, dir); } catch { continue; }
     for (const c of children) {
       if (!isUnderRoots(c.path, conn.rootPaths)) continue;
+      if (scoped && !isUnderRoots(c.path, [scoped])) continue;
       if (c.isCollection) {
         out.push({ path: c.path, name: c.name, isCollection: true, etag: c.etag, mimeType: c.contentType, lastModified: c.lastModified });
         queue.push(c.path);
@@ -369,7 +372,7 @@ export const pushAllLocalEdits = async (): Promise<number> => {
  * map to project notes; files to notes nested under their folder.
  */
 const inFlightSync = new Set<string>();
-export const syncConnection = async (connectionId: string): Promise<SyncResult> => {
+export const syncConnection = async (connectionId: string, opts?: { onlyUnderPath?: string }): Promise<SyncResult> => {
   // Stability: never let two syncs of the same connection overlap (manual + interval + on-enter
   // can all fire). A second concurrent call is a no-op success.
   if (inFlightSync.has(connectionId)) return { created: 0, updated: 0, deleted: 0, ok: true };
@@ -383,7 +386,8 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
   const allNotes: Note[] = store.notes || [];
   const existingRefs = allNotes.map((n) => toSyncedRef(n as any));
   let entries: IngestEntry[];
-  try { entries = await enumerateAll(conn); }
+  // Scoped (single-folder) pull when asked — much faster than enumerating the whole connection.
+  try { entries = await enumerateAll(conn, opts?.onlyUnderPath); }
   catch (e: any) { return { created: 0, updated: 0, deleted: 0, ok: false, error: e?.message || 'Sync misslyckades' }; }
 
   // If any selected file needs the WebView extractor (PDF/Word/Excel/image), wait briefly for
@@ -400,7 +404,7 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
   try { pushed = await pushLocalEditsForConnection(conn); } catch { /* non-fatal */ }
 
   const syncedAt = new Date().toISOString();
-  const plan = planIngest(entries, existingRefs, connectionId, syncedAt);
+  const plan = planIngest(entries, existingRefs, connectionId, syncedAt, opts?.onlyUnderPath);
 
   // Where synced content lands + is shown (a chosen/auto project folder). Top-level synced root
   // folders nest UNDER it instead of at the app root.
@@ -531,7 +535,9 @@ export const forceSyncFolder = async (folderId: string | null): Promise<FolderSy
     const notes: Note[] = store.notes || [];
     const folder = notes.find((n) => n._id === folderId);
     const connIds = new Set<string>();
-    // The folder itself, or any ancestor, may carry the Nextcloud source.
+    // The folder itself, or any ancestor, may carry the Nextcloud source. Capture the folder's
+    // OWN remotePath (if it has one) so we can scope the sync to just this subtree.
+    const onlyUnderPath: string | undefined = (folder as any)?.source?.remotePath || undefined;
     let cur: any = folder;
     let hops = 0;
     while (cur && hops < 50) {
@@ -540,13 +546,15 @@ export const forceSyncFolder = async (folderId: string | null): Promise<FolderSy
       cur = notes.find((n) => n._id === cur.parentId);
       hops += 1;
     }
-    if (folderId === (await getTargetFolderId())) (await listConnections()).forEach((c) => connIds.add(c.id));
+    const isTarget = folderId === (await getTargetFolderId());
+    if (isTarget) (await listConnections()).forEach((c) => connIds.add(c.id));
     if (connIds.size === 0) return out; // not a Nextcloud-backed folder → caller falls back
     out.matched = true;
     for (const id of connIds) {
       lastEnterSync.set(id, Date.now()); // reset throttle so the next auto-enter doesn't double-fire
       try {
-        const r = await syncConnection(id);
+        // Scope to this folder's subtree (fast) — but the app-root "target" folder syncs fully.
+        const r = await syncConnection(id, isTarget ? undefined : { onlyUnderPath });
         out.created += r.created; out.updated += r.updated; out.deleted += r.deleted; out.pushed += r.pushed || 0;
         if (!r.ok && !out.error) { out.ok = false; out.error = r.error; }
       } catch (e: any) { out.ok = false; if (!out.error) out.error = e?.message || 'Synk misslyckades'; }

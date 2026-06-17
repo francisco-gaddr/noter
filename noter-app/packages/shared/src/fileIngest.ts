@@ -91,6 +91,9 @@ export const planIngest = (
   existing: SyncedNoteRef[],
   connectionId: string,
   syncedAt: string,
+  // When set, this is a SCOPED (single-folder) sync: only enumerate/delete within this remotePath
+  // subtree, so notes elsewhere in the connection are never touched (no accidental deletes).
+  onlyUnderPath?: string,
 ): IngestPlan => {
   const byRemotePath = new Map<string, SyncedNoteRef>();
   for (const n of existing) {
@@ -139,9 +142,13 @@ export const planIngest = (
   }
 
   // Anything we previously synced from this connection that's no longer present remotely.
+  // In a scoped (single-folder) sync, only consider deletes WITHIN that subtree.
+  const norm = (p: string) => p.replace(/^\/+|\/+$/g, '');
+  const scopePrefix = onlyUnderPath ? norm(onlyUnderPath) : '';
+  const isInScope = (p: string) => !scopePrefix || p === scopePrefix || norm(p).startsWith(scopePrefix + '/');
   const deletes: string[] = [];
   for (const n of existing) {
-    if (isFromConnection(n, connectionId) && n.source && !seen.has(n.source.remotePath)) {
+    if (isFromConnection(n, connectionId) && n.source && !seen.has(n.source.remotePath) && isInScope(n.source.remotePath)) {
       deletes.push(n._id);
     }
   }

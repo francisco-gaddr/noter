@@ -109,11 +109,15 @@ export default function TasksScreen() {
     return () => { s.off('calendar:mutation', onMutation); };
   }, []);
 
-  // Shared pull-to-refresh with haptic + min-spin + reentrancy guard.
+  // Shared pull-to-refresh with haptic + min-spin + reentrancy guard. SCOPED:
+  //  • A specific list selected → just refetch THAT list (fast; no heavy source sync).
+  //  • "Alla" (no list) → force every external source (CalDAV/feeds) then refetch all.
   const { refreshing: pullRefreshing, onRefresh: onPullRefresh } = useRefreshControl(
     async () => {
-      // Pull-to-refresh on tasks forces the external sources (CalDAV shares / calendar feeds)
-      // then refetches, so the current task list reflects changes made on other clients.
+      if (selectedListId) {
+        await fetchTasks(selectedListId);
+        return;
+      }
       try {
         const fs = await import('@/services/forceSync');
         await fs.forceSyncAllSources();
@@ -552,7 +556,7 @@ export default function TasksScreen() {
         <TaskList
           tasks={sortedTasks}
           onRefresh={onPullRefresh}
-          refreshing={pullRefreshing || (isLoading && sortedTasks.length > 0)}
+          refreshing={pullRefreshing}
           onToggleComplete={handleToggleComplete}
           onReorder={sortBy === 'custom' ? handleReorder : undefined}
           showViewToggle={false}
