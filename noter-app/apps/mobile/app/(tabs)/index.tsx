@@ -9,7 +9,8 @@ import ProjectSelector from '@/components/ProjectSelector';
 import IconPickerModal from '@/components/IconPickerModal';
 import { SvgUri } from 'react-native-svg';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
-import { Note, isBlankNote, buildSecurityNoteMap, isReadableWithLocks, isHiddenSyncedNote } from '@repo/shared';
+import { Note, isBlankNote, buildSecurityNoteMap, isReadableWithLocks, isHiddenSyncedNote, noteSyncKind } from '@repo/shared';
+import { SyncBadge } from '@/components/SyncBadge';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { parseSettings } from '@/services/storage';
 import { getSocket } from '@/services/socket';
@@ -229,12 +230,14 @@ export default function NotesScreen() {
         </TouchableOpacity>
       ),
       headerLeft: () => (
-        <View style={{ marginLeft: 16 }}>
-             <HeaderProjectIcon 
-                uri={(activeProject as any)?.icon} 
+        <View style={{ marginLeft: 16, justifyContent: 'center' }}>
+             <HeaderProjectIcon
+                uri={(activeProject as any)?.icon}
                 onPress={() => setProjectSelectorVisible(true)}
                 onLongPress={() => activeProjectId && setIconPickerVisible(true)}
              />
+             {/* Same discreet sync badge as in the project-folder list, on the in-folder header. */}
+             <SyncBadge kind={activeProject ? noteSyncKind(activeProject as any) : null} />
         </View>
       ),
       headerRight: () => (

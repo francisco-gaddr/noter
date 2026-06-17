@@ -549,6 +549,13 @@ export default function NoteEditorScreen() {
             <FontAwesome5 name={icon.replace(/^Fa/, '').toLowerCase()} size={18} color={iconColor || theme.colors.onSurface} />
           </Pressable>
         )}
+        {/* Discreet sync indicator in the editor header for externally-synced notes. */}
+        {(() => {
+          const s: any = (existingNote as any)?.source;
+          const isNc = s && (s.origin === 'nextcloud' || s.origin === 'webdav');
+          if (!isNc) return null;
+          return <FontAwesome5 name="cloud" size={11} color="#1e88e5" solid style={{ marginLeft: 6 }} />;
+        })()}
         <TextInput
             ref={titleInputRef}
             style={{

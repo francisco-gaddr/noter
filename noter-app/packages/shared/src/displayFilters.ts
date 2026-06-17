@@ -74,6 +74,13 @@ export const syncedFileIsEditable = (source: any): boolean => {
   return classifyFile(String(source.remotePath || ''), source.mimeType) === 'text';
 };
 
+/** Server-sync kind from a note's provenance (for the discreet sync badge). MD-external sharing is
+ *  tracked client-side (cached shares), so it's added by the UI on top of this. */
+export const noteSyncKind = (note: { source?: any }): 'nextcloud' | 'webdav' | null => {
+  const o = (note as any)?.source?.origin;
+  return o === 'nextcloud' || o === 'webdav' ? o : null;
+};
+
 /**
  * True when a note is a Nextcloud-synced file that should be HIDDEN from the notes list — i.e.
  * a non-editable file (image/PDF/Word/Excel). It still lives in the store (so it's indexed,
