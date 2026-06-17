@@ -262,7 +262,8 @@ function AIScreenInner() {
   }, []);
   const [chatRefreshing, setChatRefreshing] = useState(false);
   // Newest-first copy for the INVERTED message list (item 0 renders at the visual bottom).
-  const invertedMessages = useMemo(() => messages.slice().reverse(), [messages]);
+  // Defensive: never let a non-array (corrupted state) throw inside render.
+  const invertedMessages = useMemo(() => (Array.isArray(messages) ? messages.slice().reverse() : []), [messages]);
   const [tokensPerSecond, setTokensPerSecond] = useState<number | null>(null);
   const [enableToolUse, setEnableToolUse] = useState(true);
   // Chat complexity: gates which tools + searches the chat may use (minimal → just
@@ -2233,8 +2234,10 @@ function AIScreenInner() {
       setSearchSizes({});
       try {
           console.log('Searching for:', searchQuery);
-          // Use the mobile-specific HF service to search
-          const results = await searchHuggingFaceModels(searchQuery);
+          // Use the mobile-specific HF service to search. Defensive: a malformed response must
+          // never throw on `.length`/`.forEach` and crash the screen — coerce to an array.
+          const raw = await searchHuggingFaceModels(searchQuery);
+          const results = Array.isArray(raw) ? raw : [];
           console.log('Search results:', results.length);
           if (results.length === 0) {
               alert('No models found matching your query.');

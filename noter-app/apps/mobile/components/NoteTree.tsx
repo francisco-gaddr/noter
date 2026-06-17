@@ -3,7 +3,6 @@ import { StyleSheet, View, TouchableOpacity, RefreshControl } from 'react-native
 import { Card, Chip, Text, IconButton, useTheme } from 'react-native-paper';
 import { Note, isHiddenSyncedNote, noteSyncKind } from '@repo/shared';
 import { SyncBadge } from './SyncBadge';
-import { getCachedMarkdownShares } from '@/services/markdownShare';
 import { useRouter } from 'expo-router';
 import { FlashList } from '@shopify/flash-list';
 import FontAwesome5 from '@expo/vector-icons/FontAwesome5';
@@ -51,15 +50,6 @@ export default function NoteTree({
   const router = useRouter();
   const theme = useTheme();
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-  // Folder ids shared via external Markdown (CRDT/WebDAV) — for the discreet sync badge.
-  const [mdFolderIds, setMdFolderIds] = useState<Set<string>>(new Set());
-  useEffect(() => {
-    let alive = true;
-    getCachedMarkdownShares()
-      .then((shares: any[]) => { if (alive) setMdFolderIds(new Set(shares.flatMap((s) => s.folderIds || []))); })
-      .catch(() => {});
-    return () => { alive = false; };
-  }, []);
   const lastOrderKeyRef = useRef<string>('');
   const draggedItemRef = useRef<TreeItem | null>(null);
   const visibleNotes = useMemo(() => notes.filter((n) => {
@@ -230,7 +220,7 @@ export default function NoteTree({
 
                   return <IconButton icon="file-document-outline" size={18} style={{ margin: 0 }} iconColor={theme.colors.onSurface} />;
                 })()}
-                <SyncBadge kind={noteSyncKind(item as any) || (mdFolderIds.has((item as any)._id) ? 'md' : null)} />
+                <SyncBadge kind={noteSyncKind(item as any)} />
               </View>
 
               <Text variant="titleMedium" numberOfLines={1} style={styles.cardTitle}>
@@ -257,7 +247,7 @@ export default function NoteTree({
         </Card>
       );
     },
-    [getPreviewContent, router, theme.colors.elevation.level3, theme.colors.onSurface, toggleExpand, toFa5, mdFolderIds]
+    [getPreviewContent, router, theme.colors.elevation.level3, theme.colors.onSurface, toggleExpand, toFa5]
   );
 
   const renderItem = useCallback(

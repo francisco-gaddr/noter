@@ -137,6 +137,33 @@ describe('Markdown WebDAV vault (shares)', () => {
     expect(res.status).toBe(403);
   });
 
+  it('a note NOT in the selected share is NOT reachable (only chosen notes are exposed)', async () => {
+    // The share only projects Work/Alpha.md + Loose.md. A path outside that projection 404s.
+    const res = await request(app).get(`/api/md/${username}/Secret/private.md`).auth(username, password);
+    expect(res.status).toBe(404);
+    // And it never appears in a recursive listing.
+    const propfind = await (request(app) as any).propfind(root).auth(username, password).set('Depth', 'infinity');
+    expect(propfind.text).not.toContain('private.md');
+  });
+
+  it("a different share's credential cannot read this share's files (isolation)", async () => {
+    const other = await mintShareWithDav({ name: 'Annan', files: [{ path: 'Z.md', noteId: 'z', title: 'Z', body: 'z', type: 'note', etag: '"9"' }] });
+    // other's creds against THIS share's username namespace → rejected.
+    const res = await request(app).get(`/api/md/${username}/Loose.md`).auth(other.username, other.password);
+    expect([401, 403]).toContain(res.status);
+  });
+
+  it('an INBOUND-disabled (read-only) share does not enqueue external edits', async () => {
+    await MarkdownShare.deleteMany({});
+    const ro = await mintShareWithDav({ name: 'Read-only', direction: { outbound: true, inbound: false } });
+    const put = await request(app).put(`/api/md/${ro.username}/Work/Alpha.md`).auth(ro.username, ro.password).type('text/markdown').send('---\nid: a\n---\nhacked');
+    // Either the PUT is refused or it is accepted but produces NO inbound mutation (read-only).
+    const drain = await request(app).get('/api/markdown/mutations').set(...AUTH);
+    const leaked = (drain.body.mutations || []).some((x: any) => x.shareId === ro.shareId);
+    expect(leaked).toBe(false);
+    expect([200, 204, 403, 405]).toContain(put.status);
+  });
+
   it('revoking the credential immediately denies access (401)', async () => {
     await request(app).delete(`/api/markdown/shares/${shareId}/dav`).set(...AUTH);
     const res = await (request(app) as any).propfind(root).auth(username, password).set('Depth', '0');

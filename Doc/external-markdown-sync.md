@@ -296,3 +296,49 @@ _See also: [`caldav-bridge.md`](./caldav-bridge.md) (the architectural twin),_
 _[`security/calendar-exposure.md`](./security/calendar-exposure.md) (egress control to_
 _extend), [`adr/0004-offline-sync-queue.md`](./adr/0004-offline-sync-queue.md) (self-heal_
 _patterns), [`adr/0008-external-markdown-sync.md`](./adr/0008-external-markdown-sync.md)._
+
+---
+
+## 11. Verification runbook + review gates (2026-06-17)
+
+External MD sync is **voluntary, per-share selectable, externally reachable ONLY for the
+chosen notes/folders, and 2-way + realtime**. Every claim below is enforced in code and
+locked by automated tests in the CI gate (`scripts/validate-critical.mjs`).
+
+### Automated coverage (runs in `npm run validate` → blocks push + Docker deploy)
+- **Backend `apps/backend/__tests__/markdav.test.ts` (20 tests)** — OPTIONS advertises WebDAV;
+  401 on no/wrong creds; PROPFIND depth 1/infinity lists only the share projection; GET renders
+  MD frontmatter+body; PUT/DELETE enqueue inbound mutations + ack clears; non-markdown + traversal
+  rejected (403); **a note NOT in the share is unreachable (404) and never listed**; **cross-share
+  isolation** (share B creds can't read share A); **inbound-disabled share enqueues no external
+  edits**; revoke denies immediately; `modes.webdav=false` denies; `direction` gates read/write;
+  **kill-switch `MARKDOWN_SYNC_ENABLED=0` darkens `/api/md` + blocks minting**; CRDT token mint
+  enables Live + returns a ws url.
+- **Shared `packages/shared/src/markdownVault.test.ts`** — note↔MD round-trip (frontmatter `id:`
+  join key, body, tags), so external renames don't fork the note.
+
+### Manual end-to-end checklist (Obsidian / any WebDAV or CRDT client)
+1. Settings → pick a note OR folder → "Dela externt (Markdown)". Confirm ONLY that scope appears
+   in the share's file list.
+2. Mint the WebDAV credential (shown once). In Obsidian (Remotely-Save / WebDAV) point at
+   `https://<host>/api/md/<username>/` with the minted creds.
+3. **Outbound:** edit the note in Noter → it appears/updates in Obsidian within one sync.
+4. **Inbound:** edit the `.md` in Obsidian → Noter's mutation drain applies it to the note (2-way).
+5. **Realtime (Live/CRDT):** enable Live mode, mint the CRDT token, connect a Yjs client to the
+   `wsUrl` → edits propagate live.
+6. **Scope proof:** a note OUTSIDE the share must 404 over WebDAV; another share's creds must be
+   rejected; revoke the credential → access denied immediately.
+7. **Lock safety:** a locked note/folder is NEVER projected into a share and the AI never writes
+   into a locked folder (see §6 + `notes-lock-security.test.ts`).
+
+### Review gates (a reviewer MUST verify before approving an external-sync change)
+- [ ] No code path lists/serves a note that isn't in the share's `files` projection (selected-only).
+- [ ] Auth: every `/api/markdown/*` route is `authMiddleware`; every `/api/md/*` WebDAV op checks the
+      per-share credential; CRDT rooms check the per-share token.
+- [ ] `direction.inbound=false` produces NO inbound mutation; `direction.outbound=false` blocks reads;
+      `modes.webdav=false` / `modes.crdt=false` darken that channel.
+- [ ] Kill-switch `MARKDOWN_SYNC_ENABLED=0` fully darkens the feature (route + minting).
+- [ ] Lock guard: locked notes/folders never enter a projection; AI tool writes skip locked parents.
+- [ ] Credentials/tokens are stored hashed; the plaintext is returned exactly once on mint.
+- [ ] New behaviour has a matching `markdav.test.ts` / `markdownVault.test.ts` case (the suite is in
+      `validate-critical.mjs` and must stay green).
