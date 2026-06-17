@@ -4,28 +4,28 @@ import { v4 as uuidv4 } from 'uuid';
 import { downloadGgufModel, getModelPath, stopModelDownload, modelFileExists, deleteModelFile } from './ModelDownloader';
 
 export const getBestQuantization = (files: HFFile[]): HFFile | undefined => {
-    // Priority list for mobile (balance size/performance)
-    // 1. Q4_K_M (Best balance)
-    // 2. Q5_K_M (Better quality, slightly larger)
-    // 3. Q4_0 (Legacy, fast)
-    // 4. Q5_0
-    // 5. Q8_0 (Large)
-    // Avoid f16/f32 unless nothing else exists (but likely too big)
+    // Guard: callers pass the result of an async file fetch that may have failed → undefined/null.
+    // A bad input must return undefined, never throw (it runs inside the search result loop).
+    const safe = (Array.isArray(files) ? files : []).filter((f) => f && typeof f === 'object');
+    if (safe.length === 0) return undefined;
+    const bySize = (a: HFFile, b: HFFile) => (Number(a?.size) || 0) - (Number(b?.size) || 0);
 
+    // Priority list for mobile (balance size/performance):
+    // Q4_K_M (best balance) → Q5_K_M → Q4_0 → Q5_0 → Q8_0. Avoid f16/f32 unless nothing else exists.
     const priorities = ['Q4_K_M', 'Q5_K_M', 'Q4_0', 'Q5_0', 'Q8_0'];
 
     for (const quant of priorities) {
-        const file = files.find(f => f.quantization === quant);
+        const file = safe.find(f => f.quantization === quant);
         if (file) return file;
     }
 
-    // Fallback: pick smallest non-f16/f32 if possible, or just smallest
-    const candidates = files.filter(f => !f.quantization?.match(/F16|F32/i));
+    // Fallback: smallest non-f16/f32 if possible, else just the smallest.
+    const candidates = safe.filter(f => !String(f.quantization || '').match(/F16|F32/i));
     if (candidates.length > 0) {
-        return candidates.sort((a, b) => a.size - b.size)[0];
+        return [...candidates].sort(bySize)[0];
     }
 
-    return files.sort((a, b) => a.size - b.size)[0];
+    return [...safe].sort(bySize)[0];
 };
 
 export type DownloadStage = 'queued' | 'downloading' | 'completed' | 'failed';

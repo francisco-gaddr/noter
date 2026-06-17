@@ -64,8 +64,13 @@ const QUANT_PREFERENCE = ['Q4_K_M', 'Q5_K_M', 'Q4_K_S', 'Q4_0', 'Q5_0', 'Q3_K_M'
  * unknown.
  */
 export const recommendFileForDevice = (files: HFFile[]): HFFile | undefined => {
-  const usable = (files || []).filter((f) => f && typeof f.size === 'number' && !/F16|F32/i.test(f.quantization || ''));
-  const pool = usable.length ? usable : (files || []);
+  // Only ever consider real objects with a FINITE positive size — `typeof NaN === 'number'`,
+  // so a NaN/garbage size would otherwise slip through and poison the sort comparators.
+  const valid = (Array.isArray(files) ? files : []).filter(
+    (f) => f && typeof f === 'object' && Number.isFinite(f.size) && (f.size as number) > 0,
+  );
+  const usable = valid.filter((f) => !/F16|F32/i.test(f.quantization || ''));
+  const pool = usable.length ? usable : valid;
   if (pool.length === 0) return undefined;
 
   const ram = getTotalMemoryBytes();

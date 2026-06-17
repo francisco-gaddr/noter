@@ -2562,13 +2562,20 @@ function AIScreenInner() {
           pushAiSync({ messages: [{ conversationId, message: userMsg }] }).catch(() => {});
       }
       if (!aiUseApiProviders) {
+          // Re-check inside the async flow: the synchronous guard above can be raced by a
+          // tab unmount/remount that resets activeModel — never pass null to the engine
+          // (it would try to load a model at path "null").
+          const localModel = typeof activeModel === 'string' ? activeModel.trim() : '';
+          if (!localModel) {
+              throw new Error(t('ai.selectModelFirst', 'Välj en lokal modell först (eller slå på en API-leverantör).'));
+          }
           // Surface model-load progress in the chat so the wait before the first token is
           // visible (loading a multi-GB GGUF is the bulk of the "long delay"). Skip the
           // progress UI entirely if the model is already resident.
-          if (!provider.isLoaded(activeModel as string)) {
+          if (!provider.isLoaded(localModel)) {
               setModelLoadProgress(0);
               try {
-                  await provider.loadModel(activeModel as string, (p) => setModelLoadProgress(Math.max(0, Math.min(1, p))));
+                  await provider.loadModel(localModel, (p) => setModelLoadProgress(Math.max(0, Math.min(1, p))));
               } finally {
                   setModelLoadProgress(null);
               }
@@ -3466,8 +3473,8 @@ function AIScreenInner() {
                     </Text>
                   )}
                   <View style={{ gap: 10 }}>
-                    {sortModels(searchResults, modelSort).map((item) => (
-                      <View key={item.id} style={{ borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.outline, paddingVertical: 8 }}>
+                    {sortModels(searchResults, modelSort).map((item, modelIdx) => { try { return (
+                      <View key={item.id ?? `model-${modelIdx}`} style={{ borderBottomWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.outline, paddingVertical: 8 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                           <Pressable style={{ flex: 1, minWidth: 0, marginRight: 8 }} onPress={() => setExpandedModelId((cur) => (cur === item.id ? null : item.id))}>
                             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -3563,7 +3570,7 @@ function AIScreenInner() {
                           </View>
                         )}
                       </View>
-                    ))}
+                    ); } catch (err) { if (__DEV__) console.warn('[ai] model row render failed', err); return null; } })}
                   </View>
                 </ScrollView>
               </View>
@@ -3593,7 +3600,11 @@ function AIScreenInner() {
               <FlatList
                 ref={messagesListRef}
                 data={invertedMessages}
-                inverted={messages.length > 0}
+                // IMPORTANT: keep `inverted` CONSTANT. Toggling it at runtime (it used to be
+                // `messages.length > 0`) blanks the list on a live FlatList — that was the
+                // "tom tråd när man väljer en chatt" bug: selecting a thread loaded messages,
+                // flipped inverted false→true, and RN failed to render the rows.
+                inverted
                 refreshControl={
                   currentConversationId ? (
                     <RefreshControl refreshing={chatRefreshing} onRefresh={reloadCurrentChat} tintColor={theme.colors.primary} colors={[theme.colors.primary]} />
@@ -3607,7 +3618,9 @@ function AIScreenInner() {
                 // self-healed from the server) shows a clear hint instead of a blank screen.
                 ListEmptyComponent={
                   currentConversationId ? (
-                    <View style={{ alignItems: 'center', paddingHorizontal: 32 }}>
+                    // Counter-flip: the list is permanently inverted, so its empty component
+                    // renders upside-down unless we mirror it back.
+                    <View style={{ alignItems: 'center', paddingHorizontal: 32, transform: [{ scaleY: -1 }] }}>
                       <FontAwesome5 name="comments" size={28} color={theme.colors.onSurfaceVariant} />
                       <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: 13, marginTop: 10, textAlign: 'center' }}>
                         {loading ? t('ai.loadingThread', 'Laddar konversationen…') : t('ai.emptyThread', 'Inga meddelanden ännu. Skriv nedan för att fortsätta.')}
@@ -3619,6 +3632,7 @@ function AIScreenInner() {
                 // (content grows) and streaming appends — both fire this.
                 onContentSizeChange={() => scrollChatToEnd(false)}
                 renderItem={({ item, index }) => {
+                 try {
                   // Defensive: content can be undefined/null on a corrupted or partially-
                   // synced row. Coerce to a string so no string method below ever throws
                   // (a single bad row must never crash the whole message list).
@@ -3776,6 +3790,18 @@ function AIScreenInner() {
                       </View>
                     </View>
                   );
+                 } catch (err) {
+                   // A single malformed row must never crash the whole list (it would blank
+                   // the thread via the ErrorBoundary). Render a quiet placeholder instead.
+                   if (__DEV__) console.warn('[ai] renderItem failed for a message row', err);
+                   return (
+                     <View style={{ paddingHorizontal: 16, paddingVertical: 6, transform: [{ scaleY: -1 }] }}>
+                       <Text style={{ color: theme.colors.onSurfaceVariant, fontSize: 12, fontStyle: 'italic' }}>
+                         {t('ai.messageUnavailable', '[meddelandet kunde inte visas]')}
+                       </Text>
+                     </View>
+                   );
+                 }
                 }}
               />
               {/* #1: the AI-working animation now renders inside the last assistant

@@ -15,6 +15,7 @@
 import { initLlama, releaseAllLlama, type LlamaContext } from 'llama.rn';
 import * as FileSystem from 'expo-file-system/legacy';
 import type { ChatMessage } from '@repo/ai';
+import { getTotalMemoryBytes } from './hardware';
 
 let context: LlamaContext | null = null;
 let loadedPath: string | null = null;
@@ -76,6 +77,19 @@ export const loadLlamaModel = async (
   await unloadLlamaModel();
   const uri = toFileUri(modelPath);
   const gb = (await modelSizeBytes(uri)) / 1e9;
+
+  // PRE-FLIGHT RAM GUARD: a GGUF needs roughly its file size resident plus KV-cache +
+  // engine overhead. If it clearly won't fit, the NATIVE allocation in initLlama aborts
+  // the whole process (SIGABRT/OOM) — a hard crash JS can't catch. Refuse it here with a
+  // clear, recoverable error instead. Only enforced when the device exposes total RAM
+  // (Android); iOS returns null → we skip and rely on the load timeout/CPU fallback below.
+  const ramBytes = getTotalMemoryBytes();
+  if (ramBytes && gb > 0 && gb * 1e9 > ramBytes * 0.7) {
+    throw new Error(
+      `Modellen (~${gb.toFixed(1)} GB) är för stor för enhetens minne (~${(ramBytes / 1e9).toFixed(1)} GB). ` +
+      `Välj en mindre modell (1–3B, t.ex. Q4_K_M).`,
+    );
+  }
 
   // CRITICAL for big models: use_mlock pins the ENTIRE model in physical RAM. On a phone
   // an 8B (~5 GB) can't be locked, so initLlama stalls/thrashes forever — that's the
@@ -140,10 +154,15 @@ export interface LlamaCompletionOptions {
 export const completeLlama = async (messages: ChatMessage[], opts: LlamaCompletionOptions = {}): Promise<string> => {
   if (!context) throw new Error('Ingen lokal modell är laddad');
   const ctx = context;
-  const oaiMessages = (messages || []).map((m) => ({
-    role: m.role === 'tool' ? 'assistant' : m.role,
-    content: m.content || '',
-  }));
+  if (typeof ctx.completion !== 'function') {
+    throw new Error('Den lokala modellen är inte korrekt laddad. Ladda om modellen eller starta om appen.');
+  }
+  const oaiMessages = (messages || [])
+    .filter((m) => m && typeof m === 'object')
+    .map((m) => ({
+      role: m.role === 'tool' ? 'assistant' : m.role,
+      content: typeof m.content === 'string' ? m.content : '',
+    }));
   // Inactivity watchdog: if the native engine emits no token (and doesn't finish) for
   // COMPLETION_INACTIVITY_MS, stop it and reject — otherwise a stalled completion would
   // leave the chat "thinking" forever. The timer resets on every token, so a slow but

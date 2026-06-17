@@ -19,7 +19,11 @@ export type HFModelSort = 'downloads' | 'likes' | 'recent';
  * set without a new network round-trip. Missing values sort last.
  */
 export const sortModels = (models: HFModel[], sort: HFModelSort): HFModel[] => {
-  const arr = [...(models || [])];
+  // Drop non-objects / id-less entries so a malformed API row can't throw inside the
+  // comparator (`b.likes` on null) and crash the whole model browser.
+  const arr = (Array.isArray(models) ? models : []).filter(
+    (m) => m && typeof m === 'object' && (m as any).id != null,
+  );
   const time = (s?: string) => {
     const t = s ? new Date(s).getTime() : NaN;
     return Number.isFinite(t) ? t : -Infinity;
