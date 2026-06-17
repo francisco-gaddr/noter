@@ -50,9 +50,14 @@ describe('encryptV3 / decryptV3 (AES-256-GCM)', () => {
 
   it('rejects tampered ciphertext (auth tag)', () => {
     const env = encryptV3('secret', key);
-    // flip a character in the base64 body
+    // Flip a real byte in the decoded payload (deterministic — a single base64-char swap can
+    // land on discarded alignment bits and decode to the same bytes, which used to flake here).
     const body = env.slice(3);
-    const tampered = 'v3:' + (body[5] === 'A' ? 'B' : 'A') + body.slice(1);
+    const buf = Buffer.from(body, 'base64');
+    const i = Math.floor(buf.length / 2);
+    buf[i] = buf[i] ^ 0xff;
+    const tampered = 'v3:' + buf.toString('base64');
+    expect(tampered).not.toBe(env);
     expect(() => decryptV3(tampered, key)).toThrow();
   });
 });
