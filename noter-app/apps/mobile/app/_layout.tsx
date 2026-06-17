@@ -42,10 +42,18 @@ export default function RootLayout() {
     ...FontAwesome.font,
   });
   const [bootReady, setBootReady] = useState(false);
-
-  // Expo Router uses Error Boundaries to catch errors in the navigation tree.
+  // Failsafe: if font loading ever stalls (flaky asset server / Expo Go quirk), proceed anyway
+  // after a few seconds so the app NEVER hangs forever on the blank splash. Icons degrade
+  // gracefully (system fallback) — far better than a stuck launch.
+  const [fontsTimedOut, setFontsTimedOut] = useState(false);
   useEffect(() => {
-    if (error) throw error;
+    const t = setTimeout(() => setFontsTimedOut(true), 6000);
+    return () => clearTimeout(t);
+  }, []);
+
+  // A font LOAD ERROR should not hard-crash the launch — log it and continue (system fonts).
+  useEffect(() => {
+    if (error) console.warn('[fonts] load error (continuing with system fonts):', error);
   }, [error]);
 
   // Critical-path bootstraps that MUST be done before we reveal UI. Keep this
@@ -84,12 +92,14 @@ export default function RootLayout() {
   // Splash hides only once BOTH fonts AND critical bootstraps are ready.
   // The 4s timeout above guarantees we never stay on splash forever.
   useEffect(() => {
-    if (loaded && bootReady) {
+    if ((loaded || fontsTimedOut) && bootReady) {
       SplashScreen.hideAsync().catch(() => undefined);
     }
-  }, [loaded, bootReady]);
+  }, [loaded, fontsTimedOut, bootReady]);
 
-  if (!loaded || !bootReady) {
+  // Reveal the UI once bootstrap is done AND fonts are ready OR have timed out — never block
+  // indefinitely on font loading.
+  if ((!loaded && !fontsTimedOut) || !bootReady) {
     return null;
   }
 
