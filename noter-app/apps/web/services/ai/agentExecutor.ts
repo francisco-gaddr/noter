@@ -25,6 +25,7 @@ import { API_PROVIDERS, generateApiProviderResponse, type ApiProviderType } from
 import { useStore } from '../../stores/useStore';
 import { patchDelegation, setRunLogEntry } from './agentDelegations';
 import { recordToolUse } from './usageTracker';
+import { resolveAiNoteParentId, resolveAiTaskParentId } from './placement';
 
 const ls = (key: string): string | null => {
   try { return typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null; } catch { return null; }
@@ -90,7 +91,11 @@ const buildToolExecutor = () => async (tool: string, args: Record<string, any>):
     case 'create_project':
     case 'create_tasklist': {
       const type = tool === 'create_project' ? 'project' : tool === 'create_tasklist' ? 'task_list' : 'note';
-      await store.createNote(args.title || 'Untitled', args.parentId || null, type as any);
+      // Smart placement for plain notes: best-matching folder, else a default AI folder.
+      const parentId = (tool === 'create_note' && type === 'note')
+        ? await resolveAiNoteParentId(args)
+        : (args.parentId || null);
+      await store.createNote(args.title || 'Untitled', parentId, type as any);
       return { ok: true };
     }
     case 'update_note':
@@ -101,7 +106,8 @@ const buildToolExecutor = () => async (tool: string, args: Record<string, any>):
       return { ok: true };
     }
     case 'create_task': {
-      await store.createTask(args.title || 'Uppgift', args.parentNoteId || undefined, args.dueDate || null, {
+      const parentNoteId = args.parentNoteId || (await resolveAiTaskParentId(args)) || undefined;
+      await store.createTask(args.title || 'Uppgift', parentNoteId, args.dueDate || null, {
         description: args.description || '', priority: args.priority || 'medium', reminderEnabled: !!args.reminderEnabled,
       });
       return { ok: true };

@@ -23,6 +23,7 @@ import { pullAiSync, pushAiSync } from '../services/ai/sync';
 import { startAgentScheduler } from '../services/ai/agentScheduler';
 import { connectSocket, socket } from '../services/socket';
 import { buildSecurityNoteMap, isReadableWithLocks } from '../services/ai/security';
+import { resolveAiNoteParentId, resolveAiTaskParentId } from '../services/ai/placement';
 
 type LocalConversation = Conversation & { localOnly?: boolean; userId?: string };
 type LocalAIProject = AIProject & { localOnly?: boolean; userId?: string };
@@ -2854,8 +2855,9 @@ export const AISidebar = () => {
         return { note: toNotePayload(note) };
       }
       case 'create_note': {
-        const state = useStore.getState();
-        const input = (!args.parentId && state.activeProjectId) ? { ...args, parentId: state.activeProjectId } : args;
+        // Smart placement: explicit parentId → current folder → best-matching project → default AI folder.
+        const resolvedParent = await resolveAiNoteParentId(args);
+        const input = resolvedParent ? { ...args, parentId: resolvedParent } : args;
         const query = `mutation($input:NoteInput!){createNote(input:$input){_id title content tags parentId locked icon iconColor order type createdAt updatedAt}}`;
         const data = await graphQLRequest(query, { input: e2eNoteInput(input) });
         applyNoteMutationLocally((data as any)?.createNote);
@@ -2974,7 +2976,9 @@ export const AISidebar = () => {
         const state = useStore.getState();
         // Pull the agent-only fields out of the tool args so they don't leak into TaskInput.
         const { delegateToAi, aiInstructions, ...taskArgs } = args as Record<string, any>;
-        const input = (!taskArgs.parentNoteId && state.selectedTaskListId) ? { ...taskArgs, parentNoteId: state.selectedTaskListId } : taskArgs;
+        // Smart placement: explicit parentNoteId → current list → best-matching list → default AI list.
+        const resolvedList = taskArgs.parentNoteId || state.selectedTaskListId || (await resolveAiTaskParentId(taskArgs));
+        const input = resolvedList ? { ...taskArgs, parentNoteId: resolvedList } : taskArgs;
         if (input.parentNoteId) {
           const { ensureReadableNote } = getAISecurityContext();
           ensureReadableNote(String(input.parentNoteId));
