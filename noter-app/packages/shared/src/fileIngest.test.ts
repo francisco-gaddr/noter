@@ -84,6 +84,19 @@ describe('fileIngest.planIngest scoped (single-folder pull)', () => {
   });
 });
 
+describe('parseNoteSource idempotency (re-materialize must not wipe a synced note)', () => {
+  it('handles an ALREADY-PARSED source object, not just a ciphertext string', () => {
+    const obj = { origin: 'nextcloud', connectionId: 'c', remotePath: 'synked/a.md', remoteEtag: 'e' };
+    // First materialize: source arrives as a (JSON) string.
+    expect(parseNoteSource(JSON.stringify(obj))?.origin).toBe('nextcloud');
+    // Re-materialize: the note is already materialized, so source is an OBJECT. It MUST survive —
+    // the bug was the client calling parseNoteSource(safeDecrypt(object)) which returned null and
+    // dropped the note's sync on every save/socket event.
+    expect(parseNoteSource(obj as any)?.origin).toBe('nextcloud');
+    expect(parseNoteSource(obj as any)?.remotePath).toBe('synked/a.md');
+  });
+});
+
 describe('fileIngest helpers', () => {
   it('parses a source that may be a JSON string or object, rejecting junk', () => {
     const obj = { origin: 'nextcloud', connectionId: 'c', remotePath: 'p', remoteEtag: 'e' };

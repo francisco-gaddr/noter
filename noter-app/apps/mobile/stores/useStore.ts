@@ -231,8 +231,14 @@ const materializeOneNote = (note: any, noteMap: any, unlockedIds: Set<string>): 
           }
         })(),
     icon: note.__rawEncryptedIcon ? tryDecryptString(note.__rawEncryptedIcon) : undefined,
-    links: parseEntityLinks(note.links ? safeDecrypt(note.links, '') : ''),
-    source: note.source ? parseNoteSource(safeDecrypt(note.source, '')) : null,
+    // IDEMPOTENT: materialize is re-run over the WHOLE notes array on every update/socket event,
+    // so an already-materialized note's `links`/`source` arrive as a decrypted array/object, NOT a
+    // ciphertext string. Trying to decrypt those again wiped them — the cause of a synced note
+    // "losing its sync" the moment any note was saved. Pass through already-parsed values.
+    links: Array.isArray(note.links) ? note.links : parseEntityLinks(note.links ? safeDecrypt(note.links, '') : ''),
+    source: note.source
+      ? parseNoteSource(typeof note.source === 'string' ? safeDecrypt(note.source, '') : note.source)
+      : null,
     locked: parseNoteLocked(note.locked),
   };
 };
@@ -1145,13 +1151,18 @@ export const useStore = create<AppState>((set, get) => ({
       })();
     };
 
-    // 1) Offline-first: paint local tasks immediately (spinner only when empty).
+    // 1) Offline-first: paint the FULL local set immediately (the UI filters by the selected
+    // list). NEVER filter to one list here — that would unload every other already-shown list.
+    // Spinner flips only on a genuinely empty cold start.
     try {
       const localTasks = await Database.getTasksLocal();
-      const filtered = parentNoteId ? localTasks.filter(t => t.parentNoteId === parentNoteId) : localTasks;
-      const mapped = filtered.map(processLocalTask);
-      set({ tasks: mapped, isLoading: mapped.length === 0, error: null });
-      scheduleReminders(mapped);
+      const mapped = localTasks.map(processLocalTask);
+      // On a scoped refresh with tasks already in memory, don't clobber optimistic state with a
+      // possibly-staler local snapshot — only paint local when we have nothing yet.
+      if (!(parentNoteId && get().tasks.length > 0)) {
+        set({ tasks: mapped, isLoading: mapped.length === 0, error: null });
+        scheduleReminders(mapped);
+      }
     } catch {
       /* fall through to the network refresh */
     }
@@ -1168,12 +1179,26 @@ export const useStore = create<AppState>((set, get) => ({
       // Chunked decrypt so a large sync doesn't freeze the UI thread.
       const decryptedTasks = await mapInChunks(Array.isArray(tasks) ? tasks : [], processApiTask);
 
-      // Keep local-only (unsynced) tasks, deduped by clientId against the server set.
       const serverClientIds = new Set(decryptedTasks.map((t: any) => t.clientId).filter(Boolean));
-      const localOnlyTasks = get().tasks.filter(
-        (t) => t._id.startsWith('local_task_') && !serverClientIds.has(t.clientId),
-      );
-      const mergedTasks = [...decryptedTasks, ...localOnlyTasks];
+      const existing = get().tasks;
+      let mergedTasks: Task[];
+      if (parentNoteId) {
+        // SCOPED refresh: replace ONLY this list's server tasks; keep every OTHER list exactly as
+        // it was loaded (no unload). Keep this list's still-unsynced local-only tasks.
+        const pid = String(parentNoteId);
+        const preserved = existing.filter((t) => {
+          const inThisList = String((t as any).parentNoteId ?? '') === pid;
+          if (!inThisList) return true; // other lists stay loaded
+          return t._id.startsWith('local_task_') && !serverClientIds.has((t as any).clientId);
+        });
+        mergedTasks = [...preserved, ...decryptedTasks];
+      } else {
+        // Full refresh: server set + any still-unsynced local-only tasks.
+        const localOnlyTasks = existing.filter(
+          (t) => t._id.startsWith('local_task_') && !serverClientIds.has((t as any).clientId),
+        );
+        mergedTasks = [...decryptedTasks, ...localOnlyTasks];
+      }
 
       set({ tasks: mergedTasks, isLoading: false });
       void Database.saveTasksLocalBulk(decryptedTasks).catch(() => {});

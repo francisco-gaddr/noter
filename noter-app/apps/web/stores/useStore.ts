@@ -327,8 +327,13 @@ const materializeNotesFromEncrypted = (notes: Note[], unlockedIds: Set<string>):
         : [],
       icon: note.__rawEncryptedIcon ? (() => { try { return decrypt(note.__rawEncryptedIcon) } catch { return note.__rawEncryptedIcon } })() : undefined,
       iconColor: note.__rawEncryptedIconColor ? (() => { try { return decrypt(note.__rawEncryptedIconColor) } catch { return note.__rawEncryptedIconColor } })() : undefined,
-      links: parseEntityLinks(note.links ? safeDecrypt(note.links, '') : ''),
-      source: (note as any).source ? parseNoteSource(safeDecrypt((note as any).source, '')) : null,
+      // IDEMPOTENT (see mobile): materialize is re-run over the whole notes array on update/socket
+      // events, where an already-materialized note's links/source are a parsed array/object — never
+      // try to decrypt those again (it wiped the source = "synced note loses its sync on save").
+      links: Array.isArray(note.links) ? note.links : parseEntityLinks(note.links ? safeDecrypt(note.links, '') : ''),
+      source: (note as any).source
+        ? parseNoteSource(typeof (note as any).source === 'string' ? safeDecrypt((note as any).source, '') : (note as any).source)
+        : null,
       locked: parseNoteLocked(note.locked),
     };
   });
