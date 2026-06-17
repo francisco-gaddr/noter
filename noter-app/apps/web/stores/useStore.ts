@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Note, Task, UpdateTaskDto, User, decrypt, encrypt, safeDecrypt, normalizeNoteType, parseEntityLinks, parseNoteSource } from '@repo/shared';
+import { Note, Task, UpdateTaskDto, User, decrypt, encrypt, safeDecrypt, normalizeNoteType, parseEntityLinks, parseNoteSource, relockFoldersOnLeave } from '@repo/shared';
 import { api, getApiBaseUrl, getUUID, setApiBaseUrl, setApiToken } from '../services/api';
 import { socket, connectSocket, disconnectSocket, setSocketToken } from '../services/socket';
 import { db } from '../services/db';
@@ -413,7 +413,18 @@ export const useStore = create<StoreState>((set, get) => ({
   token: null,
   activeProjectId: null,
   setActiveProject: (id) => {
-    set({ activeProjectId: id });
+    // AUTO RE-LOCK ON LEAVE: any locked project folder the user navigates AWAY from is
+    // removed from the unlocked set, so its notes immediately re-mask and a password is
+    // required to enter it again. Only the folder you're entering (+ its ancestors) stays
+    // unlocked. Re-materialize so the masking takes effect at once.
+    const state = get();
+    const nextUnlocked = relockFoldersOnLeave(state.notes as any, state.unlockedProtectedNoteIds || [], id);
+    if (nextUnlocked.length !== (state.unlockedProtectedNoteIds || []).length) {
+      const reMasked = materializeNotesFromEncrypted(state.notes as any, new Set(nextUnlocked));
+      set({ activeProjectId: id, unlockedProtectedNoteIds: nextUnlocked, notes: reMasked });
+    } else {
+      set({ activeProjectId: id });
+    }
     localStorage.setItem('activeProjectId', id || '');
   },
   language: 'sv',

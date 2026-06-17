@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import 'react-native-get-random-values';
 import * as Crypto from 'expo-crypto';
-import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, safeDecrypt, parseEntityLinks, serializeEntityLinks, parseNoteSource } from '@repo/shared';
+import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, safeDecrypt, parseEntityLinks, serializeEntityLinks, parseNoteSource, relockFoldersOnLeave } from '@repo/shared';
 import { fetchWithAuth, login as apiLogin, register as apiRegister, setAuthToken, initApiUrl, setUnauthorizedHandler } from '../services/api';
 import * as Database from '../services/database';
 import { initSocket, disconnectSocket, getSocket } from '../services/socket';
@@ -442,7 +442,18 @@ export const useStore = create<AppState>((set, get) => ({
   unlockedProtectedNoteIds: [],
 
   setActiveProject: (id) => {
-    set({ activeProjectId: id });
+    // AUTO RE-LOCK ON LEAVE: any locked project folder the user navigates AWAY from is
+    // removed from the unlocked set, so its notes immediately re-mask and a password is
+    // required to enter it again. Only the folder you're entering (+ its ancestors) stays
+    // unlocked. Re-materialize so the masking takes effect at once.
+    const state = get();
+    const nextUnlocked = relockFoldersOnLeave(state.notes as any, state.unlockedProtectedNoteIds || [], id);
+    if (nextUnlocked.length !== (state.unlockedProtectedNoteIds || []).length) {
+      const reMasked = materializeNotesFromEncrypted(state.notes as any, new Set(nextUnlocked));
+      set({ activeProjectId: id, unlockedProtectedNoteIds: nextUnlocked, notes: reMasked });
+    } else {
+      set({ activeProjectId: id });
+    }
     AsyncStorage.setItem('activeProjectId', id || '').catch(() => {});
   },
   setToken: (token) => {

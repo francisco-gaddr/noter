@@ -134,6 +134,49 @@ describe('ownership isolation (IDOR guards) + CRUD round-trip', () => {
     expect(await Task.findById(id)).toBeNull();
   });
 
+  it('deleting a task_list cascade-removes its child tasks (type is encrypted at rest)', async () => {
+    // The list note's type is E2E-encrypted, so the backend can't read `task_list`
+    // off it — the cascade must key on the plaintext parentNoteId instead.
+    const list = await request(app)
+      .post('/api/notes')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({ ...notePayload('my list'), type: enc('task_list') });
+    expect(list.status).toBe(201);
+    const listId = list.body._id;
+
+    const child = await request(app)
+      .post('/api/tasks')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({ ...taskPayload('child'), parentNoteId: listId });
+    expect(child.status).toBe(201);
+    const childId = child.body._id;
+    expect(await Task.findById(childId)).toBeTruthy();
+
+    const removed = await request(app).delete(`/api/notes/${listId}`).set('Authorization', `Bearer ${tokenA}`);
+    expect(removed.status).toBe(200);
+
+    // The child task must not be orphaned in the DB.
+    expect(await Task.findById(childId)).toBeNull();
+    expect(await Task.find({ parentNoteId: listId })).toHaveLength(0);
+  });
+
+  it('deleting a plain note leaves unrelated tasks untouched (cascade is a safe no-op)', async () => {
+    const note = await request(app)
+      .post('/api/notes')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send(notePayload('plain'));
+    const noteId = note.body._id;
+
+    const standalone = await request(app)
+      .post('/api/tasks')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send(taskPayload('standalone'));
+    const standaloneId = standalone.body._id;
+
+    expect((await request(app).delete(`/api/notes/${noteId}`).set('Authorization', `Bearer ${tokenA}`)).status).toBe(200);
+    expect(await Task.findById(standaloneId)).toBeTruthy();
+  });
+
   it("denies a different user updating or deleting another user's task", async () => {
     const created = await request(app)
       .post('/api/tasks')

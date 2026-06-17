@@ -397,10 +397,14 @@ router.delete('/:id', async (req: Request, res: Response, next: NextFunction) =>
     const note = await Note.findOne({ _id: req.params.id, userId });
 
     if (note) {
-      let deletedTaskIds: string[] = [];
-      if (note.type === 'task_list') {
-        const tasks = await Task.find({ userId, parentNoteId: note._id }).select('_id');
-        deletedTaskIds = tasks.map(t => t._id.toString());
+      // Cascade-delete any child tasks. `note.type` is stored ENCRYPTED at rest
+      // (the backend is zero-knowledge and can't decrypt E2E content), so we can't
+      // branch on a plaintext `=== 'task_list'` comparison. Instead we always attempt
+      // the cascade keyed on the non-encrypted `parentNoteId` signal: a plain note has
+      // no child tasks, so this is a safe no-op for everything except task lists.
+      const tasks = await Task.find({ userId, parentNoteId: note._id }).select('_id');
+      const deletedTaskIds: string[] = tasks.map(t => t._id.toString());
+      if (deletedTaskIds.length > 0) {
         await Task.deleteMany({ userId, parentNoteId: note._id });
       }
 

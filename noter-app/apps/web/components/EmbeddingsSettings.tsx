@@ -65,7 +65,9 @@ export const EmbeddingsSettings: React.FC = () => {
     setResult(null);
     setProgress({ done: 0, toDo: 0 });
     try {
-      const res = await indexEntities(notes as any, tasks as any, new Set(unlockedIds), (done, toDo) => setProgress({ done, toDo }));
+      // SECURITY: the search index NEVER contains locked-folder notes — empty unlock set,
+      // even if the user currently has a folder open. (buildIndexableEntities is lock-aware.)
+      const res = await indexEntities(notes as any, tasks as any, new Set<string>(), (done, toDo) => setProgress({ done, toDo }));
       setResult(res);
       setInfo(getIndexInfo());
     } finally {

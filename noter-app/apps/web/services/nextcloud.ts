@@ -375,7 +375,8 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
   try { await store.fetchNotes?.(); } catch { /* */ }
   try {
     const s2: any = useStore.getState();
-    await indexEntities(s2.notes || [], s2.tasks || [], new Set(s2.unlockedProtectedNoteIds || []));
+    // SECURITY: the search index NEVER contains locked-folder notes — empty unlock set.
+    await indexEntities(s2.notes || [], s2.tasks || [], new Set<string>());
   } catch { /* best-effort */ }
 
   saveConnection({ ...conn, lastSyncAt: new Date().toISOString() });

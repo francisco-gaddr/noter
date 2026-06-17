@@ -23,7 +23,7 @@ import { recordUsage, getUsageSnapshot, recordToolUse, getToolUsageRows, type Us
 import { toolUsageLabel, type ToolUsageRow } from '@repo/shared';
 import { pullAiSync, pushAiSync } from '@/services/ai/sync';
 import { initSocket, getSocket } from '@/services/socket';
-import { buildSecurityNoteMap, isReadableWithLocks } from '@/services/ai/security';
+import { buildSecurityNoteMap, isReadableWithLocks, AI_INDEX_NO_UNLOCK } from '@/services/ai/security';
 import { modelManager } from '@/services/ai/ModelManager';
 import { isAiBackgroundWorkEnabled, setAiBackgroundWorkEnabled } from '@/services/ai/runtimeSettings';
 import { acquireKeepAwake } from '@/services/ai/keepAwake';
@@ -1428,7 +1428,9 @@ function AIScreenInner() {
       const state = useStore.getState() as any;
       const notes = Array.isArray(state.notes) ? state.notes : [];
       const tasks = Array.isArray(state.tasks) ? state.tasks : [];
-      const unlockedIds = new Set<string>(Array.isArray(state.unlockedProtectedNoteIds) ? state.unlockedProtectedNoteIds : []);
+      // HARD INVARIANT: the AI NEVER gets the UI unlock session. Even a folder the user has
+      // open right now is invisible to the chat/agent tools — locked = empty unlock set.
+      const unlockedIds = AI_INDEX_NO_UNLOCK as Set<string>;
       const noteMap = buildSecurityNoteMap(notes as any);
       const ensureReadableNote = (id: string) => {
           const note = noteMap.get(String(id));
@@ -2593,7 +2595,8 @@ function AIScreenInner() {
             input,
             (st.notes || []) as any,
             (st.tasks || []) as any,
-            new Set<string>(Array.isArray(st.unlockedProtectedNoteIds) ? st.unlockedProtectedNoteIds : []),
+            // Index/RAG NEVER gets the UI unlock — locked-folder notes are never embedded or recalled.
+            AI_INDEX_NO_UNLOCK as Set<string>,
             { enableSemantic: true, enableGraphRAG: retrievalSettings.enableGraphRAG, enableRerank: retrievalSettings.enableRerank, limit: 6, contextLevel: chatContextLevel, sourceMinLevels: await getSourceMinLevels() },
           );
           if (block) history = [{ id: uuidv4(), role: 'system', content: block, createdAt: new Date().toISOString() } as any, ...history];

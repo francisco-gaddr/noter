@@ -15,6 +15,7 @@ import {
   isReadableWithLocks,
   normalizeNoteType,
   pickBestContainer,
+  AI_INDEX_NO_UNLOCK,
   AI_DEFAULT_NOTE_FOLDER_TITLE,
   AI_DEFAULT_TASKLIST_TITLE,
   type Note,
@@ -23,7 +24,8 @@ import {
 const readableContainers = (type: 'project' | 'task_list'): { id: string; title: string }[] => {
   const store: any = useStore.getState();
   const all: Note[] = Array.isArray(store.notes) ? store.notes : [];
-  const unlocked = new Set<string>(store.unlockedProtectedNoteIds || []);
+  // The AI never targets a locked folder/list — empty unlock set, even if the user has one open.
+  const unlocked = AI_INDEX_NO_UNLOCK as Set<string>;
   const map = buildSecurityNoteMap(all as any);
   return all
     .filter(

@@ -112,6 +112,60 @@ export const filterReadableNotes = <T extends SecurityNote>(
   return notes.filter((n) => isReadableWithLocks(n, noteMap, unlockedIds));
 };
 
+/**
+ * The unlock set the AI and the search/RAG index MUST use: ALWAYS EMPTY.
+ *
+ * A folder's UI unlock (the user entered the password to VIEW it this moment) is a
+ * view-only grant — it is NEVER extended to automated readers. The interactive chat, the
+ * delegated/scheduled agent, the placement resolver, the agent-memory layer AND the
+ * embeddings/graph index all treat ANY lock-signalled note/folder as locked, regardless of
+ * what the user currently has open. This is the hard "nothing ever leaks out of a locked
+ * folder" invariant. NEVER pass the UI's `unlockedProtectedNoteIds` to an AI/index call site
+ * — pass this instead (or omit the arg, which defaults to empty).
+ */
+export const AI_INDEX_NO_UNLOCK: ReadonlySet<string> = Object.freeze(new Set<string>());
+
+/** filterReadableNotes for AI/index — hard-wired to the empty unlock set (locked = invisible). */
+export const filterReadableForAI = <T extends SecurityNote>(notes: T[]): T[] =>
+  filterReadableNotes(notes, AI_INDEX_NO_UNLOCK as Set<string>);
+
+/** isReadableWithLocks for AI/index — hard-wired to the empty unlock set. */
+export const isReadableForAI = <T extends SecurityNote>(
+  note: T | undefined,
+  noteMap: Map<string, T>,
+): boolean => isReadableWithLocks(note, noteMap, AI_INDEX_NO_UNLOCK as Set<string>);
+
+/**
+ * Re-lock folders on leave. Given the full notes, the set the user currently has unlocked,
+ * and the folder they are NAVIGATING TO (`activeProjectId`, or null for the all-notes view),
+ * returns the new unlocked set that keeps unlocked ONLY the project folders on the path to
+ * the active folder (ancestor-or-self). Every folder the user navigated AWAY from is removed
+ * → it re-locks and its notes re-mask immediately. Non-folder unlocked notes are left as-is
+ * (an individually-opened locked note re-masks anyway once its containing folder re-locks).
+ */
+export const relockFoldersOnLeave = <T extends SecurityNote>(
+  notes: T[],
+  unlockedIds: readonly string[],
+  activeProjectId: string | null | undefined,
+): string[] => {
+  const map = buildSecurityNoteMap(notes);
+  // The folders that may STAY unlocked: the active folder and all its ancestors.
+  const keep = new Set<string>();
+  let cur: T | undefined = activeProjectId ? map.get(String(activeProjectId)) : undefined;
+  const seen = new Set<string>();
+  while (cur && !seen.has(cur._id)) {
+    seen.add(cur._id);
+    keep.add(cur._id);
+    cur = cur.parentId ? map.get(String(cur.parentId)) : undefined;
+  }
+  return (Array.isArray(unlockedIds) ? unlockedIds : []).filter((id) => {
+    const note = map.get(String(id));
+    const isFolder = note ? note.type === 'project' : false;
+    // Keep non-folders untouched; keep folders only if on the active path.
+    return !isFolder || keep.has(String(id));
+  });
+};
+
 /** Short, firm instruction injected into every agent system prompt. */
 export const AGENT_LOCK_POLICY =
   'SÄKERHET: Du får ALDRIG läsa, avkryptera, sammanfatta eller på annat sätt komma åt innehållet i låsta anteckningar eller låsta projektmappar (eller något som ligger i en låst mapp). Sådant innehåll är otillgängligt för dig — försök inte kringgå det. Om något du behöver är låst: tala om för användaren att det är låst och be hen låsa upp det, fortsätt annars utan det.';

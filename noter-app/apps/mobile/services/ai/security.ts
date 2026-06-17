@@ -16,4 +16,9 @@ export {
   maskLockedNote,
   maskLockedHierarchy,
   filterReadableNotes,
+  // AI/index ALWAYS use the empty unlock set — a UI folder-unlock is NEVER extended to the
+  // AI or the search index. Use these, never the store's unlockedProtectedNoteIds.
+  AI_INDEX_NO_UNLOCK,
+  filterReadableForAI,
+  isReadableForAI,
 } from '@repo/shared';

@@ -32,6 +32,7 @@ import {
   AGENT_LOCK_POLICY,
   buildSecurityNoteMap,
   isReadableWithLocks,
+  AI_INDEX_NO_UNLOCK,
 } from '@repo/shared';
 import { runAgentTask, type AgentAccess, type ChatMessage } from '@repo/ai';
 import { API_PROVIDERS, generateApiProviderResponse, type ApiProviderType } from './apiProviders';
@@ -114,8 +115,9 @@ const buildToolExecutor = () => async (tool: string, args: Record<string, any>):
   const store = useStore.getState();
   const allNotes: Note[] = Array.isArray(store.notes) ? store.notes : [];
   const tasks: Task[] = Array.isArray(store.tasks) ? store.tasks : [];
-  // SECURITY: the agent may only ever see UNLOCKED notes; hard-filter every read.
-  const unlockedIds = new Set<string>((store as any).unlockedProtectedNoteIds || []);
+  // SECURITY: the agent NEVER gets the UI unlock — locked notes/folders are invisible to it,
+  // even ones the user has open right now. Empty unlock set = hard-filter every locked read.
+  const unlockedIds = AI_INDEX_NO_UNLOCK as Set<string>;
   const noteMap = buildSecurityNoteMap(allNotes as any[]);
   const readable = (n: Note) => isReadableWithLocks(n as any, noteMap, unlockedIds);
   const notes: Note[] = allNotes.filter(readable);
@@ -188,8 +190,9 @@ const buildToolExecutor = () => async (tool: string, args: Record<string, any>):
 const buildAgentSystem = (task: Task, delegation: AiTaskDelegation, baseUrl: string): string => {
   const store = useStore.getState();
   const allNotes: Note[] = Array.isArray(store.notes) ? store.notes : [];
-  // SECURITY: never inject locked containers/memory into the prompt.
-  const unlockedIds = new Set<string>((store as any).unlockedProtectedNoteIds || []);
+  // SECURITY: never inject locked containers/memory into the prompt (empty unlock set —
+  // a UI folder-unlock is never extended to the agent).
+  const unlockedIds = AI_INDEX_NO_UNLOCK as Set<string>;
   const noteMap = buildSecurityNoteMap(allNotes as any[]);
   const notes: Note[] = allNotes.filter((n) => isReadableWithLocks(n as any, noteMap, unlockedIds));
   // Context level gates how much we inject (cheaper/faster for light jobs).

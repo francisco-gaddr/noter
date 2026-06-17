@@ -271,10 +271,15 @@ export const retrieveForChat = async (
     let getNeighbors: ((id: string) => string[]) | undefined;
     if (opts.enableGraphRAG) {
       const graph = buildGraph(notes, tasks);
+      // SECURITY: the graph is built from ALL notes, so a neighbour could be a LOCKED note.
+      // Constrain expansion to the lock-filtered candidate set so a graph hop can NEVER
+      // surface a locked note's title/relations.
+      const candidateIds = new Set(candidates.map((c) => c.id));
       getNeighbors = (id: string) => {
         const n = neighborsOf(graph, id);
         if (!n) return [];
-        return [...n.outgoing.map((o) => o.node.id), ...n.incoming.map((o) => o.node.id)];
+        return [...n.outgoing.map((o) => o.node.id), ...n.incoming.map((o) => o.node.id)]
+          .filter((nid) => candidateIds.has(nid));
       };
     }
 
