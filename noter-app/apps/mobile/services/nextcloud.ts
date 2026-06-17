@@ -333,9 +333,13 @@ export interface SyncResult { created: number; updated: number; deleted: number;
  * "edited" when the hash of its current body differs from `source.contentHash` (set at the last
  * sync). Only editable text files are pushed (binaries are read-only). Returns the count pushed.
  */
+const sanitizeFileName = (t: string): string =>
+  (String(t || '').replace(/[\/\\:*?"<>| -]/g, '_').trim().slice(0, 120)) || 'note';
+
 const pushLocalEditsForConnection = async (conn: WebdavConnection): Promise<number> => {
   const store: any = useStore.getState();
   const notes: Note[] = store.notes || [];
+  const byId = new Map<string, Note>(notes.map((n) => [n._id, n]));
   let pushed = 0;
   for (const n of notes) {
     if (n.deleted) continue;
@@ -353,6 +357,31 @@ const pushLocalEditsForConnection = async (conn: WebdavConnection): Promise<numb
       await store.updateNote(n._id, { source: nextSrc });
       pushed += 1;
     } catch { /* skip this file; retried next sync */ }
+  }
+
+  // NEW notes created INSIDE a synced folder (e.g. by the user OR the AI) have no `source` yet —
+  // create them on the server so they appear in Nextcloud/Obsidian and become 2-way synced.
+  // Security: never push a locked note or one whose parent folder is locked.
+  for (const n of notes) {
+    if (n.deleted || (n as any).source) continue;
+    if (n.locked) continue;
+    if (normalizeNoteType((n as any).type) !== 'note') continue; // folders are created by inbound sync
+    const parent = n.parentId ? byId.get(n.parentId) : null;
+    const ps = parent ? ((parent as any).source as NoteSource | null) : null;
+    if (!parent || parent.locked || !ps || ps.connectionId !== conn.id) continue; // parent must be THIS conn's synced folder
+    const body = noteContentToPlainText(n.content || '');
+    const title = (n.title || '').trim();
+    if (!title && !body.trim()) continue; // never push an empty placeholder
+    const remotePath = ps.remotePath.replace(/\/+$/, '') + '/' + sanitizeFileName(title || 'note') + '.md';
+    try {
+      const etag = await putText(conn, remotePath, body);
+      const newSrc: NoteSource = {
+        origin: 'nextcloud', connectionId: conn.id, remotePath, remoteEtag: etag || '',
+        mimeType: 'text/markdown', contentHash: embeddingContentHash(body), syncedAt: new Date().toISOString(),
+      };
+      await store.updateNote(n._id, { source: newSrc });
+      pushed += 1;
+    } catch { /* retried next sync */ }
   }
   return pushed;
 };

@@ -932,7 +932,14 @@ export const useStore = create<AppState>((set, get) => ({
           // Replace in DB
           await Database.deleteNoteLocal(tempId);
           await Database.saveNoteLocal(realNote, true);
-          
+
+          // If this note was created INSIDE an externally-synced folder (Nextcloud/MD) — e.g. by
+          // the user or the AI — push it out so it appears on the server in (near) real time.
+          try {
+            const parent = realNote.parentId ? get().notes.find((n) => n._id === realNote.parentId) : null;
+            if ((parent as any)?.source?.origin || (realNote as any)?.source?.origin) scheduleNextcloudPush();
+          } catch { /* best-effort */ }
+
           return realNote;
         } catch (error) {
            if (!shouldFallbackToOffline(error)) throw error;
