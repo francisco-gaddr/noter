@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 
@@ -105,6 +106,7 @@ const steps = [
       '__tests__/sidebar-project-dropdown.e2e.test.tsx',
       '__tests__/ai-security.test.ts',
       '__tests__/ai-sync-service.test.ts',
+      '__tests__/ai-streaming.test.ts',
       '__tests__/e2e-encryption.test.ts',
       '__tests__/task-encryption.test.ts',
       '__tests__/mcp-settings.test.ts',
@@ -167,10 +169,18 @@ const steps = [
     cwd: path.resolve(repoRoot, '..', 'electron-noter'),
     command: 'npm',
     args: ['run', 'test'],
+    // The Electron app lives in a sibling repo that is NOT checked out in CI (only
+    // noter-app is). Skip gracefully there; run it locally where the dir exists.
+    skipIfMissingCwd: true,
   },
 ];
 
 for (const step of steps) {
+  if (step.skipIfMissingCwd && !existsSync(step.cwd)) {
+    console.log(`\n=== ${step.label} ===`);
+    console.log(`(skipped — ${step.cwd} not present in this checkout)`);
+    continue;
+  }
   console.log(`\n=== ${step.label} ===`);
   const result = spawnSync(step.command, step.args, {
     cwd: step.cwd,

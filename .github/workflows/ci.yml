@@ -65,6 +65,15 @@ jobs:
           node scripts/check-sql-cascade-replace.mjs
           (cd packages/shared && npx jest locks)
           (cd apps/mobile && npx jest __tests__/database-conversation-cascade.test.ts __tests__/ai-model-safety.test.ts tests/ai-sync-service.test.ts)
+      # AI provider resilience: per-request timeouts + bounded transient retries (shared
+      # httpRetry) and the streaming partial-keep / cancel / empty-stream-fallback
+      # behaviour. Guards the "silent provider hangs the AI tab" and the duplicated-answer
+      # regressions. Kept blocking because the broad web/mobile suites below are not yet.
+      - name: AI provider resilience (blocking)
+        run: |
+          (cd packages/shared && npx jest httpRetry)
+          (cd apps/web && npx jest __tests__/ai-streaming.test.ts)
+          (cd apps/mobile && npx jest tests/api-providers.test.ts)
       - name: No dead files (knip --include files)
         run: npm run knip:files
 
