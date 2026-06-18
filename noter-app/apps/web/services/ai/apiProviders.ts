@@ -1,5 +1,5 @@
 import { ChatMessage } from '@repo/ai';
-import { parseDataUrl } from '@repo/shared';
+import { parseDataUrl, fetchWithRetry } from '@repo/shared';
 import { SseBuffer, sseDataPayloads, openAiDelta, openAiUsageTokens, geminiDelta, geminiUsageTokens, anthropicDelta, anthropicUsage } from './sseParser';
 
 // Mirrors apps/mobile/services/ai/apiProviders.ts so the desktop/web AI chat
@@ -39,6 +39,15 @@ export interface ApiProviderMeta {
 /** Default max output tokens for providers that require it (Anthropic). */
 const ANTHROPIC_MAX_TOKENS = 4096;
 const ANTHROPIC_VERSION = '2023-06-01';
+
+/** Hard ceiling on a single (non-streaming) provider request before it is aborted.
+ *  Without this a provider that accepts the connection then never answers hangs the
+ *  whole AI chat. The streaming path uses its own connect + idle-stall guards below. */
+const REQUEST_TIMEOUT_MS = 60_000;
+/** Streaming: give the connection this long to produce its FIRST byte. */
+const STREAM_CONNECT_TIMEOUT_MS = 30_000;
+/** Streaming: abort if no further chunk arrives for this long (stall guard). */
+const STREAM_IDLE_TIMEOUT_MS = 90_000;
 
 // Single source of truth for the supported third-party providers. Add a provider
 // here (+ to ApiProviderType) and the OpenAI-compatible ones work with no further
@@ -239,8 +248,10 @@ export const generateApiProviderResponse = async (params: {
   baseUrl?: string;
   /** Image data URLs to attach to the last user turn (vision models). */
   images?: string[];
+  /** Caller cancellation (also used by the streaming fallback). */
+  signal?: AbortSignal;
 }): Promise<ApiProviderResult> => {
-  const { provider, apiKey, model, history, baseUrl, images = [] } = params;
+  const { provider, apiKey, model, history, baseUrl, images = [], signal } = params;
   const meta = API_PROVIDERS[provider];
   if (!apiKey && !meta?.apiKeyOptional) throw new Error('API-nyckel saknas');
   if (!model) throw new Error('API-modell saknas');
@@ -248,11 +259,11 @@ export const generateApiProviderResponse = async (params: {
 
   // Anthropic Messages API — content blocks, x-api-key, system as a top-level field.
   if (format === 'anthropic') {
-    const response = await fetch(meta.endpoint || 'https://api.anthropic.com/v1/messages', {
+    const response = await fetchWithRetry(meta.endpoint || 'https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: anthropicHeaders(apiKey),
       body: anthropicBody(model, history, images, false),
-    });
+    }, { signal, label: meta?.label ?? 'Anthropic', timeoutMs: REQUEST_TIMEOUT_MS });
     if (!response.ok) {
       const text = await response.text().catch(() => '');
       throw new Error(text || `${meta?.label ?? 'Anthropic'} request failed`);
@@ -269,7 +280,7 @@ export const generateApiProviderResponse = async (params: {
     const url = resolveChatCompletionsUrl(meta, baseUrl);
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(url, {
       method: 'POST',
       headers,
       body: JSON.stringify({
@@ -277,7 +288,7 @@ export const generateApiProviderResponse = async (params: {
         messages: toOpenAiMessages(history, images),
         stream: false,
       }),
-    });
+    }, { signal, label: meta?.label ?? provider, timeoutMs: REQUEST_TIMEOUT_MS });
     if (!response.ok) {
       const text = await response.text().catch(() => '');
       throw new Error(text || `${meta?.label ?? provider} request failed`);
@@ -290,7 +301,7 @@ export const generateApiProviderResponse = async (params: {
   }
 
   // Gemini has a bespoke request/response shape.
-  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+  const response = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -299,7 +310,7 @@ export const generateApiProviderResponse = async (params: {
     body: JSON.stringify({
       contents: toGeminiContents(history, images),
     }),
-  });
+  }, { signal, label: 'Gemini', timeoutMs: REQUEST_TIMEOUT_MS });
   if (!response.ok) {
     const text = await response.text().catch(() => '');
     throw new Error(text || 'Gemini request failed');
@@ -352,8 +363,24 @@ export const streamApiProviderResponse = async (params: {
       ? JSON.stringify({ model, messages: toOpenAiMessages(history, images), stream: true, stream_options: { include_usage: true } })
       : JSON.stringify({ contents: toGeminiContents(history, images) });
 
+  // Combined cancellation: the caller's signal OR our own connect/idle-stall guard.
+  // Without an idle guard a provider that opens the stream then goes silent leaves
+  // `reader.read()` pending forever and hangs the AI chat.
+  const streamController = new AbortController();
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
+  const clearIdle = () => { if (idleTimer) { clearTimeout(idleTimer); idleTimer = undefined; } };
+  const armIdle = (ms: number) => { clearIdle(); idleTimer = setTimeout(() => streamController.abort(), ms); };
+  const onCallerAbort = () => streamController.abort();
+  if (signal) {
+    if (signal.aborted) streamController.abort();
+    else signal.addEventListener('abort', onCallerAbort, { once: true });
+  }
+
+  let full = '';
+  let totalTokens = 0;
   try {
-    const response = await fetch(url, { method: 'POST', headers, body, signal });
+    armIdle(STREAM_CONNECT_TIMEOUT_MS);
+    const response = await fetch(url, { method: 'POST', headers, body, signal: streamController.signal });
     if (!response.ok || !response.body) {
       const text = await response.text().catch(() => '');
       throw new Error(text || `${meta?.label ?? provider} stream failed`);
@@ -362,8 +389,6 @@ export const streamApiProviderResponse = async (params: {
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     const sse = new SseBuffer();
-    let full = '';
-    let totalTokens = 0;
     let inTok = 0;
     let outTok = 0;
 
@@ -393,16 +418,23 @@ export const streamApiProviderResponse = async (params: {
       if (signal?.aborted) { try { await reader.cancel(); } catch {} break; }
       const { done, value } = await reader.read();
       if (done) break;
+      armIdle(STREAM_IDLE_TIMEOUT_MS); // a chunk arrived → reset the stall guard
       handlePayloads(sseDataPayloads(sse.push(decoder.decode(value, { stream: true }))));
     }
     handlePayloads(sseDataPayloads(sse.flush()));
 
     return { text: full, totalTokens };
   } catch (err) {
-    if (signal?.aborted) throw err;
-    // Streaming unsupported / network hiccup → fall back to a single response.
-    const result = await generateApiProviderResponse({ provider, apiKey, model, history, baseUrl, images });
+    if (signal?.aborted) throw err; // user cancelled → bubble up
+    // We already streamed something before a stall/hiccup → keep the partial; do NOT
+    // re-run the whole prompt (it would duplicate the visible text and re-bill tokens).
+    if (full) return { text: full, totalTokens };
+    // Nothing emitted yet → fall back to one bounded (timeout + retry) response.
+    const result = await generateApiProviderResponse({ provider, apiKey, model, history, baseUrl, images, signal });
     if (result.text) onToken(result.text);
     return result;
+  } finally {
+    clearIdle();
+    signal?.removeEventListener?.('abort', onCallerAbort);
   }
 };
