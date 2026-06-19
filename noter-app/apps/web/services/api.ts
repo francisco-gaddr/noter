@@ -277,7 +277,7 @@ export const api = {
 
   // Notes
   async fetchNotes(): Promise<any[]> {
-    const res = await fetch(`${getBaseUrl()}/notes`, { headers: getHeaders() });
+    const res = await fetchWithTimeout(`${getBaseUrl()}/notes`, { headers: getHeaders() });
     return handleResponse(res);
   },
 
@@ -299,7 +299,7 @@ export const api = {
   },
 
   async getNote(id: string): Promise<Note> {
-    const res = await fetch(`${getBaseUrl()}/notes/${id}`, { headers: getHeaders() });
+    const res = await fetchWithTimeout(`${getBaseUrl()}/notes/${id}`, { headers: getHeaders() });
     const note: Note = await handleResponse(res);
     return decryptNoteFromApi(note);
   },
@@ -320,7 +320,7 @@ export const api = {
       updatedAt: encrypt(new Date().toISOString()),
     };
 
-    const res = await fetch(`${getBaseUrl()}/notes`, {
+    const res = await fetchWithTimeout(`${getBaseUrl()}/notes`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(encryptedData),
@@ -344,7 +344,7 @@ export const api = {
     // Always update updatedAt
     encryptedData.updatedAt = encrypt(new Date().toISOString());
 
-    const res = await fetch(`${getBaseUrl()}/notes/${id}`, {
+    const res = await fetchWithTimeout(`${getBaseUrl()}/notes/${id}`, {
       method: 'PUT',
       headers: getHeaders(),
       body: JSON.stringify(encryptedData),
@@ -367,7 +367,7 @@ export const api = {
   },
 
   async verifyLock(id: string, password: string): Promise<{ success: boolean; content: string; title?: string; unlockedId?: string }> {
-    const res = await fetch(`${getBaseUrl()}/notes/${id}/verify-lock`, {
+    const res = await fetchWithTimeout(`${getBaseUrl()}/notes/${id}/verify-lock`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify({ password }),
@@ -398,7 +398,7 @@ export const api = {
   },
 
   async deleteNote(id: string): Promise<void> {
-    const res = await fetch(`${getBaseUrl()}/notes/${id}`, {
+    const res = await fetchWithTimeout(`${getBaseUrl()}/notes/${id}`, {
       method: 'DELETE',
       headers: getHeaders(),
     });
@@ -408,7 +408,7 @@ export const api = {
   // Tasks
   async fetchTasks(parentNoteId?: string): Promise<any[]> {
     const url = parentNoteId ? `${getBaseUrl()}/tasks?parentNoteId=${parentNoteId}` : `${getBaseUrl()}/tasks`;
-    const res = await fetch(url, { headers: getHeaders() });
+    const res = await fetchWithTimeout(url, { headers: getHeaders() });
     return handleResponse(res);
   },
 
@@ -445,7 +445,7 @@ export const api = {
       position: data.position !== undefined ? encrypt(String(data.position)) : encrypt('0'),
     };
     
-    const res = await fetch(`${getBaseUrl()}/tasks`, {
+    const res = await fetchWithTimeout(`${getBaseUrl()}/tasks`, {
       method: 'POST',
       headers: getHeaders(),
       body: JSON.stringify(encryptedData),
@@ -479,7 +479,7 @@ export const api = {
     encryptedData.updatedAt = encrypt(new Date().toISOString());
     if (data.position !== undefined) encryptedData.position = encrypt(String(data.position));
 
-    const res = await fetch(`${getBaseUrl()}/tasks/${id}`, {
+    const res = await fetchWithTimeout(`${getBaseUrl()}/tasks/${id}`, {
       method: 'PUT',
       headers: getHeaders(),
       body: JSON.stringify(encryptedData),
@@ -489,7 +489,7 @@ export const api = {
   },
 
   async deleteTask(id: string): Promise<void> {
-    const res = await fetch(`${getBaseUrl()}/tasks/${id}`, {
+    const res = await fetchWithTimeout(`${getBaseUrl()}/tasks/${id}`, {
       method: 'DELETE',
       headers: getHeaders(),
     });
@@ -501,7 +501,7 @@ export const api = {
       _id: task._id,
       position: encrypt(String(task.position))
     }));
-    const res = await fetch(`${getBaseUrl()}/tasks/reorder`, {
+    const res = await fetchWithTimeout(`${getBaseUrl()}/tasks/reorder`, {
       method: 'PUT',
       headers: getHeaders(),
       body: JSON.stringify({ tasks: encryptedTasks }),
@@ -510,7 +510,7 @@ export const api = {
   },
  
    async assignTasksToList(noteId: string): Promise<void> {
-     const res = await fetch(`${getBaseUrl()}/tasks/assign-to-list`, {
+     const res = await fetchWithTimeout(`${getBaseUrl()}/tasks/assign-to-list`, {
        method: 'PUT',
        headers: getHeaders(),
        body: JSON.stringify({ noteId }),
