@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useStore } from '../stores/useStore';
-import { shouldRelockOnIdle } from '@repo/shared';
+import { shouldRelockOnIdle, resolveFolderIdleLockMs } from '@repo/shared';
 import { FaLock, FaSignOutAlt } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
 
@@ -54,7 +54,12 @@ export default function AppLock() {
     useEffect(() => {
         if (!user) return;
         const id = setInterval(() => {
-            if (shouldRelockOnIdle(lastActivityRef.current, Date.now())) relockProtectedFolders();
+            // Read the threshold fresh each tick (synchronous localStorage) so a change in
+            // Settings takes effect within 30s without any extra wiring; "Av"/0 disables it.
+            const thresholdMs = resolveFolderIdleLockMs(
+                typeof localStorage !== 'undefined' ? localStorage.getItem('folderIdleLockMinutes') : null,
+            );
+            if (shouldRelockOnIdle(lastActivityRef.current, Date.now(), thresholdMs)) relockProtectedFolders();
         }, 30 * 1000);
         return () => clearInterval(id);
     }, [user, relockProtectedFolders]);

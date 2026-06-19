@@ -191,6 +191,29 @@ export const shouldRelockOnIdle = (
   return now - lastActivityAt >= thresholdMs;
 };
 
+/**
+ * The user-selectable choices (in MINUTES) for the foreground folder-idle re-lock, shown in the
+ * security settings of both apps. `0` means "Av" (off — never auto-re-locks on foreground idle;
+ * app-background re-lock and the whole-app lock still apply). Single source of truth so the two
+ * Settings UIs and the AppLock readers can never drift.
+ */
+export const FOLDER_IDLE_LOCK_OPTIONS_MIN: readonly number[] = [0, 1, 5, 15, 30];
+
+/**
+ * Resolve a persisted folder-idle setting (minutes — a number, a stored string, or null/undefined
+ * when unset) into the threshold in MS for `shouldRelockOnIdle`. Unset/invalid → the
+ * `FOLDER_IDLE_RELOCK_MS` default (preserves the pre-setting behaviour); `0` → `0` (off). Only the
+ * allowed options are honoured — any other value falls back to the default so a tampered
+ * localStorage/SecureStore entry can't silently widen the window to something never offered.
+ */
+export const resolveFolderIdleLockMs = (raw: unknown): number => {
+  const n = typeof raw === 'number' ? raw : typeof raw === 'string' ? parseInt(raw, 10) : NaN;
+  if (!Number.isFinite(n)) return FOLDER_IDLE_RELOCK_MS;
+  if (n === 0) return 0;
+  if (FOLDER_IDLE_LOCK_OPTIONS_MIN.includes(n)) return n * 60 * 1000;
+  return FOLDER_IDLE_RELOCK_MS;
+};
+
 /** Short, firm instruction injected into every agent system prompt. */
 export const AGENT_LOCK_POLICY =
   'SÄKERHET: Du får ALDRIG läsa, avkryptera, sammanfatta eller på annat sätt komma åt innehållet i låsta anteckningar eller låsta projektmappar (eller något som ligger i en låst mapp). Sådant innehåll är otillgängligt för dig — försök inte kringgå det. Om något du behöver är låst: tala om för användaren att det är låst och be hen låsa upp det, fortsätt annars utan det.';

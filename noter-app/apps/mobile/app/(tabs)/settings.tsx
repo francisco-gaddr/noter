@@ -13,7 +13,7 @@ import { useTranslation } from 'react-i18next';
 import { clearLocalData, clearNotesLocal, clearTasksLocal, clearModelsLocal, clearSyncQueue, getModelsLocal, getSyncQueue } from '@/services/database';
 import { deleteModel as deleteModelFile } from '@/services/ai/modelService';
 import { enrollOrUnlockCrypto, changeCryptoPassword } from '@/services/crypto';
-import { hasActiveDataKey } from '@repo/shared';
+import { hasActiveDataKey, FOLDER_IDLE_LOCK_OPTIONS_MIN } from '@repo/shared';
 import { AdminDashboard } from '@/components/AdminDashboard';
 import { EmbeddingsSettings } from '@/components/EmbeddingsSettings';
 import { NextcloudSettings } from '@/components/NextcloudSettings';
@@ -43,6 +43,10 @@ export default function SettingsScreen() {
   const [language, setLanguage] = useState<'sv' | 'en'>('sv');
   const [lockTiming, setLockTiming] = useState<'immediate' | '5min' | '15min' | '30min' | '1h' | '3h' | '6h' | '12h'>('immediate');
   const [lockTimingDialogVisible, setLockTimingDialogVisible] = useState(false);
+  // Foreground folder-idle re-lock (minutes; 0 = Av/off). Persisted to SecureStore; AppLock
+  // re-reads it on foreground. See docs/LOCKED_FOLDER_SECURITY.md §2.
+  const [folderIdleLockMinutes, setFolderIdleLockMinutes] = useState<number>(5);
+  const [folderIdleDialogVisible, setFolderIdleDialogVisible] = useState(false);
 
   // Manual sync controls.
   const [pendingSync, setPendingSync] = useState<number | null>(null);
@@ -183,7 +187,13 @@ export default function SettingsScreen() {
       ) {
         setLockTiming(savedLockTiming);
       }
-      
+
+      const savedFolderIdle = await SecureStore.getItemAsync('folderIdleLockMinutes');
+      if (savedFolderIdle != null) {
+        const n = parseInt(savedFolderIdle, 10);
+        if (FOLDER_IDLE_LOCK_OPTIONS_MIN.includes(n)) setFolderIdleLockMinutes(n);
+      }
+
       // Update local state with current API_URL
       setBackendUrl(API_URL);
     })();
@@ -214,6 +224,16 @@ export default function SettingsScreen() {
     setLockTiming(timing);
     try {
       await SecureStore.setItemAsync('lockTiming', timing);
+    } catch {}
+  };
+
+  const folderIdleLockLabel = (min: number) =>
+    min === 0 ? t('common.off', 'Av') : t('settings.folderIdleAfter', { defaultValue: 'Efter {{count}} min', count: min });
+
+  const saveFolderIdleLock = async (min: number) => {
+    setFolderIdleLockMinutes(min);
+    try {
+      await SecureStore.setItemAsync('folderIdleLockMinutes', String(min));
     } catch {}
   };
 
@@ -398,6 +418,19 @@ export default function SettingsScreen() {
         <View style={styles.hint}>
           <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
             {t('settings.lockHint', 'Välj hur snabbt appen ska låsas vid inaktivitet')}
+          </Text>
+        </View>
+
+        <List.Item
+          title={t('settings.folderIdleLock', 'Lås projektmappar efter')}
+          description={`${t('settings.lock', 'Lås')}: ${folderIdleLockLabel(folderIdleLockMinutes)}`}
+          left={props => <List.Icon {...props} icon="folder-lock" />}
+          onPress={() => setFolderIdleDialogVisible(true)}
+          rippleColor={touchRippleColor}
+        />
+        <View style={styles.hint}>
+          <Text variant="bodySmall" style={{ color: paperTheme.colors.onSurfaceVariant }}>
+            {t('settings.folderIdleLockHint', 'En upplåst, lösenordsskyddad projektmapp låses igen efter denna tids inaktivitet — utan att hela appen låses.')}
           </Text>
         </View>
 
@@ -608,6 +641,24 @@ export default function SettingsScreen() {
           </Dialog.Content>
           <Dialog.Actions>
             <Button onPress={() => setLockTimingDialogVisible(false)}>{t('common.cancel')}</Button>
+          </Dialog.Actions>
+        </Dialog>
+
+        {/* Folder idle re-lock Dialog */}
+        <Dialog visible={folderIdleDialogVisible} onDismiss={() => setFolderIdleDialogVisible(false)}>
+          <Dialog.Title>{t('settings.folderIdleLock', 'Lås projektmappar efter')}</Dialog.Title>
+          <Dialog.Content>
+            <RadioButton.Group onValueChange={value => {
+              saveFolderIdleLock(parseInt(value, 10));
+              setFolderIdleDialogVisible(false);
+            }} value={String(folderIdleLockMinutes)}>
+              {FOLDER_IDLE_LOCK_OPTIONS_MIN.map((min) => (
+                <RadioButton.Item key={min} label={folderIdleLockLabel(min)} value={String(min)} />
+              ))}
+            </RadioButton.Group>
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setFolderIdleDialogVisible(false)}>{t('common.cancel')}</Button>
           </Dialog.Actions>
         </Dialog>
 

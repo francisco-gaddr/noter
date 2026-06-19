@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { clearNotesAndTasks, db } from '../services/db';
 import ApiUrlModal from './ApiUrlModal';
 import { FaCog } from 'react-icons/fa';
-import { WHATS_NEW_ENTRIES, hasActiveDataKey } from '@repo/shared';
+import { WHATS_NEW_ENTRIES, hasActiveDataKey, FOLDER_IDLE_LOCK_OPTIONS_MIN } from '@repo/shared';
 import { getDefaultHotkeys } from '../lib/hotkeys';
 import { forceSyncAllSources } from '../lib/forceSync';
 import { enrollOrUnlockCrypto, changeCryptoPassword } from '../lib/crypto';
@@ -29,6 +29,18 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const syncOfflineChanges = useStore((s) => s.syncOfflineChanges);
   const [pendingCount, setPendingCount] = React.useState<number | null>(null);
   const [syncing, setSyncing] = React.useState(false);
+  // Foreground idle re-lock for password-protected folders (minutes; 0 = Av/off). Persisted
+  // directly to localStorage (read each poll tick by AppLock) — same pattern as the mobile
+  // SecureStore setting. See docs/LOCKED_FOLDER_SECURITY.md §2.
+  const [folderIdleLockMinutes, setFolderIdleLockMinutes] = React.useState<number>(() => {
+    if (typeof localStorage === 'undefined') return 5;
+    const raw = parseInt(localStorage.getItem('folderIdleLockMinutes') || '5', 10);
+    return FOLDER_IDLE_LOCK_OPTIONS_MIN.includes(raw) ? raw : 5;
+  });
+  const handleFolderIdleLockChange = (minutes: number) => {
+    setFolderIdleLockMinutes(minutes);
+    try { localStorage.setItem('folderIdleLockMinutes', String(minutes)); } catch { /* storage disabled */ }
+  };
   const refreshPending = React.useCallback(async () => {
     try {
       const [n, t2] = await Promise.all([db.getPendingSyncNotes(), db.getPendingSyncTasks()]);
@@ -374,6 +386,27 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             <option value={60}>1 {t('common.hour')}</option>
             <option value={180}>3 {t('common.hours')}</option>
           </select>
+        </div>
+
+        <div className="mt-4">
+          <label className="block text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
+            {t('settings.folderIdleLock', 'Lås projektmappar efter')}
+          </label>
+          <select
+            value={folderIdleLockMinutes}
+            onChange={(e) => handleFolderIdleLockChange(Number(e.target.value))}
+            aria-label={t('settings.folderIdleLock', 'Lås projektmappar efter')}
+            className="w-full p-2 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+          >
+            {FOLDER_IDLE_LOCK_OPTIONS_MIN.map((min) => (
+              <option key={min} value={min}>
+                {min === 0 ? t('common.off', 'Av') : `${min} ${t('common.minutes')}`}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {t('settings.folderIdleLockHelp', 'En upplåst, lösenordsskyddad projektmapp låses igen efter denna tids inaktivitet — utan att hela appen låses.')}
+          </p>
         </div>
 
         <div className="mt-8 border-t border-gray-200 dark:border-gray-700 pt-4 text-xs text-gray-500 dark:text-gray-400">

@@ -6,7 +6,7 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useStore } from '@/stores/useStore';
-import { shouldRelockOnIdle } from '@repo/shared';
+import { shouldRelockOnIdle, resolveFolderIdleLockMs } from '@repo/shared';
 
 interface AppLockProps {
   children: React.ReactNode;
@@ -15,6 +15,7 @@ interface AppLockProps {
 type LockTiming = 'immediate' | '5min' | '15min' | '30min' | '1h' | '3h' | '6h' | '12h';
 
 const LOCK_TIMING_KEY = 'lockTiming';
+const FOLDER_IDLE_KEY = 'folderIdleLockMinutes';
 const LAST_BACKGROUND_KEY = 'lastBackgroundAt';
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -58,6 +59,10 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
   const setSecurityLocked = useStore((s) => s.setSecurityLocked);
   const relockProtectedFolders = useStore((s) => s.relockProtectedFolders);
   const lastActivityRef = useRef<number>(Date.now());
+  // Foreground folder-idle threshold (ms). Loaded from SecureStore (the user setting in
+  // settings.tsx); defaults to FOLDER_IDLE_RELOCK_MS when unset. Re-read on foreground so a
+  // change in Settings takes effect on the next return to the app (same as lockTiming).
+  const folderIdleMsRef = useRef<number>(resolveFolderIdleLockMs(null));
 
   // Per-mount attempt log: timestamps of failed authenticate() calls.
   // We slide the window so successes earlier-this-minute don't keep counting.
@@ -73,10 +78,12 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
     isMounted.current = true;
     const load = async () => {
       try {
-        const [saved, savedLastBg] = await Promise.all([
+        const [saved, savedLastBg, savedFolderIdle] = await Promise.all([
           SecureStore.getItemAsync(LOCK_TIMING_KEY),
-          AsyncStorage.getItem(LAST_BACKGROUND_KEY)
+          AsyncStorage.getItem(LAST_BACKGROUND_KEY),
+          SecureStore.getItemAsync(FOLDER_IDLE_KEY),
         ]);
+        folderIdleMsRef.current = resolveFolderIdleLockMs(savedFolderIdle);
 
         let currentTiming: LockTiming = 'immediate';
         if (isLockTiming(saved)) {
@@ -183,6 +190,11 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
         appState.current.match(/inactive|background/) &&
         nextAppState === 'active'
       ) {
+        // Refresh the folder-idle threshold on every return to foreground so a change made in
+        // Settings takes effect (independent of biometric hardware / the app-lock timing path).
+        SecureStore.getItemAsync(FOLDER_IDLE_KEY)
+          .then((v) => { folderIdleMsRef.current = resolveFolderIdleLockMs(v); })
+          .catch(() => {});
         LocalAuthentication.hasHardwareAsync().then(async (hasHardware) => {
           if (!hasHardware) return;
           const isEnrolledNow = await LocalAuthentication.isEnrolledAsync();
@@ -251,7 +263,7 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
   // docs/LOCKED_FOLDER_SECURITY.md §2.
   useEffect(() => {
     const id = setInterval(() => {
-      if (shouldRelockOnIdle(lastActivityRef.current, Date.now())) relockProtectedFolders();
+      if (shouldRelockOnIdle(lastActivityRef.current, Date.now(), folderIdleMsRef.current)) relockProtectedFolders();
     }, 30 * 1000);
     return () => clearInterval(id);
   }, [relockProtectedFolders]);

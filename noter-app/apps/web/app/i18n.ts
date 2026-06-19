@@ -34,7 +34,9 @@ const resources = {
       settings: {
         title: 'Settings',
         close: 'Close',
-        autoLockTimeout: 'Auto Lock Timeout'
+        autoLockTimeout: 'Auto Lock Timeout',
+        folderIdleLock: 'Lock project folders after',
+        folderIdleLockHelp: 'An unlocked, password-protected project folder re-locks after this much inactivity — without locking the whole app.'
       },
       note: {
         enterPassword: 'Enter password'
@@ -93,6 +95,7 @@ const resources = {
         hours: 'hours',
         minute: 'minute',
         minutes: 'minutes',
+        off: 'Off',
         showMore: 'Show more',
         showingFirst200: 'Showing first 200 items',
         showingFirst500: 'Showing first 500 items. Refine search to see more.'
@@ -276,7 +279,9 @@ const resources = {
       settings: {
         title: 'Inställningar',
         close: 'Stäng',
-        autoLockTimeout: 'Tidsgräns för autolås'
+        autoLockTimeout: 'Tidsgräns för autolås',
+        folderIdleLock: 'Lås projektmappar efter',
+        folderIdleLockHelp: 'En upplåst, lösenordsskyddad projektmapp låses igen efter denna tids inaktivitet — utan att hela appen låses.'
       },
       note: {
         enterPassword: 'Ange lösenord'
@@ -336,6 +341,7 @@ const resources = {
         hours: 'timmar',
         minute: 'minut',
         minutes: 'minuter',
+        off: 'Av',
         showMore: 'Visa mer',
         showingFirst200: 'Visar de första 200 objekten',
         showingFirst500: 'Visar de första 500 objekten. Förfina sökningen för att se fler.'

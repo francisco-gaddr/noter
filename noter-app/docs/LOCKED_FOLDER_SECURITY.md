@@ -64,11 +64,16 @@ fires in two situations, both in `components/AppLock.tsx`:
    `AppState === 'background'`, gated on true background — not the transient iOS `inactive` of the
    app-switcher peek or a system permission sheet; web/Electron: `document.visibilitychange → hidden`).
 2. **Foreground inactivity** — while the app stays open, a 30 s poll calls
-   `shouldRelockOnIdle(lastActivityAt, now)` (`@repo/shared/locks`, default `FOLDER_IDLE_RELOCK_MS`
-   = 5 min) and re-locks once that idle window elapses. Activity is timestamped by the existing
-   app-lock activity listeners on web (`mousedown/keydown/scroll/touchstart`) and by a
-   **non-capturing root responder** on mobile (`onStart/onMoveShouldSetResponderCapture` that record
-   the touch and return `false`, so gestures pass straight through).
+   `shouldRelockOnIdle(lastActivityAt, now, thresholdMs)` (`@repo/shared/locks`) and re-locks once
+   that idle window elapses. Activity is timestamped by the existing app-lock activity listeners on
+   web (`mousedown/keydown/scroll/touchstart`) and by a **non-capturing root responder** on mobile
+   (`onStart/onMoveShouldSetResponderCapture` that record the touch and return `false`, so gestures
+   pass straight through). The threshold is a **user setting** — "Lås projektmappar efter" in the
+   security section of Settings (options `Av / 1 / 5 / 15 / 30 min`, default 5 min) — persisted to
+   `localStorage` (web) / `SecureStore` (mobile) under `folderIdleLockMinutes`, read via the shared
+   `resolveFolderIdleLockMs` (single source of truth: `FOLDER_IDLE_LOCK_OPTIONS_MIN`; "Av" = 0 = off;
+   a tampered/out-of-range value falls back to the default, never widening the window). Web reads it
+   every poll tick (instant effect); mobile reads it on mount + each return to foreground.
 
 Both are deliberately **stricter** than the whole-app lock: the app-lock keeps a configurable grace
 window (5 min … 12 h) so you don't re-authenticate every time you glance at a notification, but a
@@ -187,9 +192,10 @@ garantier. Varje punkt är additiv — invarianterna i §7 måste fortsatt håll
    om (tidsstämpel, mapp-id), aldrig innehåll, så användaren kan se sin egen lås-historik. Måste
    följa CWE-532 (inga secrets i loggen) och stanna på enheten.
 4. **Auto-omlås vid inaktivitet inuti en mapp** ✅ **klart**. Omlås sker både vid **app-bakgrund**
-   och vid **förgrunds-inaktivitet** (en 30 s-poll + `shouldRelockOnIdle`, default 5 min) — se §2.
-   Möjlig nästa förfining (ej nödvändig): gör tröskeln till en **användarinställning** (egen
-   "lås projektmappar efter"-väljare) i stället för konstanten `FOLDER_IDLE_RELOCK_MS`.
+   och vid **förgrunds-inaktivitet** (en 30 s-poll + `shouldRelockOnIdle`) — se §2. Tröskeln är nu
+   en **användarinställning** ("Lås projektmappar efter": `Av / 1 / 5 / 15 / 30 min`, default 5 min)
+   i båda apparnas säkerhetsinställningar, sparad som `folderIdleLockMinutes` och tolkad via delade
+   `resolveFolderIdleLockMs`. Klart.
 5. **Utöka self-testet till nya modaliteter.** När en ny extern yta tillkommer (t.ex. en
    delnings-länk, ett export-format, en ny graf-sink): lägg till dess byggar-namn i `GUARDED` och
    en fixture i `--selftest` *innan* ytan kopplas in — grinden ska fånga läckan dag noll.
