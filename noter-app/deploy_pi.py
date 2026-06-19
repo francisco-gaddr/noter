@@ -1,10 +1,17 @@
 import paramiko
 import time
 import sys
+import os
 
-host = "192.168.50.16"
-user = "realdini"
-password = "12345678"
+# Deploy credentials come from the environment — NOT hardcoded (a committed password is a leak,
+# especially with the open-source release plan). Prefer SSH key auth; see Doc/ops/cicd-pi.md.
+host = os.environ.get("PI_DEPLOY_HOST", "192.168.50.16")
+user = os.environ.get("PI_DEPLOY_USER", "realdini")
+password = os.environ.get("PI_DEPLOY_PASSWORD")
+if not password:
+    print("ERROR: set PI_DEPLOY_PASSWORD (the Pi deploy password is no longer hardcoded). "
+          "Better: switch to SSH key auth — see Doc/ops/cicd-pi.md.")
+    sys.exit(1)
 project_path = "/srv/projects/noter"
 repo_url = "git@github.com:francisco-gaddr/noter.git"
 
