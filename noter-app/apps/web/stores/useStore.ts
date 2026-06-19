@@ -765,19 +765,13 @@ export const useStore = create<StoreState>((set, get) => ({
                     }
                 }
                 
-                // Remote is newer or no local note, accept remote
-                const newNotes = securedIncoming;
-                
-                // Preserve unlocked content if still locked in backend but unlocked locally
-                if (state.selectedNoteId === decryptedNote._id) {
-                     const currentNote = state.notes.find(n => n._id === decryptedNote._id);
-                     if (currentNote && !currentNote.locked && decryptedNote.locked) {
-                         // If we have unlocked content locally, keep it?
-                         // Or re-lock? If remote says locked, it might be re-locked.
-                         // But if we are editing, we don't want to be locked out suddenly.
-                         // Let's rely on 'locked' status.
-                     }
-                }
+                // Remote is newer or no local note, accept remote. Substitute ONLY the updated
+                // note into the CURRENT state.notes — do NOT overwrite the whole array with
+                // `securedIncoming`, which was captured BEFORE this requestAnimationFrame and
+                // would drop any note created/imported between the capture and this apply.
+                const newNotes = state.notes.some((n) => n._id === decryptedNote._id)
+                    ? state.notes.map((n) => (n._id === decryptedNote._id ? decryptedNote : n))
+                    : [decryptedNote, ...state.notes];
                 return { notes: newNotes };
             });
             db.saveNote(decryptedNote); // Cache incoming
