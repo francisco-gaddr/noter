@@ -1,5 +1,10 @@
 import { HFModel, HFFile } from '@repo/ai';
+import { fetchWithRetry, TimeoutError } from '@repo/shared';
 import { API_URL } from '@/services/api';
+
+/** Model search / file listing is a GET — safe to time out + retry transient errors.
+ *  Without a timeout a silent proxy/HF upstream left the search spinner stuck forever. */
+const MODEL_SEARCH_TIMEOUT_MS = 20_000;
 
 export const resolveWebBaseUrl = () => {
     const envUrl = process.env.EXPO_PUBLIC_WEB_URL;
@@ -11,17 +16,19 @@ export const resolveWebBaseUrl = () => {
     return apiUrl.replace(/\/api$/, '/app');
 };
 
-const fetchJson = async (url: string): Promise<unknown> => {
+const fetchJson = async (url: string, signal?: AbortSignal): Promise<unknown> => {
     let response: Response;
     try {
-        response = await fetch(url, {
+        response = await fetchWithRetry(url, {
             method: 'GET',
             headers: {
                 'Accept': 'application/json',
                 'Cache-Control': 'no-cache'
             }
-        });
+        }, { signal, label: 'Modell-sök', timeoutMs: MODEL_SEARCH_TIMEOUT_MS });
     } catch (e: any) {
+        // A silent/slow upstream now aborts instead of hanging the search forever.
+        if (e instanceof TimeoutError) throw new Error('Tidsgränsen överskreds — servern svarade inte i tid.');
         // Network failure (offline, DNS, TLS) — surface a clean, readable error.
         throw new Error(`Nätverksfel: ${e?.message || 'kunde inte nå servern'}`);
     }
@@ -42,13 +49,13 @@ const fetchJson = async (url: string): Promise<unknown> => {
 const asString = (v: unknown): string | undefined => (typeof v === 'string' && v.length > 0 ? v : undefined);
 const asNumber = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
 
-export const searchHuggingFaceModels = async (query: string): Promise<HFModel[]> => {
+export const searchHuggingFaceModels = async (query: string, signal?: AbortSignal): Promise<HFModel[]> => {
     try {
         const webBase = resolveWebBaseUrl();
         const url = `${webBase}/api/ai/models/search?q=${encodeURIComponent(query)}`;
         console.log('[MobileHF] Searching (Web Proxy):', url);
 
-        const data = await fetchJson(url);
+        const data = await fetchJson(url, signal);
 
         if (!Array.isArray(data)) throw new Error('Ogiltigt svarsformat från servern.');
 
@@ -75,12 +82,12 @@ export const searchHuggingFaceModels = async (query: string): Promise<HFModel[]>
 };
 
 
-export const getModelFiles = async (modelId: string): Promise<HFFile[]> => {
+export const getModelFiles = async (modelId: string, signal?: AbortSignal): Promise<HFFile[]> => {
     const webBase = resolveWebBaseUrl();
     const url = `${webBase}/api/ai/models/files?modelId=${encodeURIComponent(modelId)}`;
     console.log('[MobileHF] Fetching files (Web Proxy):', url);
 
-    const files = await fetchJson(url);
+    const files = await fetchJson(url, signal);
     // The proxy can return a non-array (e.g. {error: ...}) on failure — never .map() blindly.
     if (!Array.isArray(files)) return [];
 

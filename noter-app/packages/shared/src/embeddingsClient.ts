@@ -9,6 +9,11 @@
  * `nomic-embed-text` — no third-party sees the note content. This module never persists
  * anything; the encrypted vector store lives in each platform's service layer.
  */
+import { fetchWithRetry } from './httpRetry';
+
+/** A self-hosted embeddings endpoint (Ollama/llama.cpp) can be slow on CPU but must
+ *  never hang the index build forever; bound each batch and retry one transient blip. */
+const EMBEDDINGS_TIMEOUT_MS = 30_000;
 
 /**
  * Normalise a base URL to the OpenAI-compatible embeddings endpoint. Accepts a full
@@ -69,7 +74,11 @@ export const embedTexts = async (params: EmbedTextsParams): Promise<number[][]> 
   if (!inputs.length) return [];
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-  const response = await doFetch(url, { method: 'POST', headers, body: buildEmbeddingsBody(model, inputs), signal });
+  const response = await fetchWithRetry(
+    url,
+    { method: 'POST', headers, body: buildEmbeddingsBody(model, inputs) },
+    { signal, fetchImpl: doFetch, label: 'Inbäddningar', timeoutMs: EMBEDDINGS_TIMEOUT_MS, maxRetries: 1 },
+  );
   if (!response.ok) {
     const text = await response.text().catch(() => '');
     throw new Error(text || `Inbäddningsanrop misslyckades (${response.status})`);

@@ -47,4 +47,15 @@ describe('embedTexts', () => {
     const fakeFetch = (async () => ({ ok: false, status: 500, text: async () => 'boom' }) as any) as unknown as typeof fetch;
     await expect(embedTexts({ url: 'x', model: 'm', inputs: ['a'], fetchImpl: fakeFetch })).rejects.toThrow('boom');
   });
+  it('retries a transient 503 then succeeds (self-hosted endpoint warming up)', async () => {
+    let n = 0;
+    const fakeFetch = (async () => {
+      n += 1;
+      if (n === 1) return { ok: false, status: 503, text: async () => 'warming up' } as any;
+      return { ok: true, json: async () => ({ data: [{ index: 0, embedding: [9, 9] }] }) } as any;
+    }) as unknown as typeof fetch;
+    const out = await embedTexts({ url: 'x', model: 'm', inputs: ['a'], fetchImpl: fakeFetch });
+    expect(out).toEqual([[9, 9]]);
+    expect(n).toBe(2); // one retry
+  });
 });

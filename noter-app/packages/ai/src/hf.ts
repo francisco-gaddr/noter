@@ -46,6 +46,19 @@ export interface HFFile {
   quantization?: string;
 }
 
+/** Bound an HF API call so a silent/slow upstream can't hang the proxy request
+ *  handler forever (no DOMException dependency — works in Node and Hermes). */
+const HF_FETCH_TIMEOUT_MS = 15_000;
+export const fetchWithTimeout = async (url: string, init: RequestInit = {}, timeoutMs = HF_FETCH_TIMEOUT_MS): Promise<Response> => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 export class HuggingFaceService {
   private baseUrl = 'https://huggingface.co/api';
 
@@ -58,15 +71,15 @@ export class HuggingFaceService {
       const searchUrl = `https://huggingface.co/api/models?search=${encodeURIComponent(query)}&filter=gguf&sort=downloads&direction=-1&limit=30&full=true`;
       
       console.log('Searching HF:', searchUrl);
-      
-      const response = await fetch(searchUrl, {
+
+      const response = await fetchWithTimeout(searchUrl, {
           method: 'GET',
           headers: {
               'Accept': 'application/json',
               // Add simple user agent if needed
           }
       });
-      
+
       if (!response.ok) {
           const text = await response.text();
           console.error('HF API Error:', response.status, text);
@@ -93,7 +106,7 @@ export class HuggingFaceService {
 
   async getModelFiles(modelId: string): Promise<HFFile[]> {
     try {
-      const response = await fetch(`https://huggingface.co/api/models/${modelId}/tree/main?recursive=true`);
+      const response = await fetchWithTimeout(`https://huggingface.co/api/models/${modelId}/tree/main?recursive=true`);
       const data = await response.json();
       
       // Handle array or object response (HF API can vary)
