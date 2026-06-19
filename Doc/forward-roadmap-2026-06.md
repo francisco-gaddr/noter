@@ -73,16 +73,18 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
 
 ### Sync — risk för tyst dataförlust
 
-- **WebDAV push-före-pull skriver tyst över serverändringar** 🔒 INV ·
-  `apps/web/services/nextcloud.ts:310-402` · **E:M R:high** · Utgående push körs före inkommande
-  pull; en serverändring mellan push-success och pull-start förloras (ingen 3-vägs-merge eller
-  ETag-recheck efter push). **Vänd ordningen:** pull först, validera ETag efter push, logga
-  konflikt annars.
-- **Mutations-ACK ej idempotent → dubbletter vid reconnect** · `apps/backend/src/routes/calendar.ts:221-231`,
-  `apps/backend/src/markdav/live.ts:38-64`, `apps/web/lib/{calendarSubscription,markdownShare}.ts` ·
-  **E:S–M R:med** · Klienten skickar ACK fire-and-forget; kraschar den före `$pull` återappliceras
-  samma mutationer (t.ex. dubbel fil-/uppgiftsskapelse). Returnera faktiskt borttaget antal,
-  verifiera `removed === applied.length`, eller inför monoton sekvensnummer-dedup.
+- ✅ **[KLAR 2026-06-19] WebDAV push: optimistic-concurrency mot tysta överskrivningar** 🔒 INV ·
+  `apps/web/services/nextcloud.ts`, `packages/shared/src/fileIngest.ts` · Tvåvägs-pushen jämför nu
+  varje fils senast-synkade ETag mot den nyss enumererade fjärr-ETaggen (`remoteChangedSinceSync`,
+  ren+testad — If-Match/412-semantik utan extra request). Vid konflikt **hoppas både pushen OCH den
+  inkommande överskrivningen över** → varken lokal eller fjärr-ändring förstörs tyst; `conflicts`-
+  räknare + loggning. 5 tester. **Kvar (P2):** conflict-copy/merge-UX (i dag lämnas båda för manuell
+  lösning). Web/Electron (mobilen saknar tvåvägs-WebDAV-push).
+- ✅ **[KLAR 2026-06-19] Mutations-ACK idempotent (inga dubbletter vid reconnect)** ·
+  `packages/shared/src/mutationLedger.ts`, `apps/backend/src/utils/pendingMutations.ts`, alla 4
+  drains (web+mobil × kalender+markdown) · Delad `createAppliedLedger` + `applyMutationsOnce`: en
+  återlevererad mutation re-ackas men **app­liceras inte igen**. Backend-ACK returnerar **faktiskt**
+  borttaget antal (+ `requested`). 9 tester (7 ledger + 2 route). Grundat i idempotency-key-standard.
 - **Misslyckad pull efter lyckad push lämnar pull oåterställd** · `apps/web/services/nextcloud.ts:310-402` ·
   **E:M R:med** · `enumerateAll`-fel efter push-success överges; nästa sync hoppar push (hash matchar)
   men återupptar aldrig pull → nya fjärr-filer upptäcks inte. Separera push/pull med egen
@@ -331,6 +333,20 @@ Externa best-practice-/trend-källor som styr besluten ovan. Uppdatera när ny r
 - **Källor:** [OWASP Password Storage Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html) ·
   [OWASP A07:2025 Authentication Failures](https://owasp.org/Top10/2025/A07_2025-Authentication_Failures/) ·
   [OWASP Blocking Brute Force Attacks](https://owasp.org/www-community/controls/Blocking_Brute_Force_Attacks).
+
+### Sync / offline-first (2026-06-19)
+
+- **Idempotens / exactly-once (Morling, Stripe, AWS):** varje mutation bär en unik idempotency-key;
+  konsumenten spårar redan-bearbetade keys och ignorerar dubbletter; ACK-beslutet ska kunna verifieras
+  (faktisk durabilitet, inte "antal begärda"); keys behålls över hela replay-horisonten. → Vi byggde
+  `createAppliedLedger`/`applyMutationsOnce` + ACK med faktiskt borttaget antal.
+- **Optimistic concurrency för HTTP/WebDAV (If-Match/ETag, RFC 7232):** klienten skickar `If-Match`
+  med senast-kända ETag; servern svarar **412 Precondition Failed** om resursen ändrats → förhindrar
+  "lost update". → Vi tillämpar samma semantik med redan-enumererade ETags (`remoteChangedSinceSync`)
+  och hoppar icke-destruktivt över båda riktningarna vid konflikt.
+- **Källor:** [On Idempotency Keys (Morling)](https://www.morling.dev/blog/on-idempotency-keys/) ·
+  [Optimistic Concurrency with ETags](https://fideloper.com/etags-and-optimistic-concurrency-control) ·
+  [If-Match (http.dev)](https://http.dev/if-match).
 
 ### Produktivitet (2026-06-19)
 
