@@ -6,7 +6,7 @@ import { FaLock, FaSignOutAlt } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
 
 export default function AppLock() {
-    const { isAppLocked, setAppLocked, user, login, logout, autoLockTimeout, verifyAppLockPassword } = useStore();
+    const { isAppLocked, setAppLocked, user, login, logout, autoLockTimeout, verifyAppLockPassword, relockProtectedFolders } = useStore();
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [mounted, setMounted] = useState(false);
@@ -40,6 +40,19 @@ export default function AppLock() {
             if (timerRef.current) clearTimeout(timerRef.current);
         };
     }, [resetTimer, user]);
+
+    // Re-lock every password-protected folder when the tab/window is hidden (tab switch,
+    // minimise, OS app switch). A locked folder is the most sensitive surface, so leaving the
+    // app closes it without forcing a whole-app re-auth — parity with the mobile background
+    // re-lock. No-op when nothing is unlocked. See docs/LOCKED_FOLDER_SECURITY.md §2.
+    useEffect(() => {
+        if (typeof document === 'undefined') return;
+        const onVisibility = () => {
+            if (document.visibilityState === 'hidden') relockProtectedFolders();
+        };
+        document.addEventListener('visibilitychange', onVisibility);
+        return () => document.removeEventListener('visibilitychange', onVisibility);
+    }, [relockProtectedFolders]);
 
     const handleUnlock = async (e: React.FormEvent) => {
         e.preventDefault();

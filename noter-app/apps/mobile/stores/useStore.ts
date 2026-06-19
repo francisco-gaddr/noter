@@ -44,6 +44,7 @@ interface AppState {
   
   // UI Actions
   setActiveProject: (id: string | null) => void;
+  relockProtectedFolders: () => void;
   setViewMode: (mode: 'list' | 'tree') => void;
   /** Optimistically merge a freshly server-created note into state + local DB (for
    *  the AI chat, which creates notes via GraphQL — guarantees instant display even
@@ -455,6 +456,16 @@ export const useStore = create<AppState>((set, get) => ({
       set({ activeProjectId: id });
     }
     AsyncStorage.setItem('activeProjectId', id || '').catch(() => {});
+  },
+  relockProtectedFolders: () => {
+    // RE-LOCK ON APP BACKGROUND: a password-protected folder is the most sensitive surface,
+    // so leaving the app re-locks ALL of them at once (empties the unlock set + re-masks),
+    // without forcing a whole-app re-auth. Mirrors the navigation re-lock in setActiveProject.
+    // No-op (no re-render) when nothing is unlocked, so it is free on the common path.
+    const state = get();
+    if (!state.unlockedProtectedNoteIds || state.unlockedProtectedNoteIds.length === 0) return;
+    const reMasked = materializeNotesFromEncrypted(state.notes as any, new Set());
+    set({ unlockedProtectedNoteIds: [], notes: reMasked });
   },
   setToken: (token) => {
     set({ token });

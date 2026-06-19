@@ -55,6 +55,7 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
   const lastBackgroundAtRef = useRef<number | null>(null);
   const isMounted = useRef(false);
   const setSecurityLocked = useStore((s) => s.setSecurityLocked);
+  const relockProtectedFolders = useStore((s) => s.relockProtectedFolders);
 
   // Per-mount attempt log: timestamps of failed authenticate() calls.
   // We slide the window so successes earlier-this-minute don't keep counting.
@@ -216,13 +217,22 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
         AsyncStorage.setItem(LAST_BACKGROUND_KEY, now.toString()).catch(() => {});
       }
 
+      if (nextAppState === 'background') {
+        // Re-lock every password-protected folder the moment the app is TRULY backgrounded.
+        // Gated on 'background' (not transient 'inactive', e.g. the app-switcher peek or a
+        // system permission sheet) so a brief interruption doesn't force a password re-entry.
+        // The whole-app lock keeps its grace window for convenience; the sensitive folders do
+        // not inherit it. No-op when nothing is unlocked. See docs/LOCKED_FOLDER_SECURITY.md §2.
+        relockProtectedFolders();
+      }
+
       appState.current = nextAppState;
     });
 
     return () => {
       subscription.remove();
     };
-  }, [lockTiming, setSecurityLocked]);
+  }, [lockTiming, setSecurityLocked, relockProtectedFolders]);
 
   // Effect to trigger auth when locked becomes true
   useEffect(() => {

@@ -355,6 +355,7 @@ interface StoreState {
   selectedTaskListId: string | null;
   activeProjectId: string | null;
   setActiveProject: (id: string | null) => void;
+  relockProtectedFolders: () => void;
   isLoading: boolean;
   isOffline: boolean;
   error: string | null;
@@ -426,6 +427,16 @@ export const useStore = create<StoreState>((set, get) => ({
       set({ activeProjectId: id });
     }
     localStorage.setItem('activeProjectId', id || '');
+  },
+  relockProtectedFolders: () => {
+    // RE-LOCK ON TAB HIDE: a password-protected folder is the most sensitive surface, so
+    // switching away from the tab/window re-locks ALL of them at once (empties the unlock set
+    // + re-masks), without forcing a whole-app re-auth. Mirrors setActiveProject's re-lock.
+    // No-op (no re-render) when nothing is unlocked, so it is free on the common path.
+    const state = get();
+    if (!state.unlockedProtectedNoteIds || state.unlockedProtectedNoteIds.length === 0) return;
+    const reMasked = materializeNotesFromEncrypted(state.notes as any, new Set());
+    set({ unlockedProtectedNoteIds: [], notes: reMasked });
   },
   language: 'sv',
   setLanguage: (lng) => {

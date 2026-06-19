@@ -106,6 +106,34 @@ describe('Web Store', () => {
     expect(useStore.getState().activeProjectId).toBe('project-123');
   });
 
+  // SECURITY: leaving the app (tab hidden) must re-lock every unlocked protected folder, so a
+  // note inside a locked folder re-masks and cannot be read without re-entering the password.
+  it('relockProtectedFolders re-locks unlocked folders and re-masks their notes (idempotent)', () => {
+    const lockedFolder = { _id: 'lf', type: 'project', locked: true, title: 'Hemlig mapp', parentId: null };
+    const child = { _id: 'c1', type: 'note', parentId: 'lf', title: 'Hemlig text', content: 'topphemligt' };
+    act(() => {
+      useStore.setState({ notes: [lockedFolder, child] as any, unlockedProtectedNoteIds: ['lf'] });
+    });
+
+    act(() => {
+      useStore.getState().relockProtectedFolders();
+    });
+
+    const state = useStore.getState();
+    expect(state.unlockedProtectedNoteIds).toEqual([]);
+    const masked = state.notes.find((n) => n._id === 'c1') as any;
+    expect(masked.title).toBe('Låst anteckning');
+    expect(masked.content).toBe('');
+
+    // Idempotent + free: a second call when nothing is unlocked is a no-op (no new array).
+    const before = useStore.getState().notes;
+    act(() => {
+      useStore.getState().relockProtectedFolders();
+    });
+    expect(useStore.getState().notes).toBe(before);
+    expect(useStore.getState().unlockedProtectedNoteIds).toEqual([]);
+  });
+
   it('should restore active project selection from localStorage on hydrate', () => {
     localStorage.setItem('activeProjectId', 'project-abc');
     localStorage.setItem('user', JSON.stringify({ _id: '1', username: 'test' }));
