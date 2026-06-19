@@ -241,9 +241,11 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
   marginal eller skicka system-prompt-längden in. _(Låg risk — nuvarande budget under-fyller redan.)_
 - **Custom-provider URL-validering (Hermes)** · `apps/mobile/services/ai/apiProviders.ts:145-152` ·
   **E:S** · Validera schema+host; valfri test-connection vid sparande.
-- **Vector dimension-mismatch vid modellbyte** · `packages/shared/src/vectorSearch.ts:35-46` · **E:S** ·
-  `cosineSimilarity` trunkerar tyst till `min(len)` → meningslösa scores om man byter embed-modell.
-  Lagra `dims` i index-metadata, validera/varna.
+- ✅ **[KLAR 2026-06-19] Vector dimension-mismatch vid modellbyte** · `packages/shared/src/vectorSearch.ts` ·
+  `cosineSimilarity` returnerar nu **0** vid dimensions-mismatch (i stället för att trunkera till
+  `min(len)` → garbage), så inkompatibla vektorer exkluderas och söket faller rent tillbaka till
+  lexikalt tills indexet byggts om. 2 tester. **Kvar (P2):** lagra `dims`/`provider` i index-metadata
+  + auto-trigga ombyggnad vid modellbyte (i dag re-embeddas allt vid nästa index-körning).
 - **Index size-cap + eviction** · `packages/shared/src/vectorStore.ts:39-42` · **E:M** · Obegränsad
   tillväxt → storage-tak + O(n) sök vid 10k+ noter. `maxIndexSize` + LRU på `lastUpdated`.
 - **Partial-batch-atomicitet i indexering** · `apps/{web,mobile}/services/ai/embeddingsService.ts` ·
@@ -347,6 +349,15 @@ Externa best-practice-/trend-källor som styr besluten ovan. Uppdatera när ny r
 - **Källor:** [On Idempotency Keys (Morling)](https://www.morling.dev/blog/on-idempotency-keys/) ·
   [Optimistic Concurrency with ETags](https://fideloper.com/etags-and-optimistic-concurrency-control) ·
   [If-Match (http.dev)](https://http.dev/if-match).
+
+### RAG / vektor-index (2026-06-19)
+
+- **Embeddings-modellbyte (vektor-DB-praxis):** lagra provider + modellnamn + **dimension** som
+  metadata bredvid indexet; upptäck mismatch och **jämför aldrig inkompatibla vektorer** (olika
+  modell/dim = garbage similarity, inte ett truncate). → Vi gör `cosineSimilarity` dimensions-säker
+  (0 vid mismatch). Kvar (P2): persistera dims/provider + auto-ombyggnad.
+- **Källor:** [Vector dimension mismatch (Pappas/Qdrant)](https://medium.com/@epappas/dealing-with-vector-dimension-mismatch-my-experience-with-openai-embeddings-and-qdrant-vector-20a6e13b6d9f) ·
+  [auto-detect embedding model change](https://github.com/volcengine/OpenViking/issues/1066).
 
 ### Produktivitet (2026-06-19)
 
