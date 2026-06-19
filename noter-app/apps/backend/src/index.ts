@@ -34,6 +34,7 @@ import adminRoutes from './routes/admin';
 import cspReportRoutes from './routes/cspReport';
 import keyBundleRoutes from './routes/keyBundle';
 import apiKeysRoutes from './routes/apiKeys';
+import accountRoutes from './routes/account';
 import { authMiddleware, extractTenantClaims, getBearerTokenFromRequestLike, getUserIdFromDecodedToken } from './middleware/authMiddleware';
 import { errorHandler } from './middleware/errorMiddleware';
 import { blockSuspiciousRequestPatterns, enforceJsonApiRequests } from './middleware/requestSecurity';
@@ -488,6 +489,8 @@ const aiSyncBodyLimit = express.json({ limit: '2mb' });
 app.use('/api/auth', authLimiter, authBodyLimit, authRoutes);
 app.use('/api/keys', apiSensitiveLimiter, authMiddleware, keyBundleRoutes);
 app.use('/api/keys', apiSensitiveLimiter, authMiddleware, apiKeysRoutes);
+// GDPR: data export (access/portability) + account deletion (erasure). Sensitive + audited.
+app.use('/api/account', apiSensitiveLimiter, authMiddleware, auditLog(), accountRoutes);
 app.use('/api/notes', authMiddleware, conditionalGet(), idempotency(), auditLog(), noteRoutes);
 app.use('/api/tasks', authMiddleware, conditionalGet(), idempotency(), auditLog(), taskRoutes);
 app.use('/api/ai/models', aiModelRoutes);

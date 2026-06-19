@@ -97,6 +97,12 @@ jobs:
       - name: AI search & semantic retrieval — RAG correctness (blocking)
         run: |
           (cd packages/shared && npx jest vectorSearch retrieval vectorStore embeddings graphModel agentSearch contextLevels)
+      # GDPR account data-export (access/portability) + deletion (erasure). Destructive + security-
+      # sensitive: export must be COMPLETE (every user-keyed collection) yet leak NO secrets, and
+      # both export and delete must be strictly own-data-only (IDOR) and gated by confirmation.
+      - name: GDPR account export/delete (blocking)
+        run: |
+          (cd apps/backend && npx jest __tests__/routes/account.test.ts)
       - name: No dead files (knip --include files)
         run: npm run knip:files
 
