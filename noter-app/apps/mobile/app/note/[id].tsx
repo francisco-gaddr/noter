@@ -617,7 +617,11 @@ export default function NoteEditorScreen() {
               leadingIcon={existingNote?.locked ? "lock-open" : "lock"} 
             />
           )}
-          {!isNew && !existingNote?.locked && (
+          {/* SECURITY: off-device exports/shares are gated on the HIERARCHICAL lock state
+              (blockingLockedAncestor), not just the note's own `locked` flag — a note inside a
+              locked folder must not be exportable, and we pass the real lock state to the
+              exporter so its LockedNoteExportError guard isn't defeated by a hardcoded false. */}
+          {!isNew && !blockingLockedAncestor && (
             <Menu.Item
               onPress={async () => {
                 setShowMenu(false);
@@ -632,14 +636,14 @@ export default function NoteEditorScreen() {
                     : tiptapJsonToHtml(existingNote?.content as any),
                   createdAt: existingNote?.createdAt as any,
                   updatedAt: existingNote?.updatedAt as any,
-                  locked: false,
+                  locked: !!blockingLockedAncestor,
                 });
               }}
               title="Share as PDF"
               leadingIcon="file-pdf-box"
             />
           )}
-          {!isNew && !existingNote?.locked && (
+          {!isNew && !blockingLockedAncestor && (
             <Menu.Item
               onPress={async () => {
                 setShowMenu(false);
@@ -649,14 +653,14 @@ export default function NoteEditorScreen() {
                   content: typeof existingNote?.content === 'string' ? existingNote.content : '',
                   createdAt: existingNote?.createdAt as any,
                   updatedAt: existingNote?.updatedAt as any,
-                  locked: false,
+                  locked: !!blockingLockedAncestor,
                 });
               }}
               title="Share as Markdown"
               leadingIcon="language-markdown"
             />
           )}
-          {!isNew && !existingNote?.locked && (
+          {!isNew && !blockingLockedAncestor && (
             <Menu.Item
               onPress={() => { setShowMenu(false); setShowMdShare(true); }}
               title="Dela externt (Markdown-synk)"
