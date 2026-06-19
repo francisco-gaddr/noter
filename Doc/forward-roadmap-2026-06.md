@@ -190,10 +190,12 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
   `apps/backend/src/models/McpAuditLog.ts` · **E:M R:high** · Loggar ligger i samma Mongo som
   userdata; DB-admin kan ändra dem oupptäckt. Hash-kedja (SHA256 av föreg.+payload), separat
   read-only-sink, 90+ d retention.
-- **Env-validering vid startup + secrets-rotation** 🔒 INV · `apps/backend/src/index.ts`,
-  `apps/backend/src/utils/jwtKeySet.ts` · **E:M R:high** · 9+ env-vars utan validering → startar i
-  degraderat läge utan larm; `JWT_SECRET` kan inte roteras utan full omstart. Zod-schema (fail-fast)
-  + hot-swap-bar JWT-nyckel + CI-koll att `.env` inte committas.
+- ✅ **[KLAR 2026-06-19] Env-validering vid startup** 🔒 INV · `apps/backend/src/utils/validateEnv.ts`,
+  `apps/backend/src/index.ts` · Ren `validateBackendEnv` körs vid boot: fatal (endast prod) bara för
+  "ingen JWT-signeringsnyckel alls" (annars bara runtime-fel vid första login); loud warning för
+  svagt/placeholder `JWT_SECRET`, saknad `MONGO_URI`/`REDIS_URL` i prod (noterar rate-limit/lockout-
+  degradering), och oparsbara numeriska vars. 8 tester, blockerande grind. **Kvar (P1/P2):** JWT-nyckel-
+  rotation utan omstart (hot-swap) + CI-koll att `.env` inte committas (secret-scanning, se nedan).
 
 ---
 
