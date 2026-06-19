@@ -128,6 +128,9 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
   `sweepExpiredFolderKeys()` för en idle-tick. `clearAllFolderKeys()` är redan inkopplad på
   logout/projekt-byte. 5 tester. **Kvar (P2):** proaktivt `sweep`/`clearAllFolderKeys` även på
   app-background-event i båda apparna (lazy eviction täcker säkerheten; detta frigör minne tidigare).
+- ✅ **[KLAR 2026-06-19] Deploy-lösenord ur env** · `deploy_pi.py` läser nu `PI_DEPLOY_PASSWORD`
+  (literal borttagen). **Kvar:** rotera det redan-exponerade lösenordet (finns i git-historik) +
+  byt till SSH-nyckel-auth (separat task).
 - ✅ **[KLAR 2026-06-19] Låslösenord: bcrypt cost 10 → 12** · `apps/backend/src/routes/notes.ts` ·
   `LOCK_PASSWORD_BCRYPT_COST = 12` (OWASP 2025). Befintliga hashar verifierar fortfarande; en
   om-låsning uppgraderar dem. _(GraphQL-fältet `password` togs bort separat.)_ **Kvar (P2):**
@@ -203,10 +206,14 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
   export och radering konsumerar det (kan aldrig driva isär). Export ger E2E-ciphertext as-is +
   keyBundle (klient dekrypterar lokalt), **inga secrets**; radering är hard-delete bekräftad med
   användarnamn + audit-loggad. Strikt egen-data (IDOR). 7 tester, namngiven blockerande CI-grind.
-- **Audit-logg ej immutable/tamper-evident** 🔒 INV · `apps/backend/src/middleware/auditLog.ts`,
-  `apps/backend/src/models/McpAuditLog.ts` · **E:M R:high** · Loggar ligger i samma Mongo som
-  userdata; DB-admin kan ändra dem oupptäckt. Hash-kedja (SHA256 av föreg.+payload), separat
-  read-only-sink, 90+ d retention.
+- ✅ **[KLAR 2026-06-19] Audit-logg tamper-evident (HMAC-hash-kedja)** 🔒 INV ·
+  `apps/backend/src/{utils/auditChain.ts,middleware/auditLog.ts}` · Ren `auditChain` (canonicalJson +
+  `auditChainHash` HMAC-SHA256 + `verifyAuditChain`) + inkoppling i `_audit_log`: varje post får
+  `seq`+`prevHash`+`hash`, serialiserad in-process. Nyckeln (`AUDIT_HMAC_KEY`, fallback `JWT_SECRET`)
+  ligger UTANFÖR DB:n → en DB-angripare kan inte ändra/radera/förfalska en post utan att bryta kedjan
+  (verifierbart). 6 rena tester + mongo-backad integrationstest (upptäcker DB-tamper). Namngiven
+  blockerande CI-grind. `validateEnv` varnar om dedikerad nyckel saknas. **Kvar (P2/P3):** kedja även
+  MCP-audit-loggen (samma helper), periodisk Merkle-anchoring, 90+d retention, separat read-only-sink.
 - ✅ **[KLAR 2026-06-19] Env-validering vid startup** 🔒 INV · `apps/backend/src/utils/validateEnv.ts`,
   `apps/backend/src/index.ts` · Ren `validateBackendEnv` körs vid boot: fatal (endast prod) bara för
   "ingen JWT-signeringsnyckel alls" (annars bara runtime-fel vid första login); loud warning för
