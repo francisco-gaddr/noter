@@ -680,10 +680,14 @@ export const useStore = create<StoreState>((set, get) => ({
     if (!get().token) return;
     connectSocket();
     
+    // Single 'connect' handler: clear the offline flag AND flush the offline queue. (There
+    // used to be a SECOND `socket.off('connect'); socket.on('connect', ...)` below that only
+    // set isOffline=false — its `off('connect')` silently removed THIS handler, so
+    // syncOfflineChanges never ran on reconnect and queued offline edits stalled.)
     socket.off('connect');
     socket.on('connect', () => {
-      console.log('Connected to socket server');
-      get().syncOfflineChanges(); // Try to sync when reconnected
+      set({ isOffline: false });
+      get().syncOfflineChanges(); // flush queued offline changes on (re)connect
     });
 
     socket.off('note:active-users');
@@ -707,9 +711,6 @@ export const useStore = create<StoreState>((set, get) => ({
 
     socket.off('disconnect');
     socket.on('disconnect', () => { /* silent — socket.io auto-reconnects; REST still works */ });
-
-    socket.off('connect');
-    socket.on('connect', () => { set({ isOffline: false }); });
 
     // Change-stream fallback: any DB write the user owns emits cache:invalidate.
     // Coalesce bursts and refetch so AI-agent / other-device writes that didn't arrive

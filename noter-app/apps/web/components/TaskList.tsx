@@ -240,7 +240,11 @@ export default function TaskList() {
             if (savedView) setViewMode(savedView as any);
 
             const savedFilterRange = localStorage.getItem('taskFilterDateRange');
-            if (savedFilterRange) setFilterDateRange(JSON.parse(savedFilterRange));
+            // Guard JSON.parse: a corrupted/edited localStorage value must not throw and
+            // white-screen the tasks tab on mount.
+            if (savedFilterRange) {
+              try { setFilterDateRange(JSON.parse(savedFilterRange)); } catch { /* ignore corrupted value */ }
+            }
 
             const savedQuickFilter = localStorage.getItem('taskQuickFilter');
             if (savedQuickFilter) setQuickFilter(savedQuickFilter);
