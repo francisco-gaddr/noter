@@ -1,4 +1,4 @@
-import { planIngest, parseNoteSource, ingestProvenanceHeader, type IngestEntry, type SyncedNoteRef } from './fileIngest';
+import { planIngest, parseNoteSource, ingestProvenanceHeader, normalizeEtag, remoteChangedSinceSync, type IngestEntry, type SyncedNoteRef } from './fileIngest';
 
 const entry = (path: string, isCollection: boolean, etag: string, mime = ''): IngestEntry => ({
   path, name: path.split('/').pop() || path, isCollection, etag, mimeType: mime, lastModified: '',
@@ -111,5 +111,29 @@ describe('fileIngest helpers', () => {
     const h = ingestProvenanceHeader({ origin: 'nextcloud', connectionId: 'c', remotePath: 'Research/x.pdf', remoteEtag: 'e', mimeType: 'application/pdf' });
     expect(h).toContain('Research/x.pdf');
     expect(h).toContain('Nextcloud');
+  });
+});
+
+describe('normalizeEtag', () => {
+  it('strips a weak-validator prefix and surrounding quotes', () => {
+    expect(normalizeEtag('"abc123"')).toBe('abc123');
+    expect(normalizeEtag('W/"abc123"')).toBe('abc123');
+    expect(normalizeEtag(' "abc" ')).toBe('abc');
+    expect(normalizeEtag(undefined)).toBe('');
+  });
+});
+
+describe('remoteChangedSinceSync (optimistic concurrency for the two-way push)', () => {
+  it('true when the remote etag differs from the last-synced etag (would clobber a remote edit)', () => {
+    expect(remoteChangedSinceSync('"v2"', 'v1')).toBe(true);
+  });
+  it('false when they match (quoting/weak-prefix differences are ignored)', () => {
+    expect(remoteChangedSinceSync('"v1"', 'v1')).toBe(false);
+    expect(remoteChangedSinceSync('W/"v1"', '"v1"')).toBe(false);
+  });
+  it('false when either side is unknown — never blocks a first upload or a folder', () => {
+    expect(remoteChangedSinceSync('', 'v1')).toBe(false);
+    expect(remoteChangedSinceSync('v2', '')).toBe(false);
+    expect(remoteChangedSinceSync(undefined, undefined)).toBe(false);
   });
 });

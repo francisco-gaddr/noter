@@ -190,3 +190,25 @@ export const toSyncedRef = (n: Note & { source?: unknown }): SyncedNoteRef => ({
   type: n.type,
   source: parseNoteSource((n as any).source),
 });
+
+/** Normalize a WebDAV ETag for comparison: drop a weak-validator `W/` prefix + surrounding quotes. */
+export const normalizeEtag = (etag: string | null | undefined): string =>
+  (etag || '').trim().replace(/^W\//i, '').replace(/^"+|"+$/g, '');
+
+/**
+ * Optimistic-concurrency check for a two-way WebDAV push: has the remote file changed since we last
+ * synced it? Compares the freshly-enumerated remote ETag against the ETag we recorded at the last
+ * sync. Returns `false` when either side is unknown (no baseline to protect — e.g. a first upload or
+ * a folder), so a legitimate push is never blocked. When it returns `true`, pushing the local edit
+ * would silently clobber the remote change — the caller must skip the overwrite (lost-update
+ * prevention; HTTP If-Match/412 semantics applied with already-fetched ETags, no extra request).
+ */
+export const remoteChangedSinceSync = (
+  currentEtag: string | null | undefined,
+  lastSyncedEtag: string | null | undefined,
+): boolean => {
+  const a = normalizeEtag(currentEtag);
+  const b = normalizeEtag(lastSyncedEtag);
+  if (!a || !b) return false;
+  return a !== b;
+};

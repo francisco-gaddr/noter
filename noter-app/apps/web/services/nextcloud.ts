@@ -37,6 +37,7 @@ import {
   fetchWithRetry,
   buildSecurityNoteMap,
   isReadableForAI,
+  remoteChangedSinceSync,
   type WebdavConnection,
   type WebdavEntry,
   type IngestEntry,
@@ -238,14 +239,30 @@ const htmlToPlainText = (html: string): string => {
     .trim();
 };
 
-/** OUTBOUND (two-way): push local edits of editable text/md notes back to Nextcloud. */
-const pushLocalEditsForConnection = async (conn: WebdavConnection): Promise<number> => {
+/**
+ * OUTBOUND (two-way): push local edits of editable text/md notes back to Nextcloud.
+ *
+ * Optimistic concurrency (lost-update prevention): before overwriting a remote file we compare its
+ * last-synced ETag against the CURRENT remote ETag. If the remote changed since our last sync,
+ * pushing would silently clobber that change — so we SKIP the push and record the path in
+ * `conflicts` (the caller also skips the inbound overwrite, leaving BOTH versions intact for the
+ * user to reconcile, rather than silently destroying one). `remoteEtagByPath` is the caller's
+ * freshly-enumerated map; when absent (the standalone push-all path) we enumerate once ourselves.
+ */
+const pushLocalEditsForConnection = async (
+  conn: WebdavConnection,
+  remoteEtagByPath?: Map<string, string>,
+  conflicts?: Set<string>,
+): Promise<number> => {
   const store: any = useStore.getState();
   const notes: Note[] = store.notes || [];
   // SECURITY: never push a locked note (or a note under a locked folder) back to the remote
   // WebDAV server, even one the user has momentarily unlocked in the UI. Lock-check with the
   // EMPTY unlock set (isReadableForAI), mirroring the markdown-share/Neo4j outbound paths.
   const noteMap = buildSecurityNoteMap(notes as any);
+  const etagMap = remoteEtagByPath ?? new Map(
+    (await enumerateAll(conn).catch(() => [] as IngestEntry[])).map((e) => [e.path, e.etag || ''] as const),
+  );
   let pushed = 0;
   for (const n of notes) {
     if (n.deleted) continue;
@@ -257,6 +274,11 @@ const pushLocalEditsForConnection = async (conn: WebdavConnection): Promise<numb
     const body = htmlToPlainText(n.content || '');
     const hash = embeddingContentHash(body);
     if (src.contentHash && src.contentHash === hash) continue;
+    // Lost-update guard: the remote changed since our last sync → skip the push (don't clobber it).
+    if (remoteChangedSinceSync(etagMap.get(src.remotePath), src.remoteEtag)) {
+      conflicts?.add(src.remotePath);
+      continue;
+    }
     try {
       const newEtag = await putText(conn, src.remotePath, body);
       await api.updateNote(n._id, { source: { ...src, remoteEtag: newEtag || src.remoteEtag, contentHash: hash, syncedAt: new Date().toISOString() } } as any);
@@ -305,7 +327,7 @@ const toIngest = (e: WebdavEntry): IngestEntry => ({
 
 const decodeText = (buf: ArrayBuffer): string => new TextDecoder('utf-8').decode(buf).slice(0, TEXT_CAP);
 
-export interface SyncResult { created: number; updated: number; deleted: number; pushed?: number; ok: boolean; error?: string }
+export interface SyncResult { created: number; updated: number; deleted: number; pushed?: number; conflicts?: number; ok: boolean; error?: string }
 
 const inFlightSync = new Set<string>();
 export const syncConnection = async (connectionId: string): Promise<SyncResult> => {
@@ -323,9 +345,12 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
   try { entries = await enumerateAll(conn); }
   catch (e: any) { return { created: 0, updated: 0, deleted: 0, ok: false, error: e?.message || 'Sync misslyckades' }; }
 
-  // OUTBOUND first (two-way): push local edits of editable text/md notes back to Nextcloud.
+  // OUTBOUND (two-way): push local edits back to Nextcloud, guarded by optimistic concurrency
+  // against the just-enumerated remote ETags so a push can't silently clobber a remote edit.
+  const remoteEtagByPath = new Map(entries.map((e) => [e.path, e.etag || ''] as const));
+  const conflicts = new Set<string>();
   let pushed = 0;
-  try { pushed = await pushLocalEditsForConnection(conn); } catch { /* non-fatal */ }
+  try { pushed = await pushLocalEditsForConnection(conn, remoteEtagByPath, conflicts); } catch { /* non-fatal */ }
 
   const plan = planIngest(entries, existingRefs, connectionId, new Date().toISOString());
   const targetFolderId = await resolveTargetFolderId();
@@ -382,6 +407,10 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
     } catch { /* continue */ }
   }
   for (const u of plan.updates) {
+    // Conflict: this file was edited BOTH locally (so the push was skipped above) AND remotely.
+    // Don't pull the remote version over the local edit either — leave both intact for the user to
+    // reconcile (non-destructive; the alternative would silently lose the local edit).
+    if (conflicts.has(u.source.remotePath)) continue;
     const body = await extract(u.source.remotePath, u.title, u.source.mimeType);
     try { await api.updateNote(u.noteId, { content: body, source: stampSource(u.source, body) } as any); updated += 1; } catch { /* */ }
   }
@@ -396,8 +425,12 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
     await indexEntities(s2.notes || [], s2.tasks || [], new Set<string>());
   } catch { /* best-effort */ }
 
+  if (conflicts.size > 0) {
+    // Surface (don't silently swallow) concurrent local+remote edits so they can be reconciled.
+    try { console.warn('[nextcloud] sync conflicts — push + inbound skipped for', Array.from(conflicts)); } catch { /* */ }
+  }
   saveConnection({ ...conn, lastSyncAt: new Date().toISOString() });
-  return { created, updated, deleted, pushed, ok: true };
+  return { created, updated, deleted, pushed, conflicts: conflicts.size, ok: true };
   } finally { inFlightSync.delete(connectionId); }
 };
 
