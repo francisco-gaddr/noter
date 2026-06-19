@@ -195,8 +195,9 @@ som persisterar bundlen via Fas 2.6), `unlockFolder(folderId, password)` (→ `u
 `FolderUnlockError` (fel lösenord) propageras till anroparen. Tester: enrol sätter sessions-FK +
 persisterar bundle; unlock med rätt lösen återställer nyckeln, fel lösen → `FolderUnlockError` (förblir
 låst). (`preferred`-param låter test använda snabb PBKDF2; UI:t kör argon2id.) Mobil-storen har nu samma
-tre actions (Fas 3.4, mobil seal-väg är inline i storen): web store-suite 18/18, mobil 23/23. **Kvar:**
-bara UI-skalet (nedan).
+tre actions (Fas 3.4, mobil seal-väg är inline i storen). Alla tre actions (enrol/unlock/byt-lösen) är
+testade i BÅDA apparna inkl. lösenordsbyte (Fas 3.5: ny salt+wrapper, samma nyckel, gammalt lösen dött,
+fel gammalt lösen avvisas): web store-suite 19/19, mobil 24/24. **Kvar:** bara UI-skalet (nedan).
 
 **Två buggar hittade + fixade när enrol-vägen byggdes:**
 1. **Mappens eget namn fick inte sealas under sin egen nyckel.** Skriv-update resolvade tidigare nyckeln

@@ -313,6 +313,33 @@ describe('Web Store', () => {
       clearAllFolderKeys();
   });
 
+  it('changeFolderPassword rotates the bundle, keeps the same key, and invalidates the old password', async () => {
+      const { api } = require('../services/api');
+      const { clearAllFolderKeys, getFolderKey, setFolderKey, createFolderKey, serializeFolderKeyBundle, deserializeFolderKeyBundle, unlockFolderKey, FolderUnlockError } = require('@repo/shared');
+      clearAllFolderKeys();
+      // A folder already enrolled under 'gammalt' and unlocked in the session.
+      const { bundle, folderKey } = await createFolderKey('gammalt', 'pbkdf2-sha256');
+      setFolderKey('cf', folderKey);
+      useStore.setState({ notes: [{ _id: 'cf', title: 'Hemlig mapp', content: '', type: 'project', locked: true, parentId: null, folderKeyBundle: serializeFolderKeyBundle(bundle) }] as any });
+      // updateNote echoes back whatever bundle was persisted (so the local note tracks the rotation).
+      api.updateNote.mockImplementation((_id: string, data: any) => Promise.resolve({ _id: 'cf', title: 'Hemlig mapp', content: '', type: 'project', folderKeyBundle: data.folderKeyBundle }));
+      const keyBefore = Array.from(getFolderKey('cf') as Uint8Array);
+
+      await act(async () => {
+          await useStore.getState().changeFolderPassword('cf', 'gammalt', 'nytt', 'pbkdf2-sha256');
+      });
+
+      const newBundle = api.updateNote.mock.calls.filter((c: any[]) => c[0] === 'cf').pop()[1].folderKeyBundle;
+      expect(newBundle).not.toEqual(serializeFolderKeyBundle(bundle)); // fresh salt + wrapper
+      expect(Array.from(getFolderKey('cf') as Uint8Array)).toEqual(keyBefore); // same key — no note re-encrypted
+      await expect(unlockFolderKey('gammalt', deserializeFolderKeyBundle(newBundle))).rejects.toBeInstanceOf(FolderUnlockError); // old password is dead
+      expect(Array.from(await unlockFolderKey('nytt', deserializeFolderKeyBundle(newBundle)))).toEqual(keyBefore); // new password opens the same key
+
+      // A wrong OLD password must reject without re-keying.
+      await expect(useStore.getState().changeFolderPassword('cf', 'fel-gammalt', 'annat', 'pbkdf2-sha256')).rejects.toBeInstanceOf(FolderUnlockError);
+      clearAllFolderKeys();
+  });
+
   // Regression: the create-response can OMIT or return `type` still-encrypted. The store must
   // trust the type WE requested, else a new task_list/project classifies as a plain 'note' and
   // vanishes from the Tasks view + the project-folder dropdown (the recurring Electron bug).

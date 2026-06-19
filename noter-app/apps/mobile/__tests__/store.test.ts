@@ -207,6 +207,31 @@ describe('Mobile Store', () => {
     clearAllFolderKeys();
   });
 
+  it('changeFolderPassword rotates the bundle, keeps the same key, and invalidates the old password', async () => {
+    const { fetchWithAuth } = require('../services/api');
+    const { clearAllFolderKeys, getFolderKey, setFolderKey, createFolderKey, serializeFolderKeyBundle, deserializeFolderKeyBundle, unlockFolderKey, FolderUnlockError } = require('@repo/shared');
+    clearAllFolderKeys();
+    const { bundle, folderKey } = await createFolderKey('gammalt', 'pbkdf2-sha256');
+    setFolderKey('cf', folderKey);
+    useStore.setState({ notes: [{ _id: 'cf', type: 'project', locked: true, title: 'Hemlig mapp', content: '', parentId: null, folderKeyBundle: serializeFolderKeyBundle(bundle) }] as any });
+    // PUT echoes back the persisted bundle so the local note tracks the rotation.
+    fetchWithAuth.mockImplementation((_url: string, opts: any) => Promise.resolve({ _id: 'cf', title: 'Hemlig mapp', content: '', type: 'project', folderKeyBundle: JSON.parse(opts.body).folderKeyBundle }));
+    const keyBefore = Array.from(getFolderKey('cf') as Uint8Array);
+
+    await useStore.getState().changeFolderPassword('cf', 'gammalt', 'nytt', 'pbkdf2-sha256');
+
+    const put = (fetchWithAuth as jest.Mock).mock.calls.filter((c: any[]) => c[0] === '/notes/cf' && c[1]?.method === 'PUT').pop();
+    const newBundle = JSON.parse(put[1].body).folderKeyBundle;
+    expect(newBundle).not.toEqual(serializeFolderKeyBundle(bundle)); // fresh salt + wrapper
+    expect(Array.from(getFolderKey('cf') as Uint8Array)).toEqual(keyBefore); // same key — no note re-encrypted
+    await expect(unlockFolderKey('gammalt', deserializeFolderKeyBundle(newBundle))).rejects.toBeInstanceOf(FolderUnlockError); // old password dead
+    expect(Array.from(await unlockFolderKey('nytt', deserializeFolderKeyBundle(newBundle)))).toEqual(keyBefore); // new password opens the same key
+
+    // A wrong OLD password must reject without re-keying.
+    await expect(useStore.getState().changeFolderPassword('cf', 'fel-gammalt', 'annat', 'pbkdf2-sha256')).rejects.toBeInstanceOf(FolderUnlockError);
+    clearAllFolderKeys();
+  });
+
   it('should unlock and load data on login when security lock is active', async () => {
     const { login, fetchWithAuth } = require('../services/api');
     const encryptedNow = encrypt(new Date().toISOString());

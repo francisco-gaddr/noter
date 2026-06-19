@@ -226,7 +226,8 @@ garantier. Varje punkt är additiv — invarianterna i §7 måste fortsatt håll
 
    - **Enrol-store-actions wired i BÅDA apparna (Fas 3.3 web + 3.4 mobil):** `enrolFolderPassword` /
      `unlockFolder` / `changeFolderPassword` — den testade glue:n mellan UI och shared-orkestreringen
-     (sätter sessions-FK, persisterar bundlen via Fas 2.6, re-materialiserar). Web 18/18, mobil 23/23.
+     (sätter sessions-FK, persisterar bundlen via Fas 2.6, re-materialiserar). Alla tre actions testade i
+     båda apparna inkl. lösenordsbyte (ny salt+wrapper, samma nyckel, gammalt lösen dött). Web 19/19, mobil 24/24.
      Två buggar hittade + fixade på vägen: (i) en krypto-mapps **eget namn** sealades inte längre under sin
      egen nyckel (update resolvar nu nyckeln från `parentId`, inte noten själv, i båda apparna — annars
      doldes mappnamnet när mappen låstes), och (ii) `FolderUnlockError instanceof` (som UI:t fångar på)
