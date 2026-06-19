@@ -4,6 +4,7 @@ import {
   computeBackoffMs,
   fetchWithRetry,
   TimeoutError,
+  withTimeout,
 } from './httpRetry';
 
 type FakeResponse = { ok: boolean; status: number; headers: { get: (k: string) => string | null }; body?: { cancel?: () => void } };
@@ -119,5 +120,27 @@ describe('fetchWithRetry', () => {
       fetchWithRetry('u', {}, { fetchImpl, signal: controller.signal, sleep: instantSleep }),
     ).rejects.toBeTruthy();
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+describe('withTimeout', () => {
+  it('resolves with the value when the promise wins the race', async () => {
+    await expect(withTimeout(Promise.resolve('ok'), 1000)).resolves.toBe('ok');
+  });
+
+  it('rejects with a TimeoutError when the deadline is hit first', async () => {
+    const hang = new Promise<string>(() => { /* never settles */ });
+    await expect(withTimeout(hang, 10)).rejects.toBeInstanceOf(TimeoutError);
+  });
+
+  it('fires onTimeout so the caller can signal cooperative cancellation', async () => {
+    let aborted = false;
+    const hang = new Promise<string>(() => {});
+    await expect(withTimeout(hang, 10, () => { aborted = true; })).rejects.toBeInstanceOf(TimeoutError);
+    expect(aborted).toBe(true);
+  });
+
+  it('propagates the underlying rejection unchanged (not masked as a timeout)', async () => {
+    await expect(withTimeout(Promise.reject(new Error('boom')), 1000)).rejects.toThrow('boom');
   });
 });

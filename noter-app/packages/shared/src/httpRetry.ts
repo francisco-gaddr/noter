@@ -86,6 +86,24 @@ export class TimeoutError extends Error {
   }
 }
 
+/**
+ * Race any promise against a wall-clock deadline. Rejects with a TimeoutError after `ms`, firing the
+ * optional `onTimeout` first (best-effort) so the caller can signal cooperative cancellation to the
+ * still-running work (e.g. flip an isAborted flag the agent loop polls). The underlying promise isn't
+ * forcibly cancelled — JS can't — but control returns immediately so the caller can release resources.
+ * Generic + dependency-free so every "could hang forever" path can reuse it instead of re-implementing.
+ */
+export const withTimeout = <T>(promise: Promise<T>, ms: number, onTimeout?: () => void): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      try { onTimeout?.(); } catch { /* best-effort */ }
+      reject(new TimeoutError(`operation timed out after ${ms} ms`));
+    }, ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => { if (timer) clearTimeout(timer); }) as Promise<T>;
+};
+
 /** An AbortError that does not depend on DOMException (absent in Hermes/React Native). */
 const makeAbortError = (reason?: unknown): Error => {
   if (reason instanceof Error) return reason;

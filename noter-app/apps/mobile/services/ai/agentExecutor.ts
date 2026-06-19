@@ -34,6 +34,8 @@ import {
   isReadableWithLocks,
   AI_INDEX_NO_UNLOCK,
   agentSearchNotes,
+  withTimeout,
+  TimeoutError,
 } from '@repo/shared';
 import { runAgentTask, type AgentAccess, type ChatMessage } from '@repo/ai';
 import { API_PROVIDERS, generateApiProviderResponse, type ApiProviderType } from './apiProviders';
@@ -44,6 +46,11 @@ import { patchDelegation, setRunLogEntry } from './agentDelegations';
 import { recordToolUse } from './usageTracker';
 import { useStore } from '@/stores/useStore';
 import { resolveAiNoteParentId, resolveAiTaskParentId } from './placement';
+
+// Overall wall-clock cap for one scheduled agent run. Generous (local models on-device are slow) but
+// finite, so a hung tool/model can never pin the foreground service + keep-awake lock indefinitely.
+// Override via EXPO_PUBLIC_AGENT_TASK_TIMEOUT_MS for slower devices/models.
+const AGENT_TASK_TIMEOUT_MS = Number(process.env.EXPO_PUBLIC_AGENT_TASK_TIMEOUT_MS) || 5 * 60 * 1000;
 
 const scopeKeyForToken = async (): Promise<string> => {
   const token = await SecureStore.getItemAsync('token').catch(() => null);
@@ -296,18 +303,46 @@ export const runScheduledAgentTask = async (
   };
 
   const system = buildAgentSystem(task, delegation, config.baseUrl || '');
-  const result = await runAgentTask({
-    system,
-    goal: `Utför uppgiften "${task.title}" nu och bocka av den när den är klar.`,
-    maxSteps: resolveMaxSteps(delegation),
-    tokenBudget: resolveTokenBudget(delegation),
-    deps: {
-      invokeModel,
-      executeTool: buildToolExecutor(),
-      isAborted: opts.isAborted,
-      onAccess: (a) => { accesses.push(a); opts.onAccess?.(a); },
-    },
-  });
+
+  // Overall wall-clock cap. Individual model calls already time out, but a looping/hung tool or a
+  // pathological multi-step run could otherwise pin the foreground service + keep-awake lock forever
+  // (battery drain, "the app is stuck"). On timeout we flip an abort flag the loop polls so it stops
+  // cooperatively at its next checkpoint, then surface a clear, actionable error.
+  let timedOut = false;
+  const isAborted = () => timedOut || (opts.isAborted ? opts.isAborted() : false);
+
+  let result: Awaited<ReturnType<typeof runAgentTask>>;
+  try {
+    result = await withTimeout(
+      runAgentTask({
+        system,
+        goal: `Utför uppgiften "${task.title}" nu och bocka av den när den är klar.`,
+        maxSteps: resolveMaxSteps(delegation),
+        tokenBudget: resolveTokenBudget(delegation),
+        deps: {
+          invokeModel,
+          executeTool: buildToolExecutor(),
+          isAborted,
+          onAccess: (a) => { accesses.push(a); opts.onAccess?.(a); },
+        },
+      }),
+      AGENT_TASK_TIMEOUT_MS,
+      () => { timedOut = true; },
+    );
+  } catch (e) {
+    const isTimeout = e instanceof TimeoutError;
+    const msg = isTimeout
+      ? `AI-uppgiften avbröts: tidsgräns nådd (${Math.round(AGENT_TASK_TIMEOUT_MS / 1000)} s). Prova en mindre/snabbare modell eller dela upp uppgiften.`
+      : `AI-uppgiften misslyckades: ${(e as Error)?.message || 'okänt fel'}`;
+    await persist({ status: 'error', result: msg });
+    await setRunLogEntry(task._id, {
+      at: new Date().toISOString(),
+      stopped: isTimeout ? 'timeout' : 'error',
+      summary: msg,
+      accesses: accesses.map((a) => ({ kind: a.kind, id: a.id, title: a.title, at: a.at })),
+    });
+    return { ok: false, summary: msg, accesses, stopped: isTimeout ? 'timeout' : 'error' };
+  }
 
   const ok = result.stopped === 'done';
   const budgetNote = result.stopped === 'budget' ? ` (tokenbudget nådd, ~${result.tokensUsed} tokens)` : '';
