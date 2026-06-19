@@ -192,7 +192,9 @@ garantier. Varje punkt är additiv — invarianterna i §7 måste fortsatt håll
    bytena vid omlåsning, töms av `clearAllFolderKeys()` vid app-lås/logout). **Kvar (kommande faser,
    se ADR §Migration):** lagra `FolderKeyBundle` på mappnoten; anropa `unlockFolderKey`→`setFolderKey`
    vid mapp-upplåsning och `materializeFolderField`/`wrapNoteForFolder` med `getFolderKey(folderId)`
-   på mappnoten; samt en mekanisk grind som håller `v3f:` borta från publicerings-/index-ytor.
+   på mappnoten (✅ **mekanismen finns**: `Note.folderKeyBundle?: string` +
+   `readFolderKeyBundleFromNote`/`withFolderKeyBundle` i `folderKey.ts`); samt en mekanisk grind som
+   håller `v3f:` borta från publicerings-/index-ytor.
    ✅ **Läs-vägen är wired i båda stores:** `materializeOneNote` dispatchar `title`/`content` via
    `materializeFolderField` med `getFolderKey(<närmaste låsta förälder>)` (no-op för all befintlig
    data; test: "materializes a v3f note decrypted with the session folder key, masked without it").

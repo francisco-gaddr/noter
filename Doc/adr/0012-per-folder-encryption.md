@@ -64,9 +64,13 @@ E2E redan har; en mapp-recovery-kod kan övervägas senare).
 **Inte** wired in i stores/materialize ännu — medvetet, så migrationen kan stagas noga.
 
 **Migration (kommande faser):**
-1. **Bundle-lagring.** `FolderKeyBundle` lagras på projektmapp-noten (t.ex. ett fält krypterat med
-   användarens dataKey, eller som klartext eftersom det inte innehåller någon hemlighet utan
-   lösenordet). En mapp utan bundle = "gammal stil" (endast filtrerad) och måste fortsatt fungera.
+1. **Bundle-lagring.** ✅ **Typ + accessorer levererade:** `Note.folderKeyBundle?: string` (serialiserad
+   bundle, klartext — den innehåller ingen hemlighet utan lösenordet) + de rena hjälparna
+   `readFolderKeyBundleFromNote` / `noteHasFolderKeyBundle` / `withFolderKeyBundle` i `folderKey.ts`
+   (4 tester). En mapp utan bundle = "gammal stil" (endast filtrerad) och fortsätter fungera
+   (`readFolderKeyBundleFromNote` → null). **Kvar:** enrolment som faktiskt *skriver* fältet på
+   mappnoten, samt att backend/Mongoose-schemat tillåter `folderKeyBundle` (eller att fältet ligger
+   i den krypterade nyttolasten) så det överlever sync.
 2. **Opt-in enrolment + FK-session.** ✅ **Session-mekanismen levererad**
    (`packages/shared/src/folderKeySession.ts`, 10 tester): `setFolderKey`/`getFolderKey`/
    `hasFolderKey`/`clearFolderKey`/`clearAllFolderKeys`/`unlockedFolderIds` — en in-memory-only karta

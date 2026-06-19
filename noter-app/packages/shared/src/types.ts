@@ -28,6 +28,14 @@ export interface Note {
    * fileIngest.ts `NoteSource`. Absent for hand-written/AI-created notes.
    */
   source?: import('./fileIngest').NoteSource | null;
+  /**
+   * For a **project-folder** note that is cryptographically protected (ADR-0012): the serialized
+   * `FolderKeyBundle` (salt + kdf + the folder key wrapped under the folder password). Holds no
+   * secret usable without the folder password, so it rides on the folder note. Read/written via the
+   * `readFolderKeyBundleFromNote` / `withFolderKeyBundle` helpers in `folderKey.ts`. Absent for
+   * folders that are only lock-filtered (the pre-ADR-0012 model) and for all non-folder notes.
+   */
+  folderKeyBundle?: string;
   createdAt: string;
   updatedAt: string;
   deleted?: boolean | string;

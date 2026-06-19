@@ -188,3 +188,38 @@ export function deserializeFolderKeyBundle(serialized: unknown): FolderKeyBundle
     return null;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Bundle storage on the project-folder note (ADR-0012 §Migration step 1)
+// ---------------------------------------------------------------------------
+
+/** Minimal structural shape: a note that may carry a serialized folder key bundle. */
+export interface WithFolderKeyBundle {
+  folderKeyBundle?: string | null;
+}
+
+/**
+ * Read + validate the `FolderKeyBundle` stored on a (project-folder) note. Returns null if the note
+ * has no bundle or the stored value is malformed — so a corrupt/absent bundle reads as "this folder
+ * is not crypto-protected" rather than crashing.
+ */
+export const readFolderKeyBundleFromNote = (
+  note: WithFolderKeyBundle | null | undefined,
+): FolderKeyBundle | null =>
+  note && typeof note === 'object' ? deserializeFolderKeyBundle(note.folderKeyBundle) : null;
+
+/** True when a note carries a validly-shaped folder key bundle → it is a crypto-protected folder. */
+export const noteHasFolderKeyBundle = (note: WithFolderKeyBundle | null | undefined): boolean =>
+  readFolderKeyBundleFromNote(note) !== null;
+
+/**
+ * Return a COPY of `note` with the bundle stamped on (serialized). Pure — never mutates the input —
+ * so it composes safely inside the stores' immutable update paths.
+ */
+export const withFolderKeyBundle = <T extends object>(
+  note: T,
+  bundle: FolderKeyBundle,
+): T & { folderKeyBundle: string } => ({
+  ...note,
+  folderKeyBundle: serializeFolderKeyBundle(bundle),
+});

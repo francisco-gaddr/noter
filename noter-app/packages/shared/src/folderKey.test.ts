@@ -8,6 +8,9 @@ import {
   parseFolderKeyBundle,
   serializeFolderKeyBundle,
   deserializeFolderKeyBundle,
+  readFolderKeyBundleFromNote,
+  noteHasFolderKeyBundle,
+  withFolderKeyBundle,
   FolderUnlockError,
   FOLDER_CONTENT_PREFIX,
   type FolderKeyBundle,
@@ -161,5 +164,41 @@ describe('folderKey — bundle (de)serialisation + validation', () => {
     expect(deserializeFolderKeyBundle('not json {')).toBeNull();
     expect(deserializeFolderKeyBundle(42)).toBeNull();
     expect(deserializeFolderKeyBundle(JSON.stringify({ v: 1 }))).toBeNull();
+  });
+});
+
+describe('folderKey — bundle storage on the folder note (ADR-0012 §1)', () => {
+  // A valid-shaped bundle (no KDF needed: parse/serialise only check structure, not crypto).
+  const sample: FolderKeyBundle = { v: 1, salt: 'c2FsdA==', kdf: 'argon2id', wrappedKey: 'v3w:abcdef' };
+
+  it('stamps a bundle onto a note (copy, no mutation) and reads it back', () => {
+    const folder = { _id: 'lf', type: 'project' as const, title: 'Mapp' };
+    const stamped = withFolderKeyBundle(folder, sample);
+    expect(stamped.folderKeyBundle).toBe(serializeFolderKeyBundle(sample));
+    expect(readFolderKeyBundleFromNote(stamped)).toEqual(sample);
+    // Original is untouched; other fields preserved.
+    expect((folder as any).folderKeyBundle).toBeUndefined();
+    expect(stamped._id).toBe('lf');
+    expect(stamped.title).toBe('Mapp');
+  });
+
+  it('noteHasFolderKeyBundle reflects presence/validity', () => {
+    expect(noteHasFolderKeyBundle(withFolderKeyBundle({ _id: 'lf' }, sample))).toBe(true);
+    expect(noteHasFolderKeyBundle({ _id: 'plain' } as any)).toBe(false);
+  });
+
+  it('reads null for a note with no / malformed / non-object bundle', () => {
+    expect(readFolderKeyBundleFromNote(undefined)).toBeNull();
+    expect(readFolderKeyBundleFromNote(null)).toBeNull();
+    expect(readFolderKeyBundleFromNote({})).toBeNull();
+    expect(readFolderKeyBundleFromNote({ folderKeyBundle: 'not json {' })).toBeNull();
+    expect(readFolderKeyBundleFromNote({ folderKeyBundle: JSON.stringify({ v: 9 }) })).toBeNull();
+    expect(readFolderKeyBundleFromNote({ folderKeyBundle: null })).toBeNull();
+  });
+
+  it('round-trips a real created bundle through note storage', async () => {
+    const { bundle } = await createFolderKey('pw', 'pbkdf2-sha256');
+    const note = withFolderKeyBundle({ _id: 'lf' }, bundle);
+    expect(readFolderKeyBundleFromNote(note)).toEqual(bundle);
   });
 });
