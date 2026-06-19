@@ -492,20 +492,30 @@ export const useStore = create<AppState>((set, get) => ({
     Database.deleteNoteLocal(id);
     return { notes: state.notes.filter(n => n._id !== id) };
   }),
-  ingestServerTask: (task) => set(state => {
-    if (!task || !(task as any)._id) return state;
+  ingestServerTask: (task) => {
+    if (!task || !(task as any)._id) return;
     const parsed = processApiTask(task);
-    Database.saveTaskLocal(parsed, true);
-    if (state.tasks.find(t => t._id === parsed._id)) {
-      return { tasks: state.tasks.map(t => t._id === parsed._id ? parsed : t) };
-    }
-    return { tasks: [...state.tasks, parsed] };
-  }),
-  ingestServerTaskDeletion: (id) => set(state => {
-    if (!id) return state;
-    Database.deleteTaskLocal(id);
-    return { tasks: state.tasks.filter(t => t._id !== id) };
-  }),
+    set(state => {
+      Database.saveTaskLocal(parsed, true);
+      if (state.tasks.find(t => t._id === parsed._id)) {
+        return { tasks: state.tasks.map(t => t._id === parsed._id ? parsed : t) };
+      }
+      return { tasks: [...state.tasks, parsed] };
+    });
+    // Keep the local reminder in sync with the ingested (AI/tool) task — idempotent: schedules
+    // when due+enabled, cancels when completed/undated. Gated on notificationsEnabled so a
+    // background ingestion never pops a permission prompt.
+    if (get().notificationsEnabled) void scheduleTaskReminder(parsed).catch(() => {});
+  },
+  ingestServerTaskDeletion: (id) => {
+    if (!id) return;
+    set(state => {
+      Database.deleteTaskLocal(id);
+      return { tasks: state.tasks.filter(t => t._id !== id) };
+    });
+    // Invariant: a deleted task leaves NO active local notification (cancel never prompts).
+    void cancelTaskReminder(id).catch(() => {});
+  },
   setSecurityLocked: async (locked) => {
     if (get().securityLocked === locked) return;
     if (locked) {
@@ -742,6 +752,9 @@ export const useStore = create<AppState>((set, get) => ({
         Database.saveTaskLocal(parsed, true);
         return { tasks: [...state.tasks, parsed] };
       });
+      // Multi-device: schedule the local reminder for a task created elsewhere (idempotent;
+      // gated on notificationsEnabled so a remote event never prompts for permission).
+      if (get().notificationsEnabled) void scheduleTaskReminder(parsed).catch(() => {});
     });
 
     socket.on('task:updated', (task: Task) => {
@@ -752,6 +765,9 @@ export const useStore = create<AppState>((set, get) => ({
           tasks: state.tasks.map(t => t._id === parsed._id ? parsed : t)
         };
       });
+      // Keep the local reminder in sync with the remote edit — reschedules on a new due/offset
+      // and CANCELS when the task was completed/undated elsewhere (no stale notification fires).
+      if (get().notificationsEnabled) void scheduleTaskReminder(parsed).catch(() => {});
     });
 
     socket.on('task:deleted', (id: string) => {
@@ -761,6 +777,8 @@ export const useStore = create<AppState>((set, get) => ({
           tasks: state.tasks.filter(t => t._id !== id)
         };
       });
+      // Invariant: a task deleted on another device must leave NO active local notification.
+      void cancelTaskReminder(id).catch(() => {});
     });
 
     socket.on('tasks:reordered', (reorderedTasks: { _id: string; position: any }[]) => {

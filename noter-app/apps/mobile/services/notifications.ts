@@ -140,12 +140,26 @@ export const cancelAllTaskReminders = async () => {
   if (isExpoGo) return;
   const Notifications = getNotificationsModule();
   const map = await readMap();
-  const ids = Object.values(map);
+  // map is Record<string, string[]> — FLATTEN to individual ids. The old code iterated the
+  // per-task ARRAYS and passed each array to cancelScheduledNotificationAsync(id: string),
+  // which silently failed (try/catch) and then wiped the map — orphaning every OS-scheduled
+  // reminder so it kept firing. Flatten + cancel each real id.
+  const ids = Object.values(map).flat();
   for (const id of ids) {
     try {
       await Notifications.cancelScheduledNotificationAsync(id);
     } catch {
     }
   }
+  // Bulletproof: also cancel every still-scheduled notification that carries a taskId, in case
+  // the id-map missed orphans (older builds / pre-map scheduling) — same sweep cancelTaskReminder uses.
+  try {
+    const all = await Notifications.getAllScheduledNotificationsAsync();
+    for (const n of all || []) {
+      if (n?.content?.data?.taskId) {
+        try { await Notifications.cancelScheduledNotificationAsync(n.identifier); } catch { /* ignore */ }
+      }
+    }
+  } catch { /* ignore — best effort */ }
   await writeMap({});
 };

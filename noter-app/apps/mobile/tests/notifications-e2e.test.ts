@@ -16,9 +16,10 @@ jest.mock('expo-notifications', () => ({
   requestPermissionsAsync: jest.fn().mockResolvedValue({ status: 'granted' }),
   scheduleNotificationAsync: (...args: any[]) => mockScheduleNotificationAsync(...args),
   cancelScheduledNotificationAsync: (...args: any[]) => mockCancelScheduledNotificationAsync(...args),
+  getAllScheduledNotificationsAsync: jest.fn().mockResolvedValue([]),
 }));
 
-import { scheduleTaskReminder } from '../services/notifications';
+import { scheduleTaskReminder, cancelAllTaskReminders } from '../services/notifications';
 import { Task } from '@repo/shared';
 
 describe('task notifications e2e', () => {
@@ -84,5 +85,29 @@ describe('task notifications e2e', () => {
 
     expect(mockScheduleNotificationAsync).toHaveBeenCalledTimes(2);
     expect(mockCancelScheduledNotificationAsync).toHaveBeenCalledTimes(2);
+  });
+
+  it('cancelAllTaskReminders cancels EVERY scheduled id (flattened), not the per-task arrays', async () => {
+    // task A → 2 ids, task B → 1 id; the id-map stores Record<string, string[]>.
+    mockScheduleNotificationAsync
+      .mockResolvedValueOnce('a-0').mockResolvedValueOnce('a-30')
+      .mockResolvedValueOnce('b-0');
+    const mk = (id: string, offsets: number[]): Task => ({
+      _id: id, userId: 'u', title: id, description: '',
+      dueDate: new Date('2026-06-01T12:00:00Z').toISOString(), completed: false, priority: 'medium',
+      reminderEnabled: true, reminderOffsetMinutes: offsets,
+      createdAt: '2026-06-01T09:00:00Z', updatedAt: '2026-06-01T09:00:00Z',
+    });
+    await scheduleTaskReminder(mk('A', [0, 30]));
+    await scheduleTaskReminder(mk('B', [0]));
+
+    mockCancelScheduledNotificationAsync.mockClear();
+    await cancelAllTaskReminders();
+
+    // Regression: the old code passed the per-task ARRAYS to cancelScheduledNotificationAsync,
+    // which silently failed and orphaned every reminder. Now each real id is cancelled as a STRING.
+    const cancelled = mockCancelScheduledNotificationAsync.mock.calls.map((c) => c[0]);
+    expect(cancelled).toEqual(expect.arrayContaining(['a-0', 'a-30', 'b-0']));
+    cancelled.forEach((arg) => expect(typeof arg).toBe('string'));
   });
 });
