@@ -104,11 +104,11 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
 
 ### RAG / indexering
 
-- **`autoIndex`-inställningen är icke-funktionell (UX-fälla)** · `packages/shared/src/embeddings.ts:24`,
-  `apps/{web,mobile}/components/EmbeddingsSettings.tsx`, `apps/web/services/nextcloud.ts:396` ·
-  **E:M R:med** · Togglen renderas och sparas men wire:as bara efter Nextcloud-sync (och den
-  kollar inte ens flaggan). Antingen **implementera** (debouncad bakgrunds-`indexEntities` i
-  note/task-save-vägen) **eller ta bort** UI:t. Inte låt den sitta död.
+- ✅ **[KLAR 2026-06-19] `autoIndex`-inställningen är nu funktionell** ·
+  `packages/shared/src/debounce.ts`, `apps/{web,mobile}/services/ai/autoIndex.ts` · Ny delad
+  `createDebounced` + en enda store-prenumeration per app som debouncar (8s) och re-indexerar vid
+  note/task-ändring **när flaggan är på** (default av), overlap-skyddad + best-effort. Inkopplad en
+  gång vid bootstrap (web `providers.tsx`, mobil `_layout.tsx`, auth-gated). 4 debounce-tester.
 - ✅ **[KLAR 2026-06-19] Embeddings count-mismatch hoppar tyst över noter** ·
   `packages/shared/src/embeddingsClient.ts` · `embedTexts` kastar nu vid count-mismatch eller tom
   vektor; `indexEntities` fångar det och returnerar `ok:false` utan att spara ett partiellt index →
