@@ -88,14 +88,17 @@ describe('Mobile Store', () => {
   // SECURITY: backgrounding the app must re-lock every unlocked protected folder, so a note
   // inside a locked folder re-masks and cannot be read without re-entering the password.
   it('relockProtectedFolders re-locks unlocked folders and re-masks their notes (idempotent)', () => {
+    const { setFolderKey, folderKeySessionSize } = require('@repo/shared');
     const lockedFolder = { _id: 'lf', type: 'project', locked: true, title: 'Hemlig mapp', parentId: null };
     const child = { _id: 'c1', type: 'note', parentId: 'lf', title: 'Hemlig text', content: 'topphemligt' };
     useStore.setState({ notes: [lockedFolder, child] as any, unlockedProtectedNoteIds: ['lf'] });
+    setFolderKey('lf', new Uint8Array(32).fill(5)); // ADR-0012: a crypto folder key in the session
 
     useStore.getState().relockProtectedFolders();
 
     const state = useStore.getState();
     expect(state.unlockedProtectedNoteIds).toEqual([]);
+    expect(folderKeySessionSize()).toBe(0); // crypto key dropped from memory too, not just re-masked
     const masked = state.notes.find((n: any) => n._id === 'c1') as any;
     expect(masked.title).toBe('Låst anteckning');
     expect(masked.content).toBe('');

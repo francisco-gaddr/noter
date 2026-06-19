@@ -478,7 +478,9 @@ export const useStore = create<AppState>((set, get) => ({
     // RE-LOCK ON APP BACKGROUND: a password-protected folder is the most sensitive surface,
     // so leaving the app re-locks ALL of them at once (empties the unlock set + re-masks),
     // without forcing a whole-app re-auth. Mirrors the navigation re-lock in setActiveProject.
-    // No-op (no re-render) when nothing is unlocked, so it is free on the common path.
+    // ADR-0012: also drop the in-memory crypto folder keys — a backgrounded app must not retain
+    // them (the at-rest point of per-folder encryption), so re-reading needs the password again.
+    clearAllFolderKeys();
     const state = get();
     if (!state.unlockedProtectedNoteIds || state.unlockedProtectedNoteIds.length === 0) return;
     const reMasked = materializeNotesFromEncrypted(state.notes as any, new Set());

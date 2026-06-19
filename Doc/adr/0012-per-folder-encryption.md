@@ -201,6 +201,13 @@ ur upplåsnings­mängden när `locked:true` sätts — ordnings-bugg som ett te
 lägger likaså mappen i `unlockedProtectedNoteIds` + re-materialiserar med både mängden och FK:n. Utan detta
 skulle en enrollad/upplåst krypto-mapps noter förbli filter-maskade trots nyckeln. Båda apparna; tester
 asserterar `unlockedProtectedNoteIds` + att `locked:true` skickas (utan backend-lösenord).
+
+**Relock-sidan (Fas 3.9).** `relockProtectedFolders` (tab-hide/idle i web via `AppLock`, app-bakgrund i
+mobil) tömde tidigare bara `unlockedProtectedNoteIds` + maskade om — men lät krypto-nycklarna ligga kvar i
+minnet. Nu anropar den även `clearAllFolderKeys()`, så en bakgrundad/inaktiv app inte behåller mapp-nycklarna
+(at-rest-poängen); återläsning kräver lösenordet igen. (Full app-lås/logout tömde redan nycklarna, Fas 2.3.)
+Därmed är hela lås-livscykeln för krypto-mappar koordinerad: enrol/unlock lägger till (locked + unlock-set +
+nyckel), idle/bakgrund + app-lås/logout släpper. Test: `folderKeySessionSize() === 0` efter relock, båda apparna.
 `FolderUnlockError` (fel lösenord) propageras till anroparen. Tester: enrol sätter sessions-FK +
 persisterar bundle; unlock med rätt lösen återställer nyckeln, fel lösen → `FolderUnlockError` (förblir
 låst). (`preferred`-param låter test använda snabb PBKDF2; UI:t kör argon2id.) Mobil-storen har nu samma

@@ -111,9 +111,11 @@ describe('Web Store', () => {
   it('relockProtectedFolders re-locks unlocked folders and re-masks their notes (idempotent)', () => {
     const lockedFolder = { _id: 'lf', type: 'project', locked: true, title: 'Hemlig mapp', parentId: null };
     const child = { _id: 'c1', type: 'note', parentId: 'lf', title: 'Hemlig text', content: 'topphemligt' };
+    const { setFolderKey, folderKeySessionSize } = require('@repo/shared');
     act(() => {
       useStore.setState({ notes: [lockedFolder, child] as any, unlockedProtectedNoteIds: ['lf'] });
     });
+    setFolderKey('lf', new Uint8Array(32).fill(5)); // ADR-0012: a crypto folder key in the session
 
     act(() => {
       useStore.getState().relockProtectedFolders();
@@ -121,6 +123,7 @@ describe('Web Store', () => {
 
     const state = useStore.getState();
     expect(state.unlockedProtectedNoteIds).toEqual([]);
+    expect(folderKeySessionSize()).toBe(0); // crypto key dropped from memory too, not just re-masked
     const masked = state.notes.find((n) => n._id === 'c1') as any;
     expect(masked.title).toBe('Låst anteckning');
     expect(masked.content).toBe('');

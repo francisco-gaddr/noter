@@ -448,10 +448,12 @@ export const useStore = create<StoreState>((set, get) => ({
     localStorage.setItem('activeProjectId', id || '');
   },
   relockProtectedFolders: () => {
-    // RE-LOCK ON TAB HIDE: a password-protected folder is the most sensitive surface, so
-    // switching away from the tab/window re-locks ALL of them at once (empties the unlock set
-    // + re-masks), without forcing a whole-app re-auth. Mirrors setActiveProject's re-lock.
-    // No-op (no re-render) when nothing is unlocked, so it is free on the common path.
+    // RE-LOCK ON TAB HIDE / IDLE: a password-protected folder is the most sensitive surface, so
+    // switching away from the tab/window (or going idle) re-locks ALL of them at once (empties the
+    // unlock set + re-masks), without forcing a whole-app re-auth. Mirrors setActiveProject's re-lock.
+    // ADR-0012: also drop the in-memory crypto folder keys — a backgrounded/idle app must not retain
+    // them (the at-rest point of per-folder encryption), so re-reading needs the password again.
+    clearAllFolderKeys();
     const state = get();
     if (!state.unlockedProtectedNoteIds || state.unlockedProtectedNoteIds.length === 0) return;
     const reMasked = materializeNotesFromEncrypted(state.notes as any, new Set());
