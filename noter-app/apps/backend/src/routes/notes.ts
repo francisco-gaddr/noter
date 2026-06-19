@@ -3,7 +3,7 @@ import Note from '../models/Note';
 import Task from '../models/Task';
 import Joi from 'joi';
 import bcrypt from 'bcryptjs';
-import { createRateLimit } from '../middleware/rateLimit';
+import { createRateLimit, createLockoutLimiter } from '../middleware/rateLimit';
 import { decrypt, encrypt } from '@repo/shared';
 import { AuthRequest } from '../middleware/authMiddleware';
 import { validate } from '../middleware/validate';
@@ -11,8 +11,15 @@ import cache from '../services/cache';
 import { isEncryptedPayload } from '../utils/encryption';
 import { parsePageParams, buildCursorFilter, buildPage } from '../utils/pagination';
 import { runWithReadPreference } from '../utils/readPreference';
+import logger from '../utils/logger';
 
 const router = express.Router();
+
+// bcrypt work factor for note-lock passwords. OWASP Password Storage Cheat Sheet (2025)
+// recommends >= 12 (cost 12 ~= 250 ms/hash on a modern server); bumped from the old default 10.
+// Existing lower-cost hashes keep verifying — bcrypt encodes the cost in the hash, so a re-lock
+// silently upgrades them.
+const LOCK_PASSWORD_BCRYPT_COST = 12;
 
 const encryptedRequired = Joi.string().custom((value, helpers) => (
   isEncryptedPayload(value) ? value : helpers.error('any.invalid')
@@ -85,6 +92,18 @@ const verifyLockLimiter = createRateLimit({
   points: 25,
   durationSec: 10 * 60,
   message: 'Too many unlock verification attempts, please try again later.'
+});
+
+// Per-(user, note) lockout layered ON TOP of the coarse IP limiter above. The IP limiter alone
+// lets an attacker spread guesses across many notes (different :id) inside one global budget;
+// this counts CONSECUTIVE failed guesses for a single note and blocks that note for the user
+// after the threshold, auto-reopening after the cool-down (OWASP A07:2025 account lockout). A
+// correct password resets the counter immediately.
+const verifyLockLockout = createLockoutLimiter({
+  keyPrefix: 'verify-lock-fail',
+  maxFailures: 5,
+  windowSec: 15 * 60,
+  blockSec: 15 * 60,
 });
 
 // GET /api/notes
@@ -195,8 +214,21 @@ router.post('/:id/verify-lock', verifyLockLimiter, async (req: Request, res: Res
   try {
     const userId = (req as AuthRequest).user!.userId;
     const targetId = req.params.id;
+    const lockoutKey = `${userId}:${targetId}`;
+    const clientIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip;
+
+    // Lockout gate: if this user has burned through the failure budget for this note, refuse
+    // until the cool-down elapses — before we touch the DB or compare anything.
+    const lock = await verifyLockLockout.check(lockoutKey);
+    if (lock.blocked) {
+      logger.warn('verifyLock.lockout', { userId, noteId: targetId, ip: clientIp, retryAfterSec: lock.retryAfterSec });
+      res.setHeader('Retry-After', String(lock.retryAfterSec));
+      res.status(429).json({ success: false, message: 'För många försök. Försök igen senare.', retryAfterSec: lock.retryAfterSec });
+      return;
+    }
+
     const targetNote = await Note.findOne({ _id: targetId, userId }).select('+password');
-    
+
     if (!targetNote) {
       res.status(404);
       return next(new Error('Note not found'));
@@ -223,10 +255,24 @@ router.post('/:id/verify-lock', verifyLockLimiter, async (req: Request, res: Res
       return;
     }
 
+    // Record a failed unlock attempt: bump the per-(user,note) lockout counter, audit-log it
+    // (failed attempts return 200 success:false, so the response-status audit middleware wouldn't
+    // otherwise see them), and write the response — 429 + Retry-After once this failure crosses
+    // the threshold, otherwise the usual 200 success:false (kept so the frontend doesn't log out).
+    const failAttempt = async (): Promise<void> => {
+      const r = await verifyLockLockout.registerFailure(lockoutKey);
+      logger.warn('verifyLock.failed', { userId, noteId: targetId, ip: clientIp, nowBlocked: r.blocked });
+      if (r.blocked) {
+        res.setHeader('Retry-After', String(r.retryAfterSec));
+        res.status(429).json({ success: false, message: 'För många försök. Försök igen senare.', retryAfterSec: r.retryAfterSec });
+        return;
+      }
+      res.json({ success: false, message: 'Invalid password' });
+    };
+
     const password = req.body?.password;
     if (!password || !blockingNote.password) {
-      // Return 200 OK with success: false instead of 401 to prevent frontend logout
-      res.json({ success: false, message: 'Invalid password' });
+      await failAttempt();
       return;
     }
 
@@ -241,11 +287,13 @@ router.post('/:id/verify-lock', verifyLockLimiter, async (req: Request, res: Res
       }
     }
     if (!isMatch) {
-      // Return 200 OK with success: false instead of 401 to prevent frontend logout
-      res.json({ success: false, message: 'Invalid password' });
+      await failAttempt();
       return;
     }
 
+    // Correct password — clear the failure counter so a legitimate user is never penalised by
+    // earlier typos.
+    await verifyLockLockout.reset(lockoutKey);
     res.json({ success: true, content: targetNote.content, title: targetNote.title, unlockedId: String(blockingNote._id) });
   } catch (error) {
     next(error);
@@ -271,7 +319,7 @@ router.post('/', validate(noteSchema), async (req: Request, res: Response, next:
     if (noteData.password) {
       const decrypted = decrypt(noteData.password);
       const rawPassword = decrypted ? decrypted : noteData.password;
-      noteData.password = await bcrypt.hash(rawPassword, 10);
+      noteData.password = await bcrypt.hash(rawPassword, LOCK_PASSWORD_BCRYPT_COST);
     }
 
     const note = new Note(noteData);
@@ -357,7 +405,7 @@ router.put('/:id', validate(updateSchema), async (req: Request, res: Response, n
         if (value.password) {
             const decrypted = decrypt(value.password);
             const rawPassword = decrypted ? decrypted : value.password;
-            note.password = await bcrypt.hash(rawPassword, 10);
+            note.password = await bcrypt.hash(rawPassword, LOCK_PASSWORD_BCRYPT_COST);
         } else {
             note.password = '';
         }

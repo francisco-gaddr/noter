@@ -8,7 +8,7 @@
     "dev": "nodemon src/index.ts",
     "build": "tsc",
     "check-types": "tsc --noEmit",
-    "test": "jest",
+    "test": "jest --forceExit",
     "db:reconcile-indexes": "ts-node src/scripts/reconcileIndexes.ts",
     "db:reconcile-indexes:dry-run": "ts-node src/scripts/reconcileIndexes.ts --dry-run",
     "docs:openapi": "ts-node src/scripts/generateOpenApi.ts"

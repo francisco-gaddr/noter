@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 // We deliberately don't set REDIS_URL so the limiter falls back to memory.
 delete process.env.REDIS_URL;
 
-import { createRateLimit } from '../../src/middleware/rateLimit';
+import { createRateLimit, createLockoutLimiter } from '../../src/middleware/rateLimit';
 
 const makeReq = (ip: string) => ({ ip, headers: {} as Record<string, string> });
 const makeRes = () => {
@@ -62,5 +62,41 @@ describe('createRateLimit (memory fallback)', () => {
     await mw({ ip: '127.0.0.99', headers: { 'x-forwarded-for': '203.0.113.1' } } as any, res2 as any, () => { nextCalled = true; });
     expect(nextCalled).toBe(false);
     expect(res2.statusCode).toBe(429);
+  });
+});
+
+describe('createLockoutLimiter (memory fallback)', () => {
+  it('blocks a key after maxFailures consecutive failures and reports a Retry-After', async () => {
+    const lim = createLockoutLimiter({ keyPrefix: `lo1_${Date.now()}`, maxFailures: 3, windowSec: 60, blockSec: 60 });
+    const key = 'user:note';
+    expect((await lim.check(key)).blocked).toBe(false);
+    // 3 failures are tolerated...
+    for (let i = 0; i < 3; i++) expect((await lim.registerFailure(key)).blocked).toBe(false);
+    // ...the 4th crosses the threshold and blocks.
+    const crossed = await lim.registerFailure(key);
+    expect(crossed.blocked).toBe(true);
+    expect(crossed.retryAfterSec).toBeGreaterThan(0);
+    const after = await lim.check(key);
+    expect(after.blocked).toBe(true);
+    expect(after.retryAfterSec).toBeGreaterThan(0);
+  });
+
+  it('reset() clears the counter so a previously-failing key is no longer blocked', async () => {
+    const lim = createLockoutLimiter({ keyPrefix: `lo2_${Date.now()}`, maxFailures: 2, windowSec: 60, blockSec: 60 });
+    const key = 'user:note';
+    await lim.registerFailure(key);
+    await lim.registerFailure(key);
+    await lim.registerFailure(key); // now blocked
+    expect((await lim.check(key)).blocked).toBe(true);
+    await lim.reset(key);
+    expect((await lim.check(key)).blocked).toBe(false);
+  });
+
+  it('keys are independent — one locked key does not block another', async () => {
+    const lim = createLockoutLimiter({ keyPrefix: `lo3_${Date.now()}`, maxFailures: 1, windowSec: 60, blockSec: 60 });
+    await lim.registerFailure('user:noteA');
+    await lim.registerFailure('user:noteA'); // A blocked
+    expect((await lim.check('user:noteA')).blocked).toBe(true);
+    expect((await lim.check('user:noteB')).blocked).toBe(false);
   });
 });

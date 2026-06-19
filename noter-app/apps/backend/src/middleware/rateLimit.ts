@@ -114,6 +114,64 @@ export const createRateLimit = (opts: RateLimitOptions) => {
   };
 };
 
+export interface LockoutOptions {
+  keyPrefix: string;
+  /** Consecutive failures allowed before the key is blocked. */
+  maxFailures: number;
+  /** Sliding window (seconds) over which failures accumulate. */
+  windowSec: number;
+  /** How long the key stays blocked once the threshold is crossed (seconds). */
+  blockSec: number;
+}
+
+/**
+ * A per-identity lockout counter for authentication-style endpoints (e.g. note-lock
+ * verification), keyed by whatever the caller passes (use `userId:resourceId`, NOT the IP,
+ * so an attacker can't brute-force one secret across many IPs or many secrets from one IP
+ * within a coarse global budget). Failures are registered explicitly; a success resets the
+ * counter. This implements the OWASP A07:2025 account-lockout control (block after N
+ * consecutive failures, auto-reopen after a cool-down) on top of any coarse IP rate limit.
+ * Redis-backed when REDIS_URL is set (shared across pods), in-memory otherwise.
+ */
+export const createLockoutLimiter = (opts: LockoutOptions) => {
+  const { redis, memory } = buildLimiter({
+    keyPrefix: opts.keyPrefix,
+    points: opts.maxFailures,
+    durationSec: opts.windowSec,
+    blockDurationSec: opts.blockSec,
+  });
+  const pick = (): RateLimiterAbstract => (redis && redisReady ? redis : memory);
+  return {
+    /** Is this key currently locked out? Never throws — a backend hiccup fails open to "not blocked". */
+    async check(key: string): Promise<{ blocked: boolean; retryAfterSec: number }> {
+      try {
+        const res = await pick().get(key);
+        if (res && res.consumedPoints > opts.maxFailures && res.msBeforeNext > 0) {
+          return { blocked: true, retryAfterSec: Math.ceil(res.msBeforeNext / 1000) };
+        }
+      } catch { /* treat as not blocked */ }
+      return { blocked: false, retryAfterSec: 0 };
+    },
+    /** Record one failed attempt. Returns blocked=true once the threshold is crossed. */
+    async registerFailure(key: string): Promise<{ blocked: boolean; retryAfterSec: number }> {
+      try {
+        await pick().consume(key, 1);
+        return { blocked: false, retryAfterSec: 0 };
+      } catch (rejection: unknown) {
+        const r = rejection as { msBeforeNext?: number };
+        if (r && typeof r.msBeforeNext === 'number') {
+          return { blocked: true, retryAfterSec: Math.ceil(r.msBeforeNext / 1000) };
+        }
+        return { blocked: false, retryAfterSec: 0 };
+      }
+    },
+    /** Clear the counter (call on a successful verification). */
+    async reset(key: string): Promise<void> {
+      try { await pick().delete(key); } catch { /* noop */ }
+    },
+  };
+};
+
 export const closeRateLimitRedis = async (): Promise<void> => {
   if (!redisClient) return;
   try { await redisClient.quit(); } catch { /* noop */ }

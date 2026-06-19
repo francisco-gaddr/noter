@@ -110,6 +110,7 @@ const steps = [
       '__tests__/ai-sync.test.ts',
       '__tests__/graphql-tools.test.ts',
       '__tests__/notes-lock-security.test.ts',
+      '__tests__/notes-lock.test.ts',
       '__tests__/request-security.test.ts',
       '__tests__/api-hardening.test.ts',
       '__tests__/api-key-mint.test.ts',
