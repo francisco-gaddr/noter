@@ -106,10 +106,11 @@ från `@repo/shared`; FK lämnar aldrig minnet; logga aldrig FK/lösenord.
 
 ## Slutfas — implementations-spec för enrolment + skriv-seal (device-verifierad)
 
-Allt ovan (Fas 1 + 2.1–2.7) är byggt och testat headless — inklusive **skriv-seal-primitiven**
-(Fas 2.7, se nedan). Det som återstår *skapar* riktig `v3f:`-data och rör den heta spar-vägen, så
-det görs i en egen cykel med en manuell `/verify` på en riktig enhet/webbkörning. Designen är
-fastställd här så cykeln inte gissar:
+Allt ovan (Fas 1 + 2.1–2.8) är byggt och testat headless — inklusive **skriv-seal-primitiven**
+(Fas 2.7) och **enrolment-/upplåsnings-orkestreringen** (Fas 2.8), båda nedan. Det som återstår är
+ren *wiring* (anropa de testade primitiven från `api.ts`/storen/UI) som *skapar* riktig `v3f:`-data
+och rör den heta spar-vägen, så det görs i en egen cykel med en manuell `/verify` på en riktig
+enhet/webbkörning. Designen + logiken är fastställd och testad här så cykeln inte gissar:
 
 **Skriv-seal-primitiven (Fas 2.7 — ✅ levererad).** Den enda krypto-beslutspunkten på spar-vägen är
 centraliserad i `@repo/shared` som `sealNoteFieldForWrite(plaintext, folderKey?)` (`encrypt.ts`,
@@ -134,12 +135,28 @@ nyckel) hör hemma i storen** (den har note-mappen för att hitta närmaste lås
 3. `folderKey` får **aldrig** loggas eller sparas i offline-kön i klartext — offline-kön sparar redan
    det krypterade DTO:t, så sealen måste ske *före* enqueue (dvs. i `api.ts` precis som `encrypt`).
 
-**Enrolment-flöde (UI, båda appar).** I projektmappens tre-prickarsmeny/editor: "Lås den här mappen
-med ett lösenord" → fråga lösenord → `createFolderKey(lösenord)` → `updateNote(folderId, withFolderKeyBundle(folder, bundle))`
-(persisteras nu av backend) → `setFolderKey(folderId, key)` → re-materialisera. Upplåsnings-prompt när
-man öppnar en låst krypto-mapp: `unlockFolderKey(lösenord, readFolderKeyBundleFromNote(folder))` →
-`setFolderKey`; fel lösenord → `FolderUnlockError` → visa "fel lösenord", lämna låst. Lösenordsbyte:
-`rewrapFolderKey` → uppdatera bundlen.
+**Enrolment-/upplåsnings-orkestreringen (Fas 2.8 — ✅ levererad).** Den säkerhets­kritiska
+*sekvenseringen* är centraliserad och testad i `@repo/shared` som `folderEnrolment.ts`, så UI:t bara
+anropar funktionerna (prompta lösenord → anropa → fånga `FolderUnlockError` → persistera den
+returnerade noten):
+- `enrolFolderPassword(folderId, folderNote, password)` → `{ note, bundle }`: härleder en ny mapp-nyckel,
+  registrerar den i sessionen och returnerar en **kopia** av mappnoten med bundlen stämplad (persistera
+  via `updateNote`). **Vägrar** att om-enrolla en redan enrollad mapp (skulle föräldralösa dess noter)
+  och kräver ett icke-tomt lösenord.
+- `unlockFolderWithPassword(folderId, folderNote, password)`: läser bundlen, härleder nyckeln,
+  registrerar den; kastar `FolderUnlockError` på fel lösenord / manipulerad bundle / oenrollad mapp
+  (sessionen lämnas orörd vid fel).
+- `changeFolderPassword(folderId, folderNote, oldPw, newPw)` → `{ note, bundle }`: verifierar det gamla
+  lösenordet, re-wrappar **samma** nyckel under det nya (ingen not om-krypteras), uppdaterar sessionen.
+- `lockFolder(folderId)` / `isFolderUnlocked(folderId)`: släpp respektive fråga sessions­nyckeln.
+
+7 tester i `folderEnrolment.test.ts`, inkl. ett end-to-end-bevis (enrol → seal → relock → unlock → läs
+tillbaka) som speglar /verify-checklistan headless.
+
+**Kvar (UI-skal, device-verifierat).** I projektmappens tre-prickarsmeny/editor: "Lås mappen med ett
+lösenord" → prompt → `enrolFolderPassword` → persistera `note`. Upplåsnings-prompt när man öppnar en
+låst krypto-mapp → `unlockFolderWithPassword`; fel lösenord → `FolderUnlockError` → visa "fel lösenord",
+lämna låst. Lösenordsbyte → `changeFolderPassword` → persistera `note`.
 
 ## Manuell /verify-checklista (slutfasen)
 
