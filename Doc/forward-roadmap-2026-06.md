@@ -52,6 +52,9 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
   nya låslösenord. Promotad till blockerande `validate-critical`-grind. Se Research-sektionen.
 - **Dark mode: kalenderhändelser läsbara** _(2026-06-19, P0)_ — vit händelse-text istället för
   hårdkodad svart.
+- **Folder-key absolut TTL** _(2026-06-19, 🔒 INV)_ — in-memory folder-nycklar (ADR-0012) får en
+  absolut livslängd (default 30 min) med lazy eviction, så en nyckel aldrig överlever sin session
+  även om en UI-livscykel-hook inte triggar.
 
 ---
 
@@ -115,11 +118,13 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
 
 ### Säkerhet / krypto
 
-- **Folder-key-session rensas inte vid app-background/idle i krypto-lagret** 🔒 INV ·
-  `packages/shared/src/folderKeySession.ts:64-67`, `packages/shared/src/locks.ts:175-192` ·
-  **E:M R:med** · 5-min idle-omlåsning kollas bara i UI; nycklar ligger kvar i minnet om appen
-  force-quittas. Lägg absolut TTL per folder-key i `folderKeySession` + anropa
-  `clearAllFolderKeys()` på app-background (kompletterar UI-omlåsningen som redan finns).
+- ✅ **[KLAR 2026-06-19] Folder-key-session: absolut TTL-backstop i krypto-lagret** 🔒 INV ·
+  `packages/shared/src/folderKeySession.ts` · Varje session-nyckel har nu en absolut TTL (default
+  30 min, `configureFolderKeyTtl`); `getFolderKey`/`resolveSessionFolderKeyForNote` evictar lazily
+  så en utgången nyckel aldrig returneras (säkerhetsgarantin håller utan app-wiring), +
+  `sweepExpiredFolderKeys()` för en idle-tick. `clearAllFolderKeys()` är redan inkopplad på
+  logout/projekt-byte. 5 tester. **Kvar (P2):** proaktivt `sweep`/`clearAllFolderKeys` även på
+  app-background-event i båda apparna (lazy eviction täcker säkerheten; detta frigör minne tidigare).
 - ✅ **[KLAR 2026-06-19] Låslösenord: bcrypt cost 10 → 12** · `apps/backend/src/routes/notes.ts` ·
   `LOCK_PASSWORD_BCRYPT_COST = 12` (OWASP 2025). Befintliga hashar verifierar fortfarande; en
   om-låsning uppgraderar dem. _(GraphQL-fältet `password` togs bort separat.)_ **Kvar (P2):**
