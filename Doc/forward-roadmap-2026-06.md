@@ -85,10 +85,13 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
   drains (web+mobil × kalender+markdown) · Delad `createAppliedLedger` + `applyMutationsOnce`: en
   återlevererad mutation re-ackas men **app­liceras inte igen**. Backend-ACK returnerar **faktiskt**
   borttaget antal (+ `requested`). 9 tester (7 ledger + 2 route). Grundat i idempotency-key-standard.
-- **Misslyckad pull efter lyckad push lämnar pull oåterställd** · `apps/web/services/nextcloud.ts:310-402` ·
-  **E:M R:med** · `enumerateAll`-fel efter push-success överges; nästa sync hoppar push (hash matchar)
-  men återupptar aldrig pull → nya fjärr-filer upptäcks inte. Separera push/pull med egen
-  fel-recovery + retry-flagga.
+- ✅ **[KLAR 2026-06-19] Misslyckad fil-pull återställs nu** · `apps/web/services/nextcloud.ts`,
+  `packages/shared/src/fileIngest.ts` · Den verkliga buggen: en transient `getBytes`/parse-miss gav
+  `extract()` → `''` (oskiljbart från en tom fil) och noten stämplades med fjärr-ETag som "synkad" →
+  `planIngest` hoppade den för evigt (särskilt textfiler). Fix: `extract()` returnerar nu
+  `{ text, fetchFailed }`; ny ren delad `shouldForceRepull(kind, body, fetchFailed)` nollställer ETag
+  (→ re-pull nästa sync) vid miss eller tom rich-extraktion. CREATE vid miss skapar noten men med
+  rensad ETag; UPDATE vid miss hoppar (skriver inte över bra innehåll med tomt). 3 enhetstester.
 
 ### AI / agent
 
@@ -150,11 +153,12 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
   så synligheten fanns. **Kvar (P2):** lägg Redis i `readiness.ts`-grinden om man vill 503:a vid
   Redis-nere (i dag fail-open: rate-limit/lockout degraderar till per-pod-minne — observeras via
   /health/deep).
-- **Mobil agent-task saknar timeout → kan hänga för evigt** · `apps/mobile/services/ai/agentExecutor.ts:244-319` ·
-  **E:M R:high** · Backend-runnern har `TIMEOUT_MS=60_000`; mobilen har ingen. _Delvis mildrat:_
-  varje modell-anrop är redan tidsgränsat (provider-timeouts + lokal inaktivitets-watchdog), men en
-  hängd verktygs-exekvering eller patologisk loop saknar ett tak. `Promise.race` runt hela
-  `runScheduledAgentTask` (riskfylld core-path — kräver mock-tester).
+- ✅ **[KLAR 2026-06-19] Mobil agent-task har nu ett wall-clock-tak** · `apps/mobile/services/ai/agentExecutor.ts`,
+  `packages/shared/src/httpRetry.ts` · Ny återanvändbar delad `withTimeout(promise, ms, onTimeout?)`
+  (återbrukar `TimeoutError`); `runScheduledAgentTask` racear `runAgentTask` mot ett tak (default 5 min,
+  `EXPO_PUBLIC_AGENT_TASK_TIMEOUT_MS`). Vid timeout flippas en `isAborted`-flagga som loopen pollar (stannar
+  koopererande), tydligt fel persistas + `stopped:'timeout'` i run-loggen → foreground-service + keep-awake
+  släpps. Ingen patologisk loop/hängd verktyg kan längre tömma batteriet. 4 enhetstester för `withTimeout`.
 - ✅ **[KLAR 2026-06-19] Change-stream restart-loop med tak + läck-fix** ·
   `apps/backend/src/services/changeStreamInvalidator.ts` · Hård gräns 10 omstarter
   (`planChangeStreamRestart`, ren+testad) → ERROR + `degraded`-flagga + stopp (ingen evig loop/spam);
