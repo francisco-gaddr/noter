@@ -46,16 +46,19 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
   rAF lost-write → testad `notesMerge.applyNoteUpdate`).
 - **React Compiler** (web) + CI `web-build`-jobb. **Auto-omlåsning** av skyddade mappar vid
   background/idle (båda apparna).
+- **Lås brute-force-härdning** _(2026-06-19, research-grundad)_: per-(user,note) account-lockout
+  efter 5 fel med 15 min auto-öppning + audit-loggning av misslyckade/blockerade försök
+  (`createLockoutLimiter` i `rateLimit.ts`, inkopplad i `verify-lock`), och bcrypt cost 10→12 för
+  nya låslösenord. Promotad till blockerande `validate-critical`-grind. Se Research-sektionen.
+- **Dark mode: kalenderhändelser läsbara** _(2026-06-19, P0)_ — vit händelse-text istället för
+  hårdkodad svart.
 
 ---
 
 ## P0 — gör snart (användarsynlig trasighet eller hög risk)
 
-- **Dark mode gör kalenderhändelser oläsliga** · `apps/web/app/globals.css:25-27`,
-  `apps/web/components/TaskCalendar.tsx:154-185` · **E:S R:low** · React Big Calendar har
-  hårdkodad svart text (`#000 !important`) oavsett tema → svart-på-blått i mörkt läge.
-  Lägg `.dark .rbc-event { color: #fff !important }` eller CSS-variabel. _(Snabb vinst — verifiera
-  och fixa.)_
+- ✅ **[KLAR 2026-06-19] Dark mode gör kalenderhändelser oläsliga** · `apps/web/app/globals.css:24-27` ·
+  Hårdkodad svart händelse-text bytt till vit (delas av båda teman, matchar aktiv toolbar-knapp).
 
 > Den enda äkta P0:n från kartläggningen. Finnaren märkte även "cascade-replace-grind" och
 > "GraphQL password" som P0 — den förra är egentligen en P2-härdning (lägg `--selftest`, se nedan),
@@ -117,14 +120,16 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
   **E:M R:med** · 5-min idle-omlåsning kollas bara i UI; nycklar ligger kvar i minnet om appen
   force-quittas. Lägg absolut TTL per folder-key i `folderKeySession` + anropa
   `clearAllFolderKeys()` på app-background (kompletterar UI-omlåsningen som redan finns).
-- **Låslösenord: bcrypt cost 10 → höj till ≥12 / Argon2id** · `apps/backend/src/routes/notes.ts:274,360` ·
-  **E:S R:med** · OWASP rekommenderar ≥12. Argon2id finns redan i beroendena. _(Notera: finnaren
-  märkte även "GraphQL exponerar bcrypt-hash i klartext" — **redan fixat** ikväll genom att ta bort
-  output-fältet.)_
-- **`verify-lock` har bara global IP-rate-limit → cross-note brute force** ·
-  `apps/backend/src/routes/notes.ts:193-249`, `apps/backend/src/middleware/rateLimit.ts:77-81` ·
-  **E:S R:med** · 25 försök/10 min per IP delas över alla `:id`. Nyckla på `userId:noteId`, lägg
-  per-par-lockout efter N fel, returnera 429 + `Retry-After`.
+- ✅ **[KLAR 2026-06-19] Låslösenord: bcrypt cost 10 → 12** · `apps/backend/src/routes/notes.ts` ·
+  `LOCK_PASSWORD_BCRYPT_COST = 12` (OWASP 2025). Befintliga hashar verifierar fortfarande; en
+  om-låsning uppgraderar dem. _(GraphQL-fältet `password` togs bort separat.)_ **Kvar (P2):**
+  migrera helt till Argon2id (finns redan i beroendena) + re-hash-migration.
+- ✅ **[KLAR 2026-06-19] `verify-lock`: per-(user,note) brute-force-lockout** ·
+  `apps/backend/src/{routes/notes.ts,middleware/rateLimit.ts}` · `createLockoutLimiter` räknar
+  konsekutiva fel per `userId:noteId`, blockerar efter 5 (429 + `Retry-After`), auto-öppnar efter
+  15 min, nollställs vid rätt lösenord; misslyckade/blockerade försök audit-loggas. Blockerande
+  test-grind. Grundat i OWASP A07:2025 (se Research). **Kvar (P2):** per-user lockout även på
+  inloggning + CAPTCHA efter flera fel.
 
 ### Stabilitet / drift
 
@@ -294,6 +299,37 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
   storleksgränser/lazy-load/resize/quota innan implementation.
 
 ---
+
+## 🔎 Research-insikter (online-trender, uppdateras löpande)
+
+Externa best-practice-/trend-källor som styr besluten ovan. Uppdatera när ny research kommer in.
+
+### Säkerhet (2026-06-19)
+
+- **Lösenords-hashning (OWASP Password Storage Cheat Sheet, 2025):** bcrypt-arbetsfaktor
+  **≥ 12** (cost 12 ≈ 250 ms/hash), Argon2id som förstaval (`m=19456 KiB, t=2, p=1`). → Vi
+  höjde låslösenord till cost 12; full Argon2id-migration ligger kvar som P2.
+- **Brute-force/lockout (OWASP A07:2025 Authentication Failures + Auth Cheat Sheet):** lås konto
+  efter **3–5 konsekutiva fel**, auto-öppna efter **~20 min**; per-IP-limit ensam räcker inte
+  (NAT/spoofing) — nyckla även på user/resurs; **logga misslyckade försök med IP + tidsstämpel**;
+  MFA/CAPTCHA som komplement. → Vi byggde per-(user,note)-lockout (5 fel / 15 min) + audit-logg.
+  Kvar: lockout även på inloggning, ev. CAPTCHA, MFA.
+- **Källor:** [OWASP Password Storage Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html) ·
+  [OWASP A07:2025 Authentication Failures](https://owasp.org/Top10/2025/A07_2025-Authentication_Failures/) ·
+  [OWASP Blocking Brute Force Attacks](https://owasp.org/www-community/controls/Blocking_Brute_Force_Attacks).
+
+### Produktivitet (2026-06-19)
+
+- **Trender i note-taking/PKM 2026:** (1) inbyggd **AI-summering** korrelerar med ~2× daglig
+  användning; (2) **E2E-kryptering** är en marknadsdifferentiator (≈28 % av nya lanseringar,
+  Standard Notes/Joplin); (3) **local-first** (Obsidian/Joplin, AES-256 härledd ur master-lösen);
+  (4) **bidirektionella länkar + nätverkat tänkande** (Obsidian/Roam/Logseq); (5) **automatisk
+  PKM** utan manuell struktur (Mem AI). → Noter har redan E2E, local-first, graf/bidirektionella
+  länkar och RAG. **Kandidater att plocka in:** AI-summering/auto-titel av anteckningar, automatiska
+  backlink-/relaterat-förslag (bygger på befintlig vektor/GraphRAG), och en "daglig genomgång"-vy.
+  Förslag för en kommande produktivitets-iteration (ej i P0–P3 ännu — kräver produktbeslut).
+- **Källor:** [Best note-taking apps 2026 (axis-intelligence)](https://axis-intelligence.com/best-note-taking-apps-2026-47-ai-tools/) ·
+  [Best PKM apps 2026 (toolfinder)](https://toolfinder.com/best/pkm-apps).
 
 ## ✋ Verifierat icke-reellt / avprioriterat (ärlighet)
 

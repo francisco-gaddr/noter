@@ -157,7 +157,10 @@ API-referens, säkerhetsplaybook, README + index.md.
 nätverksresiliens (`httpRetry` överallt), chatt-historik-budget (`boundChatHistory` i API-providers
 + lokal `llama.rn`), låsta-mappar-läckaudit (3 ronder, 9 fixar + grindar), GraphQL lås-lösenord-fält
 borttaget, notifikations-idempotens, web krasch/race-fixar (`notesMerge`), React Compiler (web),
-auto-omlåsning vid background/idle.
+auto-omlåsning vid background/idle. **Research-grundad säkerhetsrunda:** lås brute-force-lockout
+per-(user,note) + bcrypt cost 12 + audit-logg (OWASP A07:2025 / Password Storage Cheat Sheet),
+dark-mode-kalender läsbar. Online-trender (säkerhet + produktivitet) dokumenterade i roadmappens
+Research-sektion.
 
 ## 5. Konventioner för dokumentationen
 
