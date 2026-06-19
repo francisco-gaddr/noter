@@ -64,6 +64,11 @@ export const validateBackendEnv = (env: Env, opts: { production: boolean }): Env
     warnings.push('AUDIT_HMAC_KEY is not set — the audit-log integrity chain falls back to JWT_SECRET. Set a DEDICATED key so rotating JWT_SECRET does not invalidate past audit-chain verification.');
   }
 
+  // --- Error/crash monitoring (optional) ---
+  if (opts.production && !env.GLITCHTIP_DSN) {
+    warnings.push('GLITCHTIP_DSN is not set — server error/crash reporting to GlitchTip is disabled. Set it to the project DSN to enable monitoring (see Doc/ops/error-tracking-glitchtip.md).');
+  }
+
   // --- Infrastructure URLs: warnings only (the app degrades gracefully) ---
   if (opts.production) {
     if (!env.MONGO_URI) {

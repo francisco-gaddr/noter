@@ -13,6 +13,7 @@ import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import logger from './utils/logger';
 import { validateBackendEnv } from './utils/validateEnv';
+import { initErrorTracking } from './utils/errorTracking';
 import noteRoutes from './routes/notes';
 import taskRoutes from './routes/tasks';
 import authRoutes from './routes/auth';
@@ -611,6 +612,10 @@ const startServer = async () => {
       process.exit(1);
     }
   }
+
+  // Crash/error reporting → GlitchTip (no-op unless GLITCHTIP_DSN is set). Installed before any
+  // connections so an early boot failure is still captured.
+  initErrorTracking();
 
   if (mongoUri) {
     try {

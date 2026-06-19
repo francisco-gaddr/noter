@@ -1,6 +1,22 @@
 import { Request, Response, NextFunction } from 'express';
 import { HttpError, isHttpError } from '../utils/httpErrors';
 import logger from '../utils/logger';
+import { getErrorReporter } from '../utils/errorTracking';
+
+/** Report a server-side (5xx) failure to GlitchTip with ONLY non-sensitive context — never the
+ *  request body or headers (which can carry note content / tokens). Fire-and-forget. */
+const reportServerError = (err: unknown, req: Request, status: number): void => {
+  const r = getErrorReporter();
+  if (!r.enabled) return;
+  const reqWith = req as Request & { requestId?: string; user?: { userId?: string }; route?: { path?: string } };
+  void r.captureException(err, {
+    level: status >= 500 ? 'error' : 'warning',
+    transaction: `${req.method} ${reqWith.route?.path || req.path}`,
+    requestId: reqWith.requestId,
+    userId: reqWith.user?.userId,
+    tags: { status, method: req.method },
+  });
+};
 
 export const errorHandler = (err: any, req: Request, res: Response, _next: NextFunction) => {
   const requestId = (req as Request & { requestId?: string }).requestId;
@@ -10,6 +26,7 @@ export const errorHandler = (err: any, req: Request, res: Response, _next: NextF
     const payload = (err as HttpError).toClientJSON();
     if (err.status >= 500) {
       logger.error('http.error', { requestId, status: err.status, code: err.code, message: err.message, stack: err.stack });
+      reportServerError(err, req, err.status);
     } else {
       logger.warn('http.error', { requestId, status: err.status, code: err.code, message: err.message });
     }
@@ -52,6 +69,7 @@ export const errorHandler = (err: any, req: Request, res: Response, _next: NextF
     message: err?.message,
     stack: process.env.NODE_ENV === 'production' ? undefined : err?.stack,
   });
+  if (isServerError) reportServerError(err, req, statusCode);
 
   res.status(statusCode).json({
     message: safeMessage,

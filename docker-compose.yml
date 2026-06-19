@@ -167,9 +167,101 @@ services:
       - web
     restart: always
 
+  # --- Self-hosted error/crash tracking (GlitchTip, Sentry-API compatible) ----------------------
+  # OPT-IN: started only with the `monitoring` profile (`docker compose --profile monitoring up -d`),
+  # so the default deploy is unchanged and a resource-constrained Pi isn't forced to run it. The apps
+  # report to it via GLITCHTIP_DSN (no-op when unset). The web UI (8000) is the ONLY published port —
+  # link it from the Pi Hub. Postgres + Valkey stay internal. After first boot: open the UI, create an
+  # org + a project, copy its DSN into .env as GLITCHTIP_DSN. See Doc/ops/error-tracking-glitchtip.md.
+  # Resource note: ~512 MB RAM for the stack; WEB_CONCURRENCY/autoscale are kept low for the Pi.
+  glitchtip-postgres:
+    image: postgres:16-alpine
+    container_name: noter-glitchtip-postgres
+    profiles: ["monitoring"]
+    expose:
+      - "5432"  # internal network only
+    environment:
+      - POSTGRES_DB=glitchtip
+      - POSTGRES_USER=glitchtip
+      - POSTGRES_PASSWORD=${GLITCHTIP_POSTGRES_PASSWORD}
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - glitchtip_pg_data:/var/lib/postgresql/data
+    restart: always
+
+  glitchtip-redis:
+    image: valkey/valkey:8-alpine
+    container_name: noter-glitchtip-redis
+    profiles: ["monitoring"]
+    expose:
+      - "6379"  # internal network only
+    security_opt:
+      - no-new-privileges:true
+    restart: always
+
+  glitchtip:
+    image: glitchtip/glitchtip:latest
+    container_name: noter-glitchtip
+    profiles: ["monitoring"]
+    depends_on:
+      - glitchtip-postgres
+      - glitchtip-redis
+    ports:
+      - "8000:8080"  # web UI — the only published port; link from the Pi Hub
+    environment:
+      - DATABASE_URL=postgres://glitchtip:${GLITCHTIP_POSTGRES_PASSWORD}@glitchtip-postgres:5432/glitchtip
+      - REDIS_URL=redis://glitchtip-redis:6379/0
+      - SECRET_KEY=${GLITCHTIP_SECRET_KEY}
+      - PORT=8080
+      - GLITCHTIP_DOMAIN=${GLITCHTIP_DOMAIN:-http://localhost:8000}
+      - DEFAULT_FROM_EMAIL=${GLITCHTIP_FROM_EMAIL:-noreply@noter.local}
+      - EMAIL_URL=${GLITCHTIP_EMAIL_URL:-consolemail://}
+      - ENABLE_OPEN_USER_REGISTRATION=False
+      - WEB_CONCURRENCY=1
+    security_opt:
+      - no-new-privileges:true
+    restart: always
+
+  glitchtip-worker:
+    image: glitchtip/glitchtip:latest
+    container_name: noter-glitchtip-worker
+    profiles: ["monitoring"]
+    command: ./bin/run-celery-with-beat.sh
+    depends_on:
+      - glitchtip-postgres
+      - glitchtip-redis
+    environment:
+      - DATABASE_URL=postgres://glitchtip:${GLITCHTIP_POSTGRES_PASSWORD}@glitchtip-postgres:5432/glitchtip
+      - REDIS_URL=redis://glitchtip-redis:6379/0
+      - SECRET_KEY=${GLITCHTIP_SECRET_KEY}
+      - EMAIL_URL=${GLITCHTIP_EMAIL_URL:-consolemail://}
+      - CELERY_WORKER_AUTOSCALE=1,2
+      - CELERY_WORKER_MAX_TASKS_PER_CHILD=10000
+    security_opt:
+      - no-new-privileges:true
+    restart: always
+
+  # One-shot DB migration (GlitchTip runs migrations on `migrate`). on-failure so it retries until
+  # postgres is ready, then exits 0 and stays down.
+  glitchtip-migrate:
+    image: glitchtip/glitchtip:latest
+    container_name: noter-glitchtip-migrate
+    profiles: ["monitoring"]
+    command: ./manage.py migrate
+    depends_on:
+      - glitchtip-postgres
+    environment:
+      - DATABASE_URL=postgres://glitchtip:${GLITCHTIP_POSTGRES_PASSWORD}@glitchtip-postgres:5432/glitchtip
+      - SECRET_KEY=${GLITCHTIP_SECRET_KEY}
+    security_opt:
+      - no-new-privileges:true
+    restart: on-failure
+
 volumes:
   mongodb_data:
   mongodb_backups:
   redis_data:
   neo4j_data:
   neo4j_logs:
+  glitchtip_pg_data:

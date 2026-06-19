@@ -42,6 +42,7 @@ export * from './nextcloudAuth';
 export * from './toolParsing';
 export * from './timeContext';
 export * from './httpRetry';
+export * from './errorReporter';
 export * from './mutationLedger';
 export * from './debounce';
 export * from './agentSearch';

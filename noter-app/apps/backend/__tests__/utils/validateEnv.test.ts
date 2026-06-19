@@ -4,7 +4,7 @@ const strongSecret = 'x'.repeat(48);
 
 describe('validateBackendEnv', () => {
   it('accepts a fully-configured production env with no errors or warnings', () => {
-    const r = validateBackendEnv({ JWT_SECRET: strongSecret, MONGO_URI: 'm', REDIS_URL: 'r', AUDIT_HMAC_KEY: 'audit-k' }, { production: true });
+    const r = validateBackendEnv({ JWT_SECRET: strongSecret, MONGO_URI: 'm', REDIS_URL: 'r', AUDIT_HMAC_KEY: 'audit-k', GLITCHTIP_DSN: 'https://k@h/1' }, { production: true });
     expect(r.errors).toEqual([]);
     expect(r.warnings).toEqual([]);
   });

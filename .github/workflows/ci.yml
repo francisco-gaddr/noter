@@ -108,6 +108,11 @@ jobs:
       - name: Audit-log integrity — tamper-evident chain (blocking)
         run: |
           (cd apps/backend && npx jest __tests__/utils/auditChain.test.ts __tests__/middleware/auditChainIntegration.test.ts)
+      # Error reporter → GlitchTip: the Sentry envelope format must stay correct AND PII scrubbing must
+      # never regress (note content/tokens must never reach the monitoring server). Blocking.
+      - name: Error-tracking reporter — envelope + PII scrub (blocking)
+        run: |
+          (cd packages/shared && npx jest errorReporter)
       - name: No dead files (knip --include files)
         run: npm run knip:files
 
