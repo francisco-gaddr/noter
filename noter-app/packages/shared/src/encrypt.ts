@@ -1,6 +1,6 @@
 import CryptoJS from 'crypto-js';
 import { encryptV3, decryptV3, isV3 } from './cryptoV3';
-import { isFolderWrapped, unwrapNoteForFolder } from './folderKey';
+import { isFolderWrapped, unwrapNoteForFolder, wrapNoteForFolder } from './folderKey';
 
 const DEFAULT_KEY = 'noter-default-key';
 
@@ -168,6 +168,30 @@ export const materializeFolderField = (value: unknown, opts: FolderFieldOptions 
     return lockedFallback; // no key → locked
   }
   return safeDecrypt(value);
+};
+
+/**
+ * Write-path counterpart of {@link materializeFolderField} — the ADR-0012 Fas 2 *writer*. Centralises
+ * the single decision the save path must make for a note's sensitive field (`title`/`content`):
+ *
+ *  - a folder key present → seal the plaintext into a `v3f:` envelope under that folder key
+ *                           ({@link wrapNoteForFolder}). The field is then readable ONLY by someone
+ *                           who has entered the folder password — not even with the user's dataKey.
+ *  - no folder key        → the existing {@link encrypt} path (v3 under the user dataKey when one is
+ *                           active, else legacy) — so notes outside a crypto-protected folder are
+ *                           written exactly as before (backward compatible; a true no-op).
+ *
+ * A field is therefore sealed XOR dataKey-encrypted — never double-wrapped. The seal decision (which
+ * folder key, if any) belongs to the caller: the store resolves it from the note's nearest locked
+ * ancestor via getFolderKey() and threads it through api.ts as the optional `folderKey`. Keeping the
+ * branch here (not duplicated in each app's api.ts) keeps all crypto in @repo/shared and both clients
+ * in lock-step — exactly mirroring how the read path funnels through materializeFolderField.
+ */
+export const sealNoteFieldForWrite = (plaintext: string, folderKey?: Uint8Array | null): string => {
+  if (folderKey && folderKey.length > 0) {
+    return wrapNoteForFolder(plaintext, folderKey);
+  }
+  return encrypt(plaintext);
 };
 
 export * from './cryptoV3';

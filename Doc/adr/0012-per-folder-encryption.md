@@ -106,22 +106,31 @@ från `@repo/shared`; FK lämnar aldrig minnet; logga aldrig FK/lösenord.
 
 ## Slutfas — implementations-spec för enrolment + skriv-seal (device-verifierad)
 
-Allt ovan (Fas 1 + 2.1–2.6) är byggt och testat headless. Det som återstår *skapar* riktig
-`v3f:`-data och rör den heta spar-vägen, så det görs i en egen cykel med en manuell `/verify` på en
-riktig enhet/webbkörning. Designen är fastställd här så cykeln inte gissar:
+Allt ovan (Fas 1 + 2.1–2.7) är byggt och testat headless — inklusive **skriv-seal-primitiven**
+(Fas 2.7, se nedan). Det som återstår *skapar* riktig `v3f:`-data och rör den heta spar-vägen, så
+det görs i en egen cykel med en manuell `/verify` på en riktig enhet/webbkörning. Designen är
+fastställd här så cykeln inte gissar:
 
-**Skriv-seal — var den ska ligga (undvik dubbel-kryptering).** Krypterings-gränsen för noter är
+**Skriv-seal-primitiven (Fas 2.7 — ✅ levererad).** Den enda krypto-beslutspunkten på spar-vägen är
+centraliserad i `@repo/shared` som `sealNoteFieldForWrite(plaintext, folderKey?)` (`encrypt.ts`,
+write-motsvarigheten till `materializeFolderField`): `folderKey` → `wrapNoteForFolder` (`v3f:`),
+annars `encrypt` (`v3:` under dataKey, bakåtkompatibel no-op). Ett fält sealas alltså **XOR**
+dataKey-krypteras — aldrig dubbel-wrap. Att hålla grenen här (inte duplicerad i varje apps `api.ts`)
+håller all krypto i shared och båda klienterna i lås-steg. Tester (5 st) i `encrypt.test.ts` täcker
+round-trip via läsvägen, no-op utan nyckel, null/0-längds-nyckel, och XOR-egenskapen.
+
+**Kvar — var primitiven ska anropas (undvik dubbel-kryptering).** Krypterings-gränsen för noter är
 `apps/web/services/api.ts` (`createNote`: `title: encrypt(data.title)`, `content: encrypt(data.content)`;
-`updateNote` likadant) och motsvarande i `apps/mobile/services/api.ts`. `encrypt()` använder
-användarens `dataKey`. **Seal-beslutet (vilken nyckel) hör hemma i storen** (den har note-mappen
-för att hitta närmaste låsta förälder), inte i `api.ts`. Plan:
+`updateNote` likadant) och motsvarande i `apps/mobile/services/api.ts`. **Seal-beslutet (vilken
+nyckel) hör hemma i storen** (den har note-mappen för att hitta närmaste låsta förälder), inte i
+`api.ts`. Plan:
 1. Storen resolvar `folderKey = getFolderKey(<närmaste låsta förälder till parentId>)` (samma
    `findBlockingLockedAncestor(..., new Set())`-logik som läs-vägen redan använder) och skickar in
    den som ett **valfritt** fält på DTO:t (`CreateNoteDto`/`UpdateNoteDto`: `folderKey?: Uint8Array`).
-2. `api.ts` blir: `title: data.folderKey ? wrapNoteForFolder(data.title, data.folderKey) : encrypt(data.title)`
-   (samma för `content`). Så fält i en krypto-skyddad mapp sealas till `v3f:` i stället för att
-   `dataKey`-krypteras — **aldrig båda** (ingen dubbel-wrap). Övriga fält (tags/icon/…) lämnas tills
-   vidare på `dataKey`-vägen; bara `title`/`content` är känsligt nog för Fas 1.
+2. `api.ts` byter `encrypt(data.title)` → `sealNoteFieldForWrite(data.title, data.folderKey)` (samma
+   för `content`). När ingen `folderKey` finns (all nuvarande data) är det en **exakt no-op** mot
+   `encrypt`. Övriga fält (tags/icon/…) lämnas tills vidare på `dataKey`-vägen; bara `title`/`content`
+   är känsligt nog för Fas 1.
 3. `folderKey` får **aldrig** loggas eller sparas i offline-kön i klartext — offline-kön sparar redan
    det krypterade DTO:t, så sealen måste ske *före* enqueue (dvs. i `api.ts` precis som `encrypt`).
 

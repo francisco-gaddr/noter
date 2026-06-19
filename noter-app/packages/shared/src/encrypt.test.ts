@@ -7,9 +7,10 @@ import {
   setActiveDataKey,
   hasActiveDataKey,
   materializeFolderField,
+  sealNoteFieldForWrite,
 } from './encrypt';
 import { generateDataKey, isV3 } from './cryptoV3';
-import { wrapNoteForFolder } from './folderKey';
+import { wrapNoteForFolder, isFolderWrapped } from './folderKey';
 
 afterEach(() => setActiveDataKey(null)); // never leak an active key between tests
 
@@ -184,5 +185,45 @@ describe('safeDecrypt / decrypt: defensive v3f: guard (never leak the envelope)'
   it('decrypt returns "" for a v3f: value (never garbage from the legacy path)', () => {
     const sealed = wrapNoteForFolder('Hemligt', generateDataKey());
     expect(decrypt(sealed)).toBe('');
+  });
+});
+
+describe('sealNoteFieldForWrite (ADR-0012 write-path seal)', () => {
+  const folderKey = generateDataKey();
+
+  it('seals to a v3f: envelope that round-trips through the read path with the same key', () => {
+    const sealed = sealNoteFieldForWrite('Hemligt innehåll åäö', folderKey);
+    expect(isFolderWrapped(sealed)).toBe(true); // v3f:, not v3:
+    expect(materializeFolderField(sealed, { folderKey })).toBe('Hemligt innehåll åäö');
+  });
+
+  it('produces ciphertext unreadable without the folder key (locked mask, never the plaintext)', () => {
+    const sealed = sealNoteFieldForWrite('Hemligt', folderKey);
+    expect(materializeFolderField(sealed, { lockedFallback: 'Låst' })).toBe('Låst'); // no key → masked
+    expect(materializeFolderField(sealed, { folderKey: generateDataKey() })).toBe(''); // wrong key → masked
+    expect(safeDecrypt(sealed)).toBe(''); // the dataKey reader can't open it either
+  });
+
+  it('with no folder key is a true no-op — identical behaviour to encrypt() (backward compatible)', () => {
+    setActiveDataKey(generateDataKey());
+    const sealed = sealNoteFieldForWrite('en vanlig not', undefined);
+    expect(isFolderWrapped(sealed)).toBe(false); // v3:, NOT v3f:
+    expect(isV3(sealed)).toBe(true);
+    expect(safeDecrypt(sealed)).toBe('en vanlig not'); // reads on the normal dataKey path
+  });
+
+  it('treats null / empty-length keys as "no key" (falls back to dataKey encrypt, never an empty seal)', () => {
+    setActiveDataKey(generateDataKey());
+    expect(isFolderWrapped(sealNoteFieldForWrite('x', null))).toBe(false);
+    expect(isFolderWrapped(sealNoteFieldForWrite('x', new Uint8Array(0)))).toBe(false);
+    expect(safeDecrypt(sealNoteFieldForWrite('x', null))).toBe('x');
+  });
+
+  it('seals XOR dataKey-encrypts — a folder-sealed field is never also a v3: dataKey envelope', () => {
+    setActiveDataKey(generateDataKey()); // a dataKey IS active...
+    const sealed = sealNoteFieldForWrite('Hemligt', folderKey); // ...but a folder key wins
+    expect(isFolderWrapped(sealed)).toBe(true);
+    expect(isV3(sealed)).toBe(false); // not double-wrapped under the dataKey
+    expect(materializeFolderField(sealed, { folderKey })).toBe('Hemligt');
   });
 });

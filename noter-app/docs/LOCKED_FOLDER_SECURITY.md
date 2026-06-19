@@ -186,12 +186,15 @@ garantier. Varje punkt är additiv — invarianterna i §7 måste fortsatt håll
    **`v3f:`**-kuvert som läsvägen skiljer från `v3:` (under `dataKey`) — så befintliga låsta noter
    förblir läsbara (bakåtkompatibelt, invariant §3 i indexet).
 
-   **✅ Levererat och testat headless (Fas 1 + 2.1–2.6):**
+   **✅ Levererat och testat headless (Fas 1 + 2.1–2.7):**
    - `folderKey.ts` — `createFolderKey`/`unlockFolderKey`/`rewrapFolderKey` (lösenordsbyte = re-wrap,
      ingen om-kryptering), `wrapNoteForFolder`/`unwrapNoteForFolder`, samt bundle-lagring
      (`readFolderKeyBundleFromNote`/`withFolderKeyBundle`).
    - `encrypt.ts` `materializeFolderField` — läs-dispatch (FK → dekryptera, annars mask); och
      `safeDecrypt`/`decrypt` returnerar masken (aldrig kuvertet) om ett `v3f:`-värde når dem utan FK.
+   - `encrypt.ts` `sealNoteFieldForWrite(plaintext, folderKey?)` — **skriv-seal-primitiven** (Fas 2.7),
+     write-motsvarigheten till `materializeFolderField`: FK → `v3f:`-seal, annars `encrypt` (no-op).
+     Ett fält sealas XOR dataKey-krypteras, aldrig dubbel-wrap. 5 tester i `encrypt.test.ts`.
    - `folderKeySession.ts` — in-memory-only FK-session, äger en kopia, nollar bytena, **töms vid
      app-lås/logout** (wired i båda stores).
    - **Läs-vägen wired i båda stores** (`materializeOneNote`, inkl. den chunkade synk-vägen) — no-op
@@ -202,10 +205,11 @@ garantier. Varje punkt är additiv — invarianterna i §7 måste fortsatt håll
    - **Publicering/index:** `v3f:`-noter ligger alltid i en låst mapp, som redan utesluts av lås-filtret
      (tom upplåsnings­mängd, T20) från alla publicerings-/index-ytor — inget separat skydd behövs.
 
-   **Kvar (egen cykel, enhets-/runtime-verifierad — spec + checklista i ADR §Slutfas):** enrolment-UI
-   (sätt mapp-lösenord → `createFolderKey` → `withFolderKeyBundle` → `setFolderKey`) och **skriv-sealen**
-   (`wrapNoteForFolder` i `api.ts`-krypterings­gränsen när mappen har en sessions-FK) — de delar som
-   *skapar* den första riktiga `v3f:`-datan.
+   **Kvar (egen cykel, enhets-/runtime-verifierad — spec + checklista i ADR §Slutfas):** att *anropa*
+   `sealNoteFieldForWrite` från `api.ts`-krypterings­gränsen med en `folderKey` som storen resolvar
+   (`getFolderKey(<närmaste låsta förälder>)`, valfritt DTO-fält), samt enrolment-UI (sätt
+   mapp-lösenord → `createFolderKey` → `withFolderKeyBundle` → `setFolderKey`) och upplåsnings-prompten
+   — de delar som *skapar* den första riktiga `v3f:`-datan på en riktig enhet.
 2. **Signerad, read-only widget-/publicerings-endpoint.** Fas 3 i extern-MD-synken. När den
    byggs: håll `isReadableForAI`-filtret (tom upplåsnings­mängd) som det enda urvalet och lägg
    till en kort-livad signatur per snapshot — lägg till en ny `GUARDED`-byggare i
