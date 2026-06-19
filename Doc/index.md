@@ -44,7 +44,8 @@ ska öppna för en given fråga. Läs det här först, sedan den specifika filen
 | **Servera valda anteckningar/mappar som Markdown utåt (Obsidian/macOS/Android/widgets), säkert + 2-vägs realtid** ⭐ *(implementerad: WebDAV + CRDT Live; per-anteckning via 3-prickar, projektmappar via modal + inställningar)* | [`external-markdown-sync.md`](./external-markdown-sync.md) + [`adr/0008-external-markdown-sync.md`](./adr/0008-external-markdown-sync.md) |
 | **Vad exponeras utåt? Egress-kontroll + kill-switchar (kalender/uppgifter)** | [`security/calendar-exposure.md`](./security/calendar-exposure.md) 🔒 |
 | Förstå widgets | [`widgets-architecture.md`](./widgets-architecture.md) |
-| Se vad som återstår / nästa steg | [`improvements.md`](./improvements.md) + §4 nedan |
+| **Se den fullständiga, prioriterade backloggen (vad vi ska uppdatera framöver)** ⭐ | [`forward-roadmap-2026-06.md`](./forward-roadmap-2026-06.md) |
+| Se vad som återstår / nästa steg (kort liggare) | [`improvements.md`](./improvements.md) + §4 nedan |
 | Skriva en incident-postmortem | [`incidents/TEMPLATE.md`](./incidents/TEMPLATE.md) |
 
 ## 2. Hur koden är organiserad (var saker bor)
@@ -85,7 +86,11 @@ ska öppna för en given fråga. Läs det här först, sedan den specifika filen
 
 ## 4. Nästa steg / förbättringsbacklog (konkret, prioriterad)
 
-Status 2026-06-13. Uppdatera den här listan när poster blir klara.
+> **Fullständig, grundad backlog:** [`forward-roadmap-2026-06.md`](./forward-roadmap-2026-06.md)
+> (17-agents kartläggning + verifiering, 2026-06-19) listar **alla** P0–P3-poster per domän med
+> fil/rad, motivering och invariant-flagga. Sektionen nedan är de pågående/levererade initiativen.
+
+Status 2026-06-19. Uppdatera den här listan när poster blir klara.
 
 **✅ Levererat initiativ — Extern Markdown-sync (valda anteckningar/mappar utåt):**
 - [x] Servera **utvalda** anteckningar/projektmappar som en **Markdown-vault** som kan nås
@@ -147,6 +152,12 @@ Status 2026-06-13. Uppdatera den här listan när poster blir klara.
 **Validerat & klart:** IDOR-fix + mekanisk grind, ai/sync+mcp-review, v3-krypto,
 Hermes-källa, chunked perf, version 1.1.0 + säkerhetsklassificering, health-version,
 API-referens, säkerhetsplaybook, README + index.md.
+
+**Levererat 2026-06-19 (natt-session, se [`forward-roadmap-2026-06.md`](./forward-roadmap-2026-06.md) → "Redan levererat"):**
+nätverksresiliens (`httpRetry` överallt), chatt-historik-budget (`boundChatHistory` i API-providers
++ lokal `llama.rn`), låsta-mappar-läckaudit (3 ronder, 9 fixar + grindar), GraphQL lås-lösenord-fält
+borttaget, notifikations-idempotens, web krasch/race-fixar (`notesMerge`), React Compiler (web),
+auto-omlåsning vid background/idle.
 
 ## 5. Konventioner för dokumentationen
 
