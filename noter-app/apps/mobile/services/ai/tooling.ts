@@ -60,6 +60,7 @@ export const buildToolSystemPrompt = (baseUrl: string, enabledMcpServices: strin
     '- Projektmappar är notes med type="project".',
     '- Tasklistor är notes med type="task_list".',
     'Tools:',
+    '- search_notes(query, limit?) — sök i anteckningar/uppgifter (lexikal + rerank). Använd FÖRST för att hitta relevant innehåll i stället för att lista allt.',
     '- list_notes(parentId?, type?)',
     '- get_note(id)',
     '- create_note(title, content?, tags?, parentId?, type?, locked?, password?, icon?, iconColor?, order?)',

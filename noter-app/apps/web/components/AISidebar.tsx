@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { ChatMessage, HFModel, HFFile, Conversation, AIProject, normalizeToolArguments } from '@repo/ai';
-import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, mcpSettingsFromJson, mcpSettingsToJsonString, mergePresetProviders, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings, CONTEXT_LEVELS, contextLevelConfig, summarizeToolPolicy, normalizeContextLevel, applyDelegationDefaults, serializeAiDelegation, summarizeToolMessage, formatToolFields, extractToolCalls as sharedExtractToolCalls, buildTimeContextLines, normalizeNoteType, type ContextLevel, type AiTaskSource, type AiTaskDelegation } from '@repo/shared';
+import { MCP_INTEGRATIONS, McpUiSettings, createEmptyMcpUiSettings, decrypt, encrypt, mcpSettingsFromJson, mcpSettingsToJsonString, mergePresetProviders, normalizeMcpUiSettings, resolveMcpSettings, toEffectiveMcpUiSettings, CONTEXT_LEVELS, contextLevelConfig, summarizeToolPolicy, normalizeContextLevel, applyDelegationDefaults, serializeAiDelegation, summarizeToolMessage, formatToolFields, extractToolCalls as sharedExtractToolCalls, buildTimeContextLines, normalizeNoteType, agentSearchNotes, type ContextLevel, type AiTaskSource, type AiTaskDelegation } from '@repo/shared';
 import { setDelegation as setLocalDelegation } from '../services/ai/agentDelegations';
 import { db } from '../services/db';
 import { v4 as uuidv4 } from 'uuid';
@@ -1919,6 +1919,7 @@ export const AISidebar = () => {
       '- Projektmappar är notes med type="project".',
       '- Tasklistor är notes med type="task_list".',
       'Tools:',
+      '- search_notes(query, limit?) — sök i anteckningar/uppgifter (lexikal + rerank). Använd FÖRST för att hitta relevant innehåll i stället för att lista allt.',
       '- list_notes(parentId?, type?)',
       '- get_note(id)',
       '- create_note(title, content?, tags?, parentId?, type?, locked?, password?, icon?, iconColor?, order?)',
@@ -2840,6 +2841,11 @@ export const AISidebar = () => {
       return value;
     };
     switch (tool) {
+      case 'search_notes': {
+        // Lock-safe lexical+rerank search (agentSearchNotes hard-filters with the empty unlock set).
+        const { notes, tasks } = getAISecurityContext();
+        return { results: agentSearchNotes(notes as any, tasks as any, String(args.query ?? args.q ?? ''), Number(args.limit) || 8) };
+      }
       case 'list_notes': {
         const { notes, noteMap, unlockedIds, toNotePayload } = getAISecurityContext();
         const parentId = args.parentId ?? null;

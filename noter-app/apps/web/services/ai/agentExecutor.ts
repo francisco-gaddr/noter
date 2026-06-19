@@ -17,6 +17,7 @@ import {
   buildSecurityNoteMap,
   isReadableWithLocks,
   AI_INDEX_NO_UNLOCK,
+  agentSearchNotes,
   type AiTaskDelegation,
   type Note,
   type Task,
@@ -70,6 +71,10 @@ const buildToolExecutor = () => async (tool: string, args: Record<string, any>):
   const taskReadable = (t: Task) => !t.parentNoteId || isReadableWithLocks(noteMap.get(String(t.parentNoteId)) as any, noteMap, unlockedIds);
 
   switch (tool) {
+    case 'search_notes':
+      // Lock-safe lexical+rerank search (same retrieval as chat, empty unlock set). Pass the RAW
+      // store data — agentSearchNotes does the lock-filtering itself.
+      return { results: agentSearchNotes(allNotes, tasks, String(args.query ?? args.q ?? ''), Number(args.limit) || 8) };
     case 'list_notes':
       return { notes: notes.filter((n) => normalizeNoteType(n.type) === 'note' && (args.parentId ? String(n.parentId) === String(args.parentId) : true)) };
     case 'get_note': {
@@ -149,7 +154,7 @@ const buildAgentSystem = (task: Task, delegation: AiTaskDelegation): string => {
     AGENT_LOCK_POLICY,
     levelHint,
     'Arbeta i korta steg med tool calls i ```json {"tool","arguments"} ``` format. Wrappa ALDRIG fälten i en extra "args"-nivå.',
-    'Verktyg: list_notes, get_note, list_projects, list_tasklists, list_tasks, get_task, create_note, update_note, create_task, update_task, complete_task, delete_task.',
+    'Verktyg: search_notes (sök i anteckningar/uppgifter — använd det FÖRST för att hitta relevant innehåll i stället för att lista allt), list_notes, get_note, list_projects, list_tasklists, list_tasks, get_task, create_note, update_note, create_task, update_task, complete_task, delete_task.',
     `Aktuell tid: ${new Date().toISOString()} (${tz}).`,
     `Projektmappar: ${fmt('project')}.`,
     `Uppgiftslistor: ${fmt('task_list')}.`,

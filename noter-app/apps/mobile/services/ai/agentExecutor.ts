@@ -33,6 +33,7 @@ import {
   buildSecurityNoteMap,
   isReadableWithLocks,
   AI_INDEX_NO_UNLOCK,
+  agentSearchNotes,
 } from '@repo/shared';
 import { runAgentTask, type AgentAccess, type ChatMessage } from '@repo/ai';
 import { API_PROVIDERS, generateApiProviderResponse, type ApiProviderType } from './apiProviders';
@@ -125,6 +126,10 @@ const buildToolExecutor = () => async (tool: string, args: Record<string, any>):
   const taskReadable = (t: Task) => !t.parentNoteId || isReadableWithLocks(noteMap.get(String(t.parentNoteId)) as any, noteMap, unlockedIds);
 
   switch (tool) {
+    case 'search_notes':
+      // Lock-safe lexical+rerank search (same retrieval as chat, empty unlock set). Raw store data —
+      // agentSearchNotes does the lock-filtering itself.
+      return { results: agentSearchNotes(allNotes, tasks, String(args.query ?? args.q ?? ''), Number(args.limit) || 8) };
     case 'list_notes':
       return { notes: notes.filter((n) => normalizeNoteType(n.type) === 'note' && (args.parentId ? String(n.parentId) === String(args.parentId) : true)) };
     case 'get_note': {

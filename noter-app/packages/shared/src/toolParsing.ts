@@ -18,6 +18,7 @@ export type ToolCall = {
 };
 
 export const DEFAULT_TOOL_NAMES: readonly string[] = [
+  'search_notes',
   'list_notes', 'get_note', 'create_note', 'update_note', 'delete_note',
   'list_projects', 'create_project', 'update_project', 'delete_project',
   'list_tasklists', 'create_tasklist', 'update_tasklist', 'delete_tasklist',
