@@ -8,6 +8,7 @@ import { I18nextProvider } from 'react-i18next'
 import i18n from './i18n'
 import { useStore } from '../stores/useStore'
 import AppLock from '../components/AppLock'
+import { startAutoIndex } from '../services/ai/autoIndex'
 
 // Initialize axe-core accessibility checks in development
 if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'production') {
@@ -29,6 +30,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     i18n.changeLanguage(language)
   }, [language])
+
+  // Auto-index (opt-in, default off): re-embed shortly after notes/tasks change so semantic
+  // search stays fresh without a manual re-index. One debounced store subscription.
+  useEffect(() => startAutoIndex(), [])
 
   return (
     React.createElement(

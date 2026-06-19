@@ -132,6 +132,7 @@ import {
   unregisterBackgroundFetch,
 } from '@/services/backgroundFetch';
 import { startAgentScheduler, runDueAgentTasks } from '@/services/ai/agentScheduler';
+import { startAutoIndex } from '@/services/ai/autoIndex';
 import { registerPushToken } from '@/services/ai/agentBackendSync';
 import { Alert, View } from 'react-native';
 import { useRouter, useSegments } from 'expo-router';
@@ -219,8 +220,11 @@ function RootLayoutNav() {
   useEffect(() => {
     if (!token) return;
     const stop = startAgentScheduler();
+    // Auto-index (opt-in, default off): re-embed shortly after notes/tasks change so semantic
+    // search stays fresh. One debounced store subscription, torn down on logout.
+    const stopAutoIndex = startAutoIndex();
     void registerPushToken();
-    return stop;
+    return () => { stop?.(); stopAutoIndex(); };
   }, [token]);
 
   useEffect(() => {
