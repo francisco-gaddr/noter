@@ -101,9 +101,11 @@ describe('contextLevels', () => {
       expect(summarizeToolPolicy('minimal')).toEqual(['Endast svara (inga verktyg)']);
     });
 
-    it('deep lists the full set including web + vector/graph search', () => {
+    it('deep lists vector/graph search + write tools (web search is reserved, NOT advertised)', () => {
       const caps = summarizeToolPolicy('deep');
-      expect(caps).toEqual(expect.arrayContaining(['Webbsök', 'Vektor/graf-sök', 'Skapa/ändra uppgifter']));
+      expect(caps).toEqual(expect.arrayContaining(['Vektor/graf-sök', 'Skapa/ändra uppgifter', 'Fritextsök']));
+      // allowWebSearch is reserved/unimplemented — must NOT be claimed to the user or the model.
+      expect(caps).not.toContain('Webbsök');
     });
 
     it('toolUse=false hard-disables read/write tools but leaves search', () => {

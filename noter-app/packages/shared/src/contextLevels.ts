@@ -51,7 +51,7 @@ const CONFIGS: Record<ContextLevel, ContextLevelConfig> = {
     allowFulltextSearch: true, allowWebSearch: false, allowVectorSearch: false, maxContextItems: 50,
   },
   deep: {
-    level: 'deep', label: 'Djup', description: 'Full systemkontext + webbsök + vektor/graf-sök (långsammare, dyrare).',
+    level: 'deep', label: 'Djup', description: 'Full systemkontext + vektor/graf-sök (långsammare, dyrare).',
     includeContainers: true, allowReadTools: true, allowWriteTools: true,
     allowFulltextSearch: true, allowWebSearch: true, allowVectorSearch: true, maxContextItems: 200,
   },
@@ -96,7 +96,10 @@ export const summarizeToolPolicy = (
   if (c.allowReadTools && toolUse) caps.push('Läsa anteckningar/uppgifter');
   if (c.allowWriteTools && toolUse) caps.push('Skapa/ändra uppgifter');
   if (c.allowFulltextSearch) caps.push('Fritextsök');
-  if (c.allowWebSearch) caps.push('Webbsök');
+  // NOTE: `allowWebSearch` is RESERVED, not yet implemented (no web-search tool exists). We do NOT
+  // advertise "Webbsök" — telling the model it can web-search when it can't degrades answers, and a
+  // third-party web search would conflict with the local-first/privacy posture. Re-add here the day
+  // a real web-search tool ships.
   if (c.allowVectorSearch) caps.push('Vektor/graf-sök');
   if (c.includeContainers) caps.push('Mappar/listor i kontext');
   if (caps.length === 0) caps.push('Endast svara (inga verktyg)');
