@@ -45,5 +45,18 @@ const del = async (key: string): Promise<void> => {
   await client.del(key);
 };
 
-export default { get, set, del };
+/**
+ * Cleanly close the cache connection on shutdown. Without this the Redis client lingers as an
+ * open handle (zombie connection) after the process is asked to stop. Safe to call when never
+ * connected. Registered in the graceful-shutdown sequence.
+ */
+const close = async (): Promise<void> => {
+  try {
+    if (client.isOpen) await client.quit();
+  } catch (err) {
+    console.error('Failed to close Redis cache client', err);
+  }
+};
+
+export default { get, set, del, close };
 

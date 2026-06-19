@@ -62,6 +62,7 @@ import { schedule as scheduleCron, start as startCron, stop as stopCron } from '
 import { installAuthRefresh } from './socket/authRefresh';
 import { installGracefulShutdown, isShuttingDown } from './utils/gracefulShutdown';
 import { closeRateLimitRedis } from './middleware/rateLimit';
+import cache from './services/cache';
 
 const dotenvPath = process.env.DOTENV_PATH;
 if (dotenvPath) {
@@ -684,6 +685,7 @@ const startServer = async () => {
       { name: 'instance-heartbeat', close: () => stopInstanceHeartbeat() },
       { name: 'change-streams', close: () => stopChangeStreamInvalidator() },
       { name: 'redis-rate-limit', close: () => closeRateLimitRedis() },
+      { name: 'redis-cache', close: () => cache.close() },
     ],
   });
 };
