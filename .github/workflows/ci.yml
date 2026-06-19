@@ -88,6 +88,15 @@ jobs:
           (cd packages/shared && npx jest httpRetry)
           (cd apps/web && npx jest __tests__/ai-streaming.test.ts)
           (cd apps/mobile && npx jest tests/api-providers.test.ts)
+      # AI search & semantic retrieval (RAG). Validates the pipeline against the 2026 hybrid-search
+      # standard: dense (cosine, dimension-safe) + sparse (lexical) fused with RRF (k=60) + a
+      # query-aware rerank + optional GraphRAG; the encrypted on-device index (model/provider/dims
+      # metadata, model-/provider-change re-embed, size cap); the context-level method gating; and
+      # the lock-safe agent `search_notes` tool (a locked note/task can NEVER surface to the AI).
+      # Blocking — semantic search + the lock guard on it are core, security-relevant functionality.
+      - name: AI search & semantic retrieval — RAG correctness (blocking)
+        run: |
+          (cd packages/shared && npx jest vectorSearch retrieval vectorStore embeddings graphModel agentSearch contextLevels)
       - name: No dead files (knip --include files)
         run: npm run knip:files
 
