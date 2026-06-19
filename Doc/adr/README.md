@@ -39,6 +39,7 @@ nästa lediga.
 | 0009 | [End-to-end-kryptering för AI-skapat innehåll](0009-e2e-for-ai-created-content.md) — datakarta: [`security/ai-agent-data-handling.md`](../security/ai-agent-data-handling.md) | Accepted |
 | 0010 | [Två-stegs RAG-hämtning (rerank) + leverantörs-format-diskriminator](0010-two-stage-rag-retrieval.md) — plan: [`ai-retrieval-rag.md`](../ai-retrieval-rag.md) | Accepted (fullföljer 0006 Fas 3) |
 | 0011 | [Ingestion av externa filkällor (Nextcloud) som krypterad kontext](0011-external-source-ingestion.md) — plan: [`nextcloud-ingestion.md`](../nextcloud-ingestion.md) | Accepted (Fas 1 levererad) |
+| 0012 | [Per-folder kryptografisk gräns för låsta projektmappar](0012-per-folder-encryption.md) — modell: [`../../noter-app/docs/LOCKED_FOLDER_SECURITY.md`](../../noter-app/docs/LOCKED_FOLDER_SECURITY.md) §8.1 | Accepted (Fas 1: krypto-primitiv levererad) |
 
 Lägg till nya rader sorterat på nummer.
 

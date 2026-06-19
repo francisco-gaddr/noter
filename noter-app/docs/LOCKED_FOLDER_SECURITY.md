@@ -177,13 +177,17 @@ not just by hiding the menu item:
 Skrivet så att en framtida modell/utvecklare kan **höja** skyddet utan att bryta nuvarande
 garantier. Varje punkt är additiv — invarianterna i §7 måste fortsatt hålla.
 
-1. **Distinkt nyckel per låst mapp (kryptografisk, inte bara filtrering).** I dag är låst
-   innehåll fält-krypterat med användarens `dataKey` och *skyddas* från läckage av lås-filtret
-   (`isReadableWithLocks`). Nästa nivå: wrappa varje låst mapps innehåll under en **mapp-specifik
-   nyckel** härledd ur mappens lösenord (Argon2id → HKDF), så att en bugg i filtret inte räcker
-   för att exponera klartext — `content` är då oläsbart utan lösenordet, inte bara dolt. Bygg på
-   `keyBootstrap.ts`-mönstret (re-wrap utan att röra `dataKey`). Bakåtkompatibel läsning krävs
-   (invariant §3 i indexet).
+1. **Distinkt nyckel per låst mapp (kryptografisk, inte bara filtrering).** 🟡 **Fas 1 levererad.**
+   Beslut + migrationsplan i [`../../Doc/adr/0012-per-folder-encryption.md`](../../Doc/adr/0012-per-folder-encryption.md).
+   Krypto-primitiven finns i `packages/shared/src/folderKey.ts` (+ `folderKey.test.ts`, 18 tester i
+   den blockerande grinden): varje skyddad mapp får en slumpad **mapp-nyckel** (FK) wrappad under en
+   mapp-lösenords-härledd rotnyckel (Argon2id, PBKDF2-fallback) — `createFolderKey` / `unlockFolderKey`
+   / `rewrapFolderKey` (lösenordsbyte = re-wrap, ingen om-kryptering). Notfält sealas med
+   `wrapNoteForFolder` till ett **`v3f:`**-kuvert som läsvägen kan skilja från `v3:` (under användarens
+   `dataKey`) — så befintliga låsta noter förblir läsbara (bakåtkompatibelt, invariant §3 i indexet).
+   **Kvar (kommande faser, se ADR §Migration):** lagra `FolderKeyBundle` på mappnoten, in-memory-only
+   FK-session, dispatcha skriv/läs-vägen (`materializeOneNote`) på `v3f:`, och en mekanisk grind som
+   håller `v3f:` borta från publicerings-/index-ytor. **Inte** wired in i stores ännu — medvetet.
 2. **Signerad, read-only widget-/publicerings-endpoint.** Fas 3 i extern-MD-synken. När den
    byggs: håll `isReadableForAI`-filtret (tom upplåsnings­mängd) som det enda urvalet och lägg
    till en kort-livad signatur per snapshot — lägg till en ny `GUARDED`-byggare i
