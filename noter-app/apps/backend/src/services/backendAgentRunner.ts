@@ -19,7 +19,15 @@ import Note from '../models/Note';
 import { encrypt, decrypt, parseAiDelegation, serializeAiDelegation, resolveMaxSteps, resolveTokenBudget, isOverRunBudget, AGENT_PLANNING_INSTRUCTIONS, AGENT_LOCK_POLICY, buildSecurityNoteMap, isReadableWithLocks, type SecurityNote, type AiTaskDelegation } from '@repo/shared';
 import { runAgentTask, type ChatMessage } from '@repo/ai';
 import { sendPushToUser } from './expoPush';
+import { enforceQuota } from './quotaTracker';
+import { TooManyRequestsError } from '../utils/httpErrors';
 import logger from '../utils/logger';
+
+// Per-user daily cap on SERVER-RUN agent tasks. These are the only AI runs that cost the OPERATOR
+// (self-hosted Ollama compute + DB writes on the Pi) — provider API calls are billed to the user's
+// own client-side key and never touch the backend, so they need no server quota. A generous cap
+// stops a runaway/abusive account from monopolising the shared backend. Env-overridable.
+const BACKEND_AGENT_DAILY_LIMIT = Number(process.env.BACKEND_AGENT_DAILY_LIMIT) || 200;
 
 type Io = { to?: (room: string) => { emit?: (event: string, payload: unknown) => void } } | undefined;
 
@@ -222,6 +230,19 @@ const runOne = async (task: any, delegation: AiTaskDelegation, io?: Io): Promise
   const userId = task.userId as string;
   const title = dec(task.title);
   const notify = delegation.notify ?? { onFinish: true };
+
+  // Fair-use quota: cap server-run agent tasks per user/day (the only operator-cost AI path).
+  // On exceed → mark the task and skip. A quota-infra error (DB blip) fails OPEN so a legit run is
+  // never blocked by the check itself.
+  try {
+    await enforceQuota(userId, 'backend-agent-runs', { dayLimit: BACKEND_AGENT_DAILY_LIMIT });
+  } catch (err) {
+    if (err instanceof TooManyRequestsError) {
+      await persistDelegation(String(task._id), { ...delegation, status: 'error', result: `Daglig gräns (${BACKEND_AGENT_DAILY_LIMIT}) för server-körda agentuppgifter nådd. Kör på enheten eller försök imorgon.` });
+      return;
+    }
+    logger.warn('backendAgentRunner.quota-check-failed', { error: (err as Error)?.message });
+  }
 
   await persistDelegation(String(task._id), { ...delegation, status: 'running', lastRunAt: new Date().toISOString(), runCount: (delegation.runCount || 0) + 1 });
   if (notify.onStart) await sendPushToUser(userId, { title: 'AI-agent startade', body: `"${title}" körs nu på servern.`, data: { taskId: String(task._id) } }).catch(() => undefined);
