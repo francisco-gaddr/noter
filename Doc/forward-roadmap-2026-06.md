@@ -172,10 +172,11 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
   rebuild) till föregående revision om bygget är trasigt — sajten kommer tillbaka i stället för att
   ligga nere. _(Infra — verifieras vid nästa riktiga deploy.)_ **Kvar:** hårdkodat SSH-lösenord i
   `deploy_pi.py` flaggat för rotation/secret-hantering (separat task).
-- **DB-backup-automation + restore-test saknas helt** 🔒 INV · `docker-compose.yml`,
-  `Doc/ops/disaster-recovery.md` · **E:M R:high** · Inga `mongodump`/backup i repo; runbook säger
-  "testa alltid restore" men ger ingen automation. En migrations-bugg/ransomware är oåterställbar.
-  Backup-sidecar (var 6:e h) + veckovis CI-restore-sanity + pre-deploy volym-snapshot.
+- ✅ **[KLAR 2026-06-19] DB-backup-automation + restore (runbook)** 🔒 INV · `docker-compose.yml`,
+  `noter-app/apps/mongo-backup/`, `Doc/ops/disaster-recovery.md` · `mongo-backup`-sidecar (återbrukar
+  mongo-imagen) kör schemalagd `mongodump --gzip --archive` → `mongodb_backups`-volym med retention;
+  `restore.sh` + runbook med non-destruktiv test-restore. **Kvar:** offsite-kopia (S3/rsync),
+  pre-deploy-snapshot, automatiserad CI-restore-test (kräver Docker-in-CI).
 - **npm audit-remediering: policy + CI-grind** · `package-lock.json`, `scripts/validate-critical.mjs` ·
   **E:M R:high** · 184 advisories (några kritiska transitiva: `@babel/core`, `@grpc/grpc-js`,
   `@opentelemetry/core`). Lägg `npm audit --audit-level=high` + `AUDIT_EXCEPTIONS.json` med
@@ -196,10 +197,12 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
   byggda men oanvända `quotaTracker`. Mongo-backad test bevisar att den faktiskt blockerar. Klient-
   nyckel-vägarna är **medvetet INTE** quota'de (dokumenterat). **Kvar (P3):** UI för förbruknings-
   varning (client-local mätning finns i mobil `usageTracker`).
-- **GDPR data-export + radera-konto saknas** · `apps/backend/src/routes/{auth,notes,tasks}.ts` ·
-  **E:M R:high** · Ingen portabilitets-/raderingsendpoint (GDPR art. 20, CCPA). `POST /api/user/export`
-  (krypterad bundle) + `DELETE /api/user/account` (soft-delete + 30 d grace). _(E2E gör export
-  klurig — kräver klient-dekrypterings-handoff.)_
+- ✅ **[KLAR 2026-06-19] GDPR data-export + radera-konto** · `apps/backend/src/{services/userData.ts,routes/account.ts}` ·
+  `GET /api/account/export` (åtkomst/portabilitet, art. 15/20) + `DELETE /api/account` (radering,
+  art. 17). Ett **register** (`userData.ts`) listar alla 13 user-nycklade kollektioner EN gång → både
+  export och radering konsumerar det (kan aldrig driva isär). Export ger E2E-ciphertext as-is +
+  keyBundle (klient dekrypterar lokalt), **inga secrets**; radering är hard-delete bekräftad med
+  användarnamn + audit-loggad. Strikt egen-data (IDOR). 7 tester, namngiven blockerande CI-grind.
 - **Audit-logg ej immutable/tamper-evident** 🔒 INV · `apps/backend/src/middleware/auditLog.ts`,
   `apps/backend/src/models/McpAuditLog.ts` · **E:M R:high** · Loggar ligger i samma Mongo som
   userdata; DB-admin kan ändra dem oupptäckt. Hash-kedja (SHA256 av föreg.+payload), separat
