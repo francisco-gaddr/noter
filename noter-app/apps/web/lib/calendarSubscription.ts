@@ -4,7 +4,7 @@
  * CalDAV login. Managed in Settings. Task data is E2E-encrypted, so we push only a
  * minimal, lock-aware plaintext projection (the union of the share's lists).
  */
-import { buildSafeCalendarProjection, rfcPriorityToTask } from '@repo/shared';
+import { buildSafeCalendarProjection, rfcPriorityToTask, createAppliedLedger, applyMutationsOnce } from '@repo/shared';
 import { getApiBaseUrl } from '../services/api';
 import { readStoredToken } from './authStorage';
 import { useStore } from '../stores/useStore';
@@ -145,7 +145,11 @@ const applyMutation = async (s: any, m: any): Promise<void> => {
   }
 };
 
-/** Drain pending CalDAV write-backs, apply with the user's key, ack, re-push. */
+// Idempotency ledger: a redelivered mutation (lost ACK / reconnect) is re-acked but NOT re-applied,
+// so a CalDAV write-back can't create a duplicate task. See @repo/shared/mutationLedger.
+const calendarMutationLedger = createAppliedLedger();
+
+/** Drain pending CalDAV write-backs, apply with the user's key (exactly once), ack, re-push. */
 export const drainCalendarMutations = async (): Promise<number> => {
   const res = await fetch(`${getApiBaseUrl()}/calendar/mutations`, { headers: authHeaders() }).catch(() => null);
   if (!res || !res.ok) return 0;
@@ -153,10 +157,7 @@ export const drainCalendarMutations = async (): Promise<number> => {
   const mutations = body?.mutations;
   if (!Array.isArray(mutations) || mutations.length === 0) return 0;
   const s: any = useStore.getState();
-  const applied: string[] = [];
-  for (const m of mutations) {
-    try { await applyMutation(s, m); applied.push(m.id); } catch { /* leave un-acked */ }
-  }
+  const applied = await applyMutationsOnce(mutations, calendarMutationLedger, (m) => applyMutation(s, m));
   if (applied.length) {
     await fetch(`${getApiBaseUrl()}/calendar/mutations/ack`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ ids: applied }) }).catch(() => {});
     try { await pushCalendarFeed(); } catch { /* ignore */ }

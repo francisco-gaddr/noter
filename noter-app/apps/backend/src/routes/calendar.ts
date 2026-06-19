@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { generateIcs, type CalendarFeedItem } from '@repo/shared';
 import { authMiddleware, AuthRequest } from '../middleware/authMiddleware';
 import CalendarFeed from '../models/CalendarFeed';
+import { ackPendingMutations } from '../utils/pendingMutations';
 import { UnauthorizedError } from '../utils/httpErrors';
 import { genDavUser, genDavPassword, hashDavPassword } from '../caldav/credentials';
 import { isIcsEnabled, isCaldavEnabled } from '../config/calendarExposure';
@@ -222,9 +223,9 @@ router.post('/mutations/ack', authMiddleware, async (req: AuthRequest, res: Resp
   try {
     const userId = requireUser(req);
     const ids = Array.isArray(req.body?.ids) ? req.body.ids.map((x: unknown) => String(x)).slice(0, 1000) : [];
-    if (ids.length === 0) { res.json({ ok: true, removed: 0 }); return; }
-    await CalendarFeed.updateMany({ userId }, { $pull: { pendingMutations: { id: { $in: ids } } } });
-    res.json({ ok: true, removed: ids.length });
+    if (ids.length === 0) { res.json({ ok: true, removed: 0, requested: 0 }); return; }
+    const removed = await ackPendingMutations(CalendarFeed, userId, ids);
+    res.json({ ok: true, removed, requested: ids.length });
   } catch (error) {
     next(error);
   }

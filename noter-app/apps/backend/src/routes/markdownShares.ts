@@ -2,6 +2,7 @@ import express, { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import { authMiddleware, AuthRequest } from '../middleware/authMiddleware';
 import MarkdownShare from '../models/MarkdownShare';
+import { ackPendingMutations } from '../utils/pendingMutations';
 import { UnauthorizedError } from '../utils/httpErrors';
 import { genDavUser, genDavPassword, hashDavPassword } from '../caldav/credentials';
 import { isMarkdownSyncEnabled, isMarkdownCrdtEnabled } from '../config/markdownExposure';
@@ -239,9 +240,9 @@ router.post('/mutations/ack', authMiddleware, async (req: AuthRequest, res: Resp
   try {
     const userId = requireUser(req);
     const ids = Array.isArray(req.body?.ids) ? req.body.ids.map((x: unknown) => String(x)).slice(0, 1000) : [];
-    if (ids.length === 0) { res.json({ ok: true, removed: 0 }); return; }
-    await MarkdownShare.updateMany({ userId }, { $pull: { pendingMutations: { id: { $in: ids } } } });
-    res.json({ ok: true, removed: ids.length });
+    if (ids.length === 0) { res.json({ ok: true, removed: 0, requested: 0 }); return; }
+    const removed = await ackPendingMutations(MarkdownShare, userId, ids);
+    res.json({ ok: true, removed, requested: ids.length });
   } catch (error) { next(error); }
 });
 

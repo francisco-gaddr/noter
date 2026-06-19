@@ -11,6 +11,8 @@ import {
   buildSecurityNoteMap,
   isReadableForAI,
   normalizeNoteType,
+  createAppliedLedger,
+  applyMutationsOnce,
   type VaultNote,
 } from '@repo/shared';
 import { getApiBaseUrl } from '../services/api';
@@ -195,6 +197,10 @@ const applyMutation = async (m: any, pathMap: Record<string, Record<string, stri
   }
 };
 
+// Idempotency ledger: a redelivered mutation is re-acked but NOT re-applied (no duplicate
+// note creation on a lost ACK / reconnect). See @repo/shared/mutationLedger.
+const markdownMutationLedger = createAppliedLedger();
+
 export const drainMarkdownMutations = async (): Promise<number> => {
   const res = await fetch(`${getApiBaseUrl()}/markdown/mutations`, { headers: authHeaders() }).catch(() => null);
   if (!res || !res.ok) return 0;
@@ -202,10 +208,7 @@ export const drainMarkdownMutations = async (): Promise<number> => {
   const mutations: any[] = Array.isArray(data?.mutations) ? data.mutations : [];
   if (mutations.length === 0) return 0;
   const pathMap = readPathMap();
-  const applied: string[] = [];
-  for (const m of mutations) {
-    try { await applyMutation(m, pathMap); applied.push(m.id); } catch { /* retry later */ }
-  }
+  const applied = await applyMutationsOnce(mutations, markdownMutationLedger, (m) => applyMutation(m, pathMap));
   if (applied.length) {
     await fetch(`${getApiBaseUrl()}/markdown/mutations/ack`, { method: 'POST', headers: authHeaders(), body: JSON.stringify({ ids: applied }) }).catch(() => {});
     await pushAllMarkdownShares().catch(() => {});

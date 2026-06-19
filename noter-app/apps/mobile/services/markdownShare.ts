@@ -15,6 +15,8 @@ import {
   buildSecurityNoteMap,
   isReadableForAI,
   normalizeNoteType,
+  createAppliedLedger,
+  applyMutationsOnce,
   type VaultNote,
 } from '@repo/shared';
 import { fetchWithAuth } from '@/services/api';
@@ -204,7 +206,11 @@ const applyMutation = async (m: any, pathMap: Record<string, Record<string, stri
   }
 };
 
-/** Drain inbound WebDAV write-backs and apply them with the user's key, then re-push. */
+// Idempotency ledger: a redelivered mutation is re-acked but NOT re-applied (no duplicate note on a
+// lost ACK / reconnect). See @repo/shared/mutationLedger.
+const markdownMutationLedger = createAppliedLedger();
+
+/** Drain inbound WebDAV write-backs and apply them with the user's key (exactly once), then re-push. */
 export const drainMarkdownMutations = async (): Promise<number> => {
   let mutations: any[] = [];
   try {
@@ -213,11 +219,7 @@ export const drainMarkdownMutations = async (): Promise<number> => {
   } catch { return 0; }
   if (mutations.length === 0) return 0;
   const pathMap = await readPathMap();
-  const applied: string[] = [];
-  for (const m of mutations) {
-    try { await applyMutation(m, pathMap); applied.push(m.id); }
-    catch { /* leave un-acked for retry */ }
-  }
+  const applied = await applyMutationsOnce(mutations, markdownMutationLedger, (m) => applyMutation(m, pathMap));
   if (applied.length) {
     await fetchWithAuth('/markdown/mutations/ack', { method: 'POST', body: JSON.stringify({ ids: applied }) }).catch(() => {});
     await pushAllMarkdownShares().catch(() => {}); // reflect the applied state outward

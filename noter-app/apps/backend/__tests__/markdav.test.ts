@@ -122,9 +122,14 @@ describe('Markdown WebDAV vault (shares)', () => {
     let drain = await request(app).get('/api/markdown/mutations').set(...AUTH);
     const m = drain.body.mutations.find((x: any) => x.path === 'Loose.md');
     expect(m.op).toBe('delete');
-    await request(app).post('/api/markdown/mutations/ack').set(...AUTH).send({ ids: [m.id] });
+    const ack = await request(app).post('/api/markdown/mutations/ack').set(...AUTH).send({ ids: [m.id] });
+    // The ack reports the ACTUAL number removed (not just the requested count).
+    expect(ack.body).toMatchObject({ ok: true, removed: 1, requested: 1 });
     drain = await request(app).get('/api/markdown/mutations').set(...AUTH);
     expect(drain.body.mutations.find((x: any) => x.path === 'Loose.md')).toBeFalsy();
+    // Re-acking the gone id removes nothing — idempotent.
+    const reAck = await request(app).post('/api/markdown/mutations/ack').set(...AUTH).send({ ids: [m.id] });
+    expect(reAck.body).toMatchObject({ removed: 0, requested: 1 });
   });
 
   it('rejects a non-markdown PUT (403) and a traversal path', async () => {

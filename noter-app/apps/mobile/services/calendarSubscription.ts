@@ -8,7 +8,7 @@
  * NOT a Response. Never check .ok / call .json() on its result.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { buildSafeCalendarProjection, rfcPriorityToTask } from '@repo/shared';
+import { buildSafeCalendarProjection, rfcPriorityToTask, createAppliedLedger, applyMutationsOnce } from '@repo/shared';
 import { fetchWithAuth } from '@/services/api';
 import { useStore } from '@/stores/useStore';
 
@@ -142,6 +142,10 @@ const applyMutation = async (s: any, m: any, shares: Share[]): Promise<void> => 
   }
 };
 
+// Idempotency ledger: a redelivered mutation is re-acked but NOT re-applied (no duplicate task on a
+// lost ACK / reconnect). See @repo/shared/mutationLedger.
+const calendarMutationLedger = createAppliedLedger();
+
 export const drainCalendarMutations = async (): Promise<number> => {
   let mutations: any[] = [];
   try {
@@ -151,10 +155,7 @@ export const drainCalendarMutations = async (): Promise<number> => {
   if (mutations.length === 0) return 0;
   const s: any = useStore.getState();
   const shares = await readCache();
-  const applied: string[] = [];
-  for (const m of mutations) {
-    try { await applyMutation(s, m, shares); applied.push(m.id); } catch { /* retry next drain */ }
-  }
+  const applied = await applyMutationsOnce(mutations, calendarMutationLedger, (m) => applyMutation(s, m, shares));
   if (applied.length) {
     await fetchWithAuth('/calendar/mutations/ack', { method: 'POST', body: JSON.stringify({ ids: applied }), skipUnauthorized: true }).catch(() => {});
     try { await pushCalendarFeed(); } catch { /* ignore */ }

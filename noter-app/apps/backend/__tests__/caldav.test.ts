@@ -129,9 +129,14 @@ describe('CalDAV bridge (shares)', () => {
     let drain = await request(app).get('/api/calendar/mutations').set(...AUTH);
     const m = drain.body.mutations.find((x: any) => x.uid === 'task-2');
     expect(m.op).toBe('delete');
-    await request(app).post('/api/calendar/mutations/ack').set(...AUTH).send({ ids: [m.id] });
+    const ack = await request(app).post('/api/calendar/mutations/ack').set(...AUTH).send({ ids: [m.id] });
+    // The ack reports the ACTUAL number removed (not just the requested count).
+    expect(ack.body).toMatchObject({ ok: true, removed: 1, requested: 1 });
     drain = await request(app).get('/api/calendar/mutations').set(...AUTH);
     expect(drain.body.mutations.find((x: any) => x.uid === 'task-2')).toBeFalsy();
+    // Idempotent re-ack of the now-gone id removes nothing (lets the client detect a stale ack).
+    const reAck = await request(app).post('/api/calendar/mutations/ack').set(...AUTH).send({ ids: [m.id] });
+    expect(reAck.body).toMatchObject({ removed: 0, requested: 1 });
   });
 
   it("a credential cannot access another user's tree (403)", async () => {
