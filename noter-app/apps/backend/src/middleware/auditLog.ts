@@ -1,6 +1,11 @@
 import type { Request, Response, NextFunction } from 'express';
 import mongoose from 'mongoose';
 import logger from '../utils/logger';
+import { auditChainHash } from '../utils/auditChain';
+
+// HMAC key for the tamper-evident chain. Kept OUT of the DB (env) so a DB-only attacker can't forge
+// a hash for a modified entry. Falls back to JWT_SECRET; validateEnv warns if neither is set in prod.
+const AUDIT_HMAC_KEY = process.env.AUDIT_HMAC_KEY || process.env.JWT_SECRET || '';
 
 /**
  * Lightweight write-audit middleware.
@@ -77,15 +82,57 @@ interface AuditEntry {
   bodyShape?: unknown;
 }
 
-const writeEntry = async (entry: AuditEntry): Promise<void> => {
+/** The fields that are HMAC-sealed into the chain (everything except the chain fields + _id). Exported
+ *  so a verification job can re-derive each entry's hash. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const auditSealedFields = (e: any): Record<string, unknown> => ({
+  ts: e.ts instanceof Date ? e.ts.toISOString() : e.ts,
+  actorUserId: e.actorUserId ?? null,
+  actorOrgId: e.actorOrgId ?? null,
+  method: e.method,
+  route: e.route,
+  status: e.status,
+  requestId: e.requestId ?? null,
+  bodyShape: e.bodyShape ?? null,
+  seq: e.seq,
+});
+
+export const auditLogCollectionName = (): string => COLLECTION;
+
+// In-process serialized chain head so each entry's prevHash is the IMMEDIATELY-prior entry's hash.
+// Single-pod correct (the Pi deploy); a multi-pod deploy would fork the chain per pod — documented as
+// a follow-up (a DB-atomic head CAS would make it globally serial).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let chainHead: Promise<{ hash: string; seq: number }> | null = null;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const readChainHead = async (coll: any): Promise<{ hash: string; seq: number }> => {
   try {
-    const conn = mongoose.connection;
-    if (!conn || conn.readyState !== 1 || !conn.db) return;
-    await conn.db.collection<AuditEntry>(COLLECTION).insertOne(entry);
-  } catch (err) {
-    // Audit failure is logged at warn but never propagated.
-    logger.warn('audit-log: write failed', { error: (err as Error)?.message });
+    const last = await coll.find({}, { projection: { hash: 1, seq: 1 } }).sort({ seq: -1 }).limit(1).next();
+    return { hash: (last?.hash as string) || '', seq: (last?.seq as number) || 0 };
+  } catch {
+    return { hash: '', seq: 0 };
   }
+};
+
+const writeEntry = async (entry: AuditEntry): Promise<void> => {
+  const conn = mongoose.connection;
+  if (!conn || conn.readyState !== 1 || !conn.db) return;
+  const coll = conn.db.collection(COLLECTION);
+  const prev = chainHead ?? readChainHead(coll); // read+set is atomic (single-threaded, no await between)
+  chainHead = (async () => {
+    const head = await prev;
+    const seq = head.seq + 1;
+    const sealed = auditSealedFields({ ...entry, seq });
+    const hash = auditChainHash(AUDIT_HMAC_KEY, head.hash, sealed);
+    await coll.insertOne({ ...entry, seq, prevHash: head.hash, hash });
+    return { hash, seq };
+  })().catch((err) => {
+    // On failure the entry wasn't written → keep the previous head so the chain stays intact.
+    logger.warn('audit-log: write failed', { error: (err as Error)?.message });
+    return prev;
+  });
+  await chainHead.catch(() => {});
 };
 
 /**

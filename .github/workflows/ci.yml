@@ -103,6 +103,11 @@ jobs:
       - name: GDPR account export/delete (blocking)
         run: |
           (cd apps/backend && npx jest __tests__/routes/account.test.ts)
+      # Tamper-evident audit log: HMAC-SHA256 hash chain (key held outside the DB). A DB-access
+      # attacker can't modify/delete/forge an audit entry without breaking the chain — verifiable.
+      - name: Audit-log integrity — tamper-evident chain (blocking)
+        run: |
+          (cd apps/backend && npx jest __tests__/utils/auditChain.test.ts __tests__/middleware/auditChainIntegration.test.ts)
       - name: No dead files (knip --include files)
         run: npm run knip:files
 

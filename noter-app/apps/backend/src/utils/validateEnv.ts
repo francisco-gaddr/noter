@@ -59,6 +59,11 @@ export const validateBackendEnv = (env: Env, opts: { production: boolean }): Env
     }
   }
 
+  // --- Tamper-evident audit log ---
+  if (opts.production && !env.AUDIT_HMAC_KEY) {
+    warnings.push('AUDIT_HMAC_KEY is not set — the audit-log integrity chain falls back to JWT_SECRET. Set a DEDICATED key so rotating JWT_SECRET does not invalidate past audit-chain verification.');
+  }
+
   // --- Infrastructure URLs: warnings only (the app degrades gracefully) ---
   if (opts.production) {
     if (!env.MONGO_URI) {

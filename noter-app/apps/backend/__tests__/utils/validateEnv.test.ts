@@ -3,10 +3,16 @@ import { validateBackendEnv } from '../../src/utils/validateEnv';
 const strongSecret = 'x'.repeat(48);
 
 describe('validateBackendEnv', () => {
-  it('accepts a strong JWT_SECRET with no errors', () => {
-    const r = validateBackendEnv({ JWT_SECRET: strongSecret, MONGO_URI: 'm', REDIS_URL: 'r' }, { production: true });
+  it('accepts a fully-configured production env with no errors or warnings', () => {
+    const r = validateBackendEnv({ JWT_SECRET: strongSecret, MONGO_URI: 'm', REDIS_URL: 'r', AUDIT_HMAC_KEY: 'audit-k' }, { production: true });
     expect(r.errors).toEqual([]);
     expect(r.warnings).toEqual([]);
+  });
+
+  it('warns when AUDIT_HMAC_KEY is missing in production (audit chain falls back to JWT_SECRET)', () => {
+    const r = validateBackendEnv({ JWT_SECRET: strongSecret, MONGO_URI: 'm', REDIS_URL: 'r' }, { production: true });
+    expect(r.errors).toEqual([]);
+    expect(r.warnings.join(' ')).toMatch(/AUDIT_HMAC_KEY/);
   });
 
   it('errors when NO JWT signing key is configured (the one fatal case)', () => {
