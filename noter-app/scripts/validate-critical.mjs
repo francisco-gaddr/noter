@@ -47,6 +47,14 @@ const steps = [
     args: ['scripts/check-index-unlock-leak.mjs'],
   },
   {
+    // Guard-of-the-guard: prove the leak detector actually catches the leak class it exists
+    // for (and raises no false positives), so it can never silently rot into a no-op.
+    label: 'Locked-content leak guard self-test',
+    cwd: repoRoot,
+    command: 'node',
+    args: ['scripts/check-index-unlock-leak.mjs', '--selftest'],
+  },
+  {
     // Shared is the crypto/widget foundation — gate it first so a broken
     // encrypt/cryptoV3/widgetData can't reach any app.
     label: 'Shared package tests (crypto, widgets, key bootstrap)',
