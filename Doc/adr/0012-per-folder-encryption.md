@@ -138,6 +138,28 @@ storen** (den har note-mappen), inte i `api.ts`. Plan:
    den bara i `sealNoteFieldForWrite`. Då kan den per konstruktion inte hamna i body:n eller offline-kön.
    Verifiera på enhet/webb att nätverksanropet inte innehåller nyckeln.
 
+**Anropsplatser — komplett wiring-karta (skriv-vägen är INTE uniform; missa ingen plats).** Till skillnad
+från läs-vägen (en `materializeOneNote` per app) har skriv-vägen flera anropsplatser och divergerar mellan
+apparna. Create-tids-resolveringen (noten finns inte än) är inkapslad i
+`resolveSessionFolderKeyForNewNote(parentId, get().notes)` (`folderKeySession.ts`, testad) så varje
+create-plats blir en ren rad; update-platser använder `resolveSessionFolderKeyForNote(note, map)`.
+
+- **Web** (`apps/web/stores/useStore.ts` → `apps/web/services/api.ts`):
+  - `createNote` (huvudväg, ~rad 1306) → `api.createNote(dto, resolveSessionFolderKeyForNewNote(parentId, get().notes))`.
+  - `updateNote` (huvudväg, ~rad 1419) → `api.updateNote(id, dto, resolveSessionFolderKeyForNote(note, map))`.
+  - **Offline-replay i sync-loopen** (`createNote` ~rad 935 för `temp-`-noter + `updateNote` ~rad 952):
+    resolva vid replay-tid från nuvarande session. Gräns: en offline-skapad not i en krypto-mapp sealas
+    först när mappen är upplåst i den replayande sessionen; tills dess `dataKey` (dokumenterad, acceptabel).
+  - `updateNote` flytt (~rad 1446, `{ parentId, order }`) → **ingen seal** (inget `title`/`content`),
+    skicka ingen `folderKey`.
+- **Mobil** (`apps/mobile/stores/useStore.ts`, store `createNote(data)` ~rad 931 / `updateNote(id,data)`
+  ~rad 1025): strukturellt annorlunda API-lager än web — verifiera var muteringen/krypteringen sker i
+  mobilens väg först, och seala `title`/`content` där, symmetriskt. Resolva i storen, inte i API-lagret.
+- **Känd Fas-1-gräns — flytt över krypto-gräns om-sealar inte.** Att flytta en not UT ur sin krypto-mapp
+  gör innehållet oläsbart (sealat under en nyckel som inte längre gäller); en vanlig not som flyttas IN
+  sealas inte automatiskt. Re-seal-on-move är en senare fas; tills dess bör flytt in/ut ur en krypto-mapp
+  varnas för eller blockeras i UI:t.
+
 **Enrolment-/upplåsnings-orkestreringen (Fas 2.8 — ✅ levererad).** Den säkerhets­kritiska
 *sekvenseringen* är centraliserad och testad i `@repo/shared` som `folderEnrolment.ts`, så UI:t bara
 anropar funktionerna (prompta lösenord → anropa → fånga `FolderUnlockError` → persistera den

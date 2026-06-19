@@ -198,7 +198,10 @@ garantier. Varje punkt är additiv — invarianterna i §7 måste fortsatt håll
    - `folderKeySession.ts` — in-memory-only FK-session, äger en kopia, nollar bytena, **töms vid
      app-lås/logout** (wired i båda stores). `resolveSessionFolderKeyForNote(note, noteMap)` är den
      **enda källan** för "vilken mapp-nyckel styr denna not" (närmaste låsta förälder → dess sessions-FK),
-     delad av läs- och skriv-vägen; 5 tester (inkl. nästlade mappar). Båda stores använder den nu.
+     delad av läs- och skriv-vägen; läs-vägen i båda stores använder den nu. Create-tids-syskonet
+     `resolveSessionFolderKeyForNewNote(parentId, notes)` löser nyckeln för en not som inte finns än
+     (skriv-vägens trickigaste del), så varje create-anrop blir en ren rad. 10 tester (nästlade mappar +
+     okänd/root parent).
    - **Läs-vägen wired i båda stores** (`materializeOneNote`, inkl. den chunkade synk-vägen) — no-op
      för all befintlig data, test: "materializes a v3f note decrypted with the session folder key,
      masked without it".

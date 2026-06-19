@@ -7,6 +7,7 @@ import {
   unlockedFolderIds,
   folderKeySessionSize,
   resolveSessionFolderKeyForNote,
+  resolveSessionFolderKeyForNewNote,
 } from './folderKeySession';
 import { buildSecurityNoteMap } from './locks';
 
@@ -129,5 +130,41 @@ describe('resolveSessionFolderKeyForNote — single source for "which folder key
 
   it('is safe on an undefined note (no throw → undefined)', () => {
     expect(resolveSessionFolderKeyForNote(undefined, map)).toBeUndefined();
+  });
+});
+
+describe('resolveSessionFolderKeyForNewNote — create-time resolution (note not in the map yet)', () => {
+  type N = { _id: string; parentId?: string | null; locked?: boolean };
+  const notes: N[] = [
+    { _id: 'A', locked: true },
+    { _id: 'B', parentId: 'A', locked: true },
+    { _id: 'plain', locked: false }, // an ordinary (unlocked) folder
+  ];
+
+  it('returns undefined for a root-level note (no parent → no folder)', () => {
+    expect(resolveSessionFolderKeyForNewNote(null, notes)).toBeUndefined();
+    expect(resolveSessionFolderKeyForNewNote(undefined, notes)).toBeUndefined();
+  });
+
+  it('returns undefined when the parent folder is not crypto-locked', () => {
+    expect(resolveSessionFolderKeyForNewNote('plain', notes)).toBeUndefined();
+  });
+
+  it('returns undefined when the parent crypto folder has no session key', () => {
+    expect(resolveSessionFolderKeyForNewNote('A', notes)).toBeUndefined();
+  });
+
+  it('returns the parent folder’s key once it is unlocked in the session', () => {
+    setFolderKey('A', key(8));
+    expect(resolveSessionFolderKeyForNewNote('A', notes)).toEqual(key(8));
+    // a note created in subfolder B resolves to the nearest keyed ancestor only when B itself is keyed
+    expect(resolveSessionFolderKeyForNewNote('B', notes)).toBeUndefined();
+    setFolderKey('B', key(9));
+    expect(resolveSessionFolderKeyForNewNote('B', notes)).toEqual(key(9));
+  });
+
+  it('returns undefined for an unknown parentId (stale reference, no throw)', () => {
+    setFolderKey('A', key(8));
+    expect(resolveSessionFolderKeyForNewNote('ghost', notes)).toBeUndefined();
   });
 });

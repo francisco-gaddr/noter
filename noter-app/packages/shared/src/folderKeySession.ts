@@ -16,7 +16,7 @@
  * and zeroes the bytes when a key is removed/replaced, to minimise how long a key lingers in memory.
  */
 
-import { findBlockingLockedAncestor, type SecurityNote } from './locks';
+import { findBlockingLockedAncestor, buildSecurityNoteMap, type SecurityNote } from './locks';
 
 const sessionKeys = new Map<string, Uint8Array>();
 
@@ -94,4 +94,27 @@ export function resolveSessionFolderKeyForNote<T extends SecurityNote>(
 ): Uint8Array | undefined {
   const owner = findBlockingLockedAncestor(note, noteMap, NO_UI_UNLOCKS as Set<string>);
   return owner ? getFolderKey(String(owner._id)) : undefined;
+}
+
+/**
+ * Create-time variant of {@link resolveSessionFolderKeyForNote}: the save-path seal needs the folder
+ * key for a note that does NOT exist yet, so it resolves from the note's intended `parentId` against
+ * the current `notes` list. Returns the session key of the nearest crypto-protected ancestor of
+ * `parentId` (inclusive), or `undefined` for a root-level note / no enrolled+unlocked ancestor.
+ *
+ * Encapsulates the one subtlety of the write path — resolving against a not-yet-existing note — so the
+ * stores' `createNote` can pass `resolveSessionFolderKeyForNewNote(parentId, get().notes)` straight to
+ * the api layer's seal argument. Returns `undefined` (the dataKey path) for all data until a folder is
+ * enrolled, so wiring it in is a true no-op for existing notes.
+ */
+export function resolveSessionFolderKeyForNewNote<T extends SecurityNote>(
+  parentId: string | null | undefined,
+  notes: T[],
+): Uint8Array | undefined {
+  if (!parentId) return undefined; // a root-level note belongs to no folder
+  const noteMap = buildSecurityNoteMap(notes);
+  // The new note isn't in the map; resolve from a synthetic, unlocked leaf whose parent is `parentId`,
+  // so findBlockingLockedAncestor walks parentId's chain for the nearest locked (crypto) folder.
+  const synthetic = { _id: '__pending__', parentId, locked: false } as unknown as T;
+  return resolveSessionFolderKeyForNote(synthetic, noteMap);
 }
