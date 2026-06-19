@@ -94,6 +94,11 @@ const steps = [
       'run',
       'test',
       '--',
+      // Cap parallelism: these suites are CPU-bound (cost-12 bcrypt + Argon2id + mongodb-memory-
+      // server). At the default worker count (cores-1) they oversubscribe the CPU and timing-
+      // sensitive crypto/auth assertions flake under load (markdav/admin-overview). 2 workers
+      // gives each enough CPU to be deterministic while staying faster than --runInBand.
+      '--maxWorkers=2',
       '__tests__/api.test.ts',
       '__tests__/encryption-validation.test.ts',
       '__tests__/utils/encryption.test.ts',
@@ -135,6 +140,9 @@ const steps = [
       'run',
       'test',
       '--',
+      // Cap parallelism (see backend block): store/web-crypto run Argon2id and flake under CPU
+      // oversubscription at the default worker count.
+      '--maxWorkers=2',
       '__tests__/store.test.ts',
       '__tests__/SidebarTree.test.tsx',
       '__tests__/sidebar-project-dropdown.e2e.test.tsx',
@@ -163,6 +171,8 @@ const steps = [
       'run',
       'test',
       '--',
+      // Cap parallelism (see backend block): crypto-heavy suites flake under CPU oversubscription.
+      '--maxWorkers=2',
       '__tests__/store.test.ts',
       // NOTE: notes-header / notes-sort-persistence / task-settings-persistence render full screens
       // that import services/api, whose `Platform.select` runs before jest-expo initialises RN — so

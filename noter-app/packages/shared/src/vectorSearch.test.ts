@@ -8,6 +8,24 @@ describe('cosineSimilarity', () => {
     expect(cosineSimilarity([], [1])).toBe(0);
     expect(cosineSimilarity([0, 0], [1, 1])).toBe(0);
   });
+
+  it('is 0 for mismatched dimensions (incompatible models) — never a truncated garbage score', () => {
+    // A 1024-dim query vs a stale 768-dim stored vector: must score 0, not silently truncate.
+    expect(cosineSimilarity([1, 0, 0], [1, 0])).toBe(0);
+    expect(cosineSimilarity([1, 1], [1, 1, 1, 1])).toBe(0);
+  });
+});
+
+describe('vectorSearch — dimension safety', () => {
+  it('excludes stored vectors whose dimension differs from the query (stale index → lexical fallback)', () => {
+    const query = [1, 0, 0]; // current model: 3-dim
+    const items = [
+      { id: 'new', kind: 'note' as const, title: 'N', vector: [1, 0, 0] }, // same model
+      { id: 'stale', kind: 'note' as const, title: 'S', vector: [1, 0] },  // old model, 2-dim
+    ];
+    const hits = vectorSearch(query, items);
+    expect(hits.map((h) => h.id)).toEqual(['new']); // the incompatible vector is dropped, not ranked
+  });
 });
 
 describe('vectorSearch', () => {

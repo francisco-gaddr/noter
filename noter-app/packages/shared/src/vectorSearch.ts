@@ -31,12 +31,18 @@ export interface VectorHit {
   snippet?: string;
 }
 
-/** Cosine similarity of two equal-length vectors. 0 when either is empty/zero. */
+/**
+ * Cosine similarity of two vectors. 0 when either is empty/zero, AND 0 when the dimensions
+ * DIFFER. A dimension mismatch means the vectors came from different embedding models (e.g. after
+ * the user switches model/provider before the index is rebuilt) — their coordinate spaces are
+ * incompatible, so comparing them is meaningless. Truncating to the shorter length (the old
+ * behaviour) produced GARBAGE scores; returning 0 instead makes a stale/incompatible vector score
+ * nothing, so search degrades cleanly to the lexical rung until the index is re-embedded.
+ */
 export const cosineSimilarity = (a: number[], b: number[]): number => {
-  const len = Math.min(a.length, b.length);
-  if (len === 0) return 0;
+  if (a.length !== b.length || a.length === 0) return 0;
   let dot = 0, na = 0, nb = 0;
-  for (let i = 0; i < len; i += 1) {
+  for (let i = 0; i < a.length; i += 1) {
     dot += a[i] * b[i];
     na += a[i] * a[i];
     nb += b[i] * b[i];
