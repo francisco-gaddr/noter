@@ -16,10 +16,20 @@ jest.mock('expo-sharing', () => ({
 import {
   buildMarkdownExport,
   buildHtmlExport,
+  exportNoteToMarkdown,
+  exportNoteToPdf,
   LockedNoteExportError,
   _safeFilename,
   _escapeHtml,
 } from '../../services/noteExport';
+
+// Handles to the mocked native modules so we can assert nothing is written/shared off-device.
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const FileSystem = require('expo-file-system/legacy');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const Print = require('expo-print');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const Sharing = require('expo-sharing');
 
 const baseNote = {
   id: 'n1',
@@ -90,5 +100,43 @@ describe('safeFilename', () => {
 describe('escapeHtml', () => {
   it('escapes the five XML-unsafe characters', () => {
     expect(_escapeHtml(`<a href="x">'A&B'</a>`)).toBe('&lt;a href=&quot;x&quot;&gt;&#39;A&amp;B&#39;&lt;/a&gt;');
+  });
+});
+
+// The async exporters are the RUNTIME off-device-leak guard: the note editor passes
+// `locked: !!blockingLockedAncestor` (true for a note inside a LOCKED FOLDER, not just a
+// directly-locked note). These must REFUSE and never write a file or pop the OS share sheet,
+// so locked-folder content can never escape the device via Share-as-PDF / Share-as-Markdown.
+describe('async exporters refuse locked notes (no file written, no share)', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('exportNoteToMarkdown returns {ok:false} and writes/shares nothing when locked', async () => {
+    const res = await exportNoteToMarkdown({ ...baseNote, locked: true });
+    expect(res.ok).toBe(false);
+    expect((res as { ok: false; reason: string }).reason).toMatch(/locked/i);
+    expect(FileSystem.writeAsStringAsync).not.toHaveBeenCalled();
+    expect(Sharing.shareAsync).not.toHaveBeenCalled();
+  });
+
+  it('exportNoteToPdf returns {ok:false} and renders/shares nothing when locked', async () => {
+    const res = await exportNoteToPdf({ ...baseNote, locked: true });
+    expect(res.ok).toBe(false);
+    expect((res as { ok: false; reason: string }).reason).toMatch(/locked/i);
+    expect(Print.printToFileAsync).not.toHaveBeenCalled();
+    expect(Sharing.shareAsync).not.toHaveBeenCalled();
+  });
+
+  it('exportNoteToMarkdown succeeds for an unlocked note (writes + shares)', async () => {
+    const res = await exportNoteToMarkdown(baseNote);
+    expect(res.ok).toBe(true);
+    expect(FileSystem.writeAsStringAsync).toHaveBeenCalledTimes(1);
+    expect(Sharing.shareAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it('exportNoteToPdf succeeds for an unlocked note (renders + shares)', async () => {
+    const res = await exportNoteToPdf(baseNote);
+    expect(res.ok).toBe(true);
+    expect(Print.printToFileAsync).toHaveBeenCalledTimes(1);
+    expect(Sharing.shareAsync).toHaveBeenCalledTimes(1);
   });
 });
