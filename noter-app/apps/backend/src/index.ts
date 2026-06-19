@@ -12,6 +12,7 @@ import { createRateLimit } from './middleware/rateLimit';
 import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import logger from './utils/logger';
+import { validateBackendEnv } from './utils/validateEnv';
 import noteRoutes from './routes/notes';
 import taskRoutes from './routes/tasks';
 import authRoutes from './routes/auth';
@@ -594,6 +595,19 @@ app.use(errorHandler);
 const mongoUri = process.env.MONGO_URI;
 
 const startServer = async () => {
+  // Fail fast on a broken environment instead of surfacing it as a confusing runtime error
+  // later (e.g. a missing JWT signing key only throws on the first login). Warnings are logged;
+  // a genuinely unrecoverable config aborts the boot in production.
+  const envReport = validateBackendEnv(process.env, { production: process.env.NODE_ENV === 'production' });
+  envReport.warnings.forEach((w) => logger.warn('env.validation', { warning: w }));
+  if (envReport.errors.length > 0) {
+    envReport.errors.forEach((e) => logger.error('env.validation', { error: e }));
+    if (process.env.NODE_ENV === 'production') {
+      logger.error('env.validation', { fatal: 'Refusing to start with an invalid environment.' });
+      process.exit(1);
+    }
+  }
+
   if (mongoUri) {
     try {
       await mongoose.connect(mongoUri, {

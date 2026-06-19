@@ -98,6 +98,7 @@ const steps = [
       '__tests__/encryption-validation.test.ts',
       '__tests__/utils/encryption.test.ts',
       '__tests__/utils/cors-origins.test.ts',
+      '__tests__/utils/validateEnv.test.ts',
       '__tests__/caldav.test.ts',
       '__tests__/markdav.test.ts',
       '__tests__/neo4j-relay.test.ts',
