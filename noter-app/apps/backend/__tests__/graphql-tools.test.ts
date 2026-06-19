@@ -367,4 +367,19 @@ describe('GraphQL Tool Calls', () => {
     expect(taskIds).toContain(String(openTask._id));
     expect(taskIds).not.toContain(String(lockedTask._id));
   });
+
+  it('SECURITY: the lock password is not an exposed Note output field (defense-in-depth)', async () => {
+    const userId = 'demo-user-id';
+    const gql = (query: string, variables?: any) =>
+      request(app).post('/api/graphql').set('Authorization', 'Bearer demo-token').send({ query, variables });
+    const open = await Note.create({ userId, title: 'open' });
+    // Querying `password` on a Note must be a schema/validation error — the field does not exist.
+    const r = await gql('query($id:String!){note(id:$id){_id password}}', { id: String(open._id) });
+    expect(r.body.errors).toBeDefined();
+    expect(JSON.stringify(r.body.errors)).toMatch(/password/i);
+    // The valid projection (no password) still resolves.
+    const ok = await gql('query($id:String!){note(id:$id){_id title}}', { id: String(open._id) });
+    expect(ok.body.errors).toBeUndefined();
+    expect(ok.body.data.note?._id).toBe(String(open._id));
+  });
 });

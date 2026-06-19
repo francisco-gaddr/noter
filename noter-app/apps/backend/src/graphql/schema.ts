@@ -60,7 +60,11 @@ const NoteType = new GraphQLObjectType({
     tags: { type: new GraphQLList(GraphQLString) },
     parentId: { type: GraphQLString },
     locked: { type: GraphQLBoolean },
-    password: { type: GraphQLString },
+    // NOTE: the lock `password` is deliberately NOT an output field. Lock verification goes
+    // through the REST `/api/notes/:id/verify-lock` endpoint only. Returning it here would
+    // hand the (server-decryptable) lock password to any authenticated GraphQL client; the
+    // lock guards already filter out every note carrying a lock signal, so dropping it is
+    // defense-in-depth against a future forgotten guard.
     icon: { type: GraphQLString },
     iconColor: { type: GraphQLString },
     order: { type: GraphQLString },
@@ -144,7 +148,7 @@ const toNote = (note: any) => ({
   tags: Array.isArray(note.tags) ? note.tags.map((t: string) => decryptText(t)) : [],
   parentId: note.parentId ? note.parentId.toString() : null,
   locked: decryptBool(note.locked),
-  password: note.password ? decryptText(note.password) : null,
+  // `password` intentionally omitted from the GraphQL projection — see NoteType.
   icon: note.icon ? decryptText(note.icon) : null,
   iconColor: note.iconColor ? decryptText(note.iconColor) : null,
   order: note.order ? decryptText(note.order) : null,
