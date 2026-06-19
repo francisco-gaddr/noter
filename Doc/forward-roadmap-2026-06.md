@@ -139,18 +139,22 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
 
 ### Stabilitet / drift
 
-- **Backend cache (Redis) saknar livscykel + readiness verifierar inte Redis** ·
-  `apps/backend/src/services/cache.ts`, `apps/backend/src/middleware/readiness.ts:34-48` ·
-  **E:M R:high** · Ingen `closeCache()` i graceful shutdown (zombie-klient); readiness kollar bara
-  Mongo → om Redis är nere startar backend ändå och rate-limit faller tyst till **in-memory**
-  (ej delad över pods = abuse-vektor). Exportera+anropa `closeCache()`; lägg Redis i deep-readiness.
+- ✅ **[KLAR 2026-06-19] Backend cache (Redis) livscykel** · `apps/backend/src/services/cache.ts`,
+  `apps/backend/src/index.ts` · `cache.close()` tillagd + registrerad i graceful shutdown (ingen
+  zombie-klient). _Korrigering:_ deep-readiness **pingar redan** Redis (`healthDeep.ts` `checkRedis`),
+  så synligheten fanns. **Kvar (P2):** lägg Redis i `readiness.ts`-grinden om man vill 503:a vid
+  Redis-nere (i dag fail-open: rate-limit/lockout degraderar till per-pod-minne — observeras via
+  /health/deep).
 - **Mobil agent-task saknar timeout → kan hänga för evigt** · `apps/mobile/services/ai/agentExecutor.ts:244-319` ·
-  **E:M R:high** · Backend-runnern har `TIMEOUT_MS=60_000`; mobilen har ingen. En hängd provider
-  håller foreground-service + keep-awake-lås för evigt ("appen står still"). `Promise.race` med
-  90–120 s timeout, släpp foreground, ytan notis.
-- **Change-stream restart-loop utan max-retry** · `apps/backend/src/services/changeStreamInvalidator.ts:70-82` ·
-  **E:M R:high** · Permanent fel (fel Mongo-config, ingen replica set) ger evig 30 s-pollning +
-  warn-spam. Max retry-räknare → ERROR + degraderad health-status.
+  **E:M R:high** · Backend-runnern har `TIMEOUT_MS=60_000`; mobilen har ingen. _Delvis mildrat:_
+  varje modell-anrop är redan tidsgränsat (provider-timeouts + lokal inaktivitets-watchdog), men en
+  hängd verktygs-exekvering eller patologisk loop saknar ett tak. `Promise.race` runt hela
+  `runScheduledAgentTask` (riskfylld core-path — kräver mock-tester).
+- ✅ **[KLAR 2026-06-19] Change-stream restart-loop med tak + läck-fix** ·
+  `apps/backend/src/services/changeStreamInvalidator.ts` · Hård gräns 10 omstarter
+  (`planChangeStreamRestart`, ren+testad) → ERROR + `degraded`-flagga + stopp (ingen evig loop/spam);
+  döda streams tas bort ur `streams[]` (ingen läcka); `changeStream.degraded` syns i /health/deep
+  (utan att fälla overall-status). 4 tester.
 - **Cron-scheduler saknar timeout per handler** · `apps/backend/src/services/cronScheduler.ts:120-136` ·
   **E:M R:high** · En hängd handler (långsam Ollama, kaskad-sync) blockerar alla andra jobb
   (heartbeat, agent-tasks). `Promise.race` per handler (3–4 min) + skip nästa körning.
