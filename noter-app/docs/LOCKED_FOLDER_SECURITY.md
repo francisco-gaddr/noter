@@ -98,6 +98,13 @@ invisible regardless of what the user currently has open:
 | GraphRAG neighbour hop | `services/ai/embeddingsService.ts` — neighbours constrained to the lock-filtered candidate set so a graph hop can't surface a locked note |
 | External Neo4j graph sync | `packages/shared/src/neo4jSync.ts` — `buildNeo4jSyncPlan` takes **no** unlock-set argument (hard-wired empty), so a locked folder is never mirrored to the user's Neo4j even while open in the UI; `web services/nextcloud.ts` calls it with no unlock set |
 | Agent memory injection | `agentExecutor.ts` → `collectAgentMemoryNotes(notes, …, emptyUnlock)` |
+| GraphQL / AI tool surface | `apps/backend/src/graphql/schema.ts` — `Query.note/notes/task/tasks` gate every read with `isReadableWithLocks` (empty set) via `loadNoteSecurityMap` before decrypting; the always-on `backendAgentRunner` does the same |
+| Home-screen widget snapshot | `apps/mobile/services/widgets/snapshotWriter.ts` — `writeWidgetSnapshot` filters tasks + lists with `isReadableForAI` (empty set) before writing the OS-shared-container snapshot |
+| Nextcloud outbound push (web) | `apps/web/services/nextcloud.ts` `pushLocalEditsForConnection` skips any note that is not `isReadableForAI` before the WebDAV PUT |
+
+A mechanical guard, `scripts/check-index-unlock-leak.mjs` (blocking in `validate:critical` + CI),
+fails if the UI's `unlockedProtectedNoteIds` is ever passed to a known publish/index projection
+builder, so this class of leak cannot regress silently.
 
 The agent system prompt also carries `AGENT_LOCK_POLICY` (a firm "never access locked content"
 instruction) as defense-in-depth — but the hard guarantee is the empty unlock set + the

@@ -6,7 +6,7 @@
  *
  * See Doc/widgets-architecture.md for the native side (App Group / EncryptedSharedPreferences).
  */
-import { buildWidgetSnapshot, type WidgetQuery, type Task, type Note } from '@repo/shared';
+import { buildWidgetSnapshot, buildSecurityNoteMap, isReadableForAI, type WidgetQuery, type Task, type Note } from '@repo/shared';
 
 export interface WidgetBridge {
   /** True only when the native widget module is present (false in Expo Go / tests). */
@@ -33,7 +33,18 @@ export const writeWidgetSnapshot = async (
   query: WidgetQuery = {},
 ): Promise<boolean> => {
   if (!bridge.isAvailable()) return false;
-  const snapshot = buildWidgetSnapshot(tasks, deriveWidgetLists(notes), now, query);
+  // SECURITY: the snapshot is persisted to an OS shared container that a separate widget
+  // process reads even while the app is locked — an off-app sink. Lock-filter with the EMPTY
+  // unlock set (isReadableForAI) so a locked list/folder (even one the user has open in the
+  // UI) never leaks its task titles or list names into the widget. Tasks inherit their parent
+  // list/project's lock state; orphan/parentless tasks are always shown.
+  const noteMap = buildSecurityNoteMap(notes as any);
+  const safeNotes = notes.filter((n) => isReadableForAI(n as any, noteMap as any));
+  const safeTasks = tasks.filter((t) => {
+    const parent = (t as any).parentNoteId;
+    return !parent || isReadableForAI(noteMap.get(String(parent)) as any, noteMap as any);
+  });
+  const snapshot = buildWidgetSnapshot(safeTasks, deriveWidgetLists(safeNotes), now, query);
   await bridge.writeSnapshot(JSON.stringify(snapshot));
   return true;
 };

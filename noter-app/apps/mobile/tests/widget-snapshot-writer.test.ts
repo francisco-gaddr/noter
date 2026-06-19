@@ -39,6 +39,29 @@ describe('writeWidgetSnapshot', () => {
     expect(written.tasks.map((t: any) => t.id)).toEqual(['high']); // completed hidden
     expect(written.tasks[0]).not.toHaveProperty('description'); // bodies never reach the widget
   });
+
+  it('SECURITY: never writes a locked list, a list inside a locked folder, or their tasks to the widget', async () => {
+    let written: any = null;
+    const bridge = { isAvailable: () => true, writeSnapshot: async (j: string) => { written = JSON.parse(j); } };
+    const notes = [
+      note({ _id: 'open', title: 'Open', type: 'task_list' }),
+      note({ _id: 'locked', title: 'Secret list', type: 'task_list', locked: true }),
+      note({ _id: 'vault', title: 'Vault', type: 'project', locked: true }),
+      note({ _id: 'sub', title: 'Sub-list', type: 'task_list', parentId: 'vault' }), // under a locked folder
+    ] as any;
+    const tasks = [
+      task({ _id: 'shown', title: 'Shown', parentNoteId: 'open' }),
+      task({ _id: 'hidden', title: 'Hidden', parentNoteId: 'locked' }),
+      task({ _id: 'hiddenSub', title: 'HiddenSub', parentNoteId: 'sub' }),
+    ] as any;
+
+    const ok = await writeWidgetSnapshot(notes, tasks, bridge, '2026-06-13T00:00:00.000Z');
+    expect(ok).toBe(true);
+    // Only the open list is exposed; the locked list and the locked-folder sub-list are gone.
+    expect(written.lists.map((l: any) => l.id)).toEqual(['open']);
+    // Only the open list's task; tasks under a locked list / locked-folder list never appear.
+    expect(written.tasks.map((t: any) => t.id)).toEqual(['shown']);
+  });
 });
 
 describe('createNativeWidgetBridge', () => {

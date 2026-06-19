@@ -35,6 +35,8 @@ import {
   encrypt,
   safeDecrypt,
   fetchWithRetry,
+  buildSecurityNoteMap,
+  isReadableForAI,
   type WebdavConnection,
   type WebdavEntry,
   type IngestEntry,
@@ -240,9 +242,14 @@ const htmlToPlainText = (html: string): string => {
 const pushLocalEditsForConnection = async (conn: WebdavConnection): Promise<number> => {
   const store: any = useStore.getState();
   const notes: Note[] = store.notes || [];
+  // SECURITY: never push a locked note (or a note under a locked folder) back to the remote
+  // WebDAV server, even one the user has momentarily unlocked in the UI. Lock-check with the
+  // EMPTY unlock set (isReadableForAI), mirroring the markdown-share/Neo4j outbound paths.
+  const noteMap = buildSecurityNoteMap(notes as any);
   let pushed = 0;
   for (const n of notes) {
     if (n.deleted) continue;
+    if (!isReadableForAI(n as any, noteMap as any)) continue;
     const src = (n as any).source as any;
     if (!src || src.connectionId !== conn.id || !syncedFileIsEditable(src)) continue;
     // Flatten HTML→plain text and hash that SAME representation: an unedited note matches
