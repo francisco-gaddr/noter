@@ -11,6 +11,38 @@ operationer ska först köras mot **staging** om möjligt.
 - **IC**: utse en. IC fattar beslut, övriga skickar fakta.
 - **Postmortem**: kopiera [`Doc/incidents/TEMPLATE.md`](../incidents/TEMPLATE.md) inom 72 h.
 
+## Scenario 0 — Databasförlust / korruption → restore från backup
+
+Symtom: Mongo-volymen korrupt/raderad, ransomware, en migration som förstörde data.
+
+**Backup-automation (finns nu):** en `mongo-backup`-sidecar (`docker-compose.yml`, byggd från
+`noter-app/apps/mongo-backup/`) kör `mongodump` periodiskt och skriver **gzippade arkiv** till
+volymen `mongodb_backups` (`/backups/noter-<ts>.archive.gz`). Återanvänder mongo-imagen så
+dump/restore-verktygen matchar serverversionen. Konfig via env (i `.env` bredvid compose):
+`BACKUP_INTERVAL_SECONDS` (default 86400 = dagligen), `BACKUP_RETENTION_DAYS` (default 7).
+
+**Restore:**
+```sh
+# Lista tillgängliga arkiv
+docker exec noter-mongo-backup ls -lh /backups
+# Återställ ett arkiv (DESTRUKTIVT — --drop ersätter kollektionerna)
+docker exec -it noter-mongo-backup /usr/local/bin/restore.sh /backups/noter-<ts>.archive.gz
+# Verifiera (counts, spot-check), kör sedan db:reconcile-indexes
+docker exec noter-backend node -e "/* eller via mongosh */"
+```
+
+**Testa restore (en backup som aldrig återställts är ingen backup):** återställ till en
+**slängbar** DB först, verifiera, droppa den — utan att röra prod:
+```sh
+docker exec -it -e MONGO_URI=mongodb://mongodb:27017/noter_restore_test \
+  noter-mongo-backup /usr/local/bin/restore.sh /backups/noter-<ts>.archive.gz
+# kontrollera counts i noter_restore_test, droppa den sedan
+```
+
+**Kvar (rekommenderat):** (1) kopiera arkiven OFFSITE (rsync/S3) — en lokal volym dör med Pi:n;
+(2) en pre-deploy-snapshot i `deploy_pi.py` före `compose up`; (3) en automatiserad CI-restore-test
+(spinna mongo, dumpa, restore, verifiera counts) — kräver Docker-in-CI.
+
 ## Scenario 1 — MongoDB-replikset failover
 
 Symtom: write-fel, `MongoServerSelectionError`, monitorering visar primary

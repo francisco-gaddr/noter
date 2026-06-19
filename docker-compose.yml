@@ -68,6 +68,27 @@ services:
       - neo4j_logs:/logs
     restart: always
 
+  # Scheduled mongodump backups (disaster recovery). Reuses the mongo image so the dump tool matches
+  # the server version. Archives go to the mongodb_backups volume with retention; restore via
+  # apps/mongo-backup/restore.sh. See Doc/ops/disaster-recovery.md. Internal-only (reaches mongodb
+  # over the Docker network); never publishes a port.
+  mongo-backup:
+    build:
+      context: ./noter-app/apps/mongo-backup
+      dockerfile: Dockerfile
+    container_name: noter-mongo-backup
+    environment:
+      - MONGO_URI=mongodb://mongodb:27017/noter
+      - BACKUP_INTERVAL_SECONDS=${BACKUP_INTERVAL_SECONDS:-86400}
+      - BACKUP_RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-7}
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - mongodb_backups:/backups
+    depends_on:
+      - mongodb
+    restart: always
+
   backend:
     build:
       context: ./noter-app
@@ -148,6 +169,7 @@ services:
 
 volumes:
   mongodb_data:
+  mongodb_backups:
   redis_data:
   neo4j_data:
   neo4j_logs:
