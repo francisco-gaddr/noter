@@ -224,6 +224,31 @@ krypto-enrolment relaterar till den befintliga (filter-baserade) mapp-låsnings-
 (`unlockNote`/`updateNote(locked,password)`) + bakåtkompat för redan låsta mappar utan bundle — får inte
 riva den fungerande lås-funktionen.
 
+### Säkerhetsbeslut UI-integrationen MÅSTE göra (annars läcker lösenordet)
+
+**Spänningen (verifierad i koden).** Den befintliga mapp-låsningen är **backend-verifierad**:
+`unlockNote` → `api.verifyLock(id, password)` → `POST /notes/:id/verify-lock` skickar `{ password }` i
+klartext (över TLS) till servern, som `bcrypt.compare`:ar mot ett lagrat `Note.password`-hash. Lösenordet
+**lämnar alltså enheten**. ADR-0012:s krypto är tvärtom **enbart klient-sidan**: lösenordet härleder
+folder-nyckeln (Argon2id) och skickas aldrig. Att naivt kombinera dem ("lås mapp" → sätt backend-lösen
+*och* enrolla krypto med samma lösen) skulle skicka krypto-lösenordet till servern → servern kan logga/
+brute-force:a det → **hela E2E-poängen med per-mapp-kryptot faller**.
+
+**Alternativ:** (a) krypto **ersätter** backend-lösenordet för krypto-mappar: ingen `Note.password`, ingen
+`verifyLock`; mappen är fortfarande `locked:true` (för filter/maskering) men upplåsning sker via
+`unlockFolder` (klient-sidan), så lösenordet aldrig når servern — *äkta E2E*. (b) Samexistens (behåll
+`verifyLock` + lägg på krypto): svagare, lösenordet går fortfarande till servern. (c) Separat "Kryptera
+mappen"-action vid sidan om låset: två skydds-mekanismer → förvirrande UX, och en "låst men ej krypterad"
+mapp kvarstår.
+
+**Rekommendation: (a).** En krypto-enrollad mapp gat:ar läsbarhet på den klient-sidiga folder-nyckeln
+(`unlockFolder`/`folderCryptoStatus`), och `verifyLock`/`Note.password` **används inte** för den. "Lås med
+lösenord" på en projektmapp enrollar krypto utan att sätta backend-lösenord. **Bakåtkompat:** befintliga
+mappar med backend-lösen men utan bundle fortsätter använda `verifyLock` tills de re-låses/uppgraderas;
+`folderCryptoStatus` returnerar `'plain'` för dem så den gamla vägen är orörd. Detta beslut är
+säkerhetskritiskt (CWE-522/T20) och bör verifieras på enhet: inspektera att inget `verify-lock`-anrop och
+inget `password`-fält går på tråden för en krypto-mapp.
+
 ## Manuell /verify-checklista (slutfasen)
 
 1. Skapa en projektmapp → "Lås med lösenord" → ange lösenord. Mappnoten får `folderKeyBundle`

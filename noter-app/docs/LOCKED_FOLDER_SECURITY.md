@@ -237,6 +237,12 @@ garantier. Varje punkt är additiv — invarianterna i §7 måste fortsatt håll
    i projektmapp-menyn/editorn (båda appar) som anropar store-actionsen och promptar för lösenordet — den
    enda biten som *skapar* den första riktiga `v3f:`-datan och behöver en enhet. Hela den headless-byggbara
    per-mapp-krypteringen (shared + read + write + enrol-glue, båda apparna) är därmed klar och testad.
+   **⚠ Säkerhetsbeslut innan UI:n byggs (ADR §Säkerhetsbeslut):** den befintliga mapp-låsningen är
+   backend-verifierad (`verifyLock` skickar lösenordet till servern), men ADR-0012-kryptot är enbart
+   klient-sidan. UI:n MÅSTE därför låta kryptot **ersätta** backend-lösenordet för krypto-mappar (ingen
+   `verifyLock`/`Note.password`) — annars läcker mapp-lösenordet till servern och E2E-poängen faller
+   (CWE-522). Bakåtkompat: gamla backend-låsta mappar utan bundle (`folderCryptoStatus === 'plain'`) lämnas
+   orörda. Verifiera på enhet att inget `verify-lock`/`password` går på tråden för en krypto-mapp.
 2. **Signerad, read-only widget-/publicerings-endpoint.** Fas 3 i extern-MD-synken. När den
    byggs: håll `isReadableForAI`-filtret (tom upplåsnings­mängd) som det enda urvalet och lägg
    till en kort-livad signatur per snapshot — lägg till en ny `GUARDED`-byggare i
