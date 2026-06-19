@@ -82,8 +82,12 @@ E2E redan har; en mapp-recovery-kod kan övervägas senare).
    i `packages/shared/src/encrypt.ts`, 8 tester): `v3f:` + FK → dekryptera; `v3f:` utan FK / fel
    FK / manipulerad → mask (`lockedFallback`); annars befintlig `safeDecrypt` (`v3:`/legacy/klartext)
    — **bakåtkompatibelt**. Som extra skydd returnerar även `safeDecrypt`/`decrypt` masken (aldrig
-   chiffertexten) om ett `v3f:`-värde råkar nå dem utan FK. **Kvar:** anropa `materializeFolderField`
-   från `materializeOneNote` i båda stores (mata in mappens FK från in-memory-sessionen).
+   chiffertexten) om ett `v3f:`-värde råkar nå dem utan FK. ✅ **Store-wiring klar:**
+   `materializeOneNote`/`materializeNotesFromEncrypted` i **båda** stores dispatchar nu `title`/
+   `content` via `materializeFolderField` med `getFolderKey(<närmaste låsta förälder>)` när fältet är
+   `v3f:` (annars oförändrad `safeDecrypt`/`decrypt` — no-op för all befintlig data). Bevisat av
+   `apps/{web,mobile} __tests__/store.test.ts` ("materializes a v3f note decrypted with the session
+   folder key, masked without it").
 5. **Lösenordsbyte.** `rewrapFolderKey(FK, nyttLösen)` → uppdatera bundle. Ingen not krypteras om.
 6. **Mekanisk grind.** Utöka `scripts/check-index-unlock-leak.mjs` eller lägg en ny guard så
    `v3f:`-innehåll aldrig kan nå en publicerings-/index-yta okrypterat.

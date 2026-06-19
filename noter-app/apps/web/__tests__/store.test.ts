@@ -146,6 +146,42 @@ describe('Web Store', () => {
     expect(folderKeySessionSize()).toBe(0);
   });
 
+  // ADR-0012 read path: a v3f-sealed note inside an unlocked folder materialises decrypted when
+  // the folder key is in the session, and stays masked (never shows ciphertext) without it.
+  it('materializes a v3f note decrypted with the session folder key, masked without it', () => {
+    const { clearAllFolderKeys, setFolderKey, wrapNoteForFolder, generateDataKey } = require('@repo/shared');
+    clearAllFolderKeys();
+    const key = generateDataKey();
+    const folder = { _id: 'lf', type: 'project', locked: true, title: 'Mapp', parentId: null };
+    const other = { _id: 'lf2', type: 'project', locked: true, title: 'Mapp2', parentId: null };
+    const note = {
+      _id: 'n1', type: 'note', parentId: 'lf',
+      title: wrapNoteForFolder('Hemlig titel', key),
+      content: wrapNoteForFolder('Hemligt innehåll', key),
+    };
+    // With the key in the session → decrypts. setActiveProject('lf') drops lf2 from the unlock set,
+    // forcing a re-materialize with unlock = {lf} (so the note is readable, not masked).
+    setFolderKey('lf', key);
+    act(() => {
+      useStore.setState({ notes: [folder, other, note] as any, unlockedProtectedNoteIds: ['lf', 'lf2'] });
+      useStore.getState().setActiveProject('lf');
+    });
+    let got = useStore.getState().notes.find((n) => n._id === 'n1') as any;
+    expect(got.title).toBe('Hemlig titel');
+    expect(got.content).toBe('Hemligt innehåll');
+
+    // Without the key → masked, and never the raw v3f envelope.
+    clearAllFolderKeys();
+    act(() => {
+      useStore.setState({ notes: [folder, other, note] as any, unlockedProtectedNoteIds: ['lf', 'lf2'] });
+      useStore.getState().setActiveProject('lf');
+    });
+    got = useStore.getState().notes.find((n) => n._id === 'n1') as any;
+    expect(got.title).toBe('Låst anteckning');
+    expect(got.content).toBe('');
+    expect(got.title).not.toContain('v3f:');
+  });
+
   it('should restore active project selection from localStorage on hydrate', () => {
     localStorage.setItem('activeProjectId', 'project-abc');
     localStorage.setItem('user', JSON.stringify({ _id: '1', username: 'test' }));

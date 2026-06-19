@@ -112,6 +112,40 @@ describe('Mobile Store', () => {
     expect(folderKeySessionSize()).toBe(0);
   });
 
+  // ADR-0012 read path: a v3f-sealed note inside an unlocked folder materialises decrypted when
+  // the folder key is in the session, and stays masked (never shows ciphertext) without it.
+  it('materializes a v3f note decrypted with the session folder key, masked without it', () => {
+    const { clearAllFolderKeys, setFolderKey, wrapNoteForFolder, generateDataKey } = require('@repo/shared');
+    clearAllFolderKeys();
+    const key = generateDataKey();
+    const sealedTitle = wrapNoteForFolder('Hemlig titel', key);
+    const sealedBody = wrapNoteForFolder('Hemligt innehåll', key);
+    const folder = { _id: 'lf', type: 'project', locked: true, title: 'Mapp', parentId: null };
+    const other = { _id: 'lf2', type: 'project', locked: true, title: 'Mapp2', parentId: null };
+    const note: any = {
+      _id: 'n1', type: 'note', parentId: 'lf',
+      title: sealedTitle, content: sealedBody,
+      __rawEncryptedTitle: sealedTitle, __rawEncryptedContent: sealedBody,
+    };
+    // With the key → decrypts. setActiveProject('lf') drops lf2 from the unlock set, forcing a
+    // re-materialize with unlock = {lf} (so the note is readable, not masked).
+    setFolderKey('lf', key);
+    useStore.setState({ notes: [folder, other, note] as any, unlockedProtectedNoteIds: ['lf', 'lf2'] });
+    useStore.getState().setActiveProject('lf');
+    let got = useStore.getState().notes.find((n: any) => n._id === 'n1') as any;
+    expect(got.title).toBe('Hemlig titel');
+    expect(got.content).toBe('Hemligt innehåll');
+
+    // Without the key → masked, never the raw v3f envelope.
+    clearAllFolderKeys();
+    useStore.setState({ notes: [folder, other, note] as any, unlockedProtectedNoteIds: ['lf', 'lf2'] });
+    useStore.getState().setActiveProject('lf');
+    got = useStore.getState().notes.find((n: any) => n._id === 'n1') as any;
+    expect(got.title).toBe('Låst anteckning');
+    expect(got.content).toBe('');
+    expect(got.title).not.toContain('v3f:');
+  });
+
   it('should unlock and load data on login when security lock is active', async () => {
     const { login, fetchWithAuth } = require('../services/api');
     const encryptedNow = encrypt(new Date().toISOString());

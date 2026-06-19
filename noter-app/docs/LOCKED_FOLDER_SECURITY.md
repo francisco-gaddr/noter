@@ -192,11 +192,14 @@ garantier. Varje punkt är additiv — invarianterna i §7 måste fortsatt håll
    bytena vid omlåsning, töms av `clearAllFolderKeys()` vid app-lås/logout). **Kvar (kommande faser,
    se ADR §Migration):** lagra `FolderKeyBundle` på mappnoten; anropa `unlockFolderKey`→`setFolderKey`
    vid mapp-upplåsning och `materializeFolderField`/`wrapNoteForFolder` med `getFolderKey(folderId)`
-   i `materializeOneNote`/skriv-vägen i båda stores; samt en mekanisk grind som håller `v3f:` borta
-   från publicerings-/index-ytor. **Clear-on-lock är wired:** båda stores tömmer FK-sessionen
-   (`clearAllFolderKeys()`) vid app-lås/logout, exakt när `unlockedProtectedNoteIds` rensas (test:
-   "clears the folder-key session on app-lock"). Den läs/skriv-väg + enrolment som skapar `v3f:`-
-   noter är **inte** wired in ännu — medvetet (kräver enhets-/runtime-verifiering).
+   på mappnoten; samt en mekanisk grind som håller `v3f:` borta från publicerings-/index-ytor.
+   ✅ **Läs-vägen är wired i båda stores:** `materializeOneNote` dispatchar `title`/`content` via
+   `materializeFolderField` med `getFolderKey(<närmaste låsta förälder>)` (no-op för all befintlig
+   data; test: "materializes a v3f note decrypted with the session folder key, masked without it").
+   ✅ **Clear-on-lock är wired:** båda stores tömmer FK-sessionen (`clearAllFolderKeys()`) vid
+   app-lås/logout. **Kvar:** enrolment (sätt mapp-lösenord → `createFolderKey` + lagra
+   `FolderKeyBundle` på mappnoten + `setFolderKey`) och skriv-vägen (`wrapNoteForFolder`) — de delar
+   som *skapar* `v3f:`-noter — **inte** wired ännu (kräver enhets-/runtime-verifiering).
 2. **Signerad, read-only widget-/publicerings-endpoint.** Fas 3 i extern-MD-synken. När den
    byggs: håll `isReadableForAI`-filtret (tom upplåsnings­mängd) som det enda urvalet och lägg
    till en kort-livad signatur per snapshot — lägg till en ny `GUARDED`-byggare i

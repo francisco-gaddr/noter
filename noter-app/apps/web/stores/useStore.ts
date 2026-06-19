@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Note, Task, UpdateTaskDto, User, decrypt, encrypt, safeDecrypt, normalizeNoteType, parseEntityLinks, parseNoteSource, relockFoldersOnLeave, clearAllFolderKeys } from '@repo/shared';
+import { Note, Task, UpdateTaskDto, User, decrypt, encrypt, safeDecrypt, normalizeNoteType, parseEntityLinks, parseNoteSource, relockFoldersOnLeave, clearAllFolderKeys, isFolderWrapped, materializeFolderField, getFolderKey } from '@repo/shared';
 import { api, getApiBaseUrl, getUUID, setApiBaseUrl, setApiToken } from '../services/api';
 import { socket, connectSocket, disconnectSocket, setSocketToken } from '../services/socket';
 import { db } from '../services/db';
@@ -319,10 +319,26 @@ const materializeNotesFromEncrypted = (notes: Note[], unlockedIds: Set<string>):
         locked: true,
       };
     }
+    // Per-folder crypto (ADR-0012): a `v3f:` field is sealed under the folder key, not the user
+    // dataKey, so it can only be read with the unlocked folder's session key. Resolve it once (the
+    // nearest locked-ancestor folder's key), and only when a field is actually folder-wrapped — so
+    // for all existing (`v3:`/legacy/plaintext) data this is a pure no-op.
+    const rawTitle = note.__rawEncryptedTitle || note.title;
+    const rawContent = note.__rawEncryptedContent || note.content;
+    const ownerFolderKey = (isFolderWrapped(rawTitle) || isFolderWrapped(rawContent))
+      ? (() => {
+          const owner = findBlockingLockedAncestor(note, noteMap as any, new Set<string>());
+          return owner ? getFolderKey(String(owner._id)) : undefined;
+        })()
+      : undefined;
     return {
       ...note,
-      title: (() => { try { return decrypt(note.__rawEncryptedTitle || note.title) } catch { return note.title } })(),
-      content: (() => { try { return decrypt(note.__rawEncryptedContent || note.content) } catch { return note.content } })(),
+      title: isFolderWrapped(rawTitle)
+        ? materializeFolderField(rawTitle, { folderKey: ownerFolderKey, lockedFallback: 'Låst anteckning' })
+        : (() => { try { return decrypt(rawTitle) } catch { return note.title } })(),
+      content: isFolderWrapped(rawContent)
+        ? materializeFolderField(rawContent, { folderKey: ownerFolderKey, lockedFallback: '' })
+        : (() => { try { return decrypt(rawContent) } catch { return note.content } })(),
       tags: Array.isArray(note.__rawEncryptedTags)
         ? note.__rawEncryptedTags.map((t: any) => { try { return decrypt(t) } catch { return t } })
         : [],
