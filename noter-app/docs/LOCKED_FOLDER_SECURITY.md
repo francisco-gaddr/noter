@@ -211,13 +211,18 @@ garantier. Varje punkt är additiv — invarianterna i §7 måste fortsatt håll
      (vägrar om-enrolla → ingen data-förlust), `unlockFolderWithPassword`, `changeFolderPassword` (samma
      nyckel, re-wrap), `lockFolder`/`isFolderUnlocked`. 7 tester inkl. ett end-to-end-bevis (enrol →
      seal → relock → unlock → läs tillbaka) som speglar /verify-checklistan headless.
+   - **Skriv-vägen wired i web (Fas 3.1):** `apps/web/services/api.ts` `createNote`/`updateNote` fick ett
+     **separat** `folderKey`-argument (aldrig på DTO:t — `{ ...data }` skulle annars läcka nyckeln till
+     servern) och sealar `title`/`content` via `sealNoteFieldForWrite`; web-storen resolvar nyckeln
+     (`resolveSessionFolderKeyForNewNote` / `resolveSessionFolderKeyForNote`) på alla fyra platser
+     (create, update, offline-replay×2), utom flytt (inget innehåll). Provbar no-op tills enrolment; test
+     + web `tsc` grönt.
    - **Publicering/index:** `v3f:`-noter ligger alltid i en låst mapp, som redan utesluts av lås-filtret
      (tom upplåsnings­mängd, T20) från alla publicerings-/index-ytor — inget separat skydd behövs.
 
-   **Kvar (egen cykel, enhets-/runtime-verifierad — spec + checklista i ADR §Slutfas):** ren *wiring*
-   som anropar de testade primitiven och *skapar* riktig `v3f:`-data: (a) anropa `sealNoteFieldForWrite`
-   från `api.ts`-krypterings­gränsen med en `folderKey` som storen resolvar (`getFolderKey(<närmaste
-   låsta förälder>)`, valfritt DTO-fält); (b) UI-skalet i projektmapp-menyn/editorn som anropar
+   **Kvar (egen cykel, enhets-/runtime-verifierad — spec + checklista i ADR §Slutfas):** (a) **mobil**
+   skriv-seal (strukturellt annorlunda API-lager — seala `title`/`content` i mobil-storen symmetriskt);
+   (b) UI-skalet i projektmapp-menyn/editorn (båda appar) som anropar
    `enrolFolderPassword` / `unlockFolderWithPassword` / `changeFolderPassword` och persisterar den
    returnerade noten.
 2. **Signerad, read-only widget-/publicerings-endpoint.** Fas 3 i extern-MD-synken. När den

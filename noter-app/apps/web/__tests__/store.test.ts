@@ -241,7 +241,7 @@ describe('Web Store', () => {
     const state = useStore.getState();
     expect(state.notes[0].title).toBe('Låst anteckning');
     expect(state.notes[0].content).toBe('');
-    expect(api.updateNote).toHaveBeenCalledWith('note-1', expect.objectContaining({ locked: true, password: 'secret' }));
+    expect(api.updateNote).toHaveBeenCalledWith('note-1', expect.objectContaining({ locked: true, password: 'secret' }), undefined); // ADR-0012: 3rd arg = folderKey (none here → undefined)
   });
 
   it('should create a note', async () => {
@@ -253,7 +253,27 @@ describe('Web Store', () => {
           await useStore.getState().createNote('New Note');
       });
       
-      expect(api.createNote).toHaveBeenCalledWith(expect.objectContaining({ title: 'New Note' }));
+      expect(api.createNote).toHaveBeenCalledWith(expect.objectContaining({ title: 'New Note' }), undefined); // ADR-0012: 2nd arg = folderKey (none here → undefined)
+  });
+
+  // ADR-0012 write path: a note created inside an unlocked crypto-protected folder must be sealed
+  // under that folder's session key — the store resolves it and passes it as the SEPARATE 2nd arg
+  // (never on the DTO, so the raw key never reaches the request body), and api.ts seals to v3f:.
+  it('passes the folder key when creating a note in an unlocked crypto folder', async () => {
+      const { api } = require('../services/api');
+      const { setFolderKey, clearAllFolderKeys } = require('@repo/shared');
+      clearAllFolderKeys();
+      const key = new Uint8Array(32).fill(7);
+      useStore.setState({ notes: [{ _id: 'cf', title: 'Hemlig mapp', type: 'project', locked: true, parentId: null }] as any });
+      setFolderKey('cf', key);
+      api.createNote.mockResolvedValueOnce({ _id: 'n9', title: 'x', content: '', type: 'note', parentId: 'cf' });
+
+      await act(async () => {
+          await useStore.getState().createNote('Hemlig not', 'cf');
+      });
+
+      expect(api.createNote).toHaveBeenCalledWith(expect.objectContaining({ parentId: 'cf' }), key);
+      clearAllFolderKeys();
   });
 
   // Regression: the create-response can OMIT or return `type` still-encrypted. The store must

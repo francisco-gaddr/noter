@@ -1,4 +1,4 @@
-import { Note, CreateNoteDto, UpdateNoteDto, Task, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, safeDecrypt, AuthResponse, parseEntityLinks, serializeEntityLinks, parseNoteSource } from '@repo/shared';
+import { Note, CreateNoteDto, UpdateNoteDto, Task, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, safeDecrypt, AuthResponse, parseEntityLinks, serializeEntityLinks, parseNoteSource, sealNoteFieldForWrite } from '@repo/shared';
 import { readStoredToken, writeStoredToken } from '../lib/authStorage';
 
 export const getUUID = (): string => {
@@ -304,11 +304,14 @@ export const api = {
     return decryptNoteFromApi(note);
   },
 
-  async createNote(data: CreateNoteDto): Promise<Note> {
+  // ADR-0012: `folderKey` is a SEPARATE argument, never a field on `data` — `{ ...data }` below is
+  // JSON.stringified to the request body, so a key on the DTO would leak raw bytes to the server. With
+  // no key (all data until a folder is enrolled) sealNoteFieldForWrite === encrypt, so this is a no-op.
+  async createNote(data: CreateNoteDto, folderKey?: Uint8Array): Promise<Note> {
     const encryptedData = {
       ...data,
-      title: encrypt(data.title),
-      content: encrypt(data.content),
+      title: sealNoteFieldForWrite(data.title, folderKey),
+      content: sealNoteFieldForWrite(data.content, folderKey),
       tags: data.tags?.map(t => encrypt(t)) ?? [],
       icon: data.icon ? encrypt(data.icon) : undefined,
       type: encrypt(data.type || 'note'),
@@ -329,10 +332,11 @@ export const api = {
     return decryptNoteFromApi(note);
   },
 
-  async updateNote(id: string, data: UpdateNoteDto): Promise<Note> {
+  // `folderKey` is a SEPARATE argument (see createNote) — never on `data`. No-op vs encrypt when absent.
+  async updateNote(id: string, data: UpdateNoteDto, folderKey?: Uint8Array): Promise<Note> {
     const encryptedData = { ...data } as any;
-    if (data.title !== undefined) encryptedData.title = encrypt(data.title);
-    if (data.content !== undefined) encryptedData.content = encrypt(data.content);
+    if (data.title !== undefined) encryptedData.title = sealNoteFieldForWrite(data.title, folderKey);
+    if (data.content !== undefined) encryptedData.content = sealNoteFieldForWrite(data.content, folderKey);
     if (data.tags !== undefined) encryptedData.tags = data.tags.map((t) => encrypt(t));
     if (data.icon !== undefined) encryptedData.icon = data.icon ? encrypt(data.icon) : undefined;
     if (data.type !== undefined) encryptedData.type = encrypt(String(data.type)) as any;

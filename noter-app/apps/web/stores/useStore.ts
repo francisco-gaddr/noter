@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Note, Task, UpdateTaskDto, User, decrypt, encrypt, safeDecrypt, normalizeNoteType, parseEntityLinks, parseNoteSource, relockFoldersOnLeave, clearAllFolderKeys, isFolderWrapped, materializeFolderField, resolveSessionFolderKeyForNote } from '@repo/shared';
+import { Note, Task, UpdateTaskDto, User, decrypt, encrypt, safeDecrypt, normalizeNoteType, parseEntityLinks, parseNoteSource, relockFoldersOnLeave, clearAllFolderKeys, isFolderWrapped, materializeFolderField, resolveSessionFolderKeyForNote, resolveSessionFolderKeyForNewNote } from '@repo/shared';
 import { api, getApiBaseUrl, getUUID, setApiBaseUrl, setApiToken } from '../services/api';
 import { socket, connectSocket, disconnectSocket, setSocketToken } from '../services/socket';
 import { db } from '../services/db';
@@ -932,14 +932,14 @@ export const useStore = create<StoreState>((set, get) => ({
                   await api.deleteNote(note._id);
                   await db.deleteNote(note._id);
               } else if (note._id.startsWith('temp-')) {
-                  const created = await api.createNote({ 
-                      title: note.title, 
-                      content: note.content, 
+                  const created = await api.createNote({
+                      title: note.title,
+                      content: note.content,
                       parentId: note.parentId,
                       order: Number(note.order ?? 0),
                       icon: note.icon,
                       type: note.type
-                  });
+                  }, resolveSessionFolderKeyForNewNote(note.parentId, get().notes as any)); // ADR-0012: seal if the folder is unlocked at replay time
                   set(state => ({
                       notes: state.notes.map(n => n._id === note._id ? created : n),
                       selectedNoteId: state.selectedNoteId === note._id ? created._id : state.selectedNoteId,
@@ -957,7 +957,7 @@ export const useStore = create<StoreState>((set, get) => ({
                       icon: note.icon,
                       type: note.type,
                       order: Number(note.order ?? 0)
-                  });
+                  }, resolveSessionFolderKeyForNote(note as any, buildSecurityNoteMap(get().notes as any))); // ADR-0012: re-seal under the folder key if unlocked
                   await db.saveNote(note, false);
               }
           } catch (e) {
@@ -1303,7 +1303,11 @@ export const useStore = create<StoreState>((set, get) => ({
         },
       ]);
       
-      const created = await api.createNote({ title, content: initialContent, parentId, type, order, icon, clientId } as any);
+      // ADR-0012: if the target folder is a crypto-protected, currently-unlocked project folder, seal
+      // title/content under its key instead of the dataKey. Resolves to undefined (→ dataKey, no-op)
+      // for every note until a folder is enrolled. Passed as a SEPARATE arg so the key never hits the wire.
+      const folderKey = resolveSessionFolderKeyForNewNote(parentId, get().notes as any);
+      const created = await api.createNote({ title, content: initialContent, parentId, type, order, icon, clientId } as any, folderKey);
       // DETERMINISTIC TYPE: trust the type WE just requested, not the create-response echo.
       // The backend response can omit or return `type` still-encrypted; that made a new
       // task_list/project classify as a plain 'note' → it vanished from the Tasks view and
@@ -1416,7 +1420,12 @@ export const useStore = create<StoreState>((set, get) => ({
       const payload: any = { ...updates };
       payload.updatedAt = encrypt(new Date().toISOString());
 
-      const updatedNote = await api.updateNote(id, payload);
+      // ADR-0012: re-seal title/content under the note's crypto-folder key when its folder is unlocked
+      // (undefined → dataKey, a no-op until enrolment). Separate arg so the key never reaches the body.
+      const folderKey = currentNote
+        ? resolveSessionFolderKeyForNote(currentNote as any, buildSecurityNoteMap(get().notes as any))
+        : undefined;
+      const updatedNote = await api.updateNote(id, payload, folderKey);
       set((state) => ({
         notes: materializeNotesFromEncrypted(state.notes.map((n) => (n._id === id ? updatedNote : n)) as any, new Set(state.unlockedProtectedNoteIds))
       }));

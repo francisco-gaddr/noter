@@ -144,14 +144,17 @@ apparna. Create-tids-resolveringen (noten finns inte än) är inkapslad i
 `resolveSessionFolderKeyForNewNote(parentId, get().notes)` (`folderKeySession.ts`, testad) så varje
 create-plats blir en ren rad; update-platser använder `resolveSessionFolderKeyForNote(note, map)`.
 
-- **Web** (`apps/web/stores/useStore.ts` → `apps/web/services/api.ts`):
-  - `createNote` (huvudväg, ~rad 1306) → `api.createNote(dto, resolveSessionFolderKeyForNewNote(parentId, get().notes))`.
-  - `updateNote` (huvudväg, ~rad 1419) → `api.updateNote(id, dto, resolveSessionFolderKeyForNote(note, map))`.
-  - **Offline-replay i sync-loopen** (`createNote` ~rad 935 för `temp-`-noter + `updateNote` ~rad 952):
-    resolva vid replay-tid från nuvarande session. Gräns: en offline-skapad not i en krypto-mapp sealas
-    först när mappen är upplåst i den replayande sessionen; tills dess `dataKey` (dokumenterad, acceptabel).
-  - `updateNote` flytt (~rad 1446, `{ parentId, order }`) → **ingen seal** (inget `title`/`content`),
-    skicka ingen `folderKey`.
+- **Web ✅ WIRED (Fas 3.1)** (`apps/web/stores/useStore.ts` → `apps/web/services/api.ts`): `createNote`/
+  `updateNote` fick ett **separat** `folderKey?: Uint8Array`-argument (aldrig på DTO:t) och sealar
+  `title`/`content` via `sealNoteFieldForWrite`. Alla fyra platser trådade: huvud-`createNote` (via
+  `resolveSessionFolderKeyForNewNote(parentId, get().notes)`), huvud-`updateNote` (via
+  `resolveSessionFolderKeyForNote(currentNote, buildSecurityNoteMap(get().notes))`), och **offline-replay**
+  (`createNote` + `updateNote` i sync-loopen, resolvade vid replay-tid). Flytt-`updateNote`
+  (`{ parentId, order }`) lämnades orörd — ingen seal (inget `title`/`content`). Provbar no-op tills en
+  mapp enrollas (`sealNoteFieldForWrite(x, undefined) === encrypt(x)`); test: "passes the folder key when
+  creating a note in an unlocked crypto folder" + de uppdaterade call-shape-asserts. Web `tsc` ren.
+  Gräns: en offline-skapad not i en krypto-mapp sealas först när mappen är upplåst i den replayande
+  sessionen; tills dess `dataKey` (dokumenterad, acceptabel).
 - **Mobil** (`apps/mobile/stores/useStore.ts`, store `createNote(data)` ~rad 931 / `updateNote(id,data)`
   ~rad 1025): strukturellt annorlunda API-lager än web — verifiera var muteringen/krypteringen sker i
   mobilens väg först, och seala `title`/`content` där, symmetriskt. Resolva i storen, inte i API-lagret.
