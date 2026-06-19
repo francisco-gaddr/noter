@@ -2,7 +2,7 @@ import { GraphQLBoolean, GraphQLInputObjectType, GraphQLList, GraphQLNonNull, Gr
 import mongoose from 'mongoose';
 import Note from '../models/Note';
 import Task from '../models/Task';
-import { decrypt, encrypt, isAnyCiphertext } from '@repo/shared';
+import { decrypt, encrypt, isAnyCiphertext, buildSecurityNoteMap, isReadableWithLocks, type SecurityNote } from '@repo/shared';
 
 const decryptText = (value?: string | null) => {
   if (!value) return '';
@@ -179,6 +179,27 @@ const requireUser = (userId?: string | null) => {
   return userId;
 };
 
+/**
+ * SECURITY (locked-folder invariant): this GraphQL schema is the AI tool-use surface
+ * (`toolSchema` at /api/graphql, also published as OpenAPI REST tools). The backend is
+ * zero-knowledge and has NO unlock session, so — exactly like backendAgentRunner — it treats
+ * ANY lock signal as locked: a note/folder with `hasLockSignal` (locked flag or a set password),
+ * or anything under such a folder, must NEVER be returned to the tool caller. We build a
+ * conservative security map from the raw (encrypted) docs (`+password`) and gate every read
+ * with `isReadableWithLocks` using the EMPTY unlock set. Without this, a single `note(id)` /
+ * `notes` / `task` / `tasks` query server-decrypts and leaks a locked note's content.
+ */
+const loadNoteSecurityMap = async (userId: string): Promise<Map<string, SecurityNote>> => {
+  const rows = await Note.find({ userId }).select('+password').lean();
+  const secNotes: SecurityNote[] = rows.map((n: any) => ({
+    _id: String(n._id),
+    parentId: n.parentId ? String(n.parentId) : null,
+    locked: n.locked,
+    password: n.password,
+  }));
+  return buildSecurityNoteMap(secNotes);
+};
+
 // Broadcast the same realtime events the REST routes emit, so an AI tool-use note/
 // task (which goes through GraphQL) shows up live on the user's other clients —
 // exactly as if the user had created it themselves.
@@ -195,6 +216,9 @@ const QueryType = new GraphQLObjectType({
       resolve: async (_source: unknown, args: any, context: ResolverContext) => {
         const userId = requireUser(context.userId);
         if (!mongoose.Types.ObjectId.isValid(args.id)) throw new Error('Invalid ID');
+        // SECURITY: refuse locked notes (and anything under a locked folder) BEFORE decrypting.
+        const secMap = await loadNoteSecurityMap(userId);
+        if (!isReadableWithLocks(secMap.get(String(args.id)), secMap)) return null;
         const note = await Note.findOne({ _id: args.id, userId });
         return note ? toNote(note) : null;
       }
@@ -209,8 +233,12 @@ const QueryType = new GraphQLObjectType({
         const userId = requireUser(context.userId);
         const filter: any = { userId };
         if (args.parentId !== undefined) filter.parentId = args.parentId || null;
+        // SECURITY: drop every locked note (and notes under a locked folder) before decrypting.
+        const secMap = await loadNoteSecurityMap(userId);
         const notes = await Note.find(filter).sort({ createdAt: -1 });
-        const mapped = notes.map(toNote);
+        const mapped = notes
+          .filter((n: any) => isReadableWithLocks(secMap.get(String(n._id)), secMap))
+          .map(toNote);
         if (args.type) {
           return mapped.filter((note) => note.type === args.type);
         }
@@ -224,7 +252,11 @@ const QueryType = new GraphQLObjectType({
         const userId = requireUser(context.userId);
         if (!mongoose.Types.ObjectId.isValid(args.id)) throw new Error('Invalid ID');
         const task = await Task.findOne({ _id: args.id, userId });
-        return task ? toTask(task) : null;
+        if (!task) return null;
+        // SECURITY: a task inherits its parent list/project lock state — refuse if locked.
+        const secMap = await loadNoteSecurityMap(userId);
+        if (task.parentNoteId && !isReadableWithLocks(secMap.get(String(task.parentNoteId)), secMap)) return null;
+        return toTask(task);
       }
     },
     tasks: {
@@ -237,8 +269,12 @@ const QueryType = new GraphQLObjectType({
         const userId = requireUser(context.userId);
         const filter: any = { userId };
         if (args.parentNoteId !== undefined) filter.parentNoteId = args.parentNoteId || null;
+        // SECURITY: drop tasks whose parent list/project is locked before decrypting.
+        const secMap = await loadNoteSecurityMap(userId);
         const tasks = await Task.find(filter).sort({ createdAt: -1 });
-        const mapped = tasks.map(toTask);
+        const mapped = tasks
+          .filter((t: any) => !t.parentNoteId || isReadableWithLocks(secMap.get(String(t.parentNoteId)), secMap))
+          .map(toTask);
         if (args.completed !== undefined) {
           return mapped.filter((task) => task.completed === args.completed);
         }

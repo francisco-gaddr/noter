@@ -323,4 +323,48 @@ describe('GraphQL Tool Calls', () => {
     expect(res.body.errors).toBeUndefined();
     expect(Array.isArray(res.body.data.tasks)).toBe(true);
   });
+
+  it('SECURITY: never returns a locked note, a note under a locked folder, or a locked list\'s tasks (AI tool surface)', async () => {
+    const userId = 'demo-user-id'; // demo-token resolves to this user
+    const gql = (query: string, variables?: any) =>
+      request(app).post('/api/graphql').set('Authorization', 'Bearer demo-token').send({ query, variables });
+
+    // A locked project folder + a child note inside it + a directly password-locked note,
+    // plus an open note. (Lock signals: locked flag or a non-empty password — the backend
+    // is zero-knowledge and treats either as locked.)
+    const lockedFolder = await Note.create({ userId, title: 'folder', type: 'project', locked: 'true' });
+    const childNote = await Note.create({ userId, title: 'child', parentId: lockedFolder._id });
+    const lockedNote = await Note.create({ userId, title: 'secret', password: 'pw' });
+    const openNote = await Note.create({ userId, title: 'open' });
+    // A task under a locked task-list, and an open task under an open list.
+    const lockedList = await Note.create({ userId, title: 'list', type: 'task_list', locked: 'true' });
+    const lockedTask = await Task.create({ userId, title: 'hidden', parentNoteId: lockedList._id });
+    const openList = await Note.create({ userId, title: 'openlist', type: 'task_list' });
+    const openTask = await Task.create({ userId, title: 'shown', parentNoteId: openList._id });
+
+    // note(id): refused for the folder, its child, and the locked note; allowed for the open one.
+    for (const id of [lockedFolder._id, childNote._id, lockedNote._id]) {
+      const r = await gql('query($id:String!){note(id:$id){_id}}', { id: String(id) });
+      expect(r.body.errors).toBeUndefined();
+      expect(r.body.data.note).toBeNull();
+    }
+    const okNote = await gql('query($id:String!){note(id:$id){_id}}', { id: String(openNote._id) });
+    expect(okNote.body.data.note?._id).toBe(String(openNote._id));
+
+    // notes: the list excludes every locked-hierarchy note.
+    const list = await gql('{notes{_id}}');
+    const noteIds: string[] = list.body.data.notes.map((n: any) => n._id);
+    expect(noteIds).toEqual(expect.arrayContaining([String(openNote._id), String(openList._id)]));
+    for (const id of [lockedFolder._id, childNote._id, lockedNote._id, lockedList._id]) {
+      expect(noteIds).not.toContain(String(id));
+    }
+
+    // task(id) + tasks: the locked list's task is invisible; the open one is returned.
+    const lt = await gql('query($id:String!){task(id:$id){_id}}', { id: String(lockedTask._id) });
+    expect(lt.body.data.task).toBeNull();
+    const tasks = await gql('{tasks{_id}}');
+    const taskIds: string[] = tasks.body.data.tasks.map((t: any) => t._id);
+    expect(taskIds).toContain(String(openTask._id));
+    expect(taskIds).not.toContain(String(lockedTask._id));
+  });
 });
