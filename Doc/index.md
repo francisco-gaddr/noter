@@ -1,6 +1,6 @@
 # Noter — dokumentationsindex (börja här)
 
-_Senast uppdaterat: 2026-06-16 · Målgrupp: AI-agenter, utvecklare, reviewers_
+_Senast uppdaterat: 2026-06-19 · Målgrupp: AI-agenter, utvecklare, reviewers_
 
 Det här är **master-ingången** till all dokumentation. Syftet är att en ny AI-agent
 eller utvecklare ska kunna ta vid **utan att gissa** — du ska alltid veta vilken fil du
@@ -26,6 +26,7 @@ ska öppna för en given fråga. Läs det här först, sedan den specifika filen
 | Förstå nuvarande krypto-läge & spänningar | [`security/encryption-review-2026-06.md`](./security/encryption-review-2026-06.md) |
 | **Hur AI-agenten krypterar/skapar data (E2E) + vad servern ser** 🔒 | [`security/ai-agent-data-handling.md`](./security/ai-agent-data-handling.md) + [`adr/0009-e2e-for-ai-created-content.md`](./adr/0009-e2e-for-ai-created-content.md) |
 | AI får aldrig läsa låsta anteckningar/projekt | [`security/ai-locked-notes.md`](./security/ai-locked-notes.md) 🔒 |
+| **Hela låsta-mappar-säkerhetsmodellen (UI, AI, index, publicering, export, widget, CRDT, GraphQL) + auto-omlåsning** 🔒 | [`../noter-app/docs/LOCKED_FOLDER_SECURITY.md`](../noter-app/docs/LOCKED_FOLDER_SECURITY.md) ⭐ + liggar-rad [`security/cwe-mapping.md`](./security/cwe-mapping.md) (T20) |
 | Veta varför ett arkitekturbeslut togs | [`adr/`](./adr/) (ADR-register) |
 | **Migrera desktop Electron → Tauri (körguide + beslut)** | [`migrations/electron-to-tauri-runbook.md`](./migrations/electron-to-tauri-runbook.md) ⭐ + [`adr/0007-electron-vs-tauri.md`](./adr/0007-electron-vs-tauri.md) |
 | Driftsätta / härda servern | [`ops/server-hardening.md`](./ops/server-hardening.md), [`ops/disaster-recovery.md`](./ops/disaster-recovery.md) |
@@ -51,6 +52,7 @@ ska öppna för en given fråga. Läs det här först, sedan den specifika filen
 | Område | Plats | Notis |
 |--------|-------|-------|
 | **All kryptering** | `noter-app/packages/shared/src/` | `encrypt.ts` (dispatch), `cryptoV3.ts` (AES-GCM/Argon2id), `keyBootstrap.ts`. **Importera bara härifrån.** |
+| **Lås-logik (låsta mappar/noter)** | `noter-app/packages/shared/src/locks.ts` | Enda källan: `hasLockSignal`, `findBlockingLockedAncestor`, `isReadableWithLocks`, `relockFoldersOnLeave`, samt **`AI_INDEX_NO_UNLOCK`/`isReadableForAI`/`filterReadableForAI`** för automat-läsare. Mekanisk läck-grind: `scripts/check-index-unlock-leak.mjs` (+`--selftest`). Full modell: [`../noter-app/docs/LOCKED_FOLDER_SECURITY.md`](../noter-app/docs/LOCKED_FOLDER_SECURITY.md). |
 | Backend-rutter | `noter-app/apps/backend/src/routes/` | Varje `/:id`-rutt **måste** scopa på `userId` (se IDOR-regeln, §3). |
 | Backend write-guard | `…/src/utils/encryption.ts` | `isEncryptedPayload` accepterar v1+v3-envelopes. |
 | Mobil-state/sync | `noter-app/apps/mobile/stores/useStore.ts` | Offline-först, chunked dekryptering. |
@@ -74,7 +76,12 @@ ska öppna för en given fråga. Läs det här först, sedan den specifika filen
    krypto-lager läggs till. Lägg till, ersätt inte, i läs-dispatchen.
 4. **Krypto importeras bara från `@repo/shared`** — ingen app har egen implementation.
 5. **Logga aldrig secrets** (`sanitizeLogInfo`; CWE-532). Runtime-loggar är gitignorerade.
-6. **Kör `node noter-app/scripts/validate-critical.mjs` grönt** innan commit.
+6. **Låst innehåll läcker aldrig** till en automat-läsare eller en yta som lämnar enheten
+   (AI, index, publicering, widget, CRDT, GraphQL, export). Automat-läsare passerar **alltid**
+   den tomma upplåsnings­mängden (`AI_INDEX_NO_UNLOCK` / `isReadableForAI`), aldrig UI:ts
+   `unlockedProtectedNoteIds`. Mekanisk grind: `scripts/check-index-unlock-leak.mjs`
+   (CWE-200/T20). Full modell: [`../noter-app/docs/LOCKED_FOLDER_SECURITY.md`](../noter-app/docs/LOCKED_FOLDER_SECURITY.md).
+7. **Kör `node noter-app/scripts/validate-critical.mjs` grönt** innan commit.
 
 ## 4. Nästa steg / förbättringsbacklog (konkret, prioriterad)
 

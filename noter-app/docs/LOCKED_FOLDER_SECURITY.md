@@ -9,6 +9,13 @@ the AI (chat + agent), and the search/RAG index.
 > password. The AI and the search index must NEVER touch locked content — not even a folder
 > the user currently has open.
 
+**Var detta hör hemma i dokumentationen:** master-indexet
+[`../../Doc/index.md`](../../Doc/index.md) (§1 nav + invariant §3.6) pekar hit; den
+audit-redo liggar-raden är **T20** i [`../../Doc/security/cwe-mapping.md`](../../Doc/security/cwe-mapping.md)
+(CWE-200/CWE-359); den smalare "AI läser aldrig låst innehåll"-invarianten finns i
+[`../../Doc/security/ai-locked-notes.md`](../../Doc/security/ai-locked-notes.md). Den här filen
+är den **auktoritativa** helhetsmodellen — uppdatera den först, spegla sedan liggar-raden.
+
 ## 1. What "locked" means
 
 A note/folder is **lock-protected** when it has a truthy `locked` flag **or** a non-empty
@@ -138,7 +145,42 @@ not just by hiding the menu item:
 - The AI/agent/index can never read locked content, even momentarily-unlocked-in-UI content.
 - On app-lock / logout / relaunch the unlock session is gone and everything is locked again.
 
+## 8. Framtida härdning / uppgraderingsväg
+
+Skrivet så att en framtida modell/utvecklare kan **höja** skyddet utan att bryta nuvarande
+garantier. Varje punkt är additiv — invarianterna i §7 måste fortsatt hålla.
+
+1. **Distinkt nyckel per låst mapp (kryptografisk, inte bara filtrering).** I dag är låst
+   innehåll fält-krypterat med användarens `dataKey` och *skyddas* från läckage av lås-filtret
+   (`isReadableWithLocks`). Nästa nivå: wrappa varje låst mapps innehåll under en **mapp-specifik
+   nyckel** härledd ur mappens lösenord (Argon2id → HKDF), så att en bugg i filtret inte räcker
+   för att exponera klartext — `content` är då oläsbart utan lösenordet, inte bara dolt. Bygg på
+   `keyBootstrap.ts`-mönstret (re-wrap utan att röra `dataKey`). Bakåtkompatibel läsning krävs
+   (invariant §3 i indexet).
+2. **Signerad, read-only widget-/publicerings-endpoint.** Fas 3 i extern-MD-synken. När den
+   byggs: håll `isReadableForAI`-filtret (tom upplåsnings­mängd) som det enda urvalet och lägg
+   till en kort-livad signatur per snapshot — lägg till en ny `GUARDED`-byggare i
+   `scripts/check-index-unlock-leak.mjs` så den nya ytan täcks av samma mekaniska grind.
+3. **Audit-logg för upplåsnings-händelser (lokalt, krypterat).** Logga *att* en mapp låstes upp/
+   om (tidsstämpel, mapp-id), aldrig innehåll, så användaren kan se sin egen lås-historik. Måste
+   följa CWE-532 (inga secrets i loggen) och stanna på enheten.
+4. **Auto-omlås även på inaktivitet inuti en mapp**, inte bara vid navigering bort. I dag
+   re-låser `relockFoldersOnLeave` vid byte av aktiv mapp; en idle-timer (återanvänd
+   app-lock-timeouten) skulle re-låsa en öppen mapp efter X minuters inaktivitet utan att lämna
+   den. Ren tilläggslogik i `setActiveProject`/app-lock-vägen.
+5. **Utöka self-testet till nya modaliteter.** När en ny extern yta tillkommer (t.ex. en
+   delnings-länk, ett export-format, en ny graf-sink): lägg till dess byggar-namn i `GUARDED` och
+   en fixture i `--selftest` *innan* ytan kopplas in — grinden ska fånga läckan dag noll.
+
+> Uppgraderingsregel: ändra `locks.ts` (källan) + dess test först, kör
+> `scripts/check-index-unlock-leak.mjs --selftest` + `packages/shared` `locks`-sviten grönt,
+> uppdatera sedan T20-liggaren och den här filen i samma commit.
+
 ## Related
 
 - `packages/shared/src/locks.ts` (source of truth) and `locks.test.ts`
 - `docs/DATABASE_PERSISTENCE_SECURITY.md` (E2E at-rest model)
+- [`../../Doc/index.md`](../../Doc/index.md) — master-index (denna modell länkas från §1, §2 och invariant §3.6)
+- [`../../Doc/security/cwe-mapping.md`](../../Doc/security/cwe-mapping.md) — **T20** (CWE-200/CWE-359), audit-redo liggar-rad
+- [`../../Doc/security/ai-locked-notes.md`](../../Doc/security/ai-locked-notes.md) — smalare AI-läs-invariant
+- `scripts/check-index-unlock-leak.mjs` (+`--selftest`) — mekanisk läck-grind (blockerande i CI + `validate-critical`)

@@ -1,6 +1,6 @@
 # Noter — CWE-mappning
 
-_Senast uppdaterat: 2026-05-14 · Komplement till `threat-model.md`_
+_Senast uppdaterat: 2026-06-19 · Komplement till `threat-model.md`_
 
 Den här filen kopplar Noters STRIDE-hot till MITRE CWE-id så vi kan leverera
 audit-rapporter till CISO / kund-säkerhetsteam i ett standardformat.
@@ -26,6 +26,7 @@ audit-rapporter till CISO / kund-säkerhetsteam i ett standardformat.
 | T17 | CSRF mot cookies | CWE-352 (CSRF) | — | mitigerad: Origin/Referer + sameSite=strict refresh |
 | T18 | Loggar läcker secrets | CWE-532 (insertion of sensitive info into log) | — | mitigerad: `sanitizeLogInfo` redaction |
 | T19 | IDOR: läs/skriv/radera annan users note/task via gissat id | CWE-639 (authorization bypass through user-controlled key) | CWE-862 (missing authorization) | mitigerad: alla `/:id`-handlers scopar på `userId` (se nedan) |
+| T20 | Låst anteckning/projekt läcker till extern publicering, index eller export — även en mapp användaren tillfälligt låst upp i UI:t | CWE-200 (exposure of sensitive information to an unauthorized actor) | CWE-359 (privacy violation) | mitigerad: tom upplåsnings­mängd till alla automat-läsare + mekanisk läck-grind (se nedan) |
 
 ## T19 — IDOR i `/:id`-handlers (åtgärdad 2026-06-13)
 
@@ -52,6 +53,47 @@ poster och exponerade lösenords-hashen — därav allvarlighetsgrad hög.
 (Alice/Bob) genom hela CRUD-round-trippen och bevisar att Bob får `404` på läs/
 skriv/radera av Alices note och task, samt att posten är orörd på disk efteråt.
 Ingår i den blockerande `validate-critical.mjs`-matrisen.
+
+## T20 — Låst innehåll till extern publicering / index / export (åtgärdad 2026-06-19)
+
+**Invariant:** inget som ligger i en **låst** anteckning eller **låst projektmapp** (transitivt
+upp hela `parentId`-kedjan) får nå en yta som lämnar enheten eller överlever sessionen — inte ens
+en mapp användaren *just nu* har låst upp i UI:t. En UI-upplåsning är en **vy-lokal** rättighet
+och får aldrig förlängas till en automat-läsare (AI, index, publicerings-feed, widget, CRDT-relä).
+
+Den fullständiga, auktoritativa modellen (vad "låst" betyder, auto-omlåsning vid byte av mapp,
+maskning vid dekryptering, hotmodell) bor i
+[`../../noter-app/docs/LOCKED_FOLDER_SECURITY.md`](../../noter-app/docs/LOCKED_FOLDER_SECURITY.md).
+Den smalare AI-läs-invarianten bor i [`ai-locked-notes.md`](./ai-locked-notes.md). Den här posten
+är **liggar-raden** för läck-klassen och de ytor som tätades 2026-06-19.
+
+**Den kanoniska kontrollen** (`@repo/shared/src/locks.ts`, enda källan): automat-läsare passerar
+den **frusna tomma** upplåsnings­mängden `AI_INDEX_NO_UNLOCK` (eller hjälparna
+`isReadableForAI` / `filterReadableForAI`), aldrig storens `unlockedProtectedNoteIds`. Då är en
+lås-signalerad nod osynlig oavsett vad användaren har öppet.
+
+| Yta som tätades | Fil | Påverkan före fix | Commit |
+|-----------------|-----|-------------------|--------|
+| Kalender-/Markdown-publicering + embeddings-index | `apps/web/services/nextcloud.ts`, `EmbeddingsSettings.tsx` | UI-upplåsnings­mängden matades in i projektion/index → låst mapp som var öppen speglades till publicerad ICS/Markdown-share resp. vektor-index | `49cef6c` |
+| GraphQL/AI-verktygsyta | `apps/backend/src/graphql/schema.ts` | `Query.note/notes/task/tasks` läckte låsta noder/tasks innan `content` avkrypterades | `c06bdd2` |
+| Widget-snapshot + Nextcloud utgående push | `apps/mobile/services/widgets/snapshotWriter.ts`, `apps/web/services/nextcloud.ts` | Låsta tasks/listor skrevs till OS-delad widget-container; låst note kunde PUT:as till WebDAV | `846e53d` |
+| CRDT Live-relä | `markdownLive`-bryggan (båda appar) | En låst note kunde live-synkas token-för-token över Yjs-rummet | `1864a20` |
+| Extern Neo4j-graf-sync | `packages/shared/src/neo4jSync.ts` | `buildNeo4jSyncPlan` tar **inget** unlock-argument (hårdkodat tomt) — låst delträd mirroras aldrig | `49cef6c` |
+| Enskild not-export/-delning (mobil) | `apps/mobile/app/note/[id].tsx`, `services/noteExport.ts` | Share-as-PDF/Markdown gatade bara på `note.locked`, inte hierarkiskt; en not i en låst **mapp** kunde exporteras | `36300c2`, `5ae594a` |
+| Enskild not-export (web/Electron, defense-in-depth) | `apps/web/components/NoteEditor.tsx` | `handleExportPDF`/`handleExportMarkdown` läste live-DOM utan runtime-lås-spärr (förlitade sig enbart på att låsskärmen renderas) | `11c7f99` |
+
+**Mekanisk grind (kan inte regrediera tyst):** `scripts/check-index-unlock-leak.mjs` failar om
+`unlockedProtectedNoteIds` matas till någon känd publicerings-/index-byggare
+(`buildSafeCalendarProjection`, `buildMarkdownVaultProjection`, `buildNeo4jSyncPlan`,
+`indexEntities`). Grinden har ett eget **självtest** (`--selftest`, commit `dabbb62`) som bygger
+syntetiska läck-/rena träd och bevisar att detektorn fångar läckan genom alla fyra byggare utan
+falska positiva — så själva grinden inte kan ruttna till en no-op. Båda kör blockerande i
+`validate-critical.mjs` och CI (`.github/workflows/ci.yml`).
+
+**Regression:** `packages/shared/src/locks.test.ts` (hierarkisk läsbarhet, `isReadableForAI`/
+`filterReadableForAI` släpper låst även när en UI-mängd skulle låsa upp, `relockFoldersOnLeave`);
+`apps/backend __tests__/notes-lock-security.test.ts`; `apps/mobile __tests__/services/noteExport.test.ts`
+(exportörerna skriver/delar **inget** när `locked:true`); `packages/shared neo4jSync`-sviten.
 
 ## Format för audit-export
 

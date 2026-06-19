@@ -6,6 +6,12 @@ innehållet i en **låst** anteckning eller **låst** projektmapp (eller något 
 låst mapp). Låst innehåll förblir krypterat tills användaren själv låser upp det med rätt
 lösenord.
 
+> Den här filen täcker **AI-läs-ytan**. Den fullständiga låsta-mappar-modellen — display-
+> filtrering, auto-omlåsning vid byte av mapp, extern publicering/index/export/widget/CRDT, och
+> den mekaniska läck-grinden — bor i den auktoritativa
+> [`../../noter-app/docs/LOCKED_FOLDER_SECURITY.md`](../../noter-app/docs/LOCKED_FOLDER_SECURITY.md)
+> (audit-liggare: **T20** i [`cwe-mapping.md`](./cwe-mapping.md)).
+
 ## Den kanoniska kontrollen
 
 `@repo/shared/locks` är enda källan:
