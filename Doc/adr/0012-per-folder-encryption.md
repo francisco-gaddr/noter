@@ -72,9 +72,12 @@ E2E redan har; en mapp-recovery-kod kan övervägas senare).
    nollad vid omlåsning (mirror `unlockedProtectedNoteIds`).
 3. **Skriv-väg.** Noter i en mapp med bundle sealas med `wrapNoteForFolder(fält, FK)` i stället för
    `encrypt(...)` under dataKey. Endast medan mappen är upplåst (FK i minnet).
-4. **Läs-väg (`materializeOneNote`).** Dispatcha: `isFolderWrapped(content)` → kräver FK (visa
-   maskerat/lås om FK saknas); annars befintlig `v3:`/`safeDecrypt` under dataKey
-   (**bakåtkompatibelt** — gamla låsta noter förblir läsbara).
+4. **Läs-väg (`materializeOneNote`).** ✅ **Shared-dispatch levererad** (`materializeFolderField`
+   i `packages/shared/src/encrypt.ts`, 8 tester): `v3f:` + FK → dekryptera; `v3f:` utan FK / fel
+   FK / manipulerad → mask (`lockedFallback`); annars befintlig `safeDecrypt` (`v3:`/legacy/klartext)
+   — **bakåtkompatibelt**. Som extra skydd returnerar även `safeDecrypt`/`decrypt` masken (aldrig
+   chiffertexten) om ett `v3f:`-värde råkar nå dem utan FK. **Kvar:** anropa `materializeFolderField`
+   från `materializeOneNote` i båda stores (mata in mappens FK från in-memory-sessionen).
 5. **Lösenordsbyte.** `rewrapFolderKey(FK, nyttLösen)` → uppdatera bundle. Ingen not krypteras om.
 6. **Mekanisk grind.** Utöka `scripts/check-index-unlock-leak.mjs` eller lägg en ny guard så
    `v3f:`-innehåll aldrig kan nå en publicerings-/index-yta okrypterat.

@@ -185,9 +185,13 @@ garantier. Varje punkt är additiv — invarianterna i §7 måste fortsatt håll
    / `rewrapFolderKey` (lösenordsbyte = re-wrap, ingen om-kryptering). Notfält sealas med
    `wrapNoteForFolder` till ett **`v3f:`**-kuvert som läsvägen kan skilja från `v3:` (under användarens
    `dataKey`) — så befintliga låsta noter förblir läsbara (bakåtkompatibelt, invariant §3 i indexet).
-   **Kvar (kommande faser, se ADR §Migration):** lagra `FolderKeyBundle` på mappnoten, in-memory-only
-   FK-session, dispatcha skriv/läs-vägen (`materializeOneNote`) på `v3f:`, och en mekanisk grind som
-   håller `v3f:` borta från publicerings-/index-ytor. **Inte** wired in i stores ännu — medvetet.
+   Läs-vägens **shared-dispatch** är levererad: `materializeFolderField` (`encrypt.ts`) dekrypterar
+   ett `v3f:`-fält bara när mappens FK finns, annars mask — och `safeDecrypt`/`decrypt` returnerar
+   masken (aldrig kuvertet) om ett `v3f:`-värde råkar nå dem utan FK (defense-in-depth). **Kvar
+   (kommande faser, se ADR §Migration):** lagra `FolderKeyBundle` på mappnoten, in-memory-only
+   FK-session, anropa `materializeFolderField`/`wrapNoteForFolder` från `materializeOneNote`/skriv-
+   vägen i båda stores, och en mekanisk grind som håller `v3f:` borta från publicerings-/index-ytor.
+   **Inte** wired in i stores ännu — medvetet.
 2. **Signerad, read-only widget-/publicerings-endpoint.** Fas 3 i extern-MD-synken. När den
    byggs: håll `isReadableForAI`-filtret (tom upplåsnings­mängd) som det enda urvalet och lägg
    till en kort-livad signatur per snapshot — lägg till en ny `GUARDED`-byggare i

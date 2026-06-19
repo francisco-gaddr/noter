@@ -6,8 +6,10 @@ import {
   isAnyCiphertext,
   setActiveDataKey,
   hasActiveDataKey,
+  materializeFolderField,
 } from './encrypt';
 import { generateDataKey, isV3 } from './cryptoV3';
+import { wrapNoteForFolder } from './folderKey';
 
 afterEach(() => setActiveDataKey(null)); // never leak an active key between tests
 
@@ -122,5 +124,65 @@ describe('v3 dispatch — key-aware writer + universal reader', () => {
     const c = encrypt('per-record', 'a-password');
     expect(isV3(c)).toBe(false);
     expect(decrypt(c, 'a-password')).toEqual('per-record');
+  });
+});
+
+describe('materializeFolderField (ADR-0012 read-path dispatch)', () => {
+  // A raw 256-bit folder key (no KDF needed to exercise the dispatch logic).
+  const folderKey = generateDataKey();
+  const otherKey = generateDataKey();
+
+  it('decrypts a v3f: field when the folder key is supplied', () => {
+    const sealed = wrapNoteForFolder('Hemligt innehåll åäö', folderKey);
+    expect(materializeFolderField(sealed, { folderKey })).toBe('Hemligt innehåll åäö');
+  });
+
+  it('returns the locked mask for a v3f: field when no key is present', () => {
+    const sealed = wrapNoteForFolder('Hemligt', folderKey);
+    expect(materializeFolderField(sealed)).toBe(''); // default mask
+    expect(materializeFolderField(sealed, { lockedFallback: 'Låst anteckning' })).toBe('Låst anteckning');
+    expect(materializeFolderField(sealed, { folderKey: null })).toBe('');
+  });
+
+  it('returns the locked mask (never plaintext or ciphertext) for the wrong/rotated key', () => {
+    const sealed = wrapNoteForFolder('Hemligt', folderKey);
+    const out = materializeFolderField(sealed, { folderKey: otherKey, lockedFallback: 'Låst anteckning' });
+    expect(out).toBe('Låst anteckning');
+    expect(out).not.toContain('Hemligt');
+    expect(out).not.toContain('v3f:');
+  });
+
+  it('returns the locked mask for a tampered v3f: ciphertext', () => {
+    const sealed = wrapNoteForFolder('Hemligt', folderKey);
+    const body = sealed.slice('v3f:'.length);
+    const tampered = 'v3f:' + (body[3] === 'A' ? 'B' : 'A') + body.slice(1);
+    expect(materializeFolderField(tampered, { folderKey })).toBe('');
+  });
+
+  it('falls through to the existing v3 (user dataKey) path — backward compatible', () => {
+    setActiveDataKey(generateDataKey());
+    const v3 = encrypt('en vanlig låst not under dataKey'); // v3: under the active dataKey
+    expect(isV3(v3)).toBe(true);
+    expect(materializeFolderField(v3)).toBe('en vanlig låst not under dataKey');
+  });
+
+  it('passes plaintext / non-ciphertext through unchanged', () => {
+    expect(materializeFolderField('project')).toBe('project');
+    expect(materializeFolderField('')).toBe('');
+    expect(materializeFolderField(undefined)).toBe('');
+  });
+});
+
+describe('safeDecrypt / decrypt: defensive v3f: guard (never leak the envelope)', () => {
+  it('safeDecrypt returns the mask, not the ciphertext, for a v3f: value', () => {
+    const sealed = wrapNoteForFolder('Hemligt', generateDataKey());
+    expect(safeDecrypt(sealed)).toBe(''); // no fallback → '' (not the envelope)
+    expect(safeDecrypt(sealed, 'Låst anteckning')).toBe('Låst anteckning');
+    expect(safeDecrypt(sealed)).not.toContain('v3f:');
+  });
+
+  it('decrypt returns "" for a v3f: value (never garbage from the legacy path)', () => {
+    const sealed = wrapNoteForFolder('Hemligt', generateDataKey());
+    expect(decrypt(sealed)).toBe('');
   });
 });

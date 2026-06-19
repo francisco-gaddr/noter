@@ -1,5 +1,6 @@
 import CryptoJS from 'crypto-js';
 import { encryptV3, decryptV3, isV3 } from './cryptoV3';
+import { isFolderWrapped, unwrapNoteForFolder } from './folderKey';
 
 const DEFAULT_KEY = 'noter-default-key';
 
@@ -68,6 +69,10 @@ const decryptStrictLegacy = (ciphertext: string, key: string = DEFAULT_KEY): str
  */
 export const decrypt = (ciphertext: string, key?: string): string => {
   if (!ciphertext) return '';
+  // A folder-wrapped (`v3f:`) field can only be opened with that folder's key, which this
+  // path does not have — never fall through to the legacy decoder (it would return garbage)
+  // and never echo the ciphertext. Stays blank/locked until materializeFolderField is used.
+  if (isFolderWrapped(ciphertext)) return '';
   if (key === undefined && isV3(ciphertext)) {
     if (!activeDataKey) return '';
     try {
@@ -99,6 +104,11 @@ export const decrypt = (ciphertext: string, key?: string): string => {
  */
 export const safeDecrypt = (value: unknown, fallback?: string): string => {
   if (typeof value !== 'string') return typeof fallback === 'string' ? fallback : '';
+  // Defense-in-depth for the per-folder crypto boundary (ADR-0012): a folder-wrapped (`v3f:`)
+  // field is unreadable without its folder key, which safeDecrypt does not hold. Return the
+  // mask/fallback (never the ciphertext) so a call site that forgot to route through
+  // materializeFolderField degrades to "locked/blank" rather than leaking the envelope.
+  if (isFolderWrapped(value)) return typeof fallback === 'string' ? fallback : '';
   if (isV3(value)) {
     if (activeDataKey) {
       try {
@@ -115,6 +125,49 @@ export const safeDecrypt = (value: unknown, fallback?: string): string => {
   } catch {
     return typeof fallback === 'string' ? fallback : value;
   }
+};
+
+/** Options for {@link materializeFolderField}. */
+export interface FolderFieldOptions {
+  /**
+   * The unlocked folder key for this note's folder, if the user has entered the folder password
+   * this session. Absent/empty → the field is treated as locked and the mask is returned.
+   */
+  folderKey?: Uint8Array | null;
+  /**
+   * What to return when the field is `v3f:` but cannot be opened (no key, wrong/rotated key, or
+   * tampered ciphertext). Lets the caller pick the per-field mask, e.g. 'Låst anteckning' for a
+   * title and '' for the body. Defaults to ''.
+   */
+  lockedFallback?: string;
+}
+
+/**
+ * Read-path dispatch for a (possibly per-folder-encrypted) note field — the ADR-0012 Fas 2
+ * reader. This is what the materialize layer should call for a field that MIGHT be folder-wrapped;
+ * it never exposes ciphertext and never throws:
+ *
+ *  - `v3f:` + a folder key present  → decrypt with the folder key (on any failure → `lockedFallback`).
+ *  - `v3f:` + no folder key          → `lockedFallback` (the field stays cryptographically locked).
+ *  - anything else                   → existing {@link safeDecrypt} path (v3 under the user dataKey,
+ *                                      legacy v1, or plaintext) — so existing locked notes that are
+ *                                      still `v3:` under the dataKey keep reading exactly as before
+ *                                      (backward compatible).
+ */
+export const materializeFolderField = (value: unknown, opts: FolderFieldOptions = {}): string => {
+  const lockedFallback = typeof opts.lockedFallback === 'string' ? opts.lockedFallback : '';
+  if (isFolderWrapped(value)) {
+    const key = opts.folderKey;
+    if (key && key.length > 0) {
+      try {
+        return unwrapNoteForFolder(value as string, key);
+      } catch {
+        return lockedFallback; // wrong/rotated key or tampered → stay locked, never expose
+      }
+    }
+    return lockedFallback; // no key → locked
+  }
+  return safeDecrypt(value);
 };
 
 export * from './cryptoV3';
