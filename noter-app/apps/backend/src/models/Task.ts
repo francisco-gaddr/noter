@@ -49,6 +49,12 @@ const TaskSchema: Schema = new Schema({
 // Indexes for performance
 TaskSchema.index({ userId: 1, parentNoteId: 1 });
 TaskSchema.index({ userId: 1, completed: 1 });
+// The task list always sorts by createdAt desc (GET /api/tasks: find({userId}).sort({createdAt:-1}),
+// and the cursor page sorts {createdAt:-1,_id:-1} with a createdAt range). Without this, Mongo filters
+// on the userId index then SORTS IN MEMORY the whole user partition — slow at scale and capped at 32MB.
+// createdAt is an encrypted string, so the order is by ciphertext (deterministic → stable pagination),
+// not chronological; the client re-sorts after decrypt. ESR-shaped: equality(userId) + sort/range(createdAt) + tiebreak(_id).
+TaskSchema.index({ userId: 1, createdAt: -1, _id: -1 });
 TaskSchema.index(
   { userId: 1, clientId: 1 },
   { unique: true, partialFilterExpression: { clientId: { $type: 'string', $ne: '' } } }

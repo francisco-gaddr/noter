@@ -250,8 +250,12 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
   kärnfunktionalitet** och är därför FEL här. Den verkliga render-vinsten (montera inte tusentals DOM-noder)
   löstes istället med **virtualisering** (se ovan). Kvar som ev. framtida: **chunkad initial-sync** (hämta i
   bitar så en enda jätte-request inte render-blockerar) — det rör inte local-first-modellen.
-- **Saknat DB-index `{ userId, createdAt: -1 }` på Task** · `apps/backend/src/models/Task.ts:50-51` ·
-  **E:S** · `tasks.ts` sorterar alltid på `createdAt` men index saknas → full scan. Lägg indexet.
+- ✅ **[KLAR 2026-06-20] DB-index `{ userId, createdAt:-1, _id:-1 }` på Task** · `apps/backend/src/models/Task.ts` ·
+  `GET /api/tasks` sorterar alltid `createdAt` desc (+ cursor-sidan `{createdAt:-1,_id:-1}` med createdAt-range)
+  utan täckande index → Mongo filtrerade på `userId`-indexet och **sorterade i minnet** hela partitionen (capad
+  vid 32 MB). ESR-format (equality `userId` + sort/range `createdAt` + tiebreak `_id`). `createdAt` är krypterad
+  sträng → ordningen är ciphertext (deterministisk → stabil pagination), ej kronologisk; klienten re-sorterar.
+  2 regress-tester. **OBS:** autoIndex är av i prod → kör `npm run db:reconcile-indexes` efter deploy för att bygga det.
 
 ### AI / RAG
 
