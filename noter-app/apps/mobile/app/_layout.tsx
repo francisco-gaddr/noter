@@ -23,6 +23,11 @@ import { ThemeContextProvider, useThemeContext, preloadTheme } from '@/context/T
 import { runKvMigrationIfNeeded } from '@/services/storage';
 import { restoreCryptoFromDevice } from '@/services/crypto';
 import { AnimatedSplash } from '@/components/AnimatedSplash';
+import { initMobileErrorTracking } from '@/services/errorTracking';
+
+// Install crash/error reporting as early as possible (no-op unless EXPO_PUBLIC_GLITCHTIP_DSN is set),
+// before component bootstrap so an error during launch is still captured.
+initMobileErrorTracking();
 
 export {
   // Catch any errors thrown by the Layout component.

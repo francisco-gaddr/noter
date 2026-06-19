@@ -130,6 +130,8 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         NEXT_PUBLIC_API_URL: /api
+        # Optional: set GLITCHTIP_WEB_DSN in .env to enable client error tracking (baked at build).
+        NEXT_PUBLIC_GLITCHTIP_DSN: ${GLITCHTIP_WEB_DSN:-}
     container_name: noter-web
     ports:
       - "3000:3000"

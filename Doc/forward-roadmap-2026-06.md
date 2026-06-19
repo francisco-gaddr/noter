@@ -310,13 +310,13 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
 
 ### Stabilitet / ops
 
-- 🟡 **[BACKEND KLAR 2026-06-19] Felspårning — self-hosted GlitchTip** · `packages/shared/src/errorReporter.ts`,
-  `apps/backend/src/utils/errorTracking.ts`, `docker-compose.yml` (profil `monitoring`) · Delad reporter som
-  talar Sentrys envelope-protokoll (inget native-SDK → respekterar no-EAS; noll nya deps), DSN-gated, med
-  PII-scrubbing. Backend fångar 5xx + `uncaughtException`/`unhandledRejection`. GlitchTip self-hostas på Pi:n
-  (postgres+valkey+web+worker+migrate), UI på `:8000` för Hubben. 11 tester + namngiven CI-grind.
-  Doc: [`ops/error-tracking-glitchtip.md`](ops/error-tracking-glitchtip.md). **Kvar:** web- + mobil-init via
-  samma reporter + release-tagg-flöde.
+- ✅ **[KLAR 2026-06-19] Felspårning — self-hosted GlitchTip (alla tre ytor)** · `packages/shared/src/errorReporter.ts`,
+  `apps/{backend,web,mobile}/.../errorTracking.ts`, `docker-compose.yml` (profil `monitoring`) · EN delad reporter
+  som talar Sentrys envelope-protokoll (inget native-SDK → respekterar no-EAS; noll nya deps), DSN-gated, med
+  PII-scrubbing. Backend fångar 5xx + `uncaughtException`/`unhandledRejection`; web `window.onerror`+`unhandledrejection`;
+  mobil `ErrorUtils` (kedjad) + Hermes promise-rejection-tracker. GlitchTip self-hostas på Pi:n
+  (postgres+valkey+web+worker+migrate), UI på `:8000` för Hubben. 11 tester + namngiven CI-grind. Doc:
+  [`ops/error-tracking-glitchtip.md`](ops/error-tracking-glitchtip.md). **Kvar (P3):** release-tagg=git-sha + ev. source maps.
 - **Coverage-gates i jest** · `apps/{backend,web,mobile}/jest.config.*` · **E:M** · Inga
   `coverageThreshold` → en otestad route passerar CI. Börja rapporterande, höj sedan.
 - **Mobil socket token-refresh vid auth-expiry** · `apps/mobile/services/socket.ts:46-107` · **E:M** ·

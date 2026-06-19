@@ -19,6 +19,9 @@ COPY packages/ ./packages/
 ENV NEXT_TELEMETRY_DISABLED=1
 ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+# Error tracking DSN — inlined at build time (NEXT_PUBLIC_*). Optional; empty → tracking is a no-op.
+ARG NEXT_PUBLIC_GLITCHTIP_DSN
+ENV NEXT_PUBLIC_GLITCHTIP_DSN=${NEXT_PUBLIC_GLITCHTIP_DSN}
 RUN npx turbo run build --filter=web
 
 FROM node:20-slim AS runner

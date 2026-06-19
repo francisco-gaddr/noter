@@ -9,6 +9,7 @@ import i18n from './i18n'
 import { useStore } from '../stores/useStore'
 import AppLock from '../components/AppLock'
 import { startAutoIndex } from '../services/ai/autoIndex'
+import { initWebErrorTracking } from '../services/errorTracking'
 
 // Initialize axe-core accessibility checks in development
 if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'production') {
@@ -34,6 +35,10 @@ export function Providers({ children }: { children: React.ReactNode }) {
   // Auto-index (opt-in, default off): re-embed shortly after notes/tasks change so semantic
   // search stays fresh without a manual re-index. One debounced store subscription.
   useEffect(() => startAutoIndex(), [])
+
+  // Error tracking → GlitchTip (no-op unless NEXT_PUBLIC_GLITCHTIP_DSN is set). Installs global
+  // uncaught-error + unhandled-rejection handlers once.
+  useEffect(() => initWebErrorTracking(), [])
 
   return (
     React.createElement(

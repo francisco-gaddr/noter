@@ -17,8 +17,14 @@ E2E/integritet). Noll nya beroenden. Inaktiverad (no-op) tills en DSN sätts.
 | Yta | Status | Init |
 | --- | --- | --- |
 | Backend (node) | ✅ aktiv | `apps/backend/src/utils/errorTracking.ts` (init i `index.ts`, fångar 5xx + `uncaughtException`/`unhandledRejection`) |
-| Web (Next.js) | ⏳ nästa steg | klient-init i `providers.tsx` via samma reporter |
-| Mobil (Expo RN) | ⏳ nästa steg | global `ErrorUtils`-handler i `_layout.tsx` via samma reporter |
+| Web (Next.js) | ✅ aktiv | `apps/web/services/errorTracking.ts` (klient-init i `providers.tsx`; `window.onerror` + `unhandledrejection`) |
+| Mobil (Expo RN) | ✅ aktiv | `apps/mobile/services/errorTracking.ts` (init i `_layout.tsx`; `ErrorUtils.setGlobalHandler` kedjad + Hermes `enablePromiseRejectionTracker`) |
+
+**DSN per yta** (alla no-op om osatt; klient-DSN:er bakas in vid BUILD och kräver ombygge vid ändring):
+- Backend: `GLITCHTIP_DSN` (runtime, i `.env`).
+- Web: `NEXT_PUBLIC_GLITCHTIP_DSN` (build-arg; sätt `GLITCHTIP_WEB_DSN` i `.env` → compose skickar in den).
+- Mobil: `EXPO_PUBLIC_GLITCHTIP_DSN` (bakas in i bundlen vid Metro-build).
+Skapa gärna **separata projekt** i GlitchTip per yta (backend/web/mobil) så felen grupperas rätt.
 
 ## Vad som skickas — och ALDRIG skickas
 
@@ -75,5 +81,6 @@ Endast UI-porten `:8000` publiceras (postgres/valkey är interna). Lägg till en
 
 ## Kvar (nästa steg)
 
-Web- + mobil-init via samma delade reporter (klient-fel + obehandlade promise-rejections), och ett
-release-tag-flöde (koppla `BUILD_ID`/git-sha till release i GlitchTip för regressions-spårning).
+Release-tagg-flöde fullt ut: web läser redan `NEXT_PUBLIC_BUILD_ID` och mobil `EXPO_PUBLIC_BUILD_ID`
+som release — sätt dessa till git-sha i bygget så GlitchTip kan visa "first seen in release X" och
+regressions-spårning. Ev. källkarta-uppladdning för web (minifierade stackar) om det behövs.
