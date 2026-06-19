@@ -234,14 +234,22 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
 - **React Compiler för mobil saknas** · `apps/mobile/babel.config.js` · **E:M** · Web har den; mobil
   inte (`babel-plugin-react-compiler` finns ej i deps). Om Expo inte bundlar den ännu: manuell
   `React.memo` + `useCallback` på list-objekt-komponenter.
-- **`TaskItem` (web) ej memoiserad** · `apps/web/components/TaskList.tsx:36-200` · **E:S** ·
-  `React.memo` + `useCallback` på handler-props (Compiler auto-memoiserar men explicit är robustare
-  vid bail-out).
-- **Virtuell scroll för stora listor** · `apps/web/components/{TaskList,SidebarTree}.tsx` · **E:M** ·
-  `react-window` finns oanvänt; `TaskList` renderar alla items. Prioritera TaskList (FixedSizeList).
-- **Klienter använder inte pagination** · `apps/web/services/api.ts:279`, `apps/web/stores/useStore.ts:1122` ·
-  **E:M** · Backend stödjer cursor (`?limit`/`?cursor`) men klienterna hämtar hela listan → långsam
-  start vid 5000+ items. Implementera cursor-pagination (notes först).
+- ~~**`TaskItem` (web) ej memoiserad**~~ — AVFÖRD (onödig kod): web kör **React Compiler** (`next.config.js`
+  `reactCompiler: true`) som auto-memoiserar. Manuell `React.memo`/`useCallback` ger ingen mätbar vinst.
+- ✅ **[KLAR 2026-06-19] Virtuell scroll för stora task-listor** · `apps/web/components/{VirtualList,TaskList}.tsx` ·
+  Ny återanvändbar headless `VirtualList` (`@tanstack/react-virtual`, **dynamisk höjd-mätning** via
+  `measureElement` — branschstandard för variabel höjd, bättre än `react-window` här). `TaskList` list-läge
+  fönstrar sig över `VIRTUALIZE_THRESHOLD` (60) rader — men **bara** när ej custom-sort (DnD kräver att alla
+  rader är monterade) → tusentals task-rader blir ~några dussin DOM-noder. Säkerhets-logiken
+  (`shouldWindowTaskList`) är ren + enhetstestad (windowing får ALDRIG bryta DnD). `next build` verifierad.
+  `VirtualList` återanvändbar för chat-meddelanden härnäst. **Medvetet ej virtualiserat:** `SidebarTree`
+  (rekursiv DnD-träd — hög risk; redan kapad 200 root/50 per nod) + `TaskBoard` (Kanban-DnD).
+- **Klient-pagination — OMVÄRDERAD (delvis fel premiss)** · `apps/web/services/api.ts:279`,
+  `apps/web/stores/useStore.ts:1122` · **E:M** · Appen är **local-first/E2E**: den lokala RAG-indexeringen,
+  sidoträdet, sök och offline KRÄVER att alla noter finns lokalt → **server-side pagination skulle bryta
+  kärnfunktionalitet** och är därför FEL här. Den verkliga render-vinsten (montera inte tusentals DOM-noder)
+  löstes istället med **virtualisering** (se ovan). Kvar som ev. framtida: **chunkad initial-sync** (hämta i
+  bitar så en enda jätte-request inte render-blockerar) — det rör inte local-first-modellen.
 - **Saknat DB-index `{ userId, createdAt: -1 }` på Task** · `apps/backend/src/models/Task.ts:50-51` ·
   **E:S** · `tasks.ts` sorterar alltid på `createdAt` men index saknas → full scan. Lägg indexet.
 

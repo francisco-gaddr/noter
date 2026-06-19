@@ -113,6 +113,11 @@ jobs:
       - name: Error-tracking reporter — envelope + PII scrub (blocking)
         run: |
           (cd packages/shared && npx jest errorReporter)
+      # List virtualization safety: windowing must NEVER engage in custom-sort (drag-and-drop) mode,
+      # or DnD breaks. Guards the threshold decision + that VirtualList mounts.
+      - name: Task list windowing safety (blocking)
+        run: |
+          (cd apps/web && npx jest __tests__/VirtualList.test.tsx)
       - name: No dead files (knip --include files)
         run: npm run knip:files
 

@@ -14,8 +14,22 @@ import { startOfDay, endOfDay, isWithinInterval, addDays, startOfWeek, endOfWeek
 import type { Identifier, XYCoord } from 'dnd-core';
 import Fuse from 'fuse.js';
 import { formatTaskDueLabel } from '../lib/formatTaskDue';
+import { VirtualList } from './VirtualList';
 
 const ItemType = 'TASK';
+
+// Above this many rows the list-mode view windows itself (mount only visible rows) — but only when
+// NOT in custom-sort drag mode, where rows must stay mounted for the DnD ref math. Small lists keep
+// the plain, proven render path (windowing would be pure overhead).
+export const VIRTUALIZE_THRESHOLD = 60;
+
+/**
+ * Should the task list render windowed (virtualized)? SAFETY-CRITICAL: must return false in
+ * custom-sort mode (drag-and-drop needs every row mounted) and for short lists (windowing is pure
+ * overhead). Pure + exported so the invariant is unit-tested.
+ */
+export const shouldWindowTaskList = (sortBy: string, count: number): boolean =>
+  sortBy !== 'custom' && count > VIRTUALIZE_THRESHOLD;
 
 type DragItem = { id: string; index: number };
 
@@ -685,31 +699,48 @@ export default function TaskList() {
                          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 dark:border-white"></div>
                     </div>
                 )}
-                {viewMode === 'list' && (
-                    <div className="h-full overflow-auto p-2 space-y-2">
-                        {localTasks.map((task, index) => (
-                            <TaskItem 
-                                key={task._id} 
-                                index={index} 
-                                task={task} 
-                                moveTask={moveTask}
-                                onDragEnd={commitReorder}
-                                toggleComplete={toggleComplete}
-                                cyclePriority={cyclePriority}
-                                deleteTask={deleteTask}
-                                openTaskDetail={openTaskDetail}
-                                getPriorityColor={getPriorityColor}
-                                t={t}
-                                isCustomSort={sortBy === 'custom'}
+                {viewMode === 'list' && (() => {
+                    // One row renderer for both paths — keeps the windowed and plain lists identical.
+                    const renderTaskRow = (task: Task, index: number) => (
+                        <TaskItem
+                            key={task._id}
+                            index={index}
+                            task={task}
+                            moveTask={moveTask}
+                            onDragEnd={commitReorder}
+                            toggleComplete={toggleComplete}
+                            cyclePriority={cyclePriority}
+                            deleteTask={deleteTask}
+                            openTaskDetail={openTaskDetail}
+                            getPriorityColor={getPriorityColor}
+                            t={t}
+                            isCustomSort={sortBy === 'custom'}
+                        />
+                    );
+                    // Window only large, non-DnD lists; custom-sort keeps every row mounted for DnD.
+                    if (shouldWindowTaskList(sortBy, localTasks.length)) {
+                        return (
+                            <VirtualList
+                                items={localTasks}
+                                getKey={(task) => task._id}
+                                renderItem={renderTaskRow}
+                                estimateSize={64}
+                                className="h-full overflow-auto p-2"
+                                ariaLabel={t('tabs.tasks')}
                             />
-                        ))}
-                        {localTasks.length === 0 && (
-                            <div className="text-center text-gray-600 dark:text-gray-400 text-sm mt-4">
-                                {selectedTaskListId ? t('tasks.noTasks') : t('tasks.selectList')}
-                            </div>
-                        )}
-                    </div>
-                )}
+                        );
+                    }
+                    return (
+                        <div className="h-full overflow-auto p-2 space-y-2">
+                            {localTasks.map((task, index) => renderTaskRow(task, index))}
+                            {localTasks.length === 0 && (
+                                <div className="text-center text-gray-600 dark:text-gray-400 text-sm mt-4">
+                                    {selectedTaskListId ? t('tasks.noTasks') : t('tasks.selectList')}
+                                </div>
+                            )}
+                        </div>
+                    );
+                })()}
 
                 {viewMode === 'board' && (
                     <TaskBoard 
