@@ -77,6 +77,22 @@ describe('buildIndexableEntities (lock guard)', () => {
     const tasks = [task({ _id: 'b', deleted: 'true' })];
     expect(buildIndexableEntities(notes, tasks)).toEqual([]);
   });
+
+  // ADR-0012: a note inside a LOCKED per-folder-encrypted ("crypto") folder has its OWN
+  // `locked` flag FALSE — readability comes from the locked ancestor — and its title/content
+  // are sealed v3f: envelopes. The lock guard is ancestry-aware, so the sealed note must never
+  // reach the embedding index, and the v3f: envelope must never appear in any indexed entity.
+  it('excludes a note inside a locked crypto folder and never indexes the v3f: envelope', () => {
+    const notes = [
+      note({ _id: 'cryptoProj', type: 'project', locked: true }),
+      note({ _id: 'sealed', parentId: 'cryptoProj', locked: false, title: 'v3f:c2VhbGVkLXRpdGxl', content: 'v3f:c2VhbGVkLWJvZHk=' }),
+    ];
+    const entities = buildIndexableEntities(notes, []);
+    // The sealed note (and the locked folder itself) are excluded from the index.
+    expect(entities.map((e) => e.id)).not.toContain('sealed');
+    // Defence in depth: the v3f: ciphertext never appears in any indexed title/body.
+    expect(JSON.stringify(entities)).not.toContain('v3f:');
+  });
 });
 
 describe('indexToEmbeddedItems', () => {

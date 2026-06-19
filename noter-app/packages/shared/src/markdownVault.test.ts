@@ -9,6 +9,7 @@ import {
   renderVaultFile,
   type VaultNote,
 } from './markdownVault';
+import { buildSecurityNoteMap, isReadableForAI } from './locks';
 
 describe('markdownVault', () => {
   describe('slugifyName', () => {
@@ -112,6 +113,35 @@ describe('markdownVault', () => {
     it('never projects a locked note even if explicitly listed', () => {
       const proj = buildMarkdownVaultProjection(notes, { noteIds: ['b'], isLocked: (n) => !!n.locked });
       expect(proj).toHaveLength(0);
+    });
+
+    // ADR-0012: a note inside a LOCKED per-folder-encrypted ("crypto") folder has its OWN
+    // `locked` flag FALSE — only the ancestor folder is locked, and its title/content are
+    // sealed v3f: envelopes. The app supplies the ancestry-aware guard (isReadableForAI with
+    // the EMPTY unlock set), NOT the note's own flag. This proves the projection excludes such
+    // a note AND never leaks the v3f: envelope — the regression the own-field `!!n.locked` tests
+    // above cannot catch (they only exercise a note whose own flag is set).
+    it('never projects a note inside a locked crypto folder, and never leaks the v3f: envelope', () => {
+      const cryptoNotes: VaultNote[] = [
+        { _id: 'cryptoProj', title: 'Hemlig mapp', type: 'project', parentId: null, locked: true },
+        // own `locked` is FALSE — readability comes purely from the locked ancestor:
+        { _id: 'sealed', title: 'v3f:c2VhbGVkLXRpdGxl', content: 'v3f:c2VhbGVkLWJvZHk=', type: 'note', parentId: 'cryptoProj', locked: false },
+        { _id: 'open', title: 'Synlig', type: 'note', parentId: null, content: 'visible body' },
+      ];
+      const noteMap = buildSecurityNoteMap(cryptoNotes as any);
+      const proj = buildMarkdownVaultProjection(cryptoNotes, {
+        folderIds: ['cryptoProj'],
+        noteIds: ['sealed', 'open'],
+        // The real app pattern (apps/{web,mobile} markdownShare): ancestry-aware, empty unlock set.
+        isLocked: (n) => !isReadableForAI(n as any, noteMap as any),
+      });
+      // The sealed note under the locked crypto folder must never be projected…
+      expect(proj.some((p) => p.noteId === 'sealed')).toBe(false);
+      // …and the v3f: ciphertext must never appear in ANY projected field (path/title/body/etag).
+      const serialized = JSON.stringify(proj);
+      expect(serialized).not.toContain('v3f:');
+      // A normal note outside the crypto folder is still projected (no over-blocking).
+      expect(proj.some((p) => p.noteId === 'open')).toBe(true);
     });
 
     it('renderVaultFile round-trips back to the note', () => {

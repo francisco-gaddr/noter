@@ -287,6 +287,31 @@ mappar med backend-lösen men utan bundle fortsätter använda `verifyLock` till
 säkerhetskritiskt (CWE-522 / hot T21 i `Doc/security/cwe-mapping.md`) och bör verifieras på enhet: inspektera att inget `verify-lock`-anrop och
 inget `password`-fält går på tråden för en krypto-mapp.
 
+## Audit — sekundära läs/projektions-ytor (v3f: läcker aldrig ut)
+
+Den primära läs-vägen (`materializeNotesFromEncrypted`) dispatchar `v3f:` korrekt (maska när låst,
+dekryptera med FK när upplåst). Men flera **sekundära** ytor läser noter utanför den vägen — externa
+sänkor + index — och måste granskas separat. Nyckelinsikten: krypto-mappar **återbrukar** den
+befintliga `locked:true` + förälder-kedje-mekanismen, så varje *anrops-kedje-medveten* (ancestry-aware)
+låsvakt täcker dem automatiskt. Granskning (denna cykel), per yta:
+
+| Yta | Vakt | Slutsats |
+|-----|------|----------|
+| MD-sync-vault (utåt), `apps/{web,mobile}` markdownShare | `isLocked = (n) => !isReadableForAI(n, noteMap)` (ancestry-aware, **tom** upplåsnings-mängd) | En not i en låst krypto-mapp projiceras aldrig; krypto-innehåll speglas aldrig externt ens när mappen tillfälligt är upplåst. |
+| Nextcloud (utåt push), `apps/web/services/nextcloud.ts` | `isReadableForAI(n, noteMap)`, tom upplåsnings-mängd (rad ~252) | Samma — låst subträd pushas aldrig. |
+| Neo4j (utåt spegling), `packages/shared/neo4jSync.ts` | `isReadableWithLocks`, **hårdkopplad** tom upplåsnings-mängd (ingen `unlockedIds`-param) | Omöjligt för anroparen att läcka genom att skicka UI:ts upplåsnings-mängd. |
+| Semantiskt index, `buildIndexableEntities` | `isReadableWithLocks(n, noteMap, unlockedIds)` (intern, ancestry-aware) | Låst krypto-mapp utesluts; upplåst indexeras via redan materialiserad klartext. |
+| Graf, `graphModel.buildGraph` | Inga `decrypt`-anrop — opererar på redan materialiserade (maskade) noter | Låst not visas som maskad nod ("🔒"), aldrig klartext. |
+| Kalender/CalDAV (`buildSafeCalendarProjection`) | `unlockedIds`-vakt (uppgifter, inte v3f:-noter) | Uppgifter under en låst not/mapp utesluts redan. |
+
+**Inget läckage hittat** — alla ytor ärver krypto-mappskyddet. Regression låst med två nya
+shared-tester som specifikt kör den *ancestry-aware* vägen (inte notens egna `locked`-flagga) med en
+`v3f:`-sealad barn-not under en låst krypto-mapp och asserterar att (1) noten aldrig projiceras/indexeras
+och (2) `v3f:`-kuvertet aldrig dyker upp i någon utdata-sträng: `markdownVault.test.ts`
+("never projects a note inside a locked crypto folder, and never leaks the v3f: envelope") +
+`vectorStore.test.ts` ("excludes a note inside a locked crypto folder and never indexes the v3f:
+envelope"). (Neo4j-uteslutningen av låsta subträd är redan testad i `neo4jSync.test.ts`.)
+
 ## Manuell /verify-checklista (slutfasen)
 
 1. Skapa en projektmapp → "Lås med lösenord" → ange lösenord. Mappnoten får `folderKeyBundle`
