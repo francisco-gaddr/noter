@@ -14,6 +14,8 @@ import {
   unloadLlamaModel,
   isLlamaLoaded,
   loadedModelPath,
+  loadedContextTokens,
+  localPromptBudgetChars,
 } from '../services/ai/llama';
 
 describe('llama.rn wrapper', () => {
@@ -70,5 +72,46 @@ describe('llama.rn wrapper', () => {
     await expect(
       completeLlama([{ id: '1', role: 'user', content: 'x', createdAt: '' } as any])
     ).rejects.toThrow('Ingen lokal modell');
+  });
+
+  it('tracks the resident context window and exposes a budget that scales with it', () => {
+    // Smaller windows yield smaller prompt budgets; both reserve response + overhead.
+    const small = localPromptBudgetChars(1024, 512);
+    const large = localPromptBudgetChars(4096, 512);
+    expect(small).toBeGreaterThan(0);
+    expect(large).toBeGreaterThan(small);
+    // A bigger reserved response shrinks the prompt budget.
+    expect(localPromptBudgetChars(4096, 2048)).toBeLessThan(large);
+    // Unknown sizes fall back to a safe 4096/512 default, never NaN/0.
+    expect(localPromptBudgetChars(undefined, undefined)).toBe(large);
+    expect(localPromptBudgetChars(0, 0)).toBe(large);
+  });
+
+  it('bounds a long thread to the resident window — keeps the system prompt + newest turn, drops the oldest', async () => {
+    let captured: any[] = [];
+    mockCompletion.mockImplementation(async (params: any) => {
+      captured = params.messages;
+      return { text: 'ok' };
+    });
+    await loadLlamaModel('/docs/m.gguf'); // 0-byte mock → 4096-token window
+    expect(loadedContextTokens()).toBe(4096);
+
+    const huge = 'x'.repeat(20000); // each turn alone is ~2x the ~8.9k-char budget
+    const history = [
+      { id: 's', role: 'system', content: 'PERSONA', createdAt: '' },
+      { id: '1', role: 'user', content: `oldest ${huge}`, createdAt: '' },
+      { id: '2', role: 'assistant', content: `mid ${huge}`, createdAt: '' },
+      { id: '3', role: 'user', content: 'newest question', createdAt: '' },
+    ] as any[];
+    await completeLlama(history, {});
+
+    const roles = captured.map((m) => m.role);
+    const contents = captured.map((m) => m.content);
+    expect(contents).toContain('PERSONA');           // system prompt is never evicted
+    expect(roles[0]).toBe('system');                 // ...and stays first
+    expect(contents).toContain('newest question');   // the current question is kept
+    expect(contents.some((c: string) => c.startsWith('oldest '))).toBe(false); // oldest dropped
+    const total = contents.reduce((n: number, c: string) => n + c.length, 0);
+    expect(total).toBeLessThan(20000);               // well under a single huge turn
   });
 });

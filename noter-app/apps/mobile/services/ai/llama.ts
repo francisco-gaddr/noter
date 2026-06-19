@@ -15,10 +15,15 @@
 import { initLlama, releaseAllLlama, type LlamaContext } from 'llama.rn';
 import * as FileSystem from 'expo-file-system/legacy';
 import type { ChatMessage } from '@repo/ai';
+import { boundChatHistory } from '@repo/shared';
 import { getTotalMemoryBytes } from './hardware';
 
 let context: LlamaContext | null = null;
 let loadedPath: string | null = null;
+// Token size of the resident context window (the n_ctx that initLlama actually accepted —
+// it can be as small as 1024 on a big model, or 1536 in the CPU fallback). Drives the
+// prompt budget so a long thread can't overflow the tiny on-device window. Null = nothing loaded.
+let loadedCtxTokens: number | null = null;
 
 const toFileUri = (p: string): string => (p.startsWith('file://') ? p : `file://${p}`);
 
@@ -56,6 +61,26 @@ export const isLlamaLinked = (): boolean => typeof initLlama === 'function';
 export const isLlamaLoaded = (): boolean => context !== null;
 
 export const loadedModelPath = (): string | null => loadedPath;
+
+/** Token size of the resident context window, or null when nothing is loaded. */
+export const loadedContextTokens = (): number | null => loadedCtxTokens;
+
+/**
+ * Char budget for the PROMPT portion of a local completion, derived from the resident
+ * context window. On-device windows are tiny (1024-4096 tokens) and shared with the model's
+ * OWN response, so we reserve the response tokens (n_predict) + chat-template/special-token
+ * overhead, keep ~85% of what's left for the prompt, and convert tokens→chars at a
+ * deliberately LOW ~3 chars/token so we under-fill rather than overflow n_ctx (an overflow
+ * makes llama.cpp context-shift, which can silently evict the system prompt). Defaults to a
+ * 4096 window / 512-token response when either is unknown.
+ */
+export const localPromptBudgetChars = (nCtxTokens?: number | null, nPredictTokens?: number | null): number => {
+  const ctx = typeof nCtxTokens === 'number' && nCtxTokens > 0 ? nCtxTokens : 4096;
+  const reserve = Math.max(128, typeof nPredictTokens === 'number' && nPredictTokens > 0 ? nPredictTokens : 512);
+  const overhead = 96; // chat-template wrappers + BOS/EOS/special tokens
+  const promptTokens = Math.max(192, Math.floor((ctx - reserve - overhead) * 0.85));
+  return promptTokens * 3;
+};
 
 export interface LlamaLoadOptions {
   /** Context window (tokens). 4096 is a sane phone default. */
@@ -119,10 +144,13 @@ export const loadLlamaModel = async (
   // an even smaller context — slower but reliable.
   try {
     context = await attempt(nCtx, opts.nGpuLayers ?? 99);
+    loadedCtxTokens = nCtx;
   } catch (e) {
     await unloadLlamaModel();
     try {
-      context = await attempt(Math.min(nCtx, 1536), 0);
+      const fallbackCtx = Math.min(nCtx, 1536);
+      context = await attempt(fallbackCtx, 0);
+      loadedCtxTokens = fallbackCtx;
     } catch (e2: any) {
       await unloadLlamaModel();
       const why = String(e2?.message || (e as any)?.message || '');
@@ -157,7 +185,13 @@ export const completeLlama = async (messages: ChatMessage[], opts: LlamaCompleti
   if (typeof ctx.completion !== 'function') {
     throw new Error('Den lokala modellen är inte korrekt laddad. Ladda om modellen eller starta om appen.');
   }
-  const oaiMessages = (messages || [])
+  // Bound the thread to the RESIDENT context window before handing it to native. A phone
+  // window is 1024-4096 tokens, shared with the response — an unbounded thread overflows it
+  // (the model then context-shifts and can drop the system prompt, or errors). Keep the
+  // leading system messages + most recent turns within the derived char budget.
+  const budgetChars = localPromptBudgetChars(loadedCtxTokens, opts.nPredict ?? 512);
+  const bounded = boundChatHistory(messages || [], { maxChars: budgetChars, minRecentTurns: 2 });
+  const oaiMessages = bounded
     .filter((m) => m && typeof m === 'object')
     .map((m) => ({
       role: m.role === 'tool' ? 'assistant' : m.role,
@@ -206,4 +240,5 @@ export const unloadLlamaModel = async (): Promise<void> => {
   try { await releaseAllLlama(); } catch { /* nothing loaded / native absent */ }
   context = null;
   loadedPath = null;
+  loadedCtxTokens = null;
 };
