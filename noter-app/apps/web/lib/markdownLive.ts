@@ -12,11 +12,24 @@
 import React from 'react';
 import {
   createLiveDoc, reconcileLiveContent, applyLiveUpdate, onLiveUpdate, observeLiveContent,
-  toBase64, fromBase64,
+  toBase64, fromBase64, buildSecurityNoteMap, isReadableForAI,
 } from '@repo/shared';
 import { socket } from '../services/socket';
 import { useStore } from '../stores/useStore';
 import { liveShareIdForNote } from './markdownShare';
+
+/**
+ * SECURITY: a note (or anything under a locked folder) that is lock-protected must NEVER be
+ * relayed over the CRDT Live socket — the relay is an off-device publish surface served WITHOUT
+ * an unlock session. We gate with the EMPTY unlock set (isReadableForAI), exactly like the
+ * WebDAV markdown-share projection, so a locked note is never live-synced even while the user
+ * has it open in the UI. (Defence-in-depth on top of the path map, which already excludes
+ * locked notes but can be momentarily stale.)
+ */
+const isLiveSafe = (id: string, notes: any[]): boolean => {
+  const map = buildSecurityNoteMap((notes || []) as any);
+  return isReadableForAI(map.get(String(id)) as any, map as any);
+};
 
 export interface LiveHandle { pushLocal(content: string): void; disconnect(): void }
 
@@ -58,7 +71,8 @@ export function useMarkdownLiveSync(): void {
   React.useEffect(() => {
     const id = selectedNoteId ? String(selectedNoteId) : '';
     const shareId = id ? liveShareIdForNote(id) : null;
-    if (!shareId) {
+    // SECURITY: refuse to live-sync a locked note (or one under a locked folder).
+    if (!shareId || !isLiveSafe(id, notes)) {
       if (handleRef.current) { handleRef.current.disconnect(); handleRef.current = null; noteRef.current = null; }
       return;
     }
@@ -79,6 +93,12 @@ export function useMarkdownLiveSync(): void {
   React.useEffect(() => {
     const id = noteRef.current;
     if (!id || !handleRef.current) return;
+    // SECURITY: if the note became locked (or its folder did) since we connected, stop
+    // relaying immediately and tear down the room — never push its plaintext.
+    if (!isLiveSafe(id, notes)) {
+      handleRef.current.disconnect(); handleRef.current = null; noteRef.current = null;
+      return;
+    }
     const cur = (notes || []).find((n: any) => n._id === id);
     if (cur && typeof cur.content === 'string') handleRef.current.pushLocal(cur.content);
   }, [notes]);

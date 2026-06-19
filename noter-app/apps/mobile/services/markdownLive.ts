@@ -7,13 +7,25 @@
 import React from 'react';
 import {
   createLiveDoc, reconcileLiveContent, applyLiveUpdate, onLiveUpdate, observeLiveContent,
-  toBase64, fromBase64,
+  toBase64, fromBase64, buildSecurityNoteMap, isReadableForAI,
 } from '@repo/shared';
 import { getSocket } from '@/services/socket';
 import { useStore } from '@/stores/useStore';
 import { liveShareIdForNote } from '@/services/markdownShare';
 
 export interface LiveHandle { pushLocal(content: string): void; disconnect(): void }
+
+/**
+ * SECURITY: a locked note (or one under a locked folder) must NEVER be relayed over the CRDT
+ * Live socket — an off-device publish surface served WITHOUT an unlock session. Gate with the
+ * EMPTY unlock set (isReadableForAI), like the WebDAV markdown-share projection, so a locked
+ * note is never live-synced even while open in the UI.
+ */
+const isLiveSafe = (id: string): boolean => {
+  const notes = ((useStore.getState() as any)?.notes || []) as any[];
+  const map = buildSecurityNoteMap(notes as any);
+  return isReadableForAI(map.get(String(id)) as any, map as any);
+};
 
 export function connectLiveNote(shareId: string, noteId: string, opts: { onRemoteContent: (content: string) => void }): LiveHandle | null {
   const socket = getSocket();
@@ -53,7 +65,8 @@ export function useMarkdownLiveSync(noteId: string | null | undefined, content: 
     if (!id) return;
     (async () => {
       const shareId = await liveShareIdForNote(id).catch(() => null);
-      if (cancelled || !shareId) return;
+      // SECURITY: refuse to live-sync a locked note (or one under a locked folder).
+      if (cancelled || !shareId || !isLiveSafe(id)) return;
       handleRef.current = connectLiveNote(shareId, id, {
         onRemoteContent: (c) => { try { void updateNote(id, { content: c }); } catch { /* ignore */ } },
       });
@@ -64,6 +77,12 @@ export function useMarkdownLiveSync(noteId: string | null | undefined, content: 
   }, [noteId]);
 
   React.useEffect(() => {
-    if (handleRef.current && typeof content === 'string') handleRef.current.pushLocal(content);
-  }, [content]);
+    if (!handleRef.current || typeof content !== 'string') return;
+    // SECURITY: if the note became locked since connecting, stop relaying and tear down.
+    if (noteId && !isLiveSafe(String(noteId))) {
+      handleRef.current.disconnect(); handleRef.current = null;
+      return;
+    }
+    handleRef.current.pushLocal(content);
+  }, [content, noteId]);
 }
