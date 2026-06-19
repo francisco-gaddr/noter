@@ -21,6 +21,7 @@ import {
   normalizeEmbeddingsUrl,
   embedTexts,
   diffIndex,
+  buildVectorIndex,
   makeStoredVector,
   indexToEmbeddedItems,
   buildIndexableEntities,
@@ -153,7 +154,7 @@ export const indexEntities = async (
 
   const entities = buildIndexableEntities(notes, tasks, unlockedIds);
   const index = getVectorIndex(config.model);
-  const diff = diffIndex(entities, index, config.model);
+  const diff = diffIndex(entities, index, config.model, config.source);
 
   let endpoint: { url: string; apiKey: string };
   try {
@@ -181,7 +182,7 @@ export const indexEntities = async (
     return { indexed: fresh.length, kept: diff.keep.length, removed: diff.removed, total: diff.keep.length + fresh.length, ok: false, error: e?.message || 'Inbäddning misslyckades' };
   }
 
-  const merged: VectorIndex = { model: config.model, items: [...diff.keep, ...fresh] };
+  const merged = buildVectorIndex(config.model, config.source, [...diff.keep, ...fresh]);
   saveVectorIndex(merged);
   return { indexed: fresh.length, kept: diff.keep.length, removed: diff.removed, total: merged.items.length, ok: true };
 };

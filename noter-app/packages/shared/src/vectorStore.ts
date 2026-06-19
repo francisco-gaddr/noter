@@ -34,14 +34,28 @@ export interface StoredVector {
   hash: string;
   /** Model used — re-embed everything when the user switches models. */
   model: string;
+  /** Epoch-ms this row was embedded. Drives newest-wins eviction when the index is capped. */
+  at?: number;
 }
 
 export interface VectorIndex {
   model: string;
+  /** Embedding SOURCE/provider (local | hermes | api). The vector space is defined by the
+   *  model AND who served it — re-embed when EITHER changes (industry practice: store
+   *  provider + model + dimension as index metadata). */
+  provider?: string;
+  /** Embedding dimension (from the first stored vector). Lets a reader detect a stale index
+   *  whose vectors don't match the current model's output dim, without scanning every row. */
+  dims?: number;
   items: StoredVector[];
 }
 
-export const emptyVectorIndex = (model: string): VectorIndex => ({ model, items: [] });
+/** Default ceiling on stored vectors. Caps on-device storage (≈3 KB/row) so the encrypted index
+ *  can't overflow localStorage/AsyncStorage quota and lose the WHOLE index; oldest rows evict
+ *  first (they keep lexical search). Generous — most users never hit it. */
+export const DEFAULT_MAX_INDEX_ITEMS = 4000;
+
+export const emptyVectorIndex = (model: string, provider?: string): VectorIndex => ({ model, provider, items: [] });
 
 /** Stable hash of an entity's embedding text — the staleness key. */
 export const entitySignature = (e: IndexableEntity): string =>
@@ -57,23 +71,31 @@ export interface IndexDiff {
 }
 
 /**
- * Diff the live entity set against the stored index for a target model. An entity is
- * re-embedded when it's new, its content hash changed, or the index's model differs
- * from the target model. Rows whose entity vanished are dropped.
+ * Diff the live entity set against the stored index for a target model + provider. An entity is
+ * re-embedded when it's new, its content hash changed, or the index's model OR provider differs
+ * from the target (a same-named model served by a different provider is a DIFFERENT vector space,
+ * so its vectors would score as garbage — re-embed). Rows whose entity vanished are dropped.
  */
-export const diffIndex = (entities: IndexableEntity[], stored: VectorIndex, model: string): IndexDiff => {
+export const diffIndex = (
+  entities: IndexableEntity[],
+  stored: VectorIndex,
+  model: string,
+  provider?: string,
+): IndexDiff => {
   const byId = new Map<string, StoredVector>();
   stored.items.forEach((row) => byId.set(row.id, row));
   const liveIds = new Set<string>();
   const toEmbed: IndexableEntity[] = [];
   const keep: StoredVector[] = [];
+  // A provider change invalidates EVERY row (the stored vectors came from a different embedder).
+  const providerChanged = provider !== undefined && (stored.provider ?? '') !== provider;
 
   for (const e of entities || []) {
     if (!e?.id) continue;
     liveIds.add(e.id);
     const sig = entitySignature(e);
     const prev = byId.get(e.id);
-    if (prev && prev.hash === sig && prev.model === model && prev.vector.length > 0) {
+    if (prev && prev.hash === sig && prev.model === model && !providerChanged && prev.vector.length > 0) {
       keep.push({ ...prev, title: e.title || prev.title, kind: e.kind });
     } else {
       toEmbed.push(e);
@@ -84,7 +106,7 @@ export const diffIndex = (entities: IndexableEntity[], stored: VectorIndex, mode
   return { toEmbed, keep, removed };
 };
 
-/** Build a stored row from an entity + its freshly computed vector. */
+/** Build a stored row from an entity + its freshly computed vector. Stamps the embed time. */
 export const makeStoredVector = (e: IndexableEntity, vector: number[], model: string): StoredVector => ({
   id: e.id,
   kind: e.kind,
@@ -93,7 +115,35 @@ export const makeStoredVector = (e: IndexableEntity, vector: number[], model: st
   vector,
   hash: entitySignature(e),
   model,
+  at: Date.now(),
 });
+
+/**
+ * Assemble the persisted index from the merged rows, stamping provider + dimension metadata and
+ * enforcing the size cap. When over `maxItems`, the NEWEST-embedded rows are kept (most-recently
+ * touched notes are the most relevant; evicted notes still have lexical search). Pure + testable.
+ */
+export const buildVectorIndex = (
+  model: string,
+  provider: string | undefined,
+  items: StoredVector[],
+  maxItems: number = DEFAULT_MAX_INDEX_ITEMS,
+): VectorIndex => {
+  let rows = items;
+  if (maxItems > 0 && rows.length > maxItems) {
+    rows = [...rows].sort((a, b) => (b.at ?? 0) - (a.at ?? 0)).slice(0, maxItems);
+  }
+  const dims = rows.find((r) => r.vector.length > 0)?.vector.length;
+  return { model, provider, dims, items: rows };
+};
+
+/**
+ * Does the stored index need a full rebuild for the current embedder? True when the model or
+ * provider differs (the stored vectors are from a different embedding space). Lets the UI surface
+ * "re-index recommended" without re-embedding to find out.
+ */
+export const vectorIndexNeedsRebuild = (index: VectorIndex, model: string, provider?: string): boolean =>
+  index.model !== model || (provider !== undefined && (index.provider ?? '') !== provider);
 
 /** Project a stored index into the EmbeddedItem[] the vector search consumes. */
 export const indexToEmbeddedItems = (index: VectorIndex): EmbeddedItem[] =>
