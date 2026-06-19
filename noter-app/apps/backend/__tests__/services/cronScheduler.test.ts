@@ -1,4 +1,4 @@
-import { computeNextRun, _validateSchedule } from '../../src/services/cronScheduler';
+import { computeNextRun, _validateSchedule, _withHandlerTimeout } from '../../src/services/cronScheduler';
 
 describe('computeNextRun — interval', () => {
   it('returns from + everyMs (deterministic when no jitter)', () => {
@@ -64,5 +64,28 @@ describe('_validateSchedule', () => {
 
   it('rejects jitter > everyMs', () => {
     expect(() => _validateSchedule({ kind: 'interval', everyMs: 1000, jitterMs: 2000 })).toThrow();
+  });
+});
+
+describe('_withHandlerTimeout', () => {
+  it('resolves with the handler value when it settles in time', async () => {
+    await expect(_withHandlerTimeout(Promise.resolve(42), 1000, 'nope')).resolves.toBe(42);
+  });
+
+  it('propagates a handler rejection unchanged (not as a timeout)', async () => {
+    await expect(_withHandlerTimeout(Promise.reject(new Error('boom')), 1000, 'timeout')).rejects.toThrow('boom');
+  });
+
+  it('rejects with the label when the handler exceeds the timeout', async () => {
+    jest.useFakeTimers();
+    try {
+      const never = new Promise<void>(() => {}); // never settles
+      const p = _withHandlerTimeout(never, 1000, "cron handler 'x' timed out");
+      const assertion = expect(p).rejects.toThrow(/timed out/);
+      await jest.advanceTimersByTimeAsync(1001);
+      await assertion;
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

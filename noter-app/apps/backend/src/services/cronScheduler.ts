@@ -36,6 +36,28 @@ interface RegisteredJob {
 
 const MIN_INTERVAL_MS = 5_000;
 const MAX_LOCK_TTL_SEC = 5 * 60;
+// Bound a single handler run. Kept UNDER the lock TTL so a hung handler's lock is released by
+// withLock's own cleanup before it would expire — a slow job (e.g. a stalled Ollama call or a
+// cascading sync) can't hold the distributed lock for the full TTL and starve the next run.
+const HANDLER_TIMEOUT_MS = 4 * 60_000;
+
+/**
+ * Race a handler promise against a timeout. Rejects with `label` if the handler doesn't settle in
+ * `ms`. Pure + exported for tests. Note: a timed-out handler keeps running (JS can't cancel it) —
+ * this bounds how long we WAIT and hold the lock, not the underlying work.
+ */
+export const _withHandlerTimeout = async <T>(p: Promise<T>, ms: number, label: string): Promise<T> => {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(label)), ms);
+    timer.unref?.();
+  });
+  try {
+    return await Promise.race([p, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+};
 
 const NAME_PATTERN = /^[a-zA-Z][a-zA-Z0-9_:.\-]{0,63}$/;
 
@@ -121,7 +143,11 @@ const runOnce = async (job: RegisteredJob): Promise<void> => {
   try {
     await withLock(`cron:${job.name}`, async () => {
       try {
-        await job.handler();
+        await _withHandlerTimeout(
+          job.handler(),
+          HANDLER_TIMEOUT_MS,
+          `cron handler '${job.name}' timed out after ${HANDLER_TIMEOUT_MS}ms`,
+        );
       } catch (err) {
         logger.warn('cron.handler-failed', { name: job.name, error: (err as Error)?.message });
       }
