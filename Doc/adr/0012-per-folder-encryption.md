@@ -240,6 +240,18 @@ krypto-enrolment relaterar till den befintliga (filter-baserade) mapp-låsnings-
 (`unlockNote`/`updateNote(locked,password)`) + bakåtkompat för redan låsta mappar utan bundle — får inte
 riva den fungerande lås-funktionen.
 
+**Konkreta återanvändnings-mål (kartlagt — gör device-cykeln till ren mekanisk wiring):** UI:t behöver
+**inga nya modal-komponenter** för enrol/unlock — `apps/web/components/PasswordModal.tsx` är generisk
+(`isOpen`/`onClose`/`onSubmit(password)`/`title`/`isCreatingLock`, har `data-testid` redan) och fångar
+`onSubmit`-throw → visar fel, vilket passar `unlockFolder` (kastar `FolderUnlockError`). Följ exakt samma
+mönster som den befintliga projekt-upplåsningen i `SidebarTree` (`projectUnlockModal`-state +
+`handleProjectUnlockSubmit` → `unlockNote`, ~rad 559–569): lägg ett `cryptoModal`-state och rendera
+`PasswordModal` med `onSubmit = pw => useStore().enrolFolderPassword(folderId, pw)` (enrol, `isCreatingLock`)
+resp. `unlockFolder(folderId, pw)`. Menyvalet gat:as på `folderCryptoStatus(folder)`. **Lösenordsbyte**
+behöver två fält (gammalt + nytt) som `PasswordModal` (ett fält) inte har — antingen kedja två
+`PasswordModal`-prompts (gammalt → nytt) eller en ny tvåfälts-modal; det är ett UX-val för device-cykeln.
+Komponent-test med appens `@testing-library/react` (jfr `NoteEditor.test.tsx`).
+
 ### Säkerhetsbeslut UI-integrationen MÅSTE göra (annars läcker lösenordet)
 
 **Spänningen (verifierad i koden).** Den befintliga mapp-låsningen är **backend-verifierad**:
