@@ -70,6 +70,30 @@ describe('backend encryption payload validation', () => {
     expect(String(res.body.content)).not.toContain(plaintextContent);
   });
 
+  it('accepts a note whose title/content are per-folder-sealed (v3f:) envelopes — ADR-0012', async () => {
+    // A note inside a locked crypto folder: title + content are sealed under the FOLDER
+    // key (v3f: envelope), while metadata (type/locked/dates) stays under the user dataKey
+    // (v3:). The server stores all of it opaquely and never decrypts it. Before the v3f:
+    // branch in isEncryptedPayload, this write was rejected with a 400 at the Joi gate.
+    const v3fTitle = 'v3f:' + 'aGVsbG8gd29ybGQgdGhpcyBpcyBhIHNlYWxlZCB0aXRsZQ==';
+    const v3fContent = 'v3f:' + 'c2VhbGVkIGNvbnRlbnQgdW5kZXIgdGhlIGZvbGRlciBrZXk=';
+    const res = await request(app)
+      .post('/api/notes')
+      .set('Authorization', 'Bearer demo-token')
+      .send({
+        title: v3fTitle,
+        content: v3fContent,
+        type: encrypt('note'),
+        locked: encrypt('false'),
+        createdAt: encrypt(new Date().toISOString()),
+        updatedAt: encrypt(new Date().toISOString()),
+      });
+    expect(res.status).toBe(201);
+    // Stored verbatim — the v3f: envelope survives the round-trip intact (never decrypted server-side).
+    expect(String(res.body.title).startsWith('v3f:')).toBe(true);
+    expect(String(res.body.content).startsWith('v3f:')).toBe(true);
+  });
+
   it('rejects plaintext task payload fields', async () => {
     const res = await request(app)
       .post('/api/tasks')

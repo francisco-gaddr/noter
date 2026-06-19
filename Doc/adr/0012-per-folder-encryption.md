@@ -74,6 +74,16 @@ E2E redan har; en mapp-recovery-kod kan övervägas senare).
    är användarchiffertext utan en bundle utan hemlighet). Servern inspekterar/dekrypterar den aldrig;
    den lagras + returneras opakt och **bara till ägaren** (bevisat av
    `__tests__/routes/ownership-isolation.test.ts`: round-trip create→fetch→update + cross-user-läcktest).
+   ✅ **Backend accepterar `v3f:`-kuvertet på skriv-vägen (KRITISKT — annars är funktionen död vid
+   servergränsen).** `note.title`/`content` valideras av `encryptedRequired` → `isEncryptedPayload`
+   (`apps/backend/src/utils/encryption.ts`), och en `v3f:`-sträng börjar **inte** med `v3:` (`'v3f'`
+   ≠ `'v3:'`) — utan en egen gren hade Joi avvisat varje not som sealas in i en krypto-mapp med **400**
+   (exakt samma klass som den tidigare v3-buggen, #35). Fixat: `isEncryptedPayload` har nu en
+   `V3_FOLDER_PREFIX = 'v3f:'`-gren (samma längd-floor som `v3:`). Eftersom `notes.ts`/`tasks.ts`/
+   `aiSync.ts` delar samma util täcker en fix alla tre skriv-rutterna. Bevisat av
+   `__tests__/utils/encryption.test.ts` (enhet: `v3f:` accepteras, för-kort/whitespace avvisas) +
+   `__tests__/encryption-validation.test.ts` (rutt: en not med `v3f:` titel/innehåll + `v3:`-metadata
+   → **201** och lagras intakt; tidigare 400).
    GraphQL-`NoteType` exponerar den medvetet **inte** (AI-ytan ska aldrig se en låst mapps material).
    **Kvar:** enrolment som faktiskt *skriver* fältet på mappnoten (device-verifierat).
 2. **Opt-in enrolment + FK-session.** ✅ **Session-mekanismen levererad**
