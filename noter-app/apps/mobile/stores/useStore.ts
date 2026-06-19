@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import 'react-native-get-random-values';
 import * as Crypto from 'expo-crypto';
-import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, safeDecrypt, parseEntityLinks, serializeEntityLinks, parseNoteSource, relockFoldersOnLeave, clearAllFolderKeys, isFolderWrapped, materializeFolderField, resolveSessionFolderKeyForNote, resolveSessionFolderKeyForNewNote, sealNoteFieldForWrite } from '@repo/shared';
+import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, safeDecrypt, parseEntityLinks, serializeEntityLinks, parseNoteSource, relockFoldersOnLeave, clearAllFolderKeys, isFolderWrapped, materializeFolderField, resolveSessionFolderKeyForNote, resolveSessionFolderKeyForNewNote, sealNoteFieldForWrite, enrolFolderPassword as enrolFolderPasswordCore, unlockFolderWithPassword, changeFolderPassword as changeFolderPasswordCore, type KdfId } from '@repo/shared';
 import { fetchWithAuth, login as apiLogin, register as apiRegister, setAuthToken, initApiUrl, setUnauthorizedHandler } from '../services/api';
 import * as Database from '../services/database';
 import { initSocket, disconnectSocket, getSocket } from '../services/socket';
@@ -68,6 +68,11 @@ interface AppState {
   updateNote: (id: string, data: UpdateNoteDto) => Promise<Note>;
   deleteNote: (id: string) => Promise<void>;
   reorderNotes: (notes: Note[]) => Promise<void>;
+  // ADR-0012 per-folder encryption (enrolment glue over the shared folderEnrolment orchestration).
+  // `preferred` lets tests use the fast PBKDF2 KDF; the UI omits it (→ argon2id).
+  enrolFolderPassword: (folderId: string, password: string, preferred?: KdfId) => Promise<void>;
+  unlockFolder: (folderId: string, password: string) => Promise<void>;
+  changeFolderPassword: (folderId: string, oldPassword: string, newPassword: string, preferred?: KdfId) => Promise<void>;
   
   // Task Actions
   fetchTasks: (parentNoteId?: string) => Promise<void>;
@@ -478,6 +483,30 @@ export const useStore = create<AppState>((set, get) => ({
     if (!state.unlockedProtectedNoteIds || state.unlockedProtectedNoteIds.length === 0) return;
     const reMasked = materializeNotesFromEncrypted(state.notes as any, new Set());
     set({ unlockedProtectedNoteIds: [], notes: reMasked });
+  },
+  // ADR-0012 per-folder encryption — enrolment glue over the tested `folderEnrolment` orchestration
+  // (mirrors the web store actions). enrol/change persist the new bundle on the folder note via the
+  // normal save path (Fas 2.6 backend passthrough); unlock re-materialises so the folder's `v3f:` notes
+  // decrypt. A wrong password rejects with FolderUnlockError. `preferred` is a test affordance (fast
+  // PBKDF2); the UI omits it (→ argon2id).
+  enrolFolderPassword: async (folderId, password, preferred) => {
+    const folder = get().notes.find((n) => n._id === folderId);
+    if (!folder) throw new Error('enrolFolderPassword: folder not found');
+    const { note } = await enrolFolderPasswordCore(folderId, folder as any, password, preferred);
+    await get().updateNote(folderId, { folderKeyBundle: (note as any).folderKeyBundle } as any);
+  },
+  unlockFolder: async (folderId, password) => {
+    const folder = get().notes.find((n) => n._id === folderId);
+    await unlockFolderWithPassword(folderId, folder as any, password); // throws FolderUnlockError on wrong password
+    set((state) => ({
+      notes: materializeNotesFromEncrypted(state.notes as any, new Set(state.unlockedProtectedNoteIds)),
+    }));
+  },
+  changeFolderPassword: async (folderId, oldPassword, newPassword, preferred) => {
+    const folder = get().notes.find((n) => n._id === folderId);
+    if (!folder) throw new Error('changeFolderPassword: folder not found');
+    const { note } = await changeFolderPasswordCore(folderId, folder as any, oldPassword, newPassword, preferred);
+    await get().updateNote(folderId, { folderKeyBundle: (note as any).folderKeyBundle } as any);
   },
   setToken: (token) => {
     set({ token });

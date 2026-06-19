@@ -188,14 +188,15 @@ returnerade noten):
 7 tester i `folderEnrolment.test.ts`, inkl. ett end-to-end-bevis (enrol → seal → relock → unlock → läs
 tillbaka) som speglar /verify-checklistan headless.
 
-**Store-actions (Fas 3.3 — ✅ web).** Web-storen exponerar nu tre actions som UI:t bara anropar:
+**Store-actions (Fas 3.3 web + 3.4 mobil — ✅ båda apparna).** Båda stores exponerar nu tre actions som UI:t bara anropar:
 `enrolFolderPassword(folderId, password)` (→ shared-orkestreringen, sätter sessions-FK + `updateNote`
 som persisterar bundlen via Fas 2.6), `unlockFolder(folderId, password)` (→ `unlockFolderWithPassword`
 + re-materialisering så mappens `v3f:`-noter dekrypteras), `changeFolderPassword(folderId, oldPw, newPw)`.
 `FolderUnlockError` (fel lösenord) propageras till anroparen. Tester: enrol sätter sessions-FK +
 persisterar bundle; unlock med rätt lösen återställer nyckeln, fel lösen → `FolderUnlockError` (förblir
-låst). (`preferred`-param låter test använda snabb PBKDF2; UI:t kör argon2id.) **Kvar:** samma actions i
-mobil-storen.
+låst). (`preferred`-param låter test använda snabb PBKDF2; UI:t kör argon2id.) Mobil-storen har nu samma
+tre actions (Fas 3.4, mobil seal-väg är inline i storen): web store-suite 18/18, mobil 23/23. **Kvar:**
+bara UI-skalet (nedan).
 
 **Två buggar hittade + fixade när enrol-vägen byggdes:**
 1. **Mappens eget namn fick inte sealas under sin egen nyckel.** Skriv-update resolvade tidigare nyckeln

@@ -174,6 +174,39 @@ describe('Mobile Store', () => {
     clearAllFolderKeys();
   });
 
+  // ADR-0012 enrolment glue (mobile store actions over the shared folderEnrolment orchestration).
+  // PBKDF2 (a test affordance) keeps the KDF fast; the UI uses argon2id.
+  it('enrolFolderPassword sets the session key + persists the bundle via updateNote (PUT /notes)', async () => {
+    const { fetchWithAuth } = require('../services/api');
+    const { clearAllFolderKeys, getFolderKey } = require('@repo/shared');
+    clearAllFolderKeys();
+    useStore.setState({ notes: [{ _id: 'cf', type: 'project', locked: true, title: 'Hemlig mapp', content: '', parentId: null }] as any });
+    fetchWithAuth.mockResolvedValueOnce({ _id: 'cf', title: 'Hemlig mapp', content: '', type: 'project', parentId: null, folderKeyBundle: 'persisted' });
+
+    await useStore.getState().enrolFolderPassword('cf', 'mapp-lösen', 'pbkdf2-sha256');
+
+    expect(getFolderKey('cf')).toBeDefined(); // session key registered
+    const put = (fetchWithAuth as jest.Mock).mock.calls.find((c: any[]) => c[0] === '/notes/cf' && c[1]?.method === 'PUT');
+    expect(put).toBeTruthy();
+    expect(typeof JSON.parse(put[1].body).folderKeyBundle).toBe('string'); // bundle persisted on the wire
+    clearAllFolderKeys();
+  });
+
+  it('unlockFolder restores the session key from the right password and rejects the wrong one', async () => {
+    const { clearAllFolderKeys, getFolderKey, createFolderKey, serializeFolderKeyBundle, FolderUnlockError } = require('@repo/shared');
+    clearAllFolderKeys();
+    const { bundle, folderKey } = await createFolderKey('mapp-lösen', 'pbkdf2-sha256');
+    useStore.setState({ notes: [{ _id: 'cf', type: 'project', locked: true, title: 'Hemlig mapp', content: '', parentId: null, folderKeyBundle: serializeFolderKeyBundle(bundle) }] as any });
+
+    await useStore.getState().unlockFolder('cf', 'mapp-lösen');
+    expect(Array.from(getFolderKey('cf') as Uint8Array)).toEqual(Array.from(folderKey));
+
+    clearAllFolderKeys();
+    await expect(useStore.getState().unlockFolder('cf', 'fel-lösen')).rejects.toBeInstanceOf(FolderUnlockError);
+    expect(getFolderKey('cf')).toBeUndefined();
+    clearAllFolderKeys();
+  });
+
   it('should unlock and load data on login when security lock is active', async () => {
     const { login, fetchWithAuth } = require('../services/api');
     const encryptedNow = encrypt(new Date().toISOString());
