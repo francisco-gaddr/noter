@@ -180,6 +180,7 @@ Full modell: [`../noter-app/docs/LOCKED_FOLDER_SECURITY.md`](../noter-app/docs/L
 | Rerank-steg ovanpå fusion | samma | ✅ regel-baserad (query-medveten); **kvar:** cross-encoder |
 | Lagra provider+modell+dimension, re-embed vid byte | [Qdrant/Pappas](https://medium.com/@epappas/dealing-with-vector-dimension-mismatch-my-experience-with-openai-embeddings-and-qdrant-vector-20a6e13b6d9f) | ✅ (2026-06-19) |
 | On-device/lokala embeddings för privacy | [EmbeddingGemma](https://developers.googleblog.com/en/introducing-embeddinggemma/) | ✅ local/hermes default |
+| Query-embedding-cache (skär latens+kostnad) | [Redis/RAG-caching](https://redis.io/blog/10-techniques-to-improve-rag-accuracy/) | ✅ LRU per provider\|model\|hash (2026-06-19) |
 | "Retrieval är ett verktygsanrop" (agentic RAG) | [arXiv 2501.09136](https://arxiv.org/abs/2501.09136) | ✅ `search_notes` (2026-06-19) |
 | Stoppvillkor/budget för agent-loopar | samma | ✅ maxSteps + tokenBudget + run-budget |
 
@@ -203,11 +204,20 @@ kör 8 sviter / 84 tester: `vectorSearch` (cosine + dimensions-säkerhet, RRF k=
 
 ## 10. Kända luckor / framtid (prioriterat)
 
-- **Cross-encoder rerank** (on-device ONNX) i stället för regel-baserad — största kvalitetslyftet.
-- **Hybrid för agenten** — `search_notes` är lexikal+rerank; en djup-nivå-variant kunde skicka en
-  query-vektor för full hybrid.
-- **Vektor-DB för skala** — cosine är O(n); >10k noter vill ha en riktig vektor-DB (eller HNSW).
-- **Query-embedding-cache** — varje sök embeddar frågan på nytt.
+- ✅ **Query-embedding-cache (KLAR 2026-06-19)** — `embedQuery` + delad `createLruCache`; en upprepad
+  sökning/chatt-tur betalar inte om embedding-anropet.
+- **Cross-encoder rerank** (on-device ONNX) i stället för regel-baserad — research (2026) pekar på
+  +5–15 NDCG, MEN kräver en reranker-modell (MiniLM/BGE) + `onnxruntime` på web + RN + tokenizer.
+  **Medvetet uppskjutet:** tung ny dependency som inte kan valideras i CI, kostsam på mobil, och
+  passar inte "skriv inte onödig kod" att lägga in spekulativt. Den nuvarande regel-baserade
+  reranken (coverage/titel/exakt fras/densitet) är ett solitt mellansteg. Beslut krävs om
+  modell-nedladdning + minnesbudget innan det byggs.
+- **Hybrid för agenten** — `search_notes` är lexikal+rerank (offline, gratis); en djup-nivå-variant
+  kunde skicka en query-vektor (via cachen ovan) för full hybrid. Inkrementellt; kopplar agent-
+  executor till embeddings-tjänsten — uppskjutet tills värdet motiverar kopplingen.
+- **Vektor-DB / HNSW för skala** — cosine är O(n) i minnet; bra för <5k noter (ett par ms). Vid
+  10k+ vill man ha HNSW/en vektor-DB för O(log n). Uppskjutet (för tidigt för målgruppen; undvik
+  onödig kod).
 - **Webbsök** — reserverad; kräver en sökleverantör + medvetet privacy-beslut.
 
 Spårat i [`forward-roadmap-2026-06.md`](./forward-roadmap-2026-06.md) (RAG-sektionen).

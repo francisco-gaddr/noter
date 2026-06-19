@@ -259,7 +259,17 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
   tills ett riktigt verktyg byggs. **Kvar:** ev. implementera webbsök (kräver privacy-beslut).
 - ✅ **[KLAR 2026-06-19] Dokumentation + CI-grind** · `Doc/ai-search-indexing-and-agent.md` (länkad i
   index.md + README) + namngiven blockerande CI-grind "AI search & semantic retrieval — RAG correctness"
-  (8 sviter / 84 tester). **Kvar (P2):** cross-encoder-rerank (on-device ONNX) — största kvalitetslyftet.
+  (8 sviter / 84 tester).
+- ✅ **[KLAR 2026-06-19] Query-embedding-cache** · `packages/shared/src/lruCache.ts` (delad generisk
+  LRU) + `embedQuery` i embeddings-tjänsten (web+mobil) · En upprepad sökning/chatt-tur betalar inte
+  om embedding-anropet (nyckel: provider|model|hash). Konsoliderade 2 dubblerade embed-query-sajter
+  per app till en cachad väg. 4 tester. Research-grundat (RAG query-cache-praxis).
+- **[UPPSKJUTET, research-grundat] Cross-encoder-rerank (on-device ONNX)** · +5–15 NDCG enligt
+  research, MEN kräver reranker-modell + `onnxruntime` (web+RN) + tokenizer — tung dependency som
+  inte kan CI-valideras, kostsam på mobil. Medvetet ej spekulativt inlagd; den regel-baserade
+  reranken är ett solitt mellansteg. Kräver produktbeslut om modell/minnesbudget.
+- **[UPPSKJUTET] Hybrid för agenten + vektor-DB/HNSW** · agent-hybrid är inkrementellt + kopplar
+  executor↔tjänst; HNSW är för tidigt (<5k noter → O(n) är ms). Se `ai-search-indexing-and-agent.md` §10.
 - **Partial-batch-atomicitet i indexering** · `apps/{web,mobile}/services/ai/embeddingsService.ts` ·
   **E:M** · Committa vektorer först efter att hela batch-loopen lyckats, eller spåra `lastSuccessBatch`.
 
