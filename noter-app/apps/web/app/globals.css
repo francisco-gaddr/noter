@@ -21,7 +21,9 @@ body.ai-sidebar-open {
   transition: padding-right 0.3s ease;
 }
 
-/* Fix React Big Calendar Event Text Color */
+/* React Big Calendar event text. Events render on a saturated blue (#3b82f6) or green
+   (#10b981) background in BOTH themes, so the text must be white — black was unreadable in
+   dark mode (and low-contrast in light). White-on-blue also matches the active toolbar button. */
 .rbc-event, .rbc-event-content {
-  color: #000000 !important;
+  color: #ffffff !important;
 }
