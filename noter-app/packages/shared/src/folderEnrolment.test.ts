@@ -4,13 +4,16 @@ import {
   changeFolderPassword,
   lockFolder,
   isFolderUnlocked,
+  folderCryptoStatus,
 } from './folderEnrolment';
-import { getFolderKey, hasFolderKey, clearAllFolderKeys } from './folderKeySession';
+import { getFolderKey, hasFolderKey, clearAllFolderKeys, setFolderKey } from './folderKeySession';
 import {
   unlockFolderKey,
   readFolderKeyBundleFromNote,
   wrapNoteForFolder,
   unwrapNoteForFolder,
+  createFolderKey,
+  serializeFolderKeyBundle,
   FolderUnlockError,
 } from './folderKey';
 
@@ -122,5 +125,32 @@ describe('folderEnrolment — end-to-end (enrol → seal → relock → unlock �
     // re-enter the password → the same key is restored → the field reads back
     await unlockFolderWithPassword('fld-1', note, PW);
     expect(unwrapNoteForFolder(sealed, getFolderKey('fld-1')!)).toBe('Mitt hemliga innehåll åäö');
+  });
+});
+
+describe('folderCryptoStatus — UI menu/gating query', () => {
+  it("returns 'plain' for a folder that is not enrolled (no/invalid bundle), null, or malformed", () => {
+    expect(folderCryptoStatus({ _id: 'cf', title: 'Vanlig mapp' } as any)).toBe('plain');
+    expect(folderCryptoStatus(null)).toBe('plain');
+    expect(folderCryptoStatus(undefined)).toBe('plain');
+    expect(folderCryptoStatus({ _id: 'cf', folderKeyBundle: 'inte-json {' } as any)).toBe('plain');
+    expect(folderCryptoStatus({ _id: 'cf', folderKeyBundle: JSON.stringify({ v: 9 }) } as any)).toBe('plain');
+  });
+
+  it("returns 'locked' when enrolled but the folder key is not in the session", async () => {
+    const { bundle } = await createFolderKey('lösen', 'pbkdf2-sha256');
+    const folder = { _id: 'cf', folderKeyBundle: serializeFolderKeyBundle(bundle) } as any;
+    expect(folderCryptoStatus(folder)).toBe('locked');
+    // enrolled but no `_id` to check the session against → still 'locked', never throws
+    expect(folderCryptoStatus({ folderKeyBundle: serializeFolderKeyBundle(bundle) } as any)).toBe('locked');
+  });
+
+  it("returns 'unlocked' once the folder key is in the session, and back to 'locked' after relock", async () => {
+    const { bundle, folderKey } = await createFolderKey('lösen', 'pbkdf2-sha256');
+    const folder = { _id: 'cf', folderKeyBundle: serializeFolderKeyBundle(bundle) } as any;
+    setFolderKey('cf', folderKey);
+    expect(folderCryptoStatus(folder)).toBe('unlocked');
+    clearAllFolderKeys();
+    expect(folderCryptoStatus(folder)).toBe('locked');
   });
 });

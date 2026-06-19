@@ -118,3 +118,24 @@ export function lockFolder(folderId: string): void {
 export function isFolderUnlocked(folderId: string): boolean {
   return hasFolderKey(folderId);
 }
+
+/** The per-folder-encryption state of a project folder, for UI menu/gating decisions. */
+export type FolderCryptoStatus = 'plain' | 'locked' | 'unlocked';
+
+/**
+ * Classify a (project-folder) note for the UI — the query side of the enrol/unlock/change actions, so
+ * the folder menu and the open-folder gate read from one tested source instead of re-deriving it:
+ *  - `'plain'`    — not enrolled (no/invalid bundle): an ordinary folder; offer "Lås med lösenord".
+ *  - `'locked'`   — enrolled but the folder key is NOT in the session: prompt for the password before
+ *                   showing contents; offer "Lås upp" / "Byt lösenord".
+ *  - `'unlocked'` — enrolled AND the key is in the session: contents are readable.
+ *
+ * Robust to a null/malformed note or a missing `_id` (→ `'plain'` / `'locked'`, never throws).
+ */
+export function folderCryptoStatus(
+  folder: (WithFolderKeyBundle & { _id?: string | null }) | null | undefined,
+): FolderCryptoStatus {
+  if (!readFolderKeyBundleFromNote(folder ?? null)) return 'plain';
+  const id = folder && folder._id != null ? String(folder._id) : '';
+  return id !== '' && hasFolderKey(id) ? 'unlocked' : 'locked';
+}

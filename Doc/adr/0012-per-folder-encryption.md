@@ -210,10 +210,19 @@ fel gammalt lösen avvisas): web store-suite 19/19, mobil 24/24. **Kvar:** bara 
    vid ES5-transpilering (web/babel), så UI:ts `catch (e instanceof FolderUnlockError)` skulle missa
    fel-lösenord. Fixat med `Object.setPrototypeOf(this, FolderUnlockError.prototype)` i konstruktorn.
 
-**Kvar (UI-skal, device-verifierat).** I projektmappens tre-prickarsmeny/editor: "Lås mappen med ett
-lösenord" → prompt → store-action `enrolFolderPassword`. Upplåsnings-prompt när man öppnar en låst
-krypto-mapp → `unlockFolder`; fel lösenord → `FolderUnlockError` → visa "fel lösenord", lämna låst.
-Lösenordsbyte → `changeFolderPassword`.
+**Status-query (Fas 3.6 — ✅ levererad).** UI:t läser mappens krypto-status från EN testad källa,
+`folderCryptoStatus(folder)` (`folderEnrolment.ts`) → `'plain'` (ej enrollad → erbjud "Lås med lösenord")
+| `'locked'` (enrollad, nyckel ej i sessionen → prompta lösenord innan innehåll visas) | `'unlocked'`
+(enrollad + nyckel i sessionen). Robust mot null/trasig bundle/saknat `_id`. 3 tester.
+
+**Kvar (UI-skal, device-verifierat — designbeslut + enhets-/verify).** I projektmappens
+tre-prickarsmeny/editor, gated på `folderCryptoStatus`: `'plain'` → "Lås mappen med ett lösenord" →
+prompt → store-action `enrolFolderPassword`. `'locked'` (när man öppnar mappen) → upplåsnings-prompt →
+`unlockFolder`; fel lösenord → `FolderUnlockError` → visa "fel lösenord", lämna låst. `'unlocked'` →
+"Byt mapplösenord" → `changeFolderPassword`. **Designbeslut som behöver enhet/visuell verifiering:** hur
+krypto-enrolment relaterar till den befintliga (filter-baserade) mapp-låsnings-UI:n i `SidebarTree`
+(`unlockNote`/`updateNote(locked,password)`) + bakåtkompat för redan låsta mappar utan bundle — får inte
+riva den fungerande lås-funktionen.
 
 ## Manuell /verify-checklista (slutfasen)
 
