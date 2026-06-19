@@ -102,3 +102,50 @@ export const summarizeToolPolicy = (
   if (caps.length === 0) caps.push('Endast svara (inga verktyg)');
   return caps;
 };
+
+export interface BoundHistoryOptions {
+  /** Char budget for the WHOLE history (a cheap, model-agnostic token proxy ≈ 4 chars/token).
+   *  Default 48000 chars ≈ 12k tokens — comfortably inside every supported provider's window. */
+  maxChars?: number;
+  /** Always keep at least this many of the most recent turns, even if over budget, so the
+   *  immediate conversational context is never dropped. Default 6. */
+  minRecentTurns?: number;
+}
+
+/**
+ * Bound a chat history before it is sent to an API provider. A long thread otherwise resends
+ * EVERY turn each request → it eventually exceeds the model's context window (a hard error) and
+ * cost grows linearly with the conversation length. This keeps ALL leading system messages (the
+ * persona + injected RAG/containers context) plus the most recent turns within a character budget
+ * (a provider-agnostic token proxy), dropping only the OLDEST conversational turns. Short/normal
+ * conversations are returned unchanged. To stay valid for providers that require the first
+ * non-system turn to be `user` (Anthropic), any leading assistant/tool turn left after trimming
+ * is dropped.
+ */
+export const boundChatHistory = <T extends { role: string; content?: string | null }>(
+  messages: T[],
+  opts: BoundHistoryOptions = {},
+): T[] => {
+  const maxChars = Math.max(1000, opts.maxChars ?? 48000);
+  const minRecent = Math.max(1, opts.minRecentTurns ?? 6);
+  const msgs = Array.isArray(messages) ? messages : [];
+  // Leading system messages (persona/policy/context) are always preserved.
+  let i = 0;
+  while (i < msgs.length && msgs[i]?.role === 'system') i += 1;
+  const systemPrefix = msgs.slice(0, i);
+  const rest = msgs.slice(i);
+  const charsOf = (m: T): number => (typeof m?.content === 'string' ? m.content.length : 0);
+  let used = systemPrefix.reduce((s, m) => s + charsOf(m), 0);
+  // Walk the conversational turns from newest to oldest, keeping within budget but never
+  // fewer than minRecent turns.
+  const kept: T[] = [];
+  for (let j = rest.length - 1; j >= 0; j -= 1) {
+    const within = used + charsOf(rest[j]) <= maxChars;
+    if (within || kept.length < minRecent) { kept.push(rest[j]); used += charsOf(rest[j]); }
+    else break;
+  }
+  kept.reverse();
+  // Keep the history valid for first-must-be-user providers.
+  while (kept.length > 1 && kept[0]?.role !== 'user') kept.shift();
+  return [...systemPrefix, ...kept];
+};

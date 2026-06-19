@@ -1,5 +1,5 @@
 import { ChatMessage } from '@repo/ai';
-import { parseDataUrl, fetchWithRetry } from '@repo/shared';
+import { parseDataUrl, fetchWithRetry, boundChatHistory } from '@repo/shared';
 import { SseBuffer, sseDataPayloads, openAiDelta, openAiUsageTokens, geminiDelta, geminiUsageTokens, anthropicDelta, anthropicUsage } from './sseParser';
 
 // Mirrors apps/mobile/services/ai/apiProviders.ts so the desktop/web AI chat
@@ -252,7 +252,10 @@ export const generateApiProviderResponse = async (params: {
   /** Caller cancellation (also used by the streaming fallback). */
   signal?: AbortSignal;
 }): Promise<ApiProviderResult> => {
-  const { provider, apiKey, model, history, baseUrl, images = [], signal } = params;
+  const { provider, apiKey, model, history: rawHistory, baseUrl, images = [], signal } = params;
+  // Bound the thread sent to the provider: keep system + recent turns within a budget so a
+  // long conversation can't overflow the context window or grow cost unbounded each request.
+  const history = boundChatHistory(rawHistory);
   const meta = API_PROVIDERS[provider];
   if (!apiKey && !meta?.apiKeyOptional) throw new Error('API-nyckel saknas');
   if (!model) throw new Error('API-modell saknas');
@@ -341,7 +344,9 @@ export const streamApiProviderResponse = async (params: {
   /** Image data URLs to attach to the last user turn (vision models). */
   images?: string[];
 }): Promise<ApiProviderResult> => {
-  const { provider, apiKey, model, history, onToken, signal, baseUrl, images = [] } = params;
+  const { provider, apiKey, model, history: rawHistory, onToken, signal, baseUrl, images = [] } = params;
+  // Bound the thread (system + recent turns within budget) — see generateApiProviderResponse.
+  const history = boundChatHistory(rawHistory);
   const meta = API_PROVIDERS[provider];
   if (!apiKey && !meta?.apiKeyOptional) throw new Error('API-nyckel saknas');
   if (!model) throw new Error('API-modell saknas');
