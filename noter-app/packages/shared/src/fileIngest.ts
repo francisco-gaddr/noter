@@ -212,3 +212,20 @@ export const remoteChangedSinceSync = (
   if (!a || !b) return false;
   return a !== b;
 };
+
+/** File kinds whose body is produced by a parser/OCR that can transiently come back empty. */
+const RICH_KINDS = new Set(['pdf', 'docx', 'xlsx', 'image', 'pages']);
+
+/**
+ * After pulling a remote file, should we CLEAR the stored remote ETag to force a re-pull next sync?
+ *
+ * Recoverability invariant: stamping the freshly-enumerated ETag marks the file "already synced", so
+ * `planIngest` will skip it forever. We must only do that when the pull genuinely succeeded. Return
+ * `true` (clear the ETag → re-pull next time) when:
+ *   - the fetch/extract FAILED (transient network/parse error) — the body is empty but not because the
+ *     file is empty; stamping the ETag would strand the note with no content, never re-pulled; or
+ *   - a RICH extraction (pdf/docx/xlsx/image/pages) came back empty — OCR/parse may succeed later.
+ * Plain successful text reads (even legitimately empty) keep their ETag and settle.
+ */
+export const shouldForceRepull = (kind: string, body: string, fetchFailed: boolean): boolean =>
+  fetchFailed || (RICH_KINDS.has(kind) && !body.trim());

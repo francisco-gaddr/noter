@@ -24,6 +24,7 @@ import {
   baseUrlFromLoginResult,
   normalizePath,
   planIngest,
+  shouldForceRepull,
   normalizeNoteType,
   syncedFileIsEditable,
   embeddingContentHash,
@@ -361,29 +362,33 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
     if (src && src.connectionId === connectionId) pathToId.set(src.remotePath, n._id);
   }
 
-  const extract = async (path: string, name: string, mime?: string): Promise<string> => {
+  // Returns the extracted body AND whether the fetch/parse FAILED (vs. a legitimately empty file).
+  // The distinction is what makes a failed pull recoverable: on failure we must NOT stamp the remote
+  // ETag as synced, or the note is stranded with no content and never re-pulled.
+  const extract = async (path: string, name: string, mime?: string): Promise<{ text: string; fetchFailed: boolean }> => {
     const kind = classifyFile(name, mime);
-    if (kind === 'skip') return '';
+    if (kind === 'skip') return { text: '', fetchFailed: false };
     try {
       const buf = await getBytes(conn, path);
-      if (kind === 'text') return decodeText(buf);
+      if (kind === 'text') return { text: decodeText(buf), fetchFailed: false };
       const t = await extractBufferText(buf, name, mime || ''); // pdf/docx/xlsx/pages/image(OCR)
-      return t.trim() ? t : '';
-    } catch { return ''; }
+      return { text: t.trim() ? t : '', fetchFailed: false };
+    } catch { return { text: '', fetchFailed: true }; }
   };
 
   let created = 0, updated = 0, deleted = 0;
-  // Stamp source: content hash (outbound edit-detection) + self-heal empty rich extractions.
-  const stampSource = (src: typeof plan.creates[number]['source'], body: string) => {
-    const k = classifyFile(src.remotePath, src.mimeType);
-    const isRich = k === 'pdf' || k === 'docx' || k === 'xlsx' || k === 'image' || k === 'pages';
-    return { ...src, remoteEtag: isRich && !body.trim() ? '' : src.remoteEtag, contentHash: embeddingContentHash(body || '') };
+  // Stamp source: content hash (outbound edit-detection) + force a re-pull next sync when the pull
+  // failed or a rich extraction came back empty (shared shouldForceRepull — the recoverability rule).
+  const stampSource = (src: typeof plan.creates[number]['source'], body: string, fetchFailed = false) => {
+    const kind = classifyFile(src.remotePath, src.mimeType);
+    return { ...src, remoteEtag: shouldForceRepull(kind, body, fetchFailed) ? '' : src.remoteEtag, contentHash: embeddingContentHash(body || '') };
   };
 
   for (const draft of plan.creates) {
     const parentId = draft.parentRemotePath ? pathToId.get(draft.parentRemotePath) || null : targetFolderId;
     let body = '';
-    if (draft.needsContent) body = await extract(draft.source.remotePath, draft.title, draft.source.mimeType);
+    let fetchFailed = false;
+    if (draft.needsContent) { const r = await extract(draft.source.remotePath, draft.title, draft.source.mimeType); body = r.text; fetchFailed = r.fetchFailed; }
     try {
       // SELF-HEAL / no-dup: adopt an existing same-name note under this parent (e.g. one whose
       // `source` was lost) instead of creating a duplicate — re-stamps its provenance.
@@ -394,14 +399,15 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
         normalizeNoteType(n.type) === draft.type,
       );
       if (orphan) {
-        const patch: any = { source: stampSource(draft.source, body), type: draft.type };
-        if (draft.needsContent) patch.content = body;
+        // Don't overwrite an adopted note's existing content with an empty body from a FAILED fetch.
+        const patch: any = { source: stampSource(draft.source, body, fetchFailed), type: draft.type };
+        if (draft.needsContent && !fetchFailed) patch.content = body;
         await api.updateNote(orphan._id, patch);
         pathToId.set(draft.source.remotePath, orphan._id);
         updated += 1;
         continue;
       }
-      const note = await api.createNote({ title: draft.title, content: body, tags: [], parentId, type: draft.type, source: stampSource(draft.source, body) } as any);
+      const note = await api.createNote({ title: draft.title, content: body, tags: [], parentId, type: draft.type, source: stampSource(draft.source, body, fetchFailed) } as any);
       pathToId.set(draft.source.remotePath, note._id);
       created += 1;
     } catch { /* continue */ }
@@ -411,8 +417,12 @@ export const syncConnection = async (connectionId: string): Promise<SyncResult> 
     // Don't pull the remote version over the local edit either — leave both intact for the user to
     // reconcile (non-destructive; the alternative would silently lose the local edit).
     if (conflicts.has(u.source.remotePath)) continue;
-    const body = await extract(u.source.remotePath, u.title, u.source.mimeType);
-    try { await api.updateNote(u.noteId, { content: body, source: stampSource(u.source, body) } as any); updated += 1; } catch { /* */ }
+    const { text: body, fetchFailed } = await extract(u.source.remotePath, u.title, u.source.mimeType);
+    // Recoverability: a transient fetch failure must NOT overwrite existing content with an empty body
+    // and must NOT advance the stored ETag — leave the note as-is so the (still-stale) ETag drives a
+    // re-pull on the next sync instead of silently stranding it.
+    if (fetchFailed) continue;
+    try { await api.updateNote(u.noteId, { content: body, source: stampSource(u.source, body, false) } as any); updated += 1; } catch { /* */ }
   }
   for (const id of plan.deletes) {
     try { await api.deleteNote(id); deleted += 1; } catch { /* */ }

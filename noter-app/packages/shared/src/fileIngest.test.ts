@@ -1,4 +1,4 @@
-import { planIngest, parseNoteSource, ingestProvenanceHeader, normalizeEtag, remoteChangedSinceSync, type IngestEntry, type SyncedNoteRef } from './fileIngest';
+import { planIngest, parseNoteSource, ingestProvenanceHeader, normalizeEtag, remoteChangedSinceSync, shouldForceRepull, type IngestEntry, type SyncedNoteRef } from './fileIngest';
 
 const entry = (path: string, isCollection: boolean, etag: string, mime = ''): IngestEntry => ({
   path, name: path.split('/').pop() || path, isCollection, etag, mimeType: mime, lastModified: '',
@@ -135,5 +135,23 @@ describe('remoteChangedSinceSync (optimistic concurrency for the two-way push)',
     expect(remoteChangedSinceSync('', 'v1')).toBe(false);
     expect(remoteChangedSinceSync('v2', '')).toBe(false);
     expect(remoteChangedSinceSync(undefined, undefined)).toBe(false);
+  });
+});
+
+describe('shouldForceRepull (failed-pull recoverability)', () => {
+  it('forces a re-pull whenever the fetch FAILED, regardless of kind or body', () => {
+    // A failed text fetch is the key bug: empty body must NOT be stamped as synced.
+    expect(shouldForceRepull('text', '', true)).toBe(true);
+    expect(shouldForceRepull('text', 'partial', true)).toBe(true);
+    expect(shouldForceRepull('pdf', '', true)).toBe(true);
+  });
+  it('settles a successful text read — even a legitimately empty one (keeps its etag)', () => {
+    expect(shouldForceRepull('text', '', false)).toBe(false);
+    expect(shouldForceRepull('text', 'hello', false)).toBe(false);
+  });
+  it('self-heals a rich extraction that came back empty (OCR/parse may succeed later)', () => {
+    expect(shouldForceRepull('pdf', '', false)).toBe(true);
+    expect(shouldForceRepull('image', '   ', false)).toBe(true);
+    expect(shouldForceRepull('docx', 'text extracted', false)).toBe(false);
   });
 });
