@@ -2,6 +2,7 @@ import express from 'express';
 import mongoose from 'mongoose';
 import { calendarExposureStatus } from '../config/calendarExposure';
 import { markdownExposureStatus } from '../config/markdownExposure';
+import { isChangeStreamDegraded } from '../services/changeStreamInvalidator';
 
 const router = express.Router();
 
@@ -94,6 +95,11 @@ router.get('/', authGuard, async (_req, res) => {
     time: new Date().toISOString(),
     uptime_sec: Math.round(process.uptime()),
     checks: { mongo, redis },
+    // Realtime cache-invalidation change streams. `degraded` means they exhausted their restart
+    // budget and stopped (a permanent Mongo/replica-set fault); the app still works — clients fall
+    // back to debounced refetch — so this is surfaced for observability but does NOT fail the
+    // overall status (it must not flap the deploy health-gate on a non-critical feature).
+    changeStream: { degraded: isChangeStreamDegraded() },
     // Egress channels for (opt-in) plaintext task projections. See
     // Doc/security/calendar-exposure.md. Lets an operator confirm what's live.
     calendarExposure: calendarExposureStatus(),

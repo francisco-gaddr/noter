@@ -108,6 +108,7 @@ const steps = [
       '__tests__/routes/ai-sync-isolation.test.ts',
       '__tests__/routes/admin-overview.test.ts',
       '__tests__/health-deep.test.ts',
+      '__tests__/services/changeStreamInvalidator.test.ts',
       '__tests__/ai-sync.test.ts',
       '__tests__/graphql-tools.test.ts',
       '__tests__/notes-lock-security.test.ts',

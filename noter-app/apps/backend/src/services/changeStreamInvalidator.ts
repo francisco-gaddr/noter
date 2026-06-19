@@ -19,9 +19,27 @@ const REGISTRATIONS: Registration[] = [
 
 const RESTART_BASE_DELAY_MS = 1_000;
 const RESTART_MAX_DELAY_MS = 30_000;
+// Give up after this many consecutive restart attempts. A permanent fault (no replica-set
+// access, mis-config) would otherwise restart every 30s forever, spamming the logs and never
+// recovering. After the cap we stop retrying and flip a degraded flag so ops can see it.
+const RESTART_MAX_ATTEMPTS = 10;
 
 let started = false;
+let degraded = false;
 const streams: ChangeStream[] = [];
+
+/**
+ * Decide what to do after a change-stream error, given how many restart attempts have already
+ * happened. Pure + exported for tests. Exponential backoff capped at RESTART_MAX_DELAY_MS, then a
+ * hard stop at RESTART_MAX_ATTEMPTS so a permanent fault can't loop forever.
+ */
+export const planChangeStreamRestart = (attempts: number): { giveUp: boolean; delayMs: number } => {
+  if (attempts >= RESTART_MAX_ATTEMPTS) return { giveUp: true, delayMs: 0 };
+  return { giveUp: false, delayMs: Math.min(RESTART_BASE_DELAY_MS * 2 ** attempts, RESTART_MAX_DELAY_MS) };
+};
+
+/** True once a change stream has exhausted its restart budget and stopped retrying (for /health). */
+export const isChangeStreamDegraded = (): boolean => degraded;
 
 const isReplicaSet = async (): Promise<boolean> => {
   try {
@@ -42,7 +60,7 @@ const extractUserIdFromChange = (change: any): string | null => {
   return null;
 };
 
-const installSingleStream = (io: SocketIOServer, reg: Registration, restartAttempts = 0): void => {
+export const installSingleStream = (io: SocketIOServer, reg: Registration, restartAttempts = 0): void => {
   try {
     const cs = reg.model.watch([], { fullDocument: 'updateLookup' });
     streams.push(cs);
@@ -68,17 +86,29 @@ const installSingleStream = (io: SocketIOServer, reg: Registration, restartAttem
     });
 
     cs.on('error', (err: unknown) => {
-      const delay = Math.min(
-        RESTART_BASE_DELAY_MS * 2 ** restartAttempts,
-        RESTART_MAX_DELAY_MS,
-      );
+      // Drop this now-dead stream from the tracked list so the array can't grow unbounded
+      // across restarts (every restart used to push a new stream and never remove the old one).
+      const idx = streams.indexOf(cs);
+      if (idx >= 0) streams.splice(idx, 1);
+      try { cs.close(); } catch { /* noop */ }
+
+      const plan = planChangeStreamRestart(restartAttempts + 1);
+      if (plan.giveUp) {
+        degraded = true;
+        logger.error('changeStream.gave-up', {
+          resource: reg.resourceLabel,
+          error: (err as Error)?.message,
+          attempts: restartAttempts + 1,
+        });
+        return; // stop retrying — no infinite loop / log spam on a permanent fault
+      }
       logger.warn('changeStream.error-restarting', {
         resource: reg.resourceLabel,
         error: (err as Error)?.message,
-        nextAttemptMs: delay,
+        attempt: restartAttempts + 1,
+        nextAttemptMs: plan.delayMs,
       });
-      try { cs.close(); } catch { /* noop */ }
-      setTimeout(() => installSingleStream(io, reg, restartAttempts + 1), delay);
+      setTimeout(() => installSingleStream(io, reg, restartAttempts + 1), plan.delayMs);
     });
   } catch (err) {
     logger.error('changeStream.install-failed', {
@@ -100,6 +130,7 @@ export const startChangeStreamInvalidator = async (io: SocketIOServer): Promise<
     return;
   }
   started = true;
+  degraded = false;
   for (const reg of REGISTRATIONS) {
     installSingleStream(io, reg);
   }
@@ -112,4 +143,8 @@ export const stopChangeStreamInvalidator = async (): Promise<void> => {
   }
   streams.length = 0;
   started = false;
+  degraded = false;
 };
+
+/** Number of live change streams currently tracked (diagnostics / tests). */
+export const changeStreamCount = (): number => streams.length;

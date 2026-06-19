@@ -21,5 +21,7 @@ describe('GET /api/health/deep', () => {
     expect(typeof res.body.uptime_sec).toBe('number');
     expect(res.body.checks).toHaveProperty('mongo');
     expect(res.body.checks).toHaveProperty('redis');
+    // Change-stream observability: a boolean degraded flag (false in a fresh process).
+    expect(res.body.changeStream).toEqual({ degraded: false });
   });
 });
