@@ -165,12 +165,13 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
 
 ### Drift / CI / ops
 
-- **Container HEALTHCHECK + deploy health-gate + rollback saknas** 🔒 INV ·
-  `apps/{backend,web}/Dockerfile`, `docker-compose.yml`, `noter-app/deploy_pi.py` · **E:S–M R:high** ·
-  Inga HEALTHCHECK-direktiv; `deploy_pi.py` kör `compose up --remove-orphans` utan post-deploy-koll
-  och tar bort gamla containrar (ingen rollback). Lägg HEALTHCHECK (curl `/api/health`),
-  health-blocks i compose, och en post-up-grind i deploy som pollar `/api/health/deep` och
-  rullar tillbaka vid fel. _(Matchar EMS-3-stabilitetslärdomen om deploy-health-gate.)_
+- ✅ **[KLAR 2026-06-19] Container HEALTHCHECK + deploy health-gate + rollback** 🔒 INV ·
+  `apps/{backend,web}/Dockerfile`, `deploy_pi.py` · HEALTHCHECK-direktiv (node-baserade, ingen
+  curl-dependency) på backend (/api/health) + web (/); `deploy_pi.py` sparar git-SHA före pull,
+  pollar `/api/health` på Pi:n efter `compose up`, och **rullar tillbaka** (`git reset --hard` +
+  rebuild) till föregående revision om bygget är trasigt — sajten kommer tillbaka i stället för att
+  ligga nere. _(Infra — verifieras vid nästa riktiga deploy.)_ **Kvar:** hårdkodat SSH-lösenord i
+  `deploy_pi.py` flaggat för rotation/secret-hantering (separat task).
 - **DB-backup-automation + restore-test saknas helt** 🔒 INV · `docker-compose.yml`,
   `Doc/ops/disaster-recovery.md` · **E:M R:high** · Inga `mongodump`/backup i repo; runbook säger
   "testa alltid restore" men ger ingen automation. En migrations-bugg/ransomware är oåterställbar.
@@ -186,10 +187,15 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
 
 ### Cross-cutting (kritiker-tillägg)
 
-- **AI-quota ej inkopplad → obegränsad kostnad** · `apps/backend/src/services/quotaTracker.ts:65-128`,
-  `apps/backend/src/routes/aiModels.ts` · **E:M R:high** · `enforceQuota` är väldesignad men
-  anropas **ingenstans** (grep ger bara definitionen). Användare kan göra obegränsade anrop mot
-  betal-providers. Koppla in vid varje AI-call-site + per-modell-kostnadsmappning + 80%/100%-varning.
+- ✅ **[KLAR/KORRIGERAD 2026-06-19] AI-quota — kopplad in på den ENDA operatör-kostnadsvägen** ·
+  `apps/backend/src/services/backendAgentRunner.ts` · **Korrigering av premissen:** ALLA betal-anrop
+  (LLM + embeddings) använder användarens EGEN klient-nyckel — backend proxar dem aldrig, så de
+  kostar inte operatören och behöver ingen server-quota. Den enda operatör-kostnaden är
+  **server-körda agentuppgifter** (självhostad Ollama-compute + DB-skrivningar). `enforceQuota`
+  inkopplad där (per-user `dayLimit=200`, env-överridbar; fail-open vid DB-blip). Återbrukar den
+  byggda men oanvända `quotaTracker`. Mongo-backad test bevisar att den faktiskt blockerar. Klient-
+  nyckel-vägarna är **medvetet INTE** quota'de (dokumenterat). **Kvar (P3):** UI för förbruknings-
+  varning (client-local mätning finns i mobil `usageTracker`).
 - **GDPR data-export + radera-konto saknas** · `apps/backend/src/routes/{auth,notes,tasks}.ts` ·
   **E:M R:high** · Ingen portabilitets-/raderingsendpoint (GDPR art. 20, CCPA). `POST /api/user/export`
   (krypterad bundle) + `DELETE /api/user/account` (soft-delete + 30 d grace). _(E2E gör export
