@@ -2,6 +2,7 @@ import {
   parseLockedFlag, hasLockSignal, buildSecurityNoteMap,
   isReadableWithLocks, findBlockingLockedAncestor, filterReadableNotes, maskLockedNote,
   filterReadableForAI, isReadableForAI, relockFoldersOnLeave, AI_INDEX_NO_UNLOCK,
+  shouldRelockOnIdle, FOLDER_IDLE_RELOCK_MS,
   type SecurityNote,
 } from './locks';
 
@@ -115,5 +116,34 @@ describe('maskLockedNote', () => {
     expect(masked.tags).toEqual([]);
     expect(masked.title).toBe('Låst anteckning');
     expect(masked.locked).toBe(true);
+  });
+});
+
+describe('shouldRelockOnIdle (foreground idle re-lock decision)', () => {
+  const T0 = 1_000_000_000_000; // fixed epoch ms; the helper is pure so no real clock is used
+
+  it('stays unlocked before the threshold elapses', () => {
+    expect(shouldRelockOnIdle(T0, T0 + FOLDER_IDLE_RELOCK_MS - 1)).toBe(false);
+  });
+
+  it('re-locks exactly at and past the threshold', () => {
+    expect(shouldRelockOnIdle(T0, T0 + FOLDER_IDLE_RELOCK_MS)).toBe(true);
+    expect(shouldRelockOnIdle(T0, T0 + FOLDER_IDLE_RELOCK_MS + 60_000)).toBe(true);
+  });
+
+  it('honours a custom threshold', () => {
+    expect(shouldRelockOnIdle(T0, T0 + 30_000, 60_000)).toBe(false);
+    expect(shouldRelockOnIdle(T0, T0 + 60_000, 60_000)).toBe(true);
+  });
+
+  it('treats a non-positive threshold as disabled (never auto-relocks)', () => {
+    expect(shouldRelockOnIdle(T0, T0 + 10 * FOLDER_IDLE_RELOCK_MS, 0)).toBe(false);
+    expect(shouldRelockOnIdle(T0, T0 + 10 * FOLDER_IDLE_RELOCK_MS, -1)).toBe(false);
+  });
+
+  it('never force-locks on a bad/uninitialised clock (non-finite inputs)', () => {
+    expect(shouldRelockOnIdle(NaN, T0)).toBe(false);
+    expect(shouldRelockOnIdle(T0, NaN)).toBe(false);
+    expect(shouldRelockOnIdle(T0, Infinity)).toBe(false);
   });
 });

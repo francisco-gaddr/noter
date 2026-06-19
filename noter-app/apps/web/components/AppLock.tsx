@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useStore } from '../stores/useStore';
+import { shouldRelockOnIdle } from '@repo/shared';
 import { FaLock, FaSignOutAlt } from 'react-icons/fa';
 import { useTranslation } from 'react-i18next';
 
@@ -11,6 +12,7 @@ export default function AppLock() {
     const [error, setError] = useState('');
     const [mounted, setMounted] = useState(false);
     const timerRef = useRef<NodeJS.Timeout | null>(null);
+    const lastActivityRef = useRef<number>(Date.now());
     const { t } = useTranslation();
 
     useEffect(() => {
@@ -28,10 +30,14 @@ export default function AppLock() {
 
     useEffect(() => {
         const events = ['mousedown', 'keydown', 'scroll', 'touchstart'];
-        const handleActivity = () => resetTimer();
+        const handleActivity = () => {
+            lastActivityRef.current = Date.now();
+            resetTimer();
+        };
 
         if (user) {
             events.forEach(event => window.addEventListener(event, handleActivity));
+            lastActivityRef.current = Date.now();
             resetTimer();
         }
 
@@ -40,6 +46,18 @@ export default function AppLock() {
             if (timerRef.current) clearTimeout(timerRef.current);
         };
     }, [resetTimer, user]);
+
+    // FOREGROUND idle re-lock: while the app stays open, re-lock the sensitive protected folders
+    // after a short window of inactivity (shouldRelockOnIdle / FOLDER_IDLE_RELOCK_MS in @repo/shared),
+    // independent of the longer whole-app lock above. Polled every 30s; relockProtectedFolders is a
+    // no-op when nothing is unlocked. See docs/LOCKED_FOLDER_SECURITY.md §2.
+    useEffect(() => {
+        if (!user) return;
+        const id = setInterval(() => {
+            if (shouldRelockOnIdle(lastActivityRef.current, Date.now())) relockProtectedFolders();
+        }, 30 * 1000);
+        return () => clearInterval(id);
+    }, [user, relockProtectedFolders]);
 
     // Re-lock every password-protected folder when the tab/window is hidden (tab switch,
     // minimise, OS app switch). A locked folder is the most sensitive surface, so leaving the

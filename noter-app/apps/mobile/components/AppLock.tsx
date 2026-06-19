@@ -6,6 +6,7 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useStore } from '@/stores/useStore';
+import { shouldRelockOnIdle } from '@repo/shared';
 
 interface AppLockProps {
   children: React.ReactNode;
@@ -56,6 +57,7 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
   const isMounted = useRef(false);
   const setSecurityLocked = useStore((s) => s.setSecurityLocked);
   const relockProtectedFolders = useStore((s) => s.relockProtectedFolders);
+  const lastActivityRef = useRef<number>(Date.now());
 
   // Per-mount attempt log: timestamps of failed authenticate() calls.
   // We slide the window so successes earlier-this-minute don't keep counting.
@@ -242,9 +244,31 @@ export const AppLock: React.FC<AppLockProps> = ({ children }) => {
     }
   }, [isLocked]);
 
+  // FOREGROUND idle re-lock: while the app stays open, re-lock the sensitive protected folders
+  // after a short window of inactivity (shouldRelockOnIdle / FOLDER_IDLE_RELOCK_MS in @repo/shared),
+  // independent of the longer whole-app lock. Activity is recorded by the non-capturing root
+  // responder below; relockProtectedFolders no-ops when nothing is unlocked. See
+  // docs/LOCKED_FOLDER_SECURITY.md §2.
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (shouldRelockOnIdle(lastActivityRef.current, Date.now())) relockProtectedFolders();
+    }, 30 * 1000);
+    return () => clearInterval(id);
+  }, [relockProtectedFolders]);
 
   if (!isLocked) {
-    return <>{children}</>;
+    // Wrap the app in a NON-capturing responder so every touch refreshes the idle timestamp
+    // without intercepting the gesture (the handlers always return false → never become the
+    // responder, so scrolling/taps pass straight through to the screens).
+    return (
+      <View
+        style={{ flex: 1 }}
+        onStartShouldSetResponderCapture={() => { lastActivityRef.current = Date.now(); return false; }}
+        onMoveShouldSetResponderCapture={() => { lastActivityRef.current = Date.now(); return false; }}
+      >
+        {children}
+      </View>
+    );
   }
 
   const now = Date.now();

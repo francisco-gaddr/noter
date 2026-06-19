@@ -166,6 +166,31 @@ export const relockFoldersOnLeave = <T extends SecurityNote>(
   });
 };
 
+/**
+ * Default idle window before an open password-protected folder re-locks itself while the app
+ * stays in the FOREGROUND (the user is still in the app but hasn't interacted). The whole-app
+ * lock has its own, usually longer, grace window; this only matters when the app-lock timing is
+ * longer than this — the most sensitive surface shouldn't sit open for hours of inactivity.
+ */
+export const FOLDER_IDLE_RELOCK_MS = 5 * 60 * 1000;
+
+/**
+ * Decide whether an unlocked protected folder should re-lock due to FOREGROUND inactivity.
+ * Pure (no UI/runtime) so the threshold logic is unit-tested in the blocking gate. `lastActivityAt`
+ * is the epoch-ms timestamp of the last user interaction; returns true once `now` is at least
+ * `thresholdMs` past it. A non-positive threshold disables the feature (always false), and
+ * non-finite inputs are treated as "no idle yet" so a bad clock never force-locks the UI.
+ */
+export const shouldRelockOnIdle = (
+  lastActivityAt: number,
+  now: number,
+  thresholdMs: number = FOLDER_IDLE_RELOCK_MS,
+): boolean => {
+  if (!Number.isFinite(lastActivityAt) || !Number.isFinite(now)) return false;
+  if (!Number.isFinite(thresholdMs) || thresholdMs <= 0) return false;
+  return now - lastActivityAt >= thresholdMs;
+};
+
 /** Short, firm instruction injected into every agent system prompt. */
 export const AGENT_LOCK_POLICY =
   'SÄKERHET: Du får ALDRIG läsa, avkryptera, sammanfatta eller på annat sätt komma åt innehållet i låsta anteckningar eller låsta projektmappar (eller något som ligger i en låst mapp). Sådant innehåll är otillgängligt för dig — försök inte kringgå det. Om något du behöver är låst: tala om för användaren att det är låst och be hen låsa upp det, fortsätt annars utan det.';

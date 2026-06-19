@@ -55,19 +55,27 @@ So a folder is open only while you are inside it; the moment you leave, the pass
 required again. Individually-unlocked **non-folder** notes are left untouched by this step (a
 single opened note re-masks anyway as soon as its containing folder re-locks).
 
-### Auto re-lock on app background (leaving the app = leaving the folder)
+### Auto re-lock on app background / foreground idle (leaving the app = leaving the folder)
 
-`relockProtectedFolders()` (both stores) empties the unlock set and re-masks **all** notes the
-moment the app is **backgrounded** (mobile: `AppState === 'background'` in `components/AppLock.tsx`,
-gated on true background — not the transient iOS `inactive` of the app-switcher peek or a system
-permission sheet; web/Electron: `document.visibilitychange → hidden` in `components/AppLock.tsx`).
+`relockProtectedFolders()` (both stores) empties the unlock set and re-masks **all** notes. It
+fires in two situations, both in `components/AppLock.tsx`:
 
-This is deliberately **stricter** than the whole-app lock: the app-lock keeps a configurable grace
+1. **App background / tab hidden** — the moment the app is backgrounded (mobile:
+   `AppState === 'background'`, gated on true background — not the transient iOS `inactive` of the
+   app-switcher peek or a system permission sheet; web/Electron: `document.visibilitychange → hidden`).
+2. **Foreground inactivity** — while the app stays open, a 30 s poll calls
+   `shouldRelockOnIdle(lastActivityAt, now)` (`@repo/shared/locks`, default `FOLDER_IDLE_RELOCK_MS`
+   = 5 min) and re-locks once that idle window elapses. Activity is timestamped by the existing
+   app-lock activity listeners on web (`mousedown/keydown/scroll/touchstart`) and by a
+   **non-capturing root responder** on mobile (`onStart/onMoveShouldSetResponderCapture` that record
+   the touch and return `false`, so gestures pass straight through).
+
+Both are deliberately **stricter** than the whole-app lock: the app-lock keeps a configurable grace
 window (5 min … 12 h) so you don't re-authenticate every time you glance at a notification, but a
 password-protected folder is the most sensitive surface and does **not** inherit that grace — it
-closes as soon as you leave the app, without forcing a full app re-auth. The action is a **no-op**
-(no re-render) when nothing is unlocked, so it is free on the common path. A full app-lock / logout
-still clears the unlock set as before (mobile `setSecurityLocked`, web `setAppLocked`).
+closes when you leave the app or sit idle in it, without forcing a full app re-auth. The action is a
+**no-op** (no re-render) when nothing is unlocked, so it is free on the common path. A full app-lock /
+logout still clears the unlock set as before (mobile `setSecurityLocked`, web `setAppLocked`).
 
 ## 3. Display filtering (notes never leak into general views)
 
@@ -178,11 +186,10 @@ garantier. Varje punkt är additiv — invarianterna i §7 måste fortsatt håll
 3. **Audit-logg för upplåsnings-händelser (lokalt, krypterat).** Logga *att* en mapp låstes upp/
    om (tidsstämpel, mapp-id), aldrig innehåll, så användaren kan se sin egen lås-historik. Måste
    följa CWE-532 (inga secrets i loggen) och stanna på enheten.
-4. **Auto-omlås vid inaktivitet inuti en mapp** (delvis klart). ✅ Omlås vid **app-bakgrund**
-   är implementerat: `relockProtectedFolders()` töms + re-maskar när appen bakgrundas / fliken
-   döljs (se §2). Kvar: en **idle-timer i förgrunden** som re-låser en öppen mapp efter X
-   minuters inaktivitet *utan* att lämna appen (återanvänd app-lock-timeoutens aktivitets­lyssnare;
-   ren tilläggslogik som anropar `relockProtectedFolders()` på timeout i stället för hela appen).
+4. **Auto-omlås vid inaktivitet inuti en mapp** ✅ **klart**. Omlås sker både vid **app-bakgrund**
+   och vid **förgrunds-inaktivitet** (en 30 s-poll + `shouldRelockOnIdle`, default 5 min) — se §2.
+   Möjlig nästa förfining (ej nödvändig): gör tröskeln till en **användarinställning** (egen
+   "lås projektmappar efter"-väljare) i stället för konstanten `FOLDER_IDLE_RELOCK_MS`.
 5. **Utöka self-testet till nya modaliteter.** När en ny extern yta tillkommer (t.ex. en
    delnings-länk, ett export-format, en ny graf-sink): lägg till dess byggar-namn i `GUARDED` och
    en fixture i `--selftest` *innan* ytan kopplas in — grinden ska fånga läckan dag noll.

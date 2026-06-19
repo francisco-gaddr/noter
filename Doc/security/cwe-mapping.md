@@ -95,6 +95,13 @@ falska positiva — så själva grinden inte kan ruttna till en no-op. Båda kö
 `apps/backend __tests__/notes-lock-security.test.ts`; `apps/mobile __tests__/services/noteExport.test.ts`
 (exportörerna skriver/delar **inget** när `locked:true`); `packages/shared neo4jSync`-sviten.
 
+**Upplåsnings-sessionens livslängd (tilläggshärdning):** en UI-upplåst projektmapp re-låses nu även
+(a) när appen **bakgrundas** / fliken döljs och (b) efter **förgrunds-inaktivitet** (30 s-poll +
+`shouldRelockOnIdle`, default 5 min) — inte bara vid navigering bort eller hel app-lås. Den rena
+beslutslogiken testas i `packages/shared locks.test.ts` (`shouldRelockOnIdle`), och
+`relockProtectedFolders` (mask-effekten) i `apps/{web,mobile} __tests__/store.test.ts`. Se
+[`../../noter-app/docs/LOCKED_FOLDER_SECURITY.md`](../../noter-app/docs/LOCKED_FOLDER_SECURITY.md) §2.
+
 ## Format för audit-export
 
 `Doc/security/cwe-mapping.md` läses av `Doc/security/exportReport.mjs`
