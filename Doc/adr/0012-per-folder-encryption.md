@@ -155,9 +155,16 @@ create-plats blir en ren rad; update-platser använder `resolveSessionFolderKeyF
   creating a note in an unlocked crypto folder" + de uppdaterade call-shape-asserts. Web `tsc` ren.
   Gräns: en offline-skapad not i en krypto-mapp sealas först när mappen är upplåst i den replayande
   sessionen; tills dess `dataKey` (dokumenterad, acceptabel).
-- **Mobil** (`apps/mobile/stores/useStore.ts`, store `createNote(data)` ~rad 931 / `updateNote(id,data)`
-  ~rad 1025): strukturellt annorlunda API-lager än web — verifiera var muteringen/krypteringen sker i
-  mobilens väg först, och seala `title`/`content` där, symmetriskt. Resolva i storen, inte i API-lagret.
+- **Mobil ✅ WIRED (Fas 3.2)** (`apps/mobile/stores/useStore.ts`): mobil krypterar `title`/`content`
+  **inline i storen** (inget separat api.ts-lager som web), och offline-kön lagrar den redan krypterade
+  payloaden (ingen om-kryptering vid replay). Därför sealas på de **två** ställena där `encryptedData`
+  byggs — `createNote` (~rad 967, via `resolveSessionFolderKeyForNewNote(data.parentId, get().notes)`) och
+  `updateNote` (~rad 1077, via `resolveSessionFolderKeyForNote(currentNote, buildSecurityNoteMap(...))`) —
+  med `sealNoteFieldForWrite`. `folderKey` är en lokal variabel som aldrig läggs på `encryptedData`, så
+  nyckeln serialiseras aldrig till kön eller nätet. Tasks (`createTask`/`updateTask`) är utanför Fas 1
+  (bara not-`title`/`content`), exakt som web. Test: "seals a note created in an unlocked crypto folder
+  under the folder key" (verifierar att POST-body:n är `v3f:` + att `folderKey` inte finns i body:n);
+  mobil `tsc` ren. Provbar no-op tills enrolment.
 - **Känd Fas-1-gräns — flytt över krypto-gräns om-sealar inte.** Att flytta en not UT ur sin krypto-mapp
   gör innehållet oläsbart (sealat under en nyckel som inte längre gäller); en vanlig not som flyttas IN
   sealas inte automatiskt. Re-seal-on-move är en senare fas; tills dess bör flytt in/ut ur en krypto-mapp

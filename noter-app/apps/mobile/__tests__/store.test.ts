@@ -19,6 +19,11 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   removeItem: jest.fn().mockResolvedValue(undefined),
 }));
 
+// expo-crypto's randomUUID is a native call (used by createNote for the clientId) — stub it in jest.
+jest.mock('expo-crypto', () => ({
+  randomUUID: jest.fn(() => 'test-uuid-0000'),
+}));
+
 jest.mock('../services/api', () => ({
   fetchWithAuth: jest.fn(),
   login: jest.fn(),
@@ -144,6 +149,29 @@ describe('Mobile Store', () => {
     expect(got.title).toBe('Låst anteckning');
     expect(got.content).toBe('');
     expect(got.title).not.toContain('v3f:');
+  });
+
+  // ADR-0012 write path: a note created inside an unlocked crypto folder must be sealed under the
+  // folder's session key (v3f:) on the wire — the store resolves the key and seals title/content,
+  // and the raw key is never serialised into the request body.
+  it('seals a note created in an unlocked crypto folder under the folder key', async () => {
+    const { fetchWithAuth } = require('../services/api');
+    const { setFolderKey, clearAllFolderKeys, isFolderWrapped } = require('@repo/shared');
+    clearAllFolderKeys();
+    const key = new Uint8Array(32).fill(7);
+    setFolderKey('cf', key);
+    useStore.setState({ notes: [{ _id: 'cf', type: 'project', locked: true, title: 'Hemlig mapp', parentId: null }] as any });
+    fetchWithAuth.mockResolvedValueOnce({ _id: 'n9', title: '', content: '', type: 'note', parentId: 'cf' });
+
+    await useStore.getState().createNote({ title: 'Hemlig', content: 'topphemligt', parentId: 'cf', type: 'note' } as any);
+
+    const post = (fetchWithAuth as jest.Mock).mock.calls.find((c: any[]) => c[0] === '/notes' && c[1]?.method === 'POST');
+    expect(post).toBeTruthy();
+    const body = JSON.parse(post[1].body);
+    expect(isFolderWrapped(body.title)).toBe(true); // v3f: under the folder key, not v3: under the dataKey
+    expect(isFolderWrapped(body.content)).toBe(true);
+    expect(JSON.stringify(body)).not.toContain('folderKey'); // the raw key never reaches the wire
+    clearAllFolderKeys();
   });
 
   it('should unlock and load data on login when security lock is active', async () => {

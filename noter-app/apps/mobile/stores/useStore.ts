@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import 'react-native-get-random-values';
 import * as Crypto from 'expo-crypto';
-import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, safeDecrypt, parseEntityLinks, serializeEntityLinks, parseNoteSource, relockFoldersOnLeave, clearAllFolderKeys, isFolderWrapped, materializeFolderField, resolveSessionFolderKeyForNote } from '@repo/shared';
+import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, safeDecrypt, parseEntityLinks, serializeEntityLinks, parseNoteSource, relockFoldersOnLeave, clearAllFolderKeys, isFolderWrapped, materializeFolderField, resolveSessionFolderKeyForNote, resolveSessionFolderKeyForNewNote, sealNoteFieldForWrite } from '@repo/shared';
 import { fetchWithAuth, login as apiLogin, register as apiRegister, setAuthToken, initApiUrl, setUnauthorizedHandler } from '../services/api';
 import * as Database from '../services/database';
 import { initSocket, disconnectSocket, getSocket } from '../services/socket';
@@ -961,11 +961,15 @@ export const useStore = create<AppState>((set, get) => ({
       // 2. Save Local (unsynced)
       await Database.saveNoteLocal(optimisticNote, false);
 
-      // 3. Encrypt
+      // 3. Encrypt — ADR-0012: seal title/content under the target folder's session key if it is a
+      // crypto-protected, currently-unlocked folder; else encrypt under the dataKey. `folderKey` is a
+      // local (never put on encryptedData), so the raw key is never serialised to the queue or the wire.
+      // resolveSessionFolderKeyForNewNote → undefined for every note until a folder is enrolled (no-op).
+      const folderKey = resolveSessionFolderKeyForNewNote(data.parentId, get().notes as any);
       const encryptedData = {
         ...data,
-        title: encrypt(data.title),
-        content: encrypt(data.content),
+        title: sealNoteFieldForWrite(data.title, folderKey),
+        content: sealNoteFieldForWrite(data.content, folderKey),
         type: encrypt(data.type || 'note'),
         locked: encrypt(String(data.locked || false)),
         links: (data as any).links && (data as any).links.length ? encrypt(serializeEntityLinks((data as any).links)) : undefined,
@@ -1068,10 +1072,12 @@ export const useStore = create<AppState>((set, get) => ({
       // 3. Save Local
       await Database.saveNoteLocal(optimisticNote, false);
 
-      // 4. Encrypt
+      // 4. Encrypt — ADR-0012: re-seal title/content under the note's crypto-folder key when its folder
+      // is unlocked (undefined → dataKey, a no-op until enrolment). `folderKey` is a local, never serialised.
+      const folderKey = resolveSessionFolderKeyForNote(currentNote as any, buildSecurityNoteMap(get().notes as any));
       const encryptedData: any = { ...data };
-      if (data.title !== undefined) encryptedData.title = encrypt(data.title);
-      if (data.content !== undefined) encryptedData.content = encrypt(data.content);
+      if (data.title !== undefined) encryptedData.title = sealNoteFieldForWrite(data.title, folderKey);
+      if (data.content !== undefined) encryptedData.content = sealNoteFieldForWrite(data.content, folderKey);
       if (data.tags !== undefined) encryptedData.tags = data.tags.map((t: string) => encrypt(t));
       if (data.icon !== undefined) encryptedData.icon = data.icon ? encrypt(data.icon) : '';
       if (data.type !== undefined) encryptedData.type = encrypt(data.type);

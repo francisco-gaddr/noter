@@ -217,14 +217,17 @@ garantier. Varje punkt är additiv — invarianterna i §7 måste fortsatt håll
      (`resolveSessionFolderKeyForNewNote` / `resolveSessionFolderKeyForNote`) på alla fyra platser
      (create, update, offline-replay×2), utom flytt (inget innehåll). Provbar no-op tills enrolment; test
      + web `tsc` grönt.
+   - **Skriv-vägen wired i mobil (Fas 3.2):** mobil krypterar `title`/`content` inline i storen (inget
+     api.ts-lager), och offline-kön lagrar den redan krypterade payloaden — så sealen sker på de två
+     `encryptedData`-byggena (`createNote` + `updateNote`) med `sealNoteFieldForWrite` och en lokal
+     `folderKey` (aldrig serialiserad). Test + mobil `tsc` grönt. **Skriv-sealen är nu komplett i båda apparna.**
    - **Publicering/index:** `v3f:`-noter ligger alltid i en låst mapp, som redan utesluts av lås-filtret
      (tom upplåsnings­mängd, T20) från alla publicerings-/index-ytor — inget separat skydd behövs.
 
-   **Kvar (egen cykel, enhets-/runtime-verifierad — spec + checklista i ADR §Slutfas):** (a) **mobil**
-   skriv-seal (strukturellt annorlunda API-lager — seala `title`/`content` i mobil-storen symmetriskt);
-   (b) UI-skalet i projektmapp-menyn/editorn (båda appar) som anropar
+   **Kvar (egen cykel, enhets-/runtime-verifierad — spec + checklista i ADR §Slutfas):** UI-skalet i
+   projektmapp-menyn/editorn (båda appar) som anropar
    `enrolFolderPassword` / `unlockFolderWithPassword` / `changeFolderPassword` och persisterar den
-   returnerade noten.
+   returnerade noten — den enda biten som *skapar* den första riktiga `v3f:`-datan och behöver en enhet.
 2. **Signerad, read-only widget-/publicerings-endpoint.** Fas 3 i extern-MD-synken. När den
    byggs: håll `isReadableForAI`-filtret (tom upplåsnings­mängd) som det enda urvalet och lägg
    till en kort-livad signatur per snapshot — lägg till en ny `GUARDED`-byggare i
