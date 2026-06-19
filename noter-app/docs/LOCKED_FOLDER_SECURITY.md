@@ -110,6 +110,19 @@ The agent system prompt also carries `AGENT_LOCK_POLICY` (a firm "never access l
 instruction) as defense-in-depth — but the hard guarantee is the empty unlock set + the
 filter, not the model's compliance.
 
+## 5a. Single-note export / share (user-initiated)
+
+Exporting or sharing one note (Share-as-PDF / Share-as-Markdown) is a user action, not an
+automated reader, so it IS allowed for a note the user has legitimately unlocked. The guarantee
+is narrower: a note still blocked by a **locked ancestor** (not unlocked in this session) must
+never be serialised to a file or handed to the OS share sheet. Both apps enforce this at runtime,
+not just by hiding the menu item:
+
+| App | File | Guard |
+|---|---|---|
+| Mobile | `apps/mobile/services/noteExport.ts` | `exportNoteToMarkdown` / `exportNoteToPdf` return `{ok:false}` and write/render/share nothing when called with `locked:true` (the editor passes `locked: !!blockingLockedAncestor`). Proven by `__tests__/services/noteExport.test.ts`. |
+| Web/Electron | `apps/web/components/NoteEditor.tsx` | `handleExportPDF` / `handleExportMarkdown` refuse early when `isEffectiveLocked && !isUnlockedLocally` (= the same condition that renders the lock screen), so neither reads the live Slate DOM nor saves/downloads a file. |
+
 ## 6. Tests
 
 - `packages/shared/src/locks.test.ts` — hierarchical readability, `filterReadableForAI` /

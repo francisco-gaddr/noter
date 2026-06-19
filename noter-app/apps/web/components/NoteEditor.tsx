@@ -1445,9 +1445,17 @@ function NoteEditorContent() {
   };
 
   const handleExportPDF = async () => {
+    // Defense-in-depth: never render/serialise a locked note to a file, even if this handler is
+    // somehow reached while locked content is mounted. The toolbar that triggers it only shows
+    // when unlocked, but the runtime guard is the real guarantee (parity with the mobile exporters
+    // that refuse `locked: !!blockingLockedAncestor`). See docs/LOCKED_FOLDER_SECURITY.md.
+    if (isEffectiveLocked && !isUnlockedLocally) {
+      console.warn('Export to PDF refused: note is inside a locked folder.');
+      return;
+    }
     const element = document.querySelector('[data-slate-editor="true"]') as HTMLElement;
     if (!element) return;
-    
+
     try {
       const canvas = await html2canvas(element);
       const imgData = canvas.toDataURL('image/png');
@@ -1463,9 +1471,15 @@ function NoteEditorContent() {
   };
 
   const handleExportMarkdown = async () => {
+    // Defense-in-depth: refuse to serialise a locked note to Markdown (parity with the mobile
+    // exporters and handleExportPDF above). See docs/LOCKED_FOLDER_SECURITY.md.
+    if (isEffectiveLocked && !isUnlockedLocally) {
+      console.warn('Export to Markdown refused: note is inside a locked folder.');
+      return;
+    }
     const element = document.querySelector('[data-slate-editor="true"]') as HTMLElement;
     if (!element) return;
-    
+
     try {
       const TurndownService = (await import('turndown')).default;
       const turndownService = new TurndownService();
