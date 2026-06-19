@@ -276,6 +276,43 @@ describe('Web Store', () => {
       clearAllFolderKeys();
   });
 
+  // ADR-0012 enrolment glue (store actions over the shared folderEnrolment orchestration). PBKDF2 (a
+  // test affordance) keeps the KDF fast; the UI uses argon2id.
+  it('enrolFolderPassword sets the session key + persists the bundle, and never seals the folder name under its own key', async () => {
+      const { api } = require('../services/api');
+      const { clearAllFolderKeys, getFolderKey } = require('@repo/shared');
+      clearAllFolderKeys();
+      useStore.setState({ notes: [{ _id: 'cf', title: 'Hemlig mapp', content: '', type: 'project', locked: true, parentId: null }] as any });
+      api.updateNote.mockResolvedValueOnce({ _id: 'cf', title: 'Hemlig mapp', content: '', type: 'project', folderKeyBundle: 'persisted' });
+
+      await act(async () => {
+          await useStore.getState().enrolFolderPassword('cf', 'mapp-lösen', 'pbkdf2-sha256');
+      });
+
+      expect(getFolderKey('cf')).toBeDefined(); // session key registered
+      // Bundle persisted via the normal save path; the folder note's OWN update resolves folderKey=undefined
+      // (parentId=null), so a crypto folder's name is never sealed under its own key (stays visible when locked).
+      expect(api.updateNote).toHaveBeenCalledWith('cf', expect.objectContaining({ folderKeyBundle: expect.any(String) }), undefined);
+      clearAllFolderKeys();
+  });
+
+  it('unlockFolder restores the session key from the right password and rejects the wrong one', async () => {
+      const { clearAllFolderKeys, getFolderKey, createFolderKey, serializeFolderKeyBundle, FolderUnlockError } = require('@repo/shared');
+      clearAllFolderKeys();
+      const { bundle, folderKey } = await createFolderKey('mapp-lösen', 'pbkdf2-sha256');
+      useStore.setState({ notes: [{ _id: 'cf', title: 'Hemlig mapp', content: '', type: 'project', locked: true, parentId: null, folderKeyBundle: serializeFolderKeyBundle(bundle) }] as any });
+
+      await act(async () => {
+          await useStore.getState().unlockFolder('cf', 'mapp-lösen');
+      });
+      expect(Array.from(getFolderKey('cf') as Uint8Array)).toEqual(Array.from(folderKey));
+
+      clearAllFolderKeys();
+      await expect(useStore.getState().unlockFolder('cf', 'fel-lösen')).rejects.toBeInstanceOf(FolderUnlockError);
+      expect(getFolderKey('cf')).toBeUndefined();
+      clearAllFolderKeys();
+  });
+
   // Regression: the create-response can OMIT or return `type` still-encrypted. The store must
   // trust the type WE requested, else a new task_list/project classifies as a plain 'note' and
   // vanishes from the Tasks view + the project-folder dropdown (the recurring Electron bug).

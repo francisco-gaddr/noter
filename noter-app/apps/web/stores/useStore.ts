@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Note, Task, UpdateTaskDto, User, decrypt, encrypt, safeDecrypt, normalizeNoteType, parseEntityLinks, parseNoteSource, relockFoldersOnLeave, clearAllFolderKeys, isFolderWrapped, materializeFolderField, resolveSessionFolderKeyForNote, resolveSessionFolderKeyForNewNote } from '@repo/shared';
+import { Note, Task, UpdateTaskDto, User, decrypt, encrypt, safeDecrypt, normalizeNoteType, parseEntityLinks, parseNoteSource, relockFoldersOnLeave, clearAllFolderKeys, isFolderWrapped, materializeFolderField, resolveSessionFolderKeyForNote, resolveSessionFolderKeyForNewNote, enrolFolderPassword as enrolFolderPasswordCore, unlockFolderWithPassword, changeFolderPassword as changeFolderPasswordCore, type KdfId } from '@repo/shared';
 import { api, getApiBaseUrl, getUUID, setApiBaseUrl, setApiToken } from '../services/api';
 import { socket, connectSocket, disconnectSocket, setSocketToken } from '../services/socket';
 import { db } from '../services/db';
@@ -407,6 +407,11 @@ interface StoreState {
   moveNote: (id: string, parentId: string | null, order: number) => Promise<void>;
   unlockNote: (id: string, password: string) => Promise<boolean>;
   deleteNote: (id: string) => Promise<void>;
+  // ADR-0012 per-folder encryption (enrolment glue over the shared folderEnrolment orchestration).
+  // `preferred` lets tests use the fast PBKDF2 KDF; the UI omits it (→ argon2id).
+  enrolFolderPassword: (folderId: string, password: string, preferred?: KdfId) => Promise<void>;
+  unlockFolder: (folderId: string, password: string) => Promise<void>;
+  changeFolderPassword: (folderId: string, oldPassword: string, newPassword: string, preferred?: KdfId) => Promise<void>;
   
   createTask: (title: string, parentNoteId?: string, dueDate?: string | null, options?: { description?: string; priority?: 'low' | 'medium' | 'high'; recurrenceType?: 'none' | 'daily' | 'weekly'; recurrenceDays?: number[]; reminderEnabled?: boolean; reminderOffsetMinutes?: number | number[]; links?: import('@repo/shared').EntityLink[] }) => Promise<Task | undefined>;
   updateTask: (id: string, data: UpdateTaskDto) => Promise<void>;
@@ -1420,10 +1425,12 @@ export const useStore = create<StoreState>((set, get) => ({
       const payload: any = { ...updates };
       payload.updatedAt = encrypt(new Date().toISOString());
 
-      // ADR-0012: re-seal title/content under the note's crypto-folder key when its folder is unlocked
-      // (undefined → dataKey, a no-op until enrolment). Separate arg so the key never reaches the body.
+      // ADR-0012: re-seal title/content under the CONTAINING folder's key (resolve from parentId, never
+      // the note itself) so a crypto folder's OWN name is never sealed under its own key — a project's
+      // name must stay visible when locked. undefined → dataKey (no-op until enrolment). Separate arg so
+      // the key never reaches the body.
       const folderKey = currentNote
-        ? resolveSessionFolderKeyForNote(currentNote as any, buildSecurityNoteMap(get().notes as any))
+        ? resolveSessionFolderKeyForNewNote((currentNote as any).parentId, get().notes as any)
         : undefined;
       const updatedNote = await api.updateNote(id, payload, folderKey);
       set((state) => ({
@@ -1479,6 +1486,32 @@ export const useStore = create<StoreState>((set, get) => ({
       set({ error: error.message });
       return false;
     }
+  },
+
+  // ADR-0012 per-folder encryption — enrolment glue over the tested `folderEnrolment` orchestration
+  // (which owns the in-memory session key + the wrapped bundle). `enrol`/`change` persist the new
+  // bundle on the folder note via the normal save path (Fas 2.6 backend passthrough); `unlock`
+  // re-materialises so the folder's `v3f:` notes decrypt. A wrong password rejects with
+  // FolderUnlockError (propagated to the caller). `preferred` is a test affordance (fast PBKDF2); the
+  // UI omits it (→ argon2id).
+  enrolFolderPassword: async (folderId, password, preferred) => {
+    const folder = get().notes.find((n) => n._id === folderId);
+    if (!folder) throw new Error('enrolFolderPassword: folder not found');
+    const { note } = await enrolFolderPasswordCore(folderId, folder as any, password, preferred);
+    await get().updateNote(folderId, { folderKeyBundle: (note as any).folderKeyBundle } as Partial<Note>);
+  },
+  unlockFolder: async (folderId, password) => {
+    const folder = get().notes.find((n) => n._id === folderId);
+    await unlockFolderWithPassword(folderId, folder as any, password); // throws FolderUnlockError on wrong password
+    set((state) => ({
+      notes: materializeNotesFromEncrypted(state.notes as any, new Set(state.unlockedProtectedNoteIds)),
+    }));
+  },
+  changeFolderPassword: async (folderId, oldPassword, newPassword, preferred) => {
+    const folder = get().notes.find((n) => n._id === folderId);
+    if (!folder) throw new Error('changeFolderPassword: folder not found');
+    const { note } = await changeFolderPasswordCore(folderId, folder as any, oldPassword, newPassword, preferred);
+    await get().updateNote(folderId, { folderKeyBundle: (note as any).folderKeyBundle } as Partial<Note>);
   },
 
   deleteNote: async (id) => {

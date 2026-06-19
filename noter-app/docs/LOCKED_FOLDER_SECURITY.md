@@ -224,10 +224,17 @@ garantier. Varje punkt är additiv — invarianterna i §7 måste fortsatt håll
    - **Publicering/index:** `v3f:`-noter ligger alltid i en låst mapp, som redan utesluts av lås-filtret
      (tom upplåsnings­mängd, T20) från alla publicerings-/index-ytor — inget separat skydd behövs.
 
-   **Kvar (egen cykel, enhets-/runtime-verifierad — spec + checklista i ADR §Slutfas):** UI-skalet i
-   projektmapp-menyn/editorn (båda appar) som anropar
-   `enrolFolderPassword` / `unlockFolderWithPassword` / `changeFolderPassword` och persisterar den
-   returnerade noten — den enda biten som *skapar* den första riktiga `v3f:`-datan och behöver en enhet.
+   - **Enrol-store-actions wired i web (Fas 3.3):** `enrolFolderPassword` / `unlockFolder` /
+     `changeFolderPassword` — den testade glue:n mellan UI och shared-orkestreringen (sätter sessions-FK,
+     persisterar bundlen via Fas 2.6, re-materialiserar). Två buggar hittade + fixade på vägen: (i) en
+     krypto-mapps **eget namn** sealades inte längre under sin egen nyckel (update resolvar nu nyckeln från
+     `parentId`, inte noten själv, i båda apparna — annars doldes mappnamnet när mappen låstes), och (ii)
+     `FolderUnlockError instanceof` (som UI:t fångar på) lagades för ES5/webb-bygget via `setPrototypeOf`.
+
+   **Kvar (egen cykel, enhets-/runtime-verifierad — spec + checklista i ADR §Slutfas):** samma
+   enrol-store-actions i **mobil**-storen, plus UI-skalet i projektmapp-menyn/editorn (båda appar) som
+   anropar dem och prompar för lösenordet — den enda biten som *skapar* den första riktiga `v3f:`-datan
+   och behöver en enhet.
 2. **Signerad, read-only widget-/publicerings-endpoint.** Fas 3 i extern-MD-synken. När den
    byggs: håll `isReadableForAI`-filtret (tom upplåsnings­mängd) som det enda urvalet och lägg
    till en kort-livad signatur per snapshot — lägg till en ny `GUARDED`-byggare i

@@ -188,10 +188,30 @@ returnerade noten):
 7 tester i `folderEnrolment.test.ts`, inkl. ett end-to-end-bevis (enrol → seal → relock → unlock → läs
 tillbaka) som speglar /verify-checklistan headless.
 
+**Store-actions (Fas 3.3 — ✅ web).** Web-storen exponerar nu tre actions som UI:t bara anropar:
+`enrolFolderPassword(folderId, password)` (→ shared-orkestreringen, sätter sessions-FK + `updateNote`
+som persisterar bundlen via Fas 2.6), `unlockFolder(folderId, password)` (→ `unlockFolderWithPassword`
++ re-materialisering så mappens `v3f:`-noter dekrypteras), `changeFolderPassword(folderId, oldPw, newPw)`.
+`FolderUnlockError` (fel lösenord) propageras till anroparen. Tester: enrol sätter sessions-FK +
+persisterar bundle; unlock med rätt lösen återställer nyckeln, fel lösen → `FolderUnlockError` (förblir
+låst). (`preferred`-param låter test använda snabb PBKDF2; UI:t kör argon2id.) **Kvar:** samma actions i
+mobil-storen.
+
+**Två buggar hittade + fixade när enrol-vägen byggdes:**
+1. **Mappens eget namn fick inte sealas under sin egen nyckel.** Skriv-update resolvade tidigare nyckeln
+   från noten *själv* (`findBlockingLockedAncestor` matchar noten först), så att byta namn på en
+   krypto-mapp skulle seala mappnamnet under mappens egen nyckel → namnet doldes när mappen låstes (bryter
+   "projektnamn syns alltid"). Fixat: update resolvar nu från **containing folder** (`parentId`) precis som
+   create — `resolveSessionFolderKeyForNewNote((note).parentId, notes)` — i båda apparna. (En undermapp i en
+   krypto-mapp sealas fortfarande under förälderns nyckel, korrekt, eftersom den är en descendant.)
+2. **`FolderUnlockError instanceof` bröts i webb-bygget.** `class … extends Error` tappar prototypkedjan
+   vid ES5-transpilering (web/babel), så UI:ts `catch (e instanceof FolderUnlockError)` skulle missa
+   fel-lösenord. Fixat med `Object.setPrototypeOf(this, FolderUnlockError.prototype)` i konstruktorn.
+
 **Kvar (UI-skal, device-verifierat).** I projektmappens tre-prickarsmeny/editor: "Lås mappen med ett
-lösenord" → prompt → `enrolFolderPassword` → persistera `note`. Upplåsnings-prompt när man öppnar en
-låst krypto-mapp → `unlockFolderWithPassword`; fel lösenord → `FolderUnlockError` → visa "fel lösenord",
-lämna låst. Lösenordsbyte → `changeFolderPassword` → persistera `note`.
+lösenord" → prompt → store-action `enrolFolderPassword`. Upplåsnings-prompt när man öppnar en låst
+krypto-mapp → `unlockFolder`; fel lösenord → `FolderUnlockError` → visa "fel lösenord", lämna låst.
+Lösenordsbyte → `changeFolderPassword`.
 
 ## Manuell /verify-checklista (slutfasen)
 

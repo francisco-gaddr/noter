@@ -66,6 +66,10 @@ export class FolderUnlockError extends Error {
   constructor(message = 'Wrong folder password or corrupt folder key bundle') {
     super(message);
     this.name = 'FolderUnlockError';
+    // Restore the prototype chain so `instanceof FolderUnlockError` holds even when this is transpiled
+    // down to ES5 (the web/babel target), where `extends Error` otherwise loses it. Without this, the
+    // UI's `catch (e) { if (e instanceof FolderUnlockError) … }` would silently miss wrong-password errors.
+    Object.setPrototypeOf(this, FolderUnlockError.prototype);
   }
 }
 

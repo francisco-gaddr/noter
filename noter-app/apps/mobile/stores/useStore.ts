@@ -1074,7 +1074,9 @@ export const useStore = create<AppState>((set, get) => ({
 
       // 4. Encrypt — ADR-0012: re-seal title/content under the note's crypto-folder key when its folder
       // is unlocked (undefined → dataKey, a no-op until enrolment). `folderKey` is a local, never serialised.
-      const folderKey = resolveSessionFolderKeyForNote(currentNote as any, buildSecurityNoteMap(get().notes as any));
+      // ADR-0012: resolve from the CONTAINING folder (parentId), never the note itself — so a crypto
+      // folder's OWN name is never sealed under its own key (a project name must stay visible when locked).
+      const folderKey = resolveSessionFolderKeyForNewNote((currentNote as any).parentId, get().notes as any);
       const encryptedData: any = { ...data };
       if (data.title !== undefined) encryptedData.title = sealNoteFieldForWrite(data.title, folderKey);
       if (data.content !== undefined) encryptedData.content = sealNoteFieldForWrite(data.content, folderKey);
