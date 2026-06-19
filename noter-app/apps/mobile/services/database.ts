@@ -315,6 +315,16 @@ export const initDatabase = async () => {
       // Column likely exists
   }
 
+  // ADR-0012: the wrapped per-folder key bundle must survive an offline reload. Without this
+  // column a crypto-locked folder loaded from the local DB has no bundle → folderCryptoStatus
+  // returns 'plain' → the folder can never be unlocked offline and its v3f: notes stay
+  // permanently masked until a server re-sync. (Same class as the Note.source local-persist gap.)
+  try {
+      await db.execAsync('ALTER TABLE notes ADD COLUMN folderKeyBundle TEXT');
+  } catch (e) {
+      // Column likely exists
+  }
+
   try {
     await db.execAsync('ALTER TABLE sync_queue ADD COLUMN dedupeKey TEXT');
   } catch (e) {
@@ -454,9 +464,15 @@ export const saveNoteLocal = async (note: Note, isSynced: boolean = true) => {
         ? encrypt(serializeEntityLinks((note as any).links))
         : null);
 
+  // ADR-0012 per-folder crypto bundle: encrypted at rest under the dataKey (defence in depth —
+  // it carries no secret without the folder password, but encrypting it gates any offline
+  // brute-force of the folder password behind the dataKey too). Round-trips plain↔encrypted:
+  // getNotesLocal decrypts it back to the serialized bundle so readFolderKeyBundleFromNote works.
+  const encryptedFolderKeyBundle = (note as any).folderKeyBundle ? encrypt(String((note as any).folderKeyBundle)) : null;
+
   await run(
-    `INSERT OR REPLACE INTO notes (_id, title, content, tags, createdAt, updatedAt, userId, clientId, type, parentId, noteOrder, icon, iconColor, locked, password, isSynced, source, links)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO notes (_id, title, content, tags, createdAt, updatedAt, userId, clientId, type, parentId, noteOrder, icon, iconColor, locked, password, isSynced, source, links, folderKeyBundle)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       note._id,
       encryptedTitle,
@@ -475,7 +491,8 @@ export const saveNoteLocal = async (note: Note, isSynced: boolean = true) => {
       encryptedPassword,
       encryptedIsSynced,
       encryptedSource,
-      encryptedLinks
+      encryptedLinks,
+      encryptedFolderKeyBundle
     ]
   );
 };
@@ -517,6 +534,9 @@ export const getNotesLocal = async (): Promise<Note[]> => {
     const parentId = row.parentId ? decryptText(row.parentId, row.parentId) : null;
     const order = decryptNumber(row.noteOrder);
     const password = row.password ? decryptText(row.password, row.password) : undefined;
+    // ADR-0012: decrypt the per-folder key bundle back to its plain serialized form so
+    // readFolderKeyBundleFromNote can parse it (materializeOneNote preserves it via spread).
+    const folderKeyBundle = row.folderKeyBundle ? (safeDecrypt(row.folderKeyBundle, '') || undefined) : undefined;
 
     return {
         _id: row._id,
@@ -534,6 +554,9 @@ export const getNotesLocal = async (): Promise<Note[]> => {
         iconColor: iconColor || undefined,
         locked: locked,
         password: password || undefined,
+        // The per-folder crypto bundle is handed back already-decrypted (plain serialized
+        // bundle), unlike source/links — readFolderKeyBundleFromNote expects the plain form.
+        folderKeyBundle: folderKeyBundle,
         // Hand the still-encrypted provenance/links straight back; materializeOneNote
         // decrypts them (parseNoteSource / parseEntityLinks) like the server payload.
         source: row.source || undefined,

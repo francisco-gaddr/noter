@@ -303,6 +303,7 @@ låsvakt täcker dem automatiskt. Granskning (denna cykel), per yta:
 | Semantiskt index, `buildIndexableEntities` | `isReadableWithLocks(n, noteMap, unlockedIds)` (intern, ancestry-aware) | Låst krypto-mapp utesluts; upplåst indexeras via redan materialiserad klartext. |
 | Graf, `graphModel.buildGraph` | Inga `decrypt`-anrop — opererar på redan materialiserade (maskade) noter | Låst not visas som maskad nod ("🔒"), aldrig klartext. |
 | Kalender/CalDAV (`buildSafeCalendarProjection`) | `unlockedIds`-vakt (uppgifter, inte v3f:-noter) | Uppgifter under en låst not/mapp utesluts redan. |
+| Yjs/CRDT Live-brygga, `apps/{web,mobile}` `useMarkdownLiveSync` | `isLiveSafe` → `isReadableForAI`, **tom** upplåsnings-mängd (vägrar seed:a rummet före kollen) | En not i en låst krypto-mapp får aldrig en Live-session — varken join eller content-seed över socket. |
 
 **Inget läckage hittat** — alla ytor ärver krypto-mappskyddet. Regression låst med två nya
 shared-tester som specifikt kör den *ancestry-aware* vägen (inte notens egna `locked`-flagga) med en
@@ -311,6 +312,23 @@ och (2) `v3f:`-kuvertet aldrig dyker upp i någon utdata-sträng: `markdownVault
 ("never projects a note inside a locked crypto folder, and never leaks the v3f: envelope") +
 `vectorStore.test.ts` ("excludes a note inside a locked crypto folder and never indexes the v3f:
 envelope"). (Neo4j-uteslutningen av låsta subträd är redan testad i `neo4jSync.test.ts`.)
+
+**Lokal persistens (BÅDA apparna) — bunten måste överleva en offline-omladdning.** Separat från läckage:
+båda lokala lagren tappade `folderKeyBundle` på spar — mobilens SQLite-`notes`-tabell saknade kolumnen
+(`saveNoteLocal`) och webb/Electrons IndexedDB-post listade explicita fält utan den (`db.saveNote`),
+samma klass som `Note.source`-luckan (#154). Följd: en krypto-mapp som lästes från lokal lagring vid en
+**offline-start** hade ingen wrappad mappnyckel → `folderCryptoStatus` → `'plain'` → mappen gick aldrig
+att låsa upp offline och dess `v3f:`-noter förblev maskade tills en server-omsync. Fixat i **paritet**:
+- **Mobil:** `ALTER TABLE notes ADD COLUMN folderKeyBundle TEXT`; `saveNoteLocal` krypterar bunten i vila,
+  `getNotesLocal` dekrypterar tillbaka till klartext-bunten.
+- **Webb/Electron:** `db.saveNote` lägger `folderKeyBundle: encrypt(...)` i posten; `getNotes`/`getNote`
+  dekrypterar tillbaka (overridar `...n`-spreaden som annars bär det krypterat).
+
+Bunten krypteras i vila under dataKey (defense-in-depth: en offline-brute-force av mapplösenordet kräver
+då också dataKey) och `materializeOneNote` bevarar den via spread → `readFolderKeyBundleFromNote` kan
+parsa den. Bevisat av en riktig in-memory-SQLite-integrationstest
+(`apps/mobile/__tests__/database-folderkey-roundtrip.test.ts`, 3 tester): round-trip save→load, överlever
+en om-sparning utan dubbel-kryptering, och `undefined` för en vanlig not.
 
 ## Manuell /verify-checklista (slutfasen)
 

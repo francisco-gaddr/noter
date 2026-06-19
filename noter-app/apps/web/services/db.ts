@@ -184,6 +184,10 @@ export const db = {
           __rawEncryptedIcon: n.icon,
           __rawEncryptedIconColor: n.iconColor,
           password: (n as any).password ? (decryptText((n as any).password, (n as any).password) || (n as any).password) : undefined,
+          // ADR-0012: decrypt the per-folder key bundle back to its plain serialized form (overrides
+          // the `...n` spread, which carries the still-encrypted value) so readFolderKeyBundleFromNote
+          // can parse it; materializeOneNote preserves it via spread.
+          folderKeyBundle: (n as any).folderKeyBundle ? (safeDecrypt((n as any).folderKeyBundle, '') || undefined) : undefined,
           createdAt: typeof (n as any).createdAt === 'string' ? safeDecrypt((n as any).createdAt, (n as any).createdAt) : new Date().toISOString(),
           updatedAt: typeof (n as any).updatedAt === 'string' ? safeDecrypt((n as any).updatedAt, (n as any).updatedAt) : new Date().toISOString(),
           pendingSync: parseEncryptedBool((n as any).pendingSync),
@@ -239,6 +243,9 @@ export const db = {
         __rawEncryptedIcon: note.icon,
         __rawEncryptedIconColor: note.iconColor,
         password: (note as any).password ? (decryptText((note as any).password, (note as any).password) || (note as any).password) : undefined,
+        // ADR-0012: decrypt the per-folder key bundle back to plain (overrides the `...note` spread)
+        // so readFolderKeyBundleFromNote can parse it after an offline IndexedDB reload.
+        folderKeyBundle: (note as any).folderKeyBundle ? (safeDecrypt((note as any).folderKeyBundle, '') || undefined) : undefined,
         createdAt: typeof (note as any).createdAt === 'string' ? safeDecrypt((note as any).createdAt, (note as any).createdAt) : new Date().toISOString(),
         updatedAt: typeof (note as any).updatedAt === 'string' ? safeDecrypt((note as any).updatedAt, (note as any).updatedAt) : new Date().toISOString(),
         pendingSync: parseEncryptedBool((note as any).pendingSync),
@@ -269,6 +276,11 @@ export const db = {
         createdAt: encrypt(String(note.createdAt)),
         updatedAt: encrypt(String(note.updatedAt)),
         type: note.type ? encrypt(note.type) : note.type,
+        // ADR-0012: the wrapped per-folder key bundle must survive an offline reload from
+        // IndexedDB, otherwise a crypto-locked folder loads with no bundle → folderCryptoStatus
+        // 'plain' → un-unlockable offline + v3f: notes stay masked. Encrypted at rest like the
+        // rest of the record; getNotes/getNote decrypt it back to the plain serialized bundle.
+        folderKeyBundle: (note as any).folderKeyBundle ? encrypt(String((note as any).folderKeyBundle)) : undefined,
         pendingSync: encrypt(String(!!pendingSync)),
         deleted: (note as any).deleted !== undefined ? encrypt(String(!!(note as any).deleted)) : (note as any).deleted
     };
