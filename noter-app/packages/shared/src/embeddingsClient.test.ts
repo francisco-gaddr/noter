@@ -58,4 +58,24 @@ describe('embedTexts', () => {
     expect(out).toEqual([[9, 9]]);
     expect(n).toBe(2); // one retry
   });
+  it('throws when the endpoint returns FEWER vectors than inputs (no silent under-indexing)', async () => {
+    // 3 inputs but only 2 vectors back → the 3rd input would otherwise be recorded as embedded
+    // with no vector. Must throw so the batch is retried, not half-written.
+    const fakeFetch = (async () => ({
+      ok: true,
+      json: async () => ({ data: [{ index: 0, embedding: [1] }, { index: 1, embedding: [2] }] }),
+    }) as any) as unknown as typeof fetch;
+    await expect(
+      embedTexts({ url: 'x', model: 'm', inputs: ['a', 'b', 'c'], fetchImpl: fakeFetch }),
+    ).rejects.toThrow(/fel antal vektorer/);
+  });
+  it('throws when a returned vector is empty (malformed embedding)', async () => {
+    const fakeFetch = (async () => ({
+      ok: true,
+      json: async () => ({ data: [{ index: 0, embedding: [1, 2] }, { index: 1, embedding: [] }] }),
+    }) as any) as unknown as typeof fetch;
+    await expect(
+      embedTexts({ url: 'x', model: 'm', inputs: ['a', 'b'], fetchImpl: fakeFetch }),
+    ).rejects.toThrow(/tom vektor/);
+  });
 });

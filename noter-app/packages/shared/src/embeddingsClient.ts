@@ -84,5 +84,16 @@ export const embedTexts = async (params: EmbedTextsParams): Promise<number[][]> 
     throw new Error(text || `Inbäddningsanrop misslyckades (${response.status})`);
   }
   const json = await response.json();
-  return parseEmbeddingsResponse(json, inputs.length);
+  const vectors = parseEmbeddingsResponse(json, inputs.length);
+  // Fail LOUDLY on a count mismatch or an empty vector. The caller pairs inputs↔vectors
+  // positionally; a short or padded response would otherwise leave the tail inputs with no
+  // (or a wrong) vector, yet they'd be recorded as "embedded" — silently un-searchable forever.
+  // A clean throw makes indexEntities mark the batch failed so it is retried, not half-written.
+  if (vectors.length !== inputs.length) {
+    throw new Error(`Inbäddningssvaret hade fel antal vektorer (fick ${vectors.length}, väntade ${inputs.length})`);
+  }
+  if (vectors.some((v) => !v.length)) {
+    throw new Error('Inbäddningssvaret innehöll en tom vektor');
+  }
+  return vectors;
 };
