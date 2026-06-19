@@ -31,17 +31,22 @@ const nextConfig = {
 
   serverExternalPackages: ['node-llama-cpp'],
 
-  // Server Actions and custom headers require a server — omit them from the static
-  // export so `next build` doesn't reject `output: 'export'`.
+  // React Compiler (React 19, GA): auto-memoizes components app-wide, so a streaming AI
+  // chat re-renders only the changing message instead of the whole (non-virtualized) thread,
+  // and the note/task lists re-render far less. The compiler conservatively BAILS OUT of any
+  // component it can't safely optimize, so it's a low-risk, build-time-only optimization.
+  // Applies to BOTH the SSR build and the Electron static export. (serverActions are kept
+  // inside this block but only for the server build — a static export can't serve them.)
+  experimental: {
+    reactCompiler: true,
+    ...(isElectronExport ? {} : { serverActions: { bodySizeLimit: '10gb' } }),
+  },
+
+  // Custom headers + redirects require a server — omit them from the static export so
+  // `next build` doesn't reject `output: 'export'`.
   ...(isElectronExport
     ? {}
     : {
-        // Increase max body size and response timeout for large AI model downloads
-        experimental: {
-          serverActions: {
-            bodySizeLimit: '10gb',
-          },
-        },
         // CalDAV/CardDAV auto-discovery (RFC 6764). The public edge routes everything
         // outside /api to this web app, so the well-known bootstrap that Apple
         // Reminders/Calendar require lands here. Redirect it (301) to the CalDAV

@@ -94,6 +94,27 @@ jobs:
         continue-on-error: true
         run: npm run knip
 
+  web-build:
+    name: web · next build (SSR)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: noter-app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: noter-app/package-lock.json
+      - run: npm ci
+      # The jest/tsc gates never run a real Next build, so a build-time failure — a React
+      # Compiler bail/error, a bad server/client boundary, a broken import — would only
+      # surface on the Pi deploy. Build the SSR app here so it's caught in CI first.
+      - name: Build web (SSR)
+        run: cd apps/web && npx next build
+
   electron-quality:
     name: electron-noter · tests
     runs-on: ubuntu-latest

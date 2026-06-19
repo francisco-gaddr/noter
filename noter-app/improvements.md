@@ -21,7 +21,7 @@
 - [x] **Bundle Size**: Analyzed mobile bundle size (~6.53 MB Hermes bytecode).
   - *Action*: Optimized imports (e.g., `lodash`).
   - *Status*: Reasonable size for current feature set.
-- [x] **React Compiler**: Enabled React Compiler (experimental) in `next.config.js` and installed babel plugin.
+- [x] **React Compiler**: The babel plugin was installed but `next.config.js` never actually turned it on (only `serverActions` was in `experimental`). NOW genuinely enabled (`experimental.reactCompiler: true`) for both the SSR and Electron-export builds — React 19 + Next 16, GA compiler. Auto-memoizes app-wide: streaming AI chat re-renders only the changing message (the thread is not virtualized), and the note/task lists re-render far less. Verified with a real `next build` (exit 0) + the web critical suites (29 pass); a new CI `web-build` job now runs `next build` so a build-time break can't slip past the jest/tsc gates onto the Pi deploy.
 
 ## Code Quality & Maintenance
 
