@@ -74,6 +74,11 @@ jobs:
           node scripts/check-index-unlock-leak.mjs
           node scripts/check-index-unlock-leak.mjs --selftest
           (cd packages/shared && npx jest neo4jSync)
+      # Invariant: encryption/decryption only via @repo/shared (no direct E2E cipher in apps).
+      - name: Crypto-boundary guard (blocking)
+        run: |
+          node scripts/check-crypto-boundary.mjs
+          node scripts/check-crypto-boundary.mjs --selftest
       # AI provider resilience: per-request timeouts + bounded transient retries (shared
       # httpRetry) and the streaming partial-keep / cancel / empty-stream-fallback
       # behaviour. Guards the "silent provider hangs the AI tab" and the duplicated-answer

@@ -55,6 +55,20 @@ const steps = [
     args: ['scripts/check-index-unlock-leak.mjs', '--selftest'],
   },
   {
+    // Invariant: ENCRYPTION goes only through @repo/shared. Fails if an app/backend file
+    // reaches for the E2E cipher (@noble/ciphers / CryptoJS.AES) directly.
+    label: 'Crypto-boundary guard (encryption only via @repo/shared)',
+    cwd: repoRoot,
+    command: 'node',
+    args: ['scripts/check-crypto-boundary.mjs'],
+  },
+  {
+    label: 'Crypto-boundary guard self-test',
+    cwd: repoRoot,
+    command: 'node',
+    args: ['scripts/check-crypto-boundary.mjs', '--selftest'],
+  },
+  {
     // Shared is the crypto/widget foundation — gate it first so a broken
     // encrypt/cryptoV3/widgetData can't reach any app.
     label: 'Shared package tests (crypto, widgets, key bootstrap)',
