@@ -27,6 +27,7 @@ audit-rapporter till CISO / kund-säkerhetsteam i ett standardformat.
 | T18 | Loggar läcker secrets | CWE-532 (insertion of sensitive info into log) | — | mitigerad: `sanitizeLogInfo` redaction |
 | T19 | IDOR: läs/skriv/radera annan users note/task via gissat id | CWE-639 (authorization bypass through user-controlled key) | CWE-862 (missing authorization) | mitigerad: alla `/:id`-handlers scopar på `userId` (se nedan) |
 | T20 | Låst anteckning/projekt läcker till extern publicering, index eller export — även en mapp användaren tillfälligt låst upp i UI:t | CWE-200 (exposure of sensitive information to an unauthorized actor) | CWE-359 (privacy violation) | mitigerad: tom upplåsnings­mängd till alla automat-läsare + mekanisk läck-grind (se nedan) |
+| T21 | Per-mapp krypto-gräns: mapp-lösenordet får inte nå servern, och mapp-nyckeln får inte ligga kvar i minnet när appen lämnas | CWE-522 (insufficiently protected credentials) | CWE-316 (cleartext storage of sensitive info in memory) / CWE-311 | delvis: krypto-kärna + livscykel byggd & testad (ADR-0012); UI-skalet som *ersätter* `verifyLock` återstår (device-gated, se nedan) |
 
 ## T19 — IDOR i `/:id`-handlers (åtgärdad 2026-06-13)
 
@@ -101,6 +102,37 @@ falska positiva — så själva grinden inte kan ruttna till en no-op. Båda kö
 beslutslogiken testas i `packages/shared locks.test.ts` (`shouldRelockOnIdle`), och
 `relockProtectedFolders` (mask-effekten) i `apps/{web,mobile} __tests__/store.test.ts`. Se
 [`../../noter-app/docs/LOCKED_FOLDER_SECURITY.md`](../../noter-app/docs/LOCKED_FOLDER_SECURITY.md) §2.
+
+## T21 — Per-mapp kryptografisk gräns (ADR-0012, pågående)
+
+T20 *maskar* låst innehåll (filter); T21 gör en låst projektmapp **kryptografiskt** oläsbar utan dess
+lösenord — en slumpad mapp-nyckel (FK) wrappad under en mapp-lösenords-härledd rotnyckel (Argon2id,
+PBKDF2-fallback). Notfält sealas till ett `v3f:`-kuvert under FK:n, inte användarens `dataKey`. Den
+fullständiga designen + migrationsplanen bor i
+[`../adr/0012-per-folder-encryption.md`](../adr/0012-per-folder-encryption.md).
+
+**Två säkerhetsegenskaper denna post bevakar:**
+
+1. **CWE-522 — lösenordet får aldrig nå servern.** Den *befintliga* mapp-låsningen är backend-verifierad:
+   `unlockNote` → `verifyLock` → `POST /notes/:id/verify-lock` skickar `{ password }` till servern som
+   `bcrypt.compare`:ar mot ett lagrat `Note.password`-hash. Krypto-lösenordet härleder däremot FK:n enbart
+   på klienten. Därför **MÅSTE** UI-integrationen låta kryptot *ersätta* backend-lösenordet för krypto-mappar
+   (ingen `Note.password`, ingen `verifyLock`; läsbarhet gat:as på den klient-sidiga FK:n) — annars läcker
+   mapp-lösenordet till servern och E2E-poängen faller. Beslutet + bakåtkompat-vägen är fastnaglade i ADR
+   §Säkerhetsbeslut. **Enhets-verify:** inget `verify-lock`-anrop och inget `password`-fält på tråden för en
+   krypto-mapp.
+
+2. **CWE-316 — FK:n får inte ligga kvar i minnet när appen lämnas.** FK-sessionen (`folderKeySession.ts`)
+   är endast i minnet (aldrig persisterad/loggad), äger en kopia och nollar bytena. Den töms vid app-lås/
+   logout (Fas 2.3) **och** vid idle/bakgrund/tab-hide (`relockProtectedFolders`, Fas 3.9). Navigering *inom*
+   appen behåller medvetet FK:n (så bakgrunds-/samtidiga skrivningar till mappen fortfarande sealar till
+   `v3f:`). Livscykeln är koordinerad med filter-mask-mängden (`unlockedProtectedNoteIds`, Fas 3.8).
+
+**Status:** krypto-kärnan (primitiver, läs/skriv-seal, FK-session, enrol/unlock/byt-lösen, status-query),
+backend-passthrough av bundlen (opak, bara till ägaren, aldrig via GraphQL/AI) och hela lås-livscykeln är
+byggda och testade headless i båda apparna (commits `…2.6`→`3.9`). **Återstår:** UI-skalet i
+projektmapp-menyn som anropar store-actionsen och *ersätter* `verifyLock` — device-gated, måste verifieras
+på enhet enligt ADR §Slutfas /verify-checklista.
 
 ## Format för audit-export
 

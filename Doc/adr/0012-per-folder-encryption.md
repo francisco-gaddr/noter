@@ -262,7 +262,7 @@ mapp kvarstår.
 lösenord" på en projektmapp enrollar krypto utan att sätta backend-lösenord. **Bakåtkompat:** befintliga
 mappar med backend-lösen men utan bundle fortsätter använda `verifyLock` tills de re-låses/uppgraderas;
 `folderCryptoStatus` returnerar `'plain'` för dem så den gamla vägen är orörd. Detta beslut är
-säkerhetskritiskt (CWE-522/T20) och bör verifieras på enhet: inspektera att inget `verify-lock`-anrop och
+säkerhetskritiskt (CWE-522 / hot T21 i `Doc/security/cwe-mapping.md`) och bör verifieras på enhet: inspektera att inget `verify-lock`-anrop och
 inget `password`-fält går på tråden för en krypto-mapp.
 
 ## Manuell /verify-checklista (slutfasen)
