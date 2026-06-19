@@ -107,10 +107,11 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
   **E:M R:med** · Togglen renderas och sparas men wire:as bara efter Nextcloud-sync (och den
   kollar inte ens flaggan). Antingen **implementera** (debouncad bakgrunds-`indexEntities` i
   note/task-save-vägen) **eller ta bort** UI:t. Inte låt den sitta död.
-- **Embeddings count-mismatch hoppar tyst över noter** · `packages/shared/src/embeddingsClient.ts:39-54` ·
-  **E:S R:med** · `parseEmbeddingsResponse` returnerar färre vektorer än efterfrågat utan fel;
-  `indexEntities` itererar alla items men de utan vektor markeras ändå som indexerade → de blir
-  permanent osökbara. Kasta/propagera fel vid count-mismatch.
+- ✅ **[KLAR 2026-06-19] Embeddings count-mismatch hoppar tyst över noter** ·
+  `packages/shared/src/embeddingsClient.ts` · `embedTexts` kastar nu vid count-mismatch eller tom
+  vektor; `indexEntities` fångar det och returnerar `ok:false` utan att spara ett partiellt index →
+  batchen retries istället för att halv-skrivas. Pure `parseEmbeddingsResponse` förblir lenient.
+  2 nya tester.
 - **Index-korruption tyst vid krypto-fel** · `apps/{web,mobile}/services/ai/embeddingsService.ts` ·
   **E:S R:high** · `readEncryptedJson`/`writeEncryptedJson` sväljer alla fel och returnerar
   fallback → ett krypto-fel kan tyst spara skräp eller radera hela vektor-indexet utan att
