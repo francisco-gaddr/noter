@@ -104,6 +104,50 @@ E2E redan har; en mapp-recovery-kod kan övervägas senare).
 Krav som måste hålla (invarianter, se index §3): bakåtkompatibel läsning av `v3:`-noter; krypto bara
 från `@repo/shared`; FK lämnar aldrig minnet; logga aldrig FK/lösenord.
 
+## Slutfas — implementations-spec för enrolment + skriv-seal (device-verifierad)
+
+Allt ovan (Fas 1 + 2.1–2.6) är byggt och testat headless. Det som återstår *skapar* riktig
+`v3f:`-data och rör den heta spar-vägen, så det görs i en egen cykel med en manuell `/verify` på en
+riktig enhet/webbkörning. Designen är fastställd här så cykeln inte gissar:
+
+**Skriv-seal — var den ska ligga (undvik dubbel-kryptering).** Krypterings-gränsen för noter är
+`apps/web/services/api.ts` (`createNote`: `title: encrypt(data.title)`, `content: encrypt(data.content)`;
+`updateNote` likadant) och motsvarande i `apps/mobile/services/api.ts`. `encrypt()` använder
+användarens `dataKey`. **Seal-beslutet (vilken nyckel) hör hemma i storen** (den har note-mappen
+för att hitta närmaste låsta förälder), inte i `api.ts`. Plan:
+1. Storen resolvar `folderKey = getFolderKey(<närmaste låsta förälder till parentId>)` (samma
+   `findBlockingLockedAncestor(..., new Set())`-logik som läs-vägen redan använder) och skickar in
+   den som ett **valfritt** fält på DTO:t (`CreateNoteDto`/`UpdateNoteDto`: `folderKey?: Uint8Array`).
+2. `api.ts` blir: `title: data.folderKey ? wrapNoteForFolder(data.title, data.folderKey) : encrypt(data.title)`
+   (samma för `content`). Så fält i en krypto-skyddad mapp sealas till `v3f:` i stället för att
+   `dataKey`-krypteras — **aldrig båda** (ingen dubbel-wrap). Övriga fält (tags/icon/…) lämnas tills
+   vidare på `dataKey`-vägen; bara `title`/`content` är känsligt nog för Fas 1.
+3. `folderKey` får **aldrig** loggas eller sparas i offline-kön i klartext — offline-kön sparar redan
+   det krypterade DTO:t, så sealen måste ske *före* enqueue (dvs. i `api.ts` precis som `encrypt`).
+
+**Enrolment-flöde (UI, båda appar).** I projektmappens tre-prickarsmeny/editor: "Lås den här mappen
+med ett lösenord" → fråga lösenord → `createFolderKey(lösenord)` → `updateNote(folderId, withFolderKeyBundle(folder, bundle))`
+(persisteras nu av backend) → `setFolderKey(folderId, key)` → re-materialisera. Upplåsnings-prompt när
+man öppnar en låst krypto-mapp: `unlockFolderKey(lösenord, readFolderKeyBundleFromNote(folder))` →
+`setFolderKey`; fel lösenord → `FolderUnlockError` → visa "fel lösenord", lämna låst. Lösenordsbyte:
+`rewrapFolderKey` → uppdatera bundlen.
+
+## Manuell /verify-checklista (slutfasen)
+
+1. Skapa en projektmapp → "Lås med lösenord" → ange lösenord. Mappnoten får `folderKeyBundle`
+   (verifiera i nätverksanropet/DB), FK i sessionen.
+2. Skapa en not i mappen, skriv text, spara. **Verifiera i nätverksanropet/DB att `title`/`content`
+   börjar med `v3f:`** (inte `v3:`) — sealad under mapp-nyckeln, inte dataKey.
+3. Lås appen (eller logga ut) → öppna igen. Noten ska visa **mask** ("Låst anteckning" / tomt
+   innehåll), **aldrig** chiffertexten. AI/index/publicering ska aldrig se mappen (lås-filtret).
+4. Ange mapp-lösenordet → noten blir läsbar igen (FK åter i sessionen).
+5. Byt mapp-lösenord → gammalt lösenord slutar fungera, noterna förblir läsbara (re-wrap, ingen
+   om-kryptering).
+6. **Regressions-skydd:** befintliga `v3:`-noter (utanför krypto-mappar) är oförändrade — skapa/öppna/
+   redigera/synka en vanlig not och en vanlig låst (endast filtrerad) mapp som vanligt.
+7. Synk: `v3f:`-innehåll + `folderKeyBundle` överlever en round-trip till backend och tillbaka på en
+   andra enhet (backend-passthrough är redan headless-testad; verifiera multi-device manuellt).
+
 ## Open questions
 
 - **Mapp-recovery:** ska en mapp ha en egen recovery-kod (som E2E-kontot) för glömt mapp-lösenord,

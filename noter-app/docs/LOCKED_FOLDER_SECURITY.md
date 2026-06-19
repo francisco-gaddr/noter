@@ -177,34 +177,35 @@ not just by hiding the menu item:
 Skrivet så att en framtida modell/utvecklare kan **höja** skyddet utan att bryta nuvarande
 garantier. Varje punkt är additiv — invarianterna i §7 måste fortsatt hålla.
 
-1. **Distinkt nyckel per låst mapp (kryptografisk, inte bara filtrering).** 🟡 **Fas 1 levererad.**
-   Beslut + migrationsplan i [`../../Doc/adr/0012-per-folder-encryption.md`](../../Doc/adr/0012-per-folder-encryption.md).
-   Krypto-primitiven finns i `packages/shared/src/folderKey.ts` (+ `folderKey.test.ts`, 18 tester i
-   den blockerande grinden): varje skyddad mapp får en slumpad **mapp-nyckel** (FK) wrappad under en
-   mapp-lösenords-härledd rotnyckel (Argon2id, PBKDF2-fallback) — `createFolderKey` / `unlockFolderKey`
-   / `rewrapFolderKey` (lösenordsbyte = re-wrap, ingen om-kryptering). Notfält sealas med
-   `wrapNoteForFolder` till ett **`v3f:`**-kuvert som läsvägen kan skilja från `v3:` (under användarens
-   `dataKey`) — så befintliga låsta noter förblir läsbara (bakåtkompatibelt, invariant §3 i indexet).
-   Två shared-byggstenar är nu levererade: **läs-dispatchen** `materializeFolderField` (`encrypt.ts`,
-   dekrypterar ett `v3f:`-fält bara när mappens FK finns, annars mask; `safeDecrypt`/`decrypt`
-   returnerar masken aldrig kuvertet om ett `v3f:`-värde råkar nå dem utan FK — defense-in-depth),
-   och **FK-sessionen** `folderKeySession.ts` (in-memory-only karta mapp-id→FK, äger en kopia, nollar
-   bytena vid omlåsning, töms av `clearAllFolderKeys()` vid app-lås/logout). **Kvar (kommande faser,
-   se ADR §Migration):** lagra `FolderKeyBundle` på mappnoten; anropa `unlockFolderKey`→`setFolderKey`
-   vid mapp-upplåsning och `materializeFolderField`/`wrapNoteForFolder` med `getFolderKey(folderId)`
-   på mappnoten (✅ **klart**: `Note.folderKeyBundle?: string` +
-   `readFolderKeyBundleFromNote`/`withFolderKeyBundle` i `folderKey.ts`, **och backend-passthrough**
-   — Mongoose-modell + Joi-scheman + update-handler i `routes/notes.ts` lagrar/returnerar fältet
-   opakt, bara till ägaren, aldrig via GraphQL/AI-ytan; round-trip + cross-user-test i
-   `ownership-isolation.test.ts`); samt en mekanisk grind som håller `v3f:` borta från
-   publicerings-/index-ytor.
-   ✅ **Läs-vägen är wired i båda stores:** `materializeOneNote` dispatchar `title`/`content` via
-   `materializeFolderField` med `getFolderKey(<närmaste låsta förälder>)` (no-op för all befintlig
-   data; test: "materializes a v3f note decrypted with the session folder key, masked without it").
-   ✅ **Clear-on-lock är wired:** båda stores tömmer FK-sessionen (`clearAllFolderKeys()`) vid
-   app-lås/logout. **Kvar:** enrolment (sätt mapp-lösenord → `createFolderKey` + lagra
-   `FolderKeyBundle` på mappnoten + `setFolderKey`) och skriv-vägen (`wrapNoteForFolder`) — de delar
-   som *skapar* `v3f:`-noter — **inte** wired ännu (kräver enhets-/runtime-verifiering).
+1. **Distinkt nyckel per låst mapp (kryptografisk, inte bara filtrering).** Beslut, migrationsplan,
+   implementations-spec för slutfasen + manuell verifieringschecklista i
+   [`../../Doc/adr/0012-per-folder-encryption.md`](../../Doc/adr/0012-per-folder-encryption.md).
+   **Modell:** varje skyddad mapp får en slumpad **mapp-nyckel** (FK) wrappad under en
+   mapp-lösenords-härledd rotnyckel (Argon2id, PBKDF2-fallback); FK lever bara i minnet efter att man
+   angett mapp-lösenordet. En nots `title`/`content` sealas med `wrapNoteForFolder` till ett
+   **`v3f:`**-kuvert som läsvägen skiljer från `v3:` (under `dataKey`) — så befintliga låsta noter
+   förblir läsbara (bakåtkompatibelt, invariant §3 i indexet).
+
+   **✅ Levererat och testat headless (Fas 1 + 2.1–2.6):**
+   - `folderKey.ts` — `createFolderKey`/`unlockFolderKey`/`rewrapFolderKey` (lösenordsbyte = re-wrap,
+     ingen om-kryptering), `wrapNoteForFolder`/`unwrapNoteForFolder`, samt bundle-lagring
+     (`readFolderKeyBundleFromNote`/`withFolderKeyBundle`).
+   - `encrypt.ts` `materializeFolderField` — läs-dispatch (FK → dekryptera, annars mask); och
+     `safeDecrypt`/`decrypt` returnerar masken (aldrig kuvertet) om ett `v3f:`-värde når dem utan FK.
+   - `folderKeySession.ts` — in-memory-only FK-session, äger en kopia, nollar bytena, **töms vid
+     app-lås/logout** (wired i båda stores).
+   - **Läs-vägen wired i båda stores** (`materializeOneNote`, inkl. den chunkade synk-vägen) — no-op
+     för all befintlig data, test: "materializes a v3f note decrypted with the session folder key,
+     masked without it".
+   - **Backend-passthrough** — `Note.folderKeyBundle` lagras/returneras opakt, bara till ägaren,
+     aldrig via GraphQL/AI-ytan (`ownership-isolation.test.ts`).
+   - **Publicering/index:** `v3f:`-noter ligger alltid i en låst mapp, som redan utesluts av lås-filtret
+     (tom upplåsnings­mängd, T20) från alla publicerings-/index-ytor — inget separat skydd behövs.
+
+   **Kvar (egen cykel, enhets-/runtime-verifierad — spec + checklista i ADR §Slutfas):** enrolment-UI
+   (sätt mapp-lösenord → `createFolderKey` → `withFolderKeyBundle` → `setFolderKey`) och **skriv-sealen**
+   (`wrapNoteForFolder` i `api.ts`-krypterings­gränsen när mappen har en sessions-FK) — de delar som
+   *skapar* den första riktiga `v3f:`-datan.
 2. **Signerad, read-only widget-/publicerings-endpoint.** Fas 3 i extern-MD-synken. När den
    byggs: håll `isReadableForAI`-filtret (tom upplåsnings­mängd) som det enda urvalet och lägg
    till en kort-livad signatur per snapshot — lägg till en ny `GUARDED`-byggare i
