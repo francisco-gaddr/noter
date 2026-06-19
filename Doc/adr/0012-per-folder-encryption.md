@@ -67,9 +67,13 @@ E2E redan har; en mapp-recovery-kod kan övervägas senare).
 1. **Bundle-lagring.** `FolderKeyBundle` lagras på projektmapp-noten (t.ex. ett fält krypterat med
    användarens dataKey, eller som klartext eftersom det inte innehåller någon hemlighet utan
    lösenordet). En mapp utan bundle = "gammal stil" (endast filtrerad) och måste fortsatt fungera.
-2. **Opt-in enrolment.** När användaren sätter/ändrar ett mapp-lösenord: `createFolderKey` →
-   spara bundle; håll FK i en in-memory-only sessionskarta (mapp-id → FK), aldrig persisterad,
-   nollad vid omlåsning (mirror `unlockedProtectedNoteIds`).
+2. **Opt-in enrolment + FK-session.** ✅ **Session-mekanismen levererad**
+   (`packages/shared/src/folderKeySession.ts`, 10 tester): `setFolderKey`/`getFolderKey`/
+   `hasFolderKey`/`clearFolderKey`/`clearAllFolderKeys`/`unlockedFolderIds` — en in-memory-only karta
+   (mapp-id → FK), aldrig persisterad, aldrig loggad, äger en kopia av varje nyckel och nollar
+   bytena vid omlåsning. **Kvar:** anropa `unlockFolderKey` → `setFolderKey` när användaren sätter/
+   anger mapp-lösenordet, och `clearAllFolderKeys()` vid app-lås/logout (mirror
+   `unlockedProtectedNoteIds`).
 3. **Skriv-väg.** Noter i en mapp med bundle sealas med `wrapNoteForFolder(fält, FK)` i stället för
    `encrypt(...)` under dataKey. Endast medan mappen är upplåst (FK i minnet).
 4. **Läs-väg (`materializeOneNote`).** ✅ **Shared-dispatch levererad** (`materializeFolderField`

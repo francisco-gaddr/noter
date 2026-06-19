@@ -11,6 +11,7 @@ export * from './noteType';
 export * from './aiPlacement';
 export * from './locks';
 export * from './folderKey';
+export * from './folderKeySession';
 export * from './shareLists';
 export * from './presetProviders';
 export * from './agentTasks';
