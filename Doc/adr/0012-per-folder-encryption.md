@@ -68,9 +68,14 @@ E2E redan har; en mapp-recovery-kod kan övervägas senare).
    bundle, klartext — den innehåller ingen hemlighet utan lösenordet) + de rena hjälparna
    `readFolderKeyBundleFromNote` / `noteHasFolderKeyBundle` / `withFolderKeyBundle` i `folderKey.ts`
    (4 tester). En mapp utan bundle = "gammal stil" (endast filtrerad) och fortsätter fungera
-   (`readFolderKeyBundleFromNote` → null). **Kvar:** enrolment som faktiskt *skriver* fältet på
-   mappnoten, samt att backend/Mongoose-schemat tillåter `folderKeyBundle` (eller att fältet ligger
-   i den krypterade nyttolasten) så det överlever sync.
+   (`readFolderKeyBundleFromNote` → null). ✅ **Backend-passthrough klar:** `Note`-modellen
+   (Mongoose) + create/update-Joi-scheman + uppdaterings-handlern i `apps/backend/src/routes/notes.ts`
+   tillåter nu `folderKeyBundle` (som **vanlig sträng** — inte `encryptedRequired` — eftersom den inte
+   är användarchiffertext utan en bundle utan hemlighet). Servern inspekterar/dekrypterar den aldrig;
+   den lagras + returneras opakt och **bara till ägaren** (bevisat av
+   `__tests__/routes/ownership-isolation.test.ts`: round-trip create→fetch→update + cross-user-läcktest).
+   GraphQL-`NoteType` exponerar den medvetet **inte** (AI-ytan ska aldrig se en låst mapps material).
+   **Kvar:** enrolment som faktiskt *skriver* fältet på mappnoten (device-verifierat).
 2. **Opt-in enrolment + FK-session.** ✅ **Session-mekanismen levererad**
    (`packages/shared/src/folderKeySession.ts`, 10 tester): `setFolderKey`/`getFolderKey`/
    `hasFolderKey`/`clearFolderKey`/`clearAllFolderKeys`/`unlockedFolderIds` — en in-memory-only karta

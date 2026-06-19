@@ -41,6 +41,9 @@ const noteSchema = Joi.object({
   type: encryptedRequired.required(),
   links: encryptedOptional.optional(),
   source: encryptedOptional.optional(),
+  // Per-folder crypto bundle (ADR-0012): a serialized FolderKeyBundle, NOT a content ciphertext —
+  // it carries no secret without the folder password, so it is a plain string (not encryptedOptional).
+  folderKeyBundle: Joi.string().allow('').optional(),
   clientId: Joi.string().allow('').optional(),
   createdAt: encryptedRequired.required(),
   updatedAt: encryptedRequired.required()
@@ -58,6 +61,7 @@ const updateSchema = Joi.object({
   type: Joi.alternatives().try(Joi.valid(null), encryptedOptional).optional(),
   links: encryptedOptional.optional(),
   source: encryptedOptional.optional(),
+  folderKeyBundle: Joi.string().allow('').optional(), // serialized FolderKeyBundle (ADR-0012), plain (no secret)
   createdAt: encryptedOptional.optional(),
   updatedAt: encryptedOptional.optional()
 });
@@ -361,6 +365,7 @@ router.put('/:id', validate(updateSchema), async (req: Request, res: Response, n
       if (value.icon !== undefined) note.icon = value.icon;
       if ((value as any).links !== undefined) (note as any).links = (value as any).links;
       if ((value as any).source !== undefined) (note as any).source = (value as any).source;
+      if ((value as any).folderKeyBundle !== undefined) (note as any).folderKeyBundle = (value as any).folderKeyBundle;
       if (value.order !== undefined) note.order = value.order;
       if (value.createdAt !== undefined) note.createdAt = value.createdAt; // Handle encrypted timestamps
       if (value.updatedAt !== undefined) note.updatedAt = value.updatedAt; // Handle encrypted timestamps

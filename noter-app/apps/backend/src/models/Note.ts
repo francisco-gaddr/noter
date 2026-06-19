@@ -11,6 +11,11 @@ export interface INote extends Document {
   password?: string;
   links?: string; // Encrypted JSON array of {targetId, rel}
   source?: string; // Encrypted JSON provenance for externally-ingested notes (NoteSource)
+  // Per-folder crypto bundle (ADR-0012) for a cryptographically-protected project folder. Opaque to
+  // the zero-knowledge server: it is a serialized FolderKeyBundle (salt + kdf + the folder key
+  // wrapped under the folder password) — NOT a user-content ciphertext — and holds no secret usable
+  // without the folder password. The server never inspects/decrypts it; it only stores + returns it.
+  folderKeyBundle?: string;
   icon?: string; // Encrypted
   order?: string;
   type?: 'note' | 'task_list' | 'project'; // Encrypted
@@ -29,6 +34,7 @@ const NoteSchema: Schema = new Schema({
   password: { type: String, select: false }, // Don't return by default
   links: { type: String, default: '' }, // Encrypted JSON array of {targetId, rel}
   source: { type: String, default: '' }, // Encrypted JSON provenance (NoteSource) — externally-ingested notes
+  folderKeyBundle: { type: String, default: '' }, // Serialized FolderKeyBundle (ADR-0012); opaque, never decrypted server-side
   icon: { type: String, default: null }, // Encrypted
   order: { type: String, default: '' },
   type: { type: String, default: 'note' }, // Encrypted

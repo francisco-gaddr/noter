@@ -89,6 +89,37 @@ describe('ownership isolation (IDOR guards) + CRUD round-trip', () => {
     expect(afterDelete.status).toBe(404);
   });
 
+  // ADR-0012: a project-folder note's `folderKeyBundle` (a serialized, NON-encrypted bundle that
+  // carries no secret without the folder password) must survive create→fetch→update unchanged, and
+  // must never leak to another user. The server stores it opaquely (no decrypt/inspect).
+  it('round-trips folderKeyBundle through create→fetch→update and never leaks it cross-user', async () => {
+    const bundle = JSON.stringify({ v: 1, salt: 'c2FsdA==', kdf: 'argon2id', wrappedKey: 'v3w:abcdef' });
+    const created = await request(app)
+      .post('/api/notes')
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({ ...notePayload('Hemlig mapp'), type: enc('project'), folderKeyBundle: bundle });
+    expect(created.status).toBe(201);
+    expect(created.body.folderKeyBundle).toBe(bundle);
+    const id = created.body._id;
+
+    // Fetched by the owner → bundle returned verbatim.
+    const got = await request(app).get(`/api/notes/${id}`).set('Authorization', `Bearer ${tokenA}`);
+    expect(got.status).toBe(200);
+    expect(got.body.folderKeyBundle).toBe(bundle);
+
+    // Re-wrapped bundle (folder-password change) updates in place.
+    const bundle2 = JSON.stringify({ v: 1, salt: 'bmV3c2FsdA==', kdf: 'argon2id', wrappedKey: 'v3w:fedcba' });
+    const updated = await request(app)
+      .put(`/api/notes/${id}`)
+      .set('Authorization', `Bearer ${tokenA}`)
+      .send({ folderKeyBundle: bundle2 });
+    expect(updated.status).toBe(200);
+    expect(updated.body.folderKeyBundle).toBe(bundle2);
+
+    // Another user can never read it (and thus never sees the bundle).
+    expect((await request(app).get(`/api/notes/${id}`).set('Authorization', `Bearer ${tokenB}`)).status).toBe(404);
+  });
+
   it("denies a different user reading, updating, or deleting another user's note", async () => {
     const created = await request(app)
       .post('/api/notes')
