@@ -92,9 +92,10 @@ export const API_PROVIDERS: Record<ApiProviderType, ApiProviderMeta> = {
     endpoint: 'https://api.anthropic.com/v1/messages',
     format: 'anthropic',
     apiKeyUrl: 'https://console.anthropic.com/settings/keys',
+    // Current, non-retired Claude IDs (claude-3-7-sonnet / claude-3-5-haiku were
+    // retired 2026-02-19 and now 404). Newest first; all editable in settings.
     defaultModels: [
-      'claude-opus-4-7', 'claude-sonnet-4-6', 'claude-3-7-sonnet-latest',
-      'claude-3-5-haiku-latest',
+      'claude-opus-4-8', 'claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5',
     ],
   },
   // xAI Grok — OpenAI-compatible at https://api.x.ai/v1. Bearer auth.

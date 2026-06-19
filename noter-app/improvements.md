@@ -51,3 +51,11 @@
 - [ ] **Documentation**: Generate API documentation (Swagger/OpenAPI).
 - [ ] **Backup System**: Implement automated backups for MongoDB.
 - [ ] **Push Notifications**: Add push notifications for task reminders (Firebase/Expo Push).
+
+## Night session 2026-06-19 — AI provider & network resilience (done)
+
+- [x] **AI provider timeouts + retries**: New `@repo/shared/httpRetry` (`fetchWithRetry`) — per-attempt timeout (AbortController) + bounded transient retry (honour `Retry-After`, else exp-backoff w/ jitter; never retries non-transient 4xx). Wired into web + mobile non-streaming provider calls (60s) and the streaming connect/idle-stall guards. Streaming now keeps the partial answer on a mid-stream break instead of re-running the prompt (no duplicate text / re-billed tokens). 12 shared unit tests + 3 web streaming regression tests. Blocking CI gate "AI provider resilience".
+- [x] **Model search + embeddings can't hang**: `@repo/ai` `HuggingFaceService` (server-side proxy) bounded with a 15s timeout; mobile `huggingface.fetchJson` routed through `fetchWithRetry` (20s + retries, keeps Swedish error copy + a timeout message). `embedTexts` bounded (30s + 1 retry). Tests added in `hf.test.ts` + `embeddingsClient.test.ts`.
+- [x] **Stale provider defaults**: Anthropic default model list dropped the retired `claude-3-7-sonnet`/`claude-3-5-haiku` (404 since 2026-02-19) and now lists `claude-opus-4-8`, `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5` (mobile + web).
+- [x] **CI/CD**: Added the `AI provider resilience` blocking gate to `.github/workflows/ci.yml`; `validate-critical.mjs` now gates the web streaming test and skips the Electron step gracefully when the sibling repo isn't checked out (CI).
+- [ ] **Dependency audit**: `npm audit` shows 138 advisories, almost all transitive (`ws` via socket.io/engine.io/metro/RN; `xlsx` no-fix; `yaml`). Surfaced non-blocking in CI; not auto-`fix --force`d (would rewrite the lockfile broadly and risk the Pi deploy). Needs a deliberate, reviewed upgrade pass.
