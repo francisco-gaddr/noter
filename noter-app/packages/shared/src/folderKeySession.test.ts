@@ -8,6 +8,9 @@ import {
   folderKeySessionSize,
   resolveSessionFolderKeyForNote,
   resolveSessionFolderKeyForNewNote,
+  configureFolderKeyTtl,
+  sweepExpiredFolderKeys,
+  DEFAULT_FOLDER_KEY_TTL_MS,
 } from './folderKeySession';
 import { buildSecurityNoteMap } from './locks';
 
@@ -166,5 +169,59 @@ describe('resolveSessionFolderKeyForNewNote — create-time resolution (note not
   it('returns undefined for an unknown parentId (stale reference, no throw)', () => {
     setFolderKey('A', key(8));
     expect(resolveSessionFolderKeyForNewNote('ghost', notes)).toBeUndefined();
+  });
+});
+
+describe('folderKeySession — absolute TTL (defense-in-depth backstop)', () => {
+  beforeEach(() => { jest.useFakeTimers(); jest.setSystemTime(0); });
+  afterEach(() => { configureFolderKeyTtl(DEFAULT_FOLDER_KEY_TTL_MS); jest.useRealTimers(); });
+
+  it('lazily evicts a key on access once its TTL has lapsed', () => {
+    configureFolderKeyTtl(1000);
+    setFolderKey('f1', key(4));
+    jest.advanceTimersByTime(999);
+    expect(hasFolderKey('f1')).toBe(true); // still inside the window
+    jest.advanceTimersByTime(2); // now past 1000ms
+    expect(getFolderKey('f1')).toBeUndefined();
+    expect(hasFolderKey('f1')).toBe(false);
+    expect(folderKeySessionSize()).toBe(0); // gone, not just hidden
+  });
+
+  it('masks an expired key at the note-resolution read path too', () => {
+    type N = { _id: string; parentId?: string | null; locked?: boolean };
+    const notes: N[] = [{ _id: 'A', locked: true }, { _id: 'n1', parentId: 'A', locked: false }];
+    const map = buildSecurityNoteMap(notes);
+    configureFolderKeyTtl(500);
+    setFolderKey('A', key(5));
+    expect(resolveSessionFolderKeyForNote(notes[1], map)).toEqual(key(5));
+    jest.advanceTimersByTime(600);
+    expect(resolveSessionFolderKeyForNote(notes[1], map)).toBeUndefined();
+  });
+
+  it('sweepExpiredFolderKeys drops only the lapsed keys', () => {
+    configureFolderKeyTtl(1000);
+    setFolderKey('a', key(1));
+    jest.advanceTimersByTime(600);
+    setFolderKey('b', key(2)); // stamped 600ms later, so it outlives 'a'
+    jest.advanceTimersByTime(500); // t=1100: a (exp 1000) lapsed, b (exp 1600) live
+    expect(sweepExpiredFolderKeys()).toBe(1);
+    expect(hasFolderKey('a')).toBe(false);
+    expect(hasFolderKey('b')).toBe(true);
+  });
+
+  it('re-storing a key refreshes its expiry (a fresh unlock resets the clock)', () => {
+    configureFolderKeyTtl(1000);
+    setFolderKey('f1', key(1));
+    jest.advanceTimersByTime(900);
+    setFolderKey('f1', key(2)); // new TTL window starts here
+    jest.advanceTimersByTime(900); // 1800ms absolute, only 900ms since the refresh
+    expect(getFolderKey('f1')).toEqual(key(2));
+  });
+
+  it('TTL <= 0 disables expiry (keys persist for the whole session)', () => {
+    configureFolderKeyTtl(0);
+    setFolderKey('f1', key(1));
+    jest.advanceTimersByTime(10 * 60 * 60 * 1000); // 10 hours
+    expect(getFolderKey('f1')).toEqual(key(1));
   });
 });

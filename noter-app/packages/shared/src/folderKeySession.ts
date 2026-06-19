@@ -18,7 +18,28 @@
 
 import { findBlockingLockedAncestor, buildSecurityNoteMap, type SecurityNote } from './locks';
 
-const sessionKeys = new Map<string, Uint8Array>();
+interface SessionEntry {
+  key: Uint8Array;
+  /** Absolute epoch-ms after which the key is treated as gone. 0 = never expires. */
+  expiresAt: number;
+}
+
+const sessionKeys = new Map<string, SessionEntry>();
+
+/**
+ * Absolute lifetime (ms) of an unlocked folder key, independent of UI activity. This is a
+ * DEFENSE-IN-DEPTH backstop beneath the UI's idle re-lock: if a lifecycle hook never fires (the app
+ * is backgrounded without calling `clearAllFolderKeys`, a hook is mis-wired, etc.) the key still
+ * stops being usable after this long. The UI idle re-lock (shorter) is the primary control; this is
+ * the floor. Configurable via {@link configureFolderKeyTtl}; default 30 minutes.
+ */
+export const DEFAULT_FOLDER_KEY_TTL_MS = 30 * 60 * 1000;
+let ttlMs = DEFAULT_FOLDER_KEY_TTL_MS;
+
+/** Override the absolute folder-key TTL (ms). `<= 0` disables expiry (NOT recommended outside tests). */
+export const configureFolderKeyTtl = (ms: number): void => {
+  ttlMs = Number.isFinite(ms) && ms > 0 ? ms : 0;
+};
 
 const isValidId = (folderId: unknown): folderId is string =>
   typeof folderId === 'string' && folderId.length > 0;
@@ -26,33 +47,48 @@ const isValidId = (folderId: unknown): folderId is string =>
 const isValidKey = (key: unknown): key is Uint8Array =>
   key instanceof Uint8Array && key.length > 0;
 
+const isExpired = (entry: SessionEntry): boolean => entry.expiresAt !== 0 && Date.now() >= entry.expiresAt;
+
+/** Return the live entry for `folderId`, lazily zeroing + evicting it first if it has expired. */
+const liveEntry = (folderId: string): SessionEntry | undefined => {
+  const entry = sessionKeys.get(folderId);
+  if (!entry) return undefined;
+  if (isExpired(entry)) {
+    entry.key.fill(0);
+    sessionKeys.delete(folderId);
+    return undefined;
+  }
+  return entry;
+};
+
 /**
  * Store the unlocked folder key for `folderId` (replacing and zeroing any previous one). Stores a
- * copy so the caller can dispose of theirs. Throws on an empty id or an empty/invalid key so a
- * wiring bug surfaces loudly rather than silently leaving a folder un-keyed.
+ * copy so the caller can dispose of theirs, and stamps it with the absolute TTL. Throws on an empty
+ * id or an empty/invalid key so a wiring bug surfaces loudly rather than silently leaving a folder
+ * un-keyed.
  */
 export const setFolderKey = (folderId: string, key: Uint8Array): void => {
   if (!isValidId(folderId)) throw new Error('setFolderKey: folderId must be a non-empty string');
   if (!isValidKey(key)) throw new Error('setFolderKey: key must be a non-empty Uint8Array');
   const previous = sessionKeys.get(folderId);
-  if (previous) previous.fill(0);
-  sessionKeys.set(folderId, key.slice()); // own a copy
+  if (previous) previous.key.fill(0);
+  sessionKeys.set(folderId, { key: key.slice(), expiresAt: ttlMs > 0 ? Date.now() + ttlMs : 0 }); // own a copy
 };
 
-/** The unlocked folder key for `folderId`, or `undefined` if the folder is not unlocked. */
+/** The unlocked folder key for `folderId`, or `undefined` if not unlocked (or its TTL has lapsed). */
 export const getFolderKey = (folderId: string): Uint8Array | undefined =>
-  isValidId(folderId) ? sessionKeys.get(folderId) : undefined;
+  isValidId(folderId) ? liveEntry(folderId)?.key : undefined;
 
-/** Whether `folderId` currently has an unlocked key in the session. */
+/** Whether `folderId` currently has a live (non-expired) unlocked key in the session. */
 export const hasFolderKey = (folderId: string): boolean =>
-  isValidId(folderId) && sessionKeys.has(folderId);
+  isValidId(folderId) && liveEntry(folderId) !== undefined;
 
 /** Re-lock a single folder: zero its key bytes and drop it. No-op if it wasn't unlocked. */
 export const clearFolderKey = (folderId: string): void => {
   if (!isValidId(folderId)) return;
-  const key = sessionKeys.get(folderId);
-  if (key) {
-    key.fill(0);
+  const entry = sessionKeys.get(folderId);
+  if (entry) {
+    entry.key.fill(0);
     sessionKeys.delete(folderId);
   }
 };
@@ -62,15 +98,38 @@ export const clearFolderKey = (folderId: string): void => {
  * (mirrors clearing `unlockedProtectedNoteIds`).
  */
 export const clearAllFolderKeys = (): void => {
-  sessionKeys.forEach((key) => key.fill(0));
+  sessionKeys.forEach((entry) => entry.key.fill(0));
   sessionKeys.clear();
 };
 
+/**
+ * Proactively zero + evict every folder key whose TTL has lapsed. `getFolderKey`/`hasFolderKey`
+ * already evict lazily on access; call this from an idle tick / app-state change to drop expired
+ * keys even when nothing reads them. Returns how many were swept.
+ */
+export const sweepExpiredFolderKeys = (): number => {
+  let swept = 0;
+  sessionKeys.forEach((entry, folderId) => {
+    if (isExpired(entry)) {
+      entry.key.fill(0);
+      sessionKeys.delete(folderId);
+      swept += 1;
+    }
+  });
+  return swept;
+};
+
 /** Ids of the currently-unlocked folders (no secret material). For diagnostics / UI gating. */
-export const unlockedFolderIds = (): string[] => Array.from(sessionKeys.keys());
+export const unlockedFolderIds = (): string[] => {
+  sweepExpiredFolderKeys();
+  return Array.from(sessionKeys.keys());
+};
 
 /** Number of folders currently unlocked in the session (diagnostics / tests). */
-export const folderKeySessionSize = (): number => sessionKeys.size;
+export const folderKeySessionSize = (): number => {
+  sweepExpiredFolderKeys();
+  return sessionKeys.size;
+};
 
 // Ancestor resolution must locate the owning *crypto* folder regardless of UI unlock state — the
 // presence of a session key (below) is what actually gates readability — so the unlocked-set is
