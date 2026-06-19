@@ -137,10 +137,22 @@ const handleApiError = (error: any, url: string) => {
     throw new Error(`Anrop till ${url} misslyckades: ${message}`);
 };
 
+/** fetch bounded by a timeout (auth path; the main fetchWithAuth has its own). A
+ *  stalled backend otherwise leaves the login/register screen spinning forever. */
+async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = 15000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function login(username: string, password: string) {
   const url = `${API_URL}/auth/login`;
   try {
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
@@ -170,7 +182,7 @@ export async function register(username: string, password: string) {
   const url = `${API_URL}/auth/register`;
   try {
     logDebug(`[API] Registering user: ${username} to ${url}`);
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),

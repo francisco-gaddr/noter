@@ -243,10 +243,22 @@ const decryptTaskFromApi = (task: any): Task => ({
     : 0,
 });
 
+/** fetch bounded by a timeout so a stalled backend can't leave the login/register
+ *  screen spinning forever (the auth path has no other guard). */
+const fetchWithTimeout = async (url: string, init: RequestInit, timeoutMs = 15000): Promise<Response> => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 export const api = {
   // Auth
   async register(username: string, password: string): Promise<AuthResponse> {
-    const res = await fetch(`${getBaseUrl()}/auth/register`, {
+    const res = await fetchWithTimeout(`${getBaseUrl()}/auth/register`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
@@ -255,7 +267,7 @@ export const api = {
   },
 
   async login(username: string, password: string): Promise<AuthResponse> {
-    const res = await fetch(`${getBaseUrl()}/auth/login`, {
+    const res = await fetchWithTimeout(`${getBaseUrl()}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password }),
