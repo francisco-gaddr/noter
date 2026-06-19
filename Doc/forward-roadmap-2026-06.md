@@ -155,9 +155,11 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
   (`planChangeStreamRestart`, ren+testad) → ERROR + `degraded`-flagga + stopp (ingen evig loop/spam);
   döda streams tas bort ur `streams[]` (ingen läcka); `changeStream.degraded` syns i /health/deep
   (utan att fälla overall-status). 4 tester.
-- **Cron-scheduler saknar timeout per handler** · `apps/backend/src/services/cronScheduler.ts:120-136` ·
-  **E:M R:high** · En hängd handler (långsam Ollama, kaskad-sync) blockerar alla andra jobb
-  (heartbeat, agent-tasks). `Promise.race` per handler (3–4 min) + skip nästa körning.
+- ✅ **[KLAR 2026-06-19] Cron-scheduler: timeout per handler** · `apps/backend/src/services/cronScheduler.ts` ·
+  Varje handler körs nu via `_withHandlerTimeout` (4 min, under lås-TTL:n 5 min) så en hängd handler
+  släpper det distribuerade låset och svälter inte nästa körning. _Not:_ jobben körs redan via
+  `void runOnce` (blockerar inte loopen) + `withLock` (ingen overlap), så detta är defense-in-depth.
+  3 tester.
 
 ### Drift / CI / ops
 
