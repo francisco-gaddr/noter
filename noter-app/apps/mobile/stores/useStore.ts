@@ -493,14 +493,25 @@ export const useStore = create<AppState>((set, get) => ({
     const folder = get().notes.find((n) => n._id === folderId);
     if (!folder) throw new Error('enrolFolderPassword: folder not found');
     const { note } = await enrolFolderPasswordCore(folderId, folder as any, password, preferred);
-    await get().updateNote(folderId, { folderKeyBundle: (note as any).folderKeyBundle } as any);
+    // Persist a crypto boundary: locked:true (engages mask + read/write seal) + the bundle (Fas 2.6); per
+    // ADR §Säkerhetsbeslut crypto REPLACES the backend lock-password — none is set.
+    await get().updateNote(folderId, { folderKeyBundle: (note as any).folderKeyBundle, locked: true } as any);
+    // AFTER persisting (updateNote with locked:true drops it from the unlock set): mark the folder unlocked
+    // for this session + re-materialize, so its notes aren't filter-masked (the crypto decrypt only runs
+    // for an unmasked note, so the session key alone is not enough).
+    set((state) => {
+      const unlockedProtectedNoteIds = Array.from(new Set([...state.unlockedProtectedNoteIds, folderId]));
+      return { unlockedProtectedNoteIds, notes: materializeNotesFromEncrypted(state.notes as any, new Set(unlockedProtectedNoteIds)) };
+    });
   },
   unlockFolder: async (folderId, password) => {
     const folder = get().notes.find((n) => n._id === folderId);
     await unlockFolderWithPassword(folderId, folder as any, password); // throws FolderUnlockError on wrong password
-    set((state) => ({
-      notes: materializeNotesFromEncrypted(state.notes as any, new Set(state.unlockedProtectedNoteIds)),
-    }));
+    // Bypass the filter-mask (add to the unlock set) AND re-materialize with the session key (so v3f decrypts).
+    set((state) => {
+      const unlockedProtectedNoteIds = Array.from(new Set([...state.unlockedProtectedNoteIds, folderId]));
+      return { unlockedProtectedNoteIds, notes: materializeNotesFromEncrypted(state.notes as any, new Set(unlockedProtectedNoteIds)) };
+    });
   },
   changeFolderPassword: async (folderId, oldPassword, newPassword, preferred) => {
     const folder = get().notes.find((n) => n._id === folderId);

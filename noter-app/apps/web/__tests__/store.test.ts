@@ -282,17 +282,20 @@ describe('Web Store', () => {
       const { api } = require('../services/api');
       const { clearAllFolderKeys, getFolderKey } = require('@repo/shared');
       clearAllFolderKeys();
-      useStore.setState({ notes: [{ _id: 'cf', title: 'Hemlig mapp', content: '', type: 'project', locked: true, parentId: null }] as any });
-      api.updateNote.mockResolvedValueOnce({ _id: 'cf', title: 'Hemlig mapp', content: '', type: 'project', folderKeyBundle: 'persisted' });
+      // A plain (not-yet-locked) project folder being enrolled.
+      useStore.setState({ notes: [{ _id: 'cf', title: 'Hemlig mapp', content: '', type: 'project', locked: false, parentId: null }] as any, unlockedProtectedNoteIds: [] });
+      api.updateNote.mockResolvedValueOnce({ _id: 'cf', title: 'Hemlig mapp', content: '', type: 'project', locked: true, folderKeyBundle: 'persisted' });
 
       await act(async () => {
           await useStore.getState().enrolFolderPassword('cf', 'mapp-lösen', 'pbkdf2-sha256');
       });
 
       expect(getFolderKey('cf')).toBeDefined(); // session key registered
-      // Bundle persisted via the normal save path; the folder note's OWN update resolves folderKey=undefined
-      // (parentId=null), so a crypto folder's name is never sealed under its own key (stays visible when locked).
-      expect(api.updateNote).toHaveBeenCalledWith('cf', expect.objectContaining({ folderKeyBundle: expect.any(String) }), undefined);
+      // Persisted as a crypto boundary: the bundle (Fas 2.6) + locked:true; the folder note's OWN update
+      // resolves folderKey=undefined (parentId=null), so its name is never sealed under its own key.
+      expect(api.updateNote).toHaveBeenCalledWith('cf', expect.objectContaining({ folderKeyBundle: expect.any(String), locked: true }), undefined);
+      // The just-enrolled folder is unlocked for this session (else the filter-mask would hide its notes).
+      expect(useStore.getState().unlockedProtectedNoteIds).toContain('cf');
       clearAllFolderKeys();
   });
 
@@ -300,12 +303,13 @@ describe('Web Store', () => {
       const { clearAllFolderKeys, getFolderKey, createFolderKey, serializeFolderKeyBundle, FolderUnlockError } = require('@repo/shared');
       clearAllFolderKeys();
       const { bundle, folderKey } = await createFolderKey('mapp-lösen', 'pbkdf2-sha256');
-      useStore.setState({ notes: [{ _id: 'cf', title: 'Hemlig mapp', content: '', type: 'project', locked: true, parentId: null, folderKeyBundle: serializeFolderKeyBundle(bundle) }] as any });
+      useStore.setState({ notes: [{ _id: 'cf', title: 'Hemlig mapp', content: '', type: 'project', locked: true, parentId: null, folderKeyBundle: serializeFolderKeyBundle(bundle) }] as any, unlockedProtectedNoteIds: [] });
 
       await act(async () => {
           await useStore.getState().unlockFolder('cf', 'mapp-lösen');
       });
       expect(Array.from(getFolderKey('cf') as Uint8Array)).toEqual(Array.from(folderKey));
+      expect(useStore.getState().unlockedProtectedNoteIds).toContain('cf'); // filter-mask bypassed too
 
       clearAllFolderKeys();
       await expect(useStore.getState().unlockFolder('cf', 'fel-lösen')).rejects.toBeInstanceOf(FolderUnlockError);

@@ -180,15 +180,18 @@ describe('Mobile Store', () => {
     const { fetchWithAuth } = require('../services/api');
     const { clearAllFolderKeys, getFolderKey } = require('@repo/shared');
     clearAllFolderKeys();
-    useStore.setState({ notes: [{ _id: 'cf', type: 'project', locked: true, title: 'Hemlig mapp', content: '', parentId: null }] as any });
-    fetchWithAuth.mockResolvedValueOnce({ _id: 'cf', title: 'Hemlig mapp', content: '', type: 'project', parentId: null, folderKeyBundle: 'persisted' });
+    useStore.setState({ notes: [{ _id: 'cf', type: 'project', locked: false, title: 'Hemlig mapp', content: '', parentId: null }] as any, unlockedProtectedNoteIds: [] });
+    fetchWithAuth.mockResolvedValueOnce({ _id: 'cf', title: 'Hemlig mapp', content: '', type: 'project', parentId: null, locked: true, folderKeyBundle: 'persisted' });
 
     await useStore.getState().enrolFolderPassword('cf', 'mapp-lösen', 'pbkdf2-sha256');
 
     expect(getFolderKey('cf')).toBeDefined(); // session key registered
     const put = (fetchWithAuth as jest.Mock).mock.calls.find((c: any[]) => c[0] === '/notes/cf' && c[1]?.method === 'PUT');
     expect(put).toBeTruthy();
-    expect(typeof JSON.parse(put[1].body).folderKeyBundle).toBe('string'); // bundle persisted on the wire
+    const body = JSON.parse(put[1].body);
+    expect(typeof body.folderKeyBundle).toBe('string'); // bundle persisted on the wire
+    expect(body.locked).toBeTruthy(); // crypto boundary (locked:true, encrypted) sent — no backend password
+    expect(useStore.getState().unlockedProtectedNoteIds).toContain('cf'); // unlocked for this session
     clearAllFolderKeys();
   });
 
@@ -196,10 +199,11 @@ describe('Mobile Store', () => {
     const { clearAllFolderKeys, getFolderKey, createFolderKey, serializeFolderKeyBundle, FolderUnlockError } = require('@repo/shared');
     clearAllFolderKeys();
     const { bundle, folderKey } = await createFolderKey('mapp-lösen', 'pbkdf2-sha256');
-    useStore.setState({ notes: [{ _id: 'cf', type: 'project', locked: true, title: 'Hemlig mapp', content: '', parentId: null, folderKeyBundle: serializeFolderKeyBundle(bundle) }] as any });
+    useStore.setState({ notes: [{ _id: 'cf', type: 'project', locked: true, title: 'Hemlig mapp', content: '', parentId: null, folderKeyBundle: serializeFolderKeyBundle(bundle) }] as any, unlockedProtectedNoteIds: [] });
 
     await useStore.getState().unlockFolder('cf', 'mapp-lösen');
     expect(Array.from(getFolderKey('cf') as Uint8Array)).toEqual(Array.from(folderKey));
+    expect(useStore.getState().unlockedProtectedNoteIds).toContain('cf'); // filter-mask bypassed too
 
     clearAllFolderKeys();
     await expect(useStore.getState().unlockFolder('cf', 'fel-lösen')).rejects.toBeInstanceOf(FolderUnlockError);

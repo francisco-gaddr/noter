@@ -1498,14 +1498,26 @@ export const useStore = create<StoreState>((set, get) => ({
     const folder = get().notes.find((n) => n._id === folderId);
     if (!folder) throw new Error('enrolFolderPassword: folder not found');
     const { note } = await enrolFolderPasswordCore(folderId, folder as any, password, preferred);
-    await get().updateNote(folderId, { folderKeyBundle: (note as any).folderKeyBundle } as Partial<Note>);
+    // Persist a crypto boundary: locked:true (so it masks descendants + engages the read/write seal) plus
+    // the bundle (Fas 2.6). Per ADR §Säkerhetsbeslut crypto REPLACES the backend lock-password — none is set.
+    await get().updateNote(folderId, { folderKeyBundle: (note as any).folderKeyBundle, locked: true } as Partial<Note>);
+    // AFTER persisting (updateNote with locked:true drops it from the unlock set): mark the folder unlocked
+    // for THIS session — you just set the password — and re-materialize so its notes aren't filter-masked.
+    // (The read path masks any note whose nearest locked ancestor is not in unlockedProtectedNoteIds; the
+    // crypto decrypt only runs for an unmasked note, so the session key alone is not enough.)
+    set((state) => {
+      const unlockedProtectedNoteIds = Array.from(new Set([...state.unlockedProtectedNoteIds, folderId]));
+      return { unlockedProtectedNoteIds, notes: materializeNotesFromEncrypted(state.notes as any, new Set(unlockedProtectedNoteIds)) };
+    });
   },
   unlockFolder: async (folderId, password) => {
     const folder = get().notes.find((n) => n._id === folderId);
     await unlockFolderWithPassword(folderId, folder as any, password); // throws FolderUnlockError on wrong password
-    set((state) => ({
-      notes: materializeNotesFromEncrypted(state.notes as any, new Set(state.unlockedProtectedNoteIds)),
-    }));
+    // Bypass the filter-mask (add to the unlock set) AND re-materialize with the session key (so v3f decrypts).
+    set((state) => {
+      const unlockedProtectedNoteIds = Array.from(new Set([...state.unlockedProtectedNoteIds, folderId]));
+      return { unlockedProtectedNoteIds, notes: materializeNotesFromEncrypted(state.notes as any, new Set(unlockedProtectedNoteIds)) };
+    });
   },
   changeFolderPassword: async (folderId, oldPassword, newPassword, preferred) => {
     const folder = get().notes.find((n) => n._id === folderId);

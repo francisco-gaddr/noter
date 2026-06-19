@@ -192,6 +192,15 @@ tillbaka) som speglar /verify-checklistan headless.
 `enrolFolderPassword(folderId, password)` (→ shared-orkestreringen, sätter sessions-FK + `updateNote`
 som persisterar bundlen via Fas 2.6), `unlockFolder(folderId, password)` (→ `unlockFolderWithPassword`
 + re-materialisering så mappens `v3f:`-noter dekrypteras), `changeFolderPassword(folderId, oldPw, newPw)`.
+
+**Lås-koordinering (Fas 3.8 — kritisk).** Läs-vägen maskar en not FÖRST om dess närmaste låsta förälder
+inte finns i `unlockedProtectedNoteIds` — krypto-dekrypteringen körs bara för en *omaskerad* not. Därför
+räcker inte sessions-FK ensam: `enrolFolderPassword` persisterar `locked:true` (gör mappen till en
+krypto-gräns) och lägger mappen i `unlockedProtectedNoteIds` **efter** `updateNote` (som annars droppar den
+ur upplåsnings­mängden när `locked:true` sätts — ordnings-bugg som ett test fångade), och `unlockFolder`
+lägger likaså mappen i `unlockedProtectedNoteIds` + re-materialiserar med både mängden och FK:n. Utan detta
+skulle en enrollad/upplåst krypto-mapps noter förbli filter-maskade trots nyckeln. Båda apparna; tester
+asserterar `unlockedProtectedNoteIds` + att `locked:true` skickas (utan backend-lösenord).
 `FolderUnlockError` (fel lösenord) propageras till anroparen. Tester: enrol sätter sessions-FK +
 persisterar bundle; unlock med rätt lösen återställer nyckeln, fel lösen → `FolderUnlockError` (förblir
 låst). (`preferred`-param låter test använda snabb PBKDF2; UI:t kör argon2id.) Mobil-storen har nu samma
