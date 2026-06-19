@@ -34,6 +34,7 @@ import {
   toSyncedRef,
   encrypt,
   safeDecrypt,
+  fetchWithRetry,
   type WebdavConnection,
   type WebdavEntry,
   type IngestEntry,
@@ -157,24 +158,33 @@ export const getSourceMinLevels = (): Record<string, string> => {
 };
 
 // ---- WebDAV fetch ------------------------------------------------------------
+//
+// Every WebDAV verb is bounded with a timeout (+ bounded transient retries) so a
+// Nextcloud server that stalls mid-response can't hang sync forever. The verbs here
+// are idempotent (PROPFIND/GET read; PUT overwrites the same path), so a retry is
+// safe. Downloads get a longer ceiling than the metadata calls.
+const WEBDAV_TIMEOUT_MS = 30_000;
+const WEBDAV_DOWNLOAD_TIMEOUT_MS = 60_000;
 
 const basicAuth = (u: string, p: string): string => 'Basic ' + btoa(unescape(encodeURIComponent(u + ':' + p)));
 
 const propfind = async (conn: WebdavConnection, path: string): Promise<WebdavEntry[]> => {
   const url = joinDavUrl(conn.baseUrl, path);
   enforceHttps(url);
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     method: 'PROPFIND',
     headers: { Authorization: basicAuth(conn.username, getPassword(conn.id)), Depth: '1', 'Content-Type': 'application/xml' },
     body: buildPropfindBody(),
-  });
+  }, { label: 'WebDAV PROPFIND', timeoutMs: WEBDAV_TIMEOUT_MS });
   if (res.status === 401) throw new Error('Fel användarnamn/app-lösenord (401)');
   if (!res.ok && res.status !== 207) throw new Error('WebDAV-fel ' + res.status);
   return parsePropfindXml(await res.text(), joinDavUrl(conn.baseUrl, ''));
 };
 
 const getBytes = async (conn: WebdavConnection, path: string): Promise<ArrayBuffer> => {
-  const res = await fetch(joinDavUrl(conn.baseUrl, path), { headers: { Authorization: basicAuth(conn.username, getPassword(conn.id)) } });
+  const res = await fetchWithRetry(joinDavUrl(conn.baseUrl, path), {
+    headers: { Authorization: basicAuth(conn.username, getPassword(conn.id)) },
+  }, { label: 'WebDAV download', timeoutMs: WEBDAV_DOWNLOAD_TIMEOUT_MS });
   if (!res.ok) throw new Error('Nedladdning misslyckades ' + res.status);
   return res.arrayBuffer();
 };
@@ -182,11 +192,11 @@ const getBytes = async (conn: WebdavConnection, path: string): Promise<ArrayBuff
 const stripQuotesEtag = (s: string): string => (s || '').replace(/^W\//i, '').replace(/^"+|"+$/g, '');
 /** Upload (PUT) text content back to a WebDAV file; returns the new ETag (or ''). */
 const putText = async (conn: WebdavConnection, path: string, content: string): Promise<string> => {
-  const res = await fetch(joinDavUrl(conn.baseUrl, path), {
+  const res = await fetchWithRetry(joinDavUrl(conn.baseUrl, path), {
     method: 'PUT',
     headers: { Authorization: basicAuth(conn.username, getPassword(conn.id)), 'Content-Type': 'text/plain; charset=utf-8' },
     body: content,
-  });
+  }, { label: 'WebDAV upload', timeoutMs: WEBDAV_TIMEOUT_MS });
   if (!res.ok && res.status !== 201 && res.status !== 204) throw new Error('Uppladdning misslyckades ' + res.status);
   return stripQuotesEtag(res.headers.get('etag') || '');
 };
