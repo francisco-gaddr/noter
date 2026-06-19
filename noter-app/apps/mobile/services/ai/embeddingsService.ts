@@ -19,6 +19,8 @@ import {
   defaultEmbeddingsConfig,
   DEFAULT_LOCAL_EMBEDDINGS_URL,
   embeddingText,
+  embeddingContentHash,
+  createLruCache,
   normalizeEmbeddingsUrl,
   embedTexts,
   diffIndex,
@@ -89,6 +91,27 @@ const resolveEndpoint = async (config: EmbeddingsConfig): Promise<{ url: string;
   url: normalizeEmbeddingsUrl(effectiveBaseUrl(config)),
   apiKey: await getEmbeddingsApiKey(),
 });
+
+// Query-embedding cache (see web service): a query's embedding is deterministic for a given
+// provider+model, so memoise it — chat re-embeds every turn and semanticSearch every call. Keyed by
+// provider|model|hash. Bounded LRU.
+const queryVectorCache = createLruCache<number[]>(64);
+const embedQuery = async (
+  config: EmbeddingsConfig,
+  url: string,
+  apiKey: string,
+  query: string,
+  signal?: AbortSignal,
+): Promise<number[]> => {
+  const q = query.trim();
+  if (!q) return [];
+  const key = `${config.source}|${config.model}|${embeddingContentHash(q)}`;
+  const cached = queryVectorCache.get(key);
+  if (cached) return cached;
+  const [vec] = await embedTexts({ url, model: config.model, inputs: [q], apiKey, signal });
+  if (vec?.length) queryVectorCache.set(key, vec);
+  return vec || [];
+};
 
 // ---- index store -------------------------------------------------------------
 
@@ -171,8 +194,8 @@ export const semanticSearch = async (query: string, limit = 20, signal?: AbortSi
   if (!index.items.length) return [];
   try {
     const { url, apiKey } = await resolveEndpoint(config);
-    const [queryVector] = await embedTexts({ url, model: config.model, inputs: [query.trim()], apiKey, signal });
-    if (!queryVector?.length) return [];
+    const queryVector = await embedQuery(config, url, apiKey, query, signal);
+    if (!queryVector.length) return [];
     return vectorSearch(queryVector, indexToEmbeddedItems(index), limit);
   } catch {
     return [];
@@ -237,8 +260,8 @@ export const retrieveForChat = async (
       for (const it of index.items) vecById.set(it.id, it.vector);
       try {
         const { url, apiKey } = await resolveEndpoint(config);
-        const [qv] = await embedTexts({ url, model: config.model, inputs: [query.trim()], apiKey, signal });
-        if (qv?.length) queryVector = qv;
+        const qv = await embedQuery(config, url, apiKey, query, signal);
+        if (qv.length) queryVector = qv;
       } catch { /* lexical-only fallback */ }
     }
 

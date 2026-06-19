@@ -18,6 +18,8 @@ import {
   defaultEmbeddingsConfig,
   DEFAULT_LOCAL_EMBEDDINGS_URL,
   embeddingText,
+  embeddingContentHash,
+  createLruCache,
   normalizeEmbeddingsUrl,
   embedTexts,
   diffIndex,
@@ -114,6 +116,28 @@ export const resolveEmbeddingsEndpoint = (config: EmbeddingsConfig): { url: stri
   apiKey: getEmbeddingsApiKey(),
 });
 
+// Query-embedding cache (standard RAG optimisation): a query string's embedding is deterministic
+// for a given provider+model, so memoise it — the chat re-embeds the query every turn and
+// semanticSearch every call, which is pure repeated latency + cost. Keyed by provider|model|hash so
+// a model/provider switch never returns a stale-space vector. Bounded LRU, ~64 hot queries.
+const queryVectorCache = createLruCache<number[]>(64);
+const embedQuery = async (
+  config: EmbeddingsConfig,
+  url: string,
+  apiKey: string,
+  query: string,
+  signal?: AbortSignal,
+): Promise<number[]> => {
+  const q = query.trim();
+  if (!q) return [];
+  const key = `${config.source}|${config.model}|${embeddingContentHash(q)}`;
+  const cached = queryVectorCache.get(key);
+  if (cached) return cached;
+  const [vec] = await embedTexts({ url, model: config.model, inputs: [q], apiKey, signal });
+  if (vec?.length) queryVectorCache.set(key, vec);
+  return vec || [];
+};
+
 // ---- index store -------------------------------------------------------------
 
 export const getVectorIndex = (model: string): VectorIndex => {
@@ -199,8 +223,8 @@ export const semanticSearch = async (query: string, limit = 20, signal?: AbortSi
   if (!index.items.length) return [];
   try {
     const { url, apiKey } = resolveEmbeddingsEndpoint(config);
-    const [queryVector] = await embedTexts({ url, model: config.model, inputs: [query.trim()], apiKey, signal });
-    if (!queryVector?.length) return [];
+    const queryVector = await embedQuery(config, url, apiKey, query, signal);
+    if (!queryVector.length) return [];
     return vectorSearch(queryVector, indexToEmbeddedItems(index), limit);
   } catch {
     return [];
@@ -260,8 +284,8 @@ export const retrieveForChat = async (
       for (const it of index.items) vecById.set(it.id, it.vector);
       try {
         const { url, apiKey } = resolveEmbeddingsEndpoint(config);
-        const [qv] = await embedTexts({ url, model: config.model, inputs: [query.trim()], apiKey, signal });
-        if (qv?.length) queryVector = qv;
+        const qv = await embedQuery(config, url, apiKey, query, signal);
+        if (qv.length) queryVector = qv;
       } catch { /* lexical-only fallback */ }
     }
 

@@ -45,3 +45,4 @@ export * from './httpRetry';
 export * from './mutationLedger';
 export * from './debounce';
 export * from './agentSearch';
+export * from './lruCache';
