@@ -6,7 +6,9 @@ import {
   clearAllFolderKeys,
   unlockedFolderIds,
   folderKeySessionSize,
+  resolveSessionFolderKeyForNote,
 } from './folderKeySession';
+import { buildSecurityNoteMap } from './locks';
 
 const key = (n: number) => new Uint8Array(32).fill(n);
 
@@ -89,5 +91,43 @@ describe('folderKeySession — diagnostics + input validation', () => {
     expect(getFolderKey(null)).toBeUndefined();
     // @ts-expect-error
     expect(hasFolderKey(undefined)).toBe(false);
+  });
+});
+
+describe('resolveSessionFolderKeyForNote — single source for "which folder key governs this note"', () => {
+  // A (crypto folder) ⊃ B (folder) ⊃ n2 ;  A ⊃ n1 ;  n0 is a free note.
+  type N = { _id: string; parentId?: string | null; locked?: boolean };
+  const notes: N[] = [
+    { _id: 'A', locked: true },
+    { _id: 'B', parentId: 'A', locked: true },
+    { _id: 'n0', locked: false },
+    { _id: 'n1', parentId: 'A', locked: false },
+    { _id: 'n2', parentId: 'B', locked: false },
+  ];
+  const map = buildSecurityNoteMap(notes);
+  const byId = (id: string) => notes.find((n) => n._id === id)!;
+
+  it('returns undefined for a note with no locked ancestor (ordinary note → dataKey path)', () => {
+    expect(resolveSessionFolderKeyForNote(byId('n0'), map)).toBeUndefined();
+  });
+
+  it('returns undefined when the locked ancestor has no session key (masked, not unlocked)', () => {
+    expect(resolveSessionFolderKeyForNote(byId('n1'), map)).toBeUndefined();
+  });
+
+  it('returns the ancestor folder’s key once that folder is unlocked in the session', () => {
+    setFolderKey('A', key(5));
+    expect(resolveSessionFolderKeyForNote(byId('n1'), map)).toEqual(key(5));
+  });
+
+  it('resolves the NEAREST locked ancestor: a note in B (no key) inside A (keyed) stays masked', () => {
+    setFolderKey('A', key(5));
+    expect(resolveSessionFolderKeyForNote(byId('n2'), map)).toBeUndefined(); // nearest is B, unkeyed
+    setFolderKey('B', key(6));
+    expect(resolveSessionFolderKeyForNote(byId('n2'), map)).toEqual(key(6)); // now B is unlocked
+  });
+
+  it('is safe on an undefined note (no throw → undefined)', () => {
+    expect(resolveSessionFolderKeyForNote(undefined, map)).toBeUndefined();
   });
 });

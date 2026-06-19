@@ -196,7 +196,9 @@ garantier. Varje punkt är additiv — invarianterna i §7 måste fortsatt håll
      write-motsvarigheten till `materializeFolderField`: FK → `v3f:`-seal, annars `encrypt` (no-op).
      Ett fält sealas XOR dataKey-krypteras, aldrig dubbel-wrap. 5 tester i `encrypt.test.ts`.
    - `folderKeySession.ts` — in-memory-only FK-session, äger en kopia, nollar bytena, **töms vid
-     app-lås/logout** (wired i båda stores).
+     app-lås/logout** (wired i båda stores). `resolveSessionFolderKeyForNote(note, noteMap)` är den
+     **enda källan** för "vilken mapp-nyckel styr denna not" (närmaste låsta förälder → dess sessions-FK),
+     delad av läs- och skriv-vägen; 5 tester (inkl. nästlade mappar). Båda stores använder den nu.
    - **Läs-vägen wired i båda stores** (`materializeOneNote`, inkl. den chunkade synk-vägen) — no-op
      för all befintlig data, test: "materializes a v3f note decrypted with the session folder key,
      masked without it".

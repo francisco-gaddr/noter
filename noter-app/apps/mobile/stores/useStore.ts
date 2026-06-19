@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import 'react-native-get-random-values';
 import * as Crypto from 'expo-crypto';
-import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, safeDecrypt, parseEntityLinks, serializeEntityLinks, parseNoteSource, relockFoldersOnLeave, clearAllFolderKeys, isFolderWrapped, materializeFolderField, getFolderKey } from '@repo/shared';
+import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, safeDecrypt, parseEntityLinks, serializeEntityLinks, parseNoteSource, relockFoldersOnLeave, clearAllFolderKeys, isFolderWrapped, materializeFolderField, resolveSessionFolderKeyForNote } from '@repo/shared';
 import { fetchWithAuth, login as apiLogin, register as apiRegister, setAuthToken, initApiUrl, setUnauthorizedHandler } from '../services/api';
 import * as Database from '../services/database';
 import { initSocket, disconnectSocket, getSocket } from '../services/socket';
@@ -221,10 +221,7 @@ const materializeOneNote = (note: any, noteMap: any, unlockedIds: Set<string>): 
   const rawTitle = note.__rawEncryptedTitle || note.title;
   const rawContent = note.__rawEncryptedContent || note.content;
   const ownerFolderKey = (isFolderWrapped(rawTitle) || isFolderWrapped(rawContent))
-    ? (() => {
-        const owner = findBlockingLockedAncestor(note, noteMap as any, new Set<string>());
-        return owner ? getFolderKey(String(owner._id)) : undefined;
-      })()
+    ? resolveSessionFolderKeyForNote(note as any, noteMap as any)
     : undefined;
   return {
     ...note,

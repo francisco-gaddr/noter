@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Note, Task, UpdateTaskDto, User, decrypt, encrypt, safeDecrypt, normalizeNoteType, parseEntityLinks, parseNoteSource, relockFoldersOnLeave, clearAllFolderKeys, isFolderWrapped, materializeFolderField, getFolderKey } from '@repo/shared';
+import { Note, Task, UpdateTaskDto, User, decrypt, encrypt, safeDecrypt, normalizeNoteType, parseEntityLinks, parseNoteSource, relockFoldersOnLeave, clearAllFolderKeys, isFolderWrapped, materializeFolderField, resolveSessionFolderKeyForNote } from '@repo/shared';
 import { api, getApiBaseUrl, getUUID, setApiBaseUrl, setApiToken } from '../services/api';
 import { socket, connectSocket, disconnectSocket, setSocketToken } from '../services/socket';
 import { db } from '../services/db';
@@ -326,10 +326,7 @@ const materializeNotesFromEncrypted = (notes: Note[], unlockedIds: Set<string>):
     const rawTitle = note.__rawEncryptedTitle || note.title;
     const rawContent = note.__rawEncryptedContent || note.content;
     const ownerFolderKey = (isFolderWrapped(rawTitle) || isFolderWrapped(rawContent))
-      ? (() => {
-          const owner = findBlockingLockedAncestor(note, noteMap as any, new Set<string>());
-          return owner ? getFolderKey(String(owner._id)) : undefined;
-        })()
+      ? resolveSessionFolderKeyForNote(note as any, noteMap as any)
       : undefined;
     return {
       ...note,

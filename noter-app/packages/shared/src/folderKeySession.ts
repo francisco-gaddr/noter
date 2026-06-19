@@ -16,6 +16,8 @@
  * and zeroes the bytes when a key is removed/replaced, to minimise how long a key lingers in memory.
  */
 
+import { findBlockingLockedAncestor, type SecurityNote } from './locks';
+
 const sessionKeys = new Map<string, Uint8Array>();
 
 const isValidId = (folderId: unknown): folderId is string =>
@@ -69,3 +71,27 @@ export const unlockedFolderIds = (): string[] => Array.from(sessionKeys.keys());
 
 /** Number of folders currently unlocked in the session (diagnostics / tests). */
 export const folderKeySessionSize = (): number => sessionKeys.size;
+
+// Ancestor resolution must locate the owning *crypto* folder regardless of UI unlock state — the
+// presence of a session key (below) is what actually gates readability — so the unlocked-set is
+// always empty here. findBlockingLockedAncestor only reads it, so one shared frozen set is safe.
+const NO_UI_UNLOCKS: ReadonlySet<string> = new Set<string>();
+
+/**
+ * Resolve the session folder key that governs `note` — the key its nearest crypto-protected (locked)
+ * ancestor folder is currently unlocked under, or `undefined` if none is. The single source for
+ * "which folder key, if any, applies to this note", shared by the read path (→ `materializeFolderField`)
+ * and the save-path seal (→ `sealNoteFieldForWrite`):
+ *
+ *  - no locked ancestor folder              → `undefined` (an ordinary note; the dataKey path).
+ *  - a locked ancestor but no session key   → `undefined` (folder is masked but not unlocked, or is
+ *                                             lock-only and not crypto-enrolled → stays masked).
+ *  - a locked ancestor WITH a session key   → that folder's unlocked key.
+ */
+export function resolveSessionFolderKeyForNote<T extends SecurityNote>(
+  note: T | undefined,
+  noteMap: Map<string, T>,
+): Uint8Array | undefined {
+  const owner = findBlockingLockedAncestor(note, noteMap, NO_UI_UNLOCKS as Set<string>);
+  return owner ? getFolderKey(String(owner._id)) : undefined;
+}

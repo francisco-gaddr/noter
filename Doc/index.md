@@ -51,7 +51,7 @@ ska öppna för en given fråga. Läs det här först, sedan den specifika filen
 
 | Område | Plats | Notis |
 |--------|-------|-------|
-| **All kryptering** | `noter-app/packages/shared/src/` | `encrypt.ts` (dispatch), `cryptoV3.ts` (AES-GCM/Argon2id), `keyBootstrap.ts`, `folderKey.ts` + `folderKeySession.ts` (per-mapp `v3f:`-nyckel + in-memory FK-session, ADR-0012). **Importera bara härifrån.** |
+| **All kryptering** | `noter-app/packages/shared/src/` | `encrypt.ts` (läs/skriv-dispatch: `materializeFolderField` + `sealNoteFieldForWrite`), `cryptoV3.ts` (AES-GCM/Argon2id), `keyBootstrap.ts`, och per-mapp-modulen (ADR-0012): `folderKey.ts` (`v3f:`-krypto + bundle), `folderKeySession.ts` (in-memory FK-session + `resolveSessionFolderKeyForNote`), `folderEnrolment.ts` (enrol/unlock/lösenordsbyte). **Importera bara härifrån.** |
 | **Lås-logik (låsta mappar/noter)** | `noter-app/packages/shared/src/locks.ts` | Enda källan: `hasLockSignal`, `findBlockingLockedAncestor`, `isReadableWithLocks`, `relockFoldersOnLeave`, samt **`AI_INDEX_NO_UNLOCK`/`isReadableForAI`/`filterReadableForAI`** för automat-läsare. Mekanisk läck-grind: `scripts/check-index-unlock-leak.mjs` (+`--selftest`). Full modell: [`../noter-app/docs/LOCKED_FOLDER_SECURITY.md`](../noter-app/docs/LOCKED_FOLDER_SECURITY.md). |
 | Backend-rutter | `noter-app/apps/backend/src/routes/` | Varje `/:id`-rutt **måste** scopa på `userId` (se IDOR-regeln, §3). |
 | Backend write-guard | `…/src/utils/encryption.ts` | `isEncryptedPayload` accepterar v1+v3-envelopes. |

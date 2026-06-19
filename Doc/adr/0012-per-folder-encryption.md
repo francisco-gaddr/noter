@@ -120,20 +120,23 @@ dataKey-krypteras — aldrig dubbel-wrap. Att hålla grenen här (inte duplicera
 håller all krypto i shared och båda klienterna i lås-steg. Tester (5 st) i `encrypt.test.ts` täcker
 round-trip via läsvägen, no-op utan nyckel, null/0-längds-nyckel, och XOR-egenskapen.
 
-**Kvar — var primitiven ska anropas (undvik dubbel-kryptering).** Krypterings-gränsen för noter är
-`apps/web/services/api.ts` (`createNote`: `title: encrypt(data.title)`, `content: encrypt(data.content)`;
-`updateNote` likadant) och motsvarande i `apps/mobile/services/api.ts`. **Seal-beslutet (vilken
-nyckel) hör hemma i storen** (den har note-mappen för att hitta närmaste låsta förälder), inte i
-`api.ts`. Plan:
-1. Storen resolvar `folderKey = getFolderKey(<närmaste låsta förälder till parentId>)` (samma
-   `findBlockingLockedAncestor(..., new Set())`-logik som läs-vägen redan använder) och skickar in
-   den som ett **valfritt** fält på DTO:t (`CreateNoteDto`/`UpdateNoteDto`: `folderKey?: Uint8Array`).
-2. `api.ts` byter `encrypt(data.title)` → `sealNoteFieldForWrite(data.title, data.folderKey)` (samma
-   för `content`). När ingen `folderKey` finns (all nuvarande data) är det en **exakt no-op** mot
-   `encrypt`. Övriga fält (tags/icon/…) lämnas tills vidare på `dataKey`-vägen; bara `title`/`content`
-   är känsligt nog för Fas 1.
-3. `folderKey` får **aldrig** loggas eller sparas i offline-kön i klartext — offline-kön sparar redan
-   det krypterade DTO:t, så sealen måste ske *före* enqueue (dvs. i `api.ts` precis som `encrypt`).
+**Kvar — var primitiven ska anropas (undvik dubbel-kryptering + nyckelläcka).** Krypterings-gränsen för
+noter är `apps/web/services/api.ts` (`createNote`: `title: encrypt(data.title)`, …; `updateNote`
+likadant) och motsvarande i `apps/mobile/services/api.ts`. **Seal-beslutet (vilken nyckel) hör hemma i
+storen** (den har note-mappen), inte i `api.ts`. Plan:
+1. Storen resolvar nyckeln med den nu delade hjälpfunktionen
+   `resolveSessionFolderKeyForNote(noteOrParent, noteMap)` (`folderKeySession.ts`, Fas 2.9 — samma som
+   läs-vägen nu använder). På `createNote` finns inte noten än, så resolva mot en syntetisk
+   `{ _id, parentId, locked:false }` så närmaste låsta förälder hittas via `parentId`.
+2. `api.ts` byter `encrypt(data.title)` → `sealNoteFieldForWrite(data.title, folderKey)` (samma för
+   `content`). Utan nyckel (all nuvarande data) är det en **exakt no-op** mot `encrypt`. Övriga fält
+   (tags/icon/…) lämnas tills vidare på `dataKey`-vägen; bara `title`/`content` är känsligt nog för Fas 1.
+3. **SÄKERHET — nyckeln får aldrig nå nätet.** `createNote`/`updateNote` gör `{ ...data, … }` och
+   `JSON.stringify`:ar resultatet till body:n; lägg därför **INTE** `folderKey` på DTO:t (spreaden
+   skulle serialisera råa nyckel-bytes till servern och slå sönder hela E2E-syftet). Skicka den som ett
+   **separat argument**: `createNote(data, folderKey?)` / `updateNote(id, data, folderKey?)`, och referera
+   den bara i `sealNoteFieldForWrite`. Då kan den per konstruktion inte hamna i body:n eller offline-kön.
+   Verifiera på enhet/webb att nätverksanropet inte innehåller nyckeln.
 
 **Enrolment-/upplåsnings-orkestreringen (Fas 2.8 — ✅ levererad).** Den säkerhets­kritiska
 *sekvenseringen* är centraliserad och testad i `@repo/shared` som `folderEnrolment.ts`, så UI:t bara
