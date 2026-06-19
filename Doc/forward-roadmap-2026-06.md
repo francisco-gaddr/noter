@@ -246,8 +246,20 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
   `min(len)` → garbage), så inkompatibla vektorer exkluderas och söket faller rent tillbaka till
   lexikalt tills indexet byggts om. 2 tester. **Kvar (P2):** lagra `dims`/`provider` i index-metadata
   + auto-trigga ombyggnad vid modellbyte (i dag re-embeddas allt vid nästa index-körning).
-- **Index size-cap + eviction** · `packages/shared/src/vectorStore.ts:39-42` · **E:M** · Obegränsad
-  tillväxt → storage-tak + O(n) sök vid 10k+ noter. `maxIndexSize` + LRU på `lastUpdated`.
+- ✅ **[KLAR 2026-06-19] Index size-cap + eviction** · `packages/shared/src/vectorStore.ts` ·
+  `buildVectorIndex(…, maxItems)` (default 4000) evakuerar äldst-embeddade rader (de behåller lexikal
+  sök) så det krypterade indexet inte spränger localStorage/AsyncStorage-kvoten. **Kvar (P2):**
+  vektor-DB/HNSW för O(log n)-sök vid 10k+ noter.
+- ✅ **[KLAR 2026-06-19] Index-metadata (provider+dims) + ombyggnad vid leverantörsbyte** ·
+  `vectorStore.ts` · `VectorIndex` lagrar provider+dims; `diffIndex(…, provider)` re-embeddar vid
+  modell- ELLER leverantörsbyte (samma modellnamn på annan provider = annat vektorrum).
+- ✅ **[KLAR 2026-06-19] Agent + chatt sökverktyg `search_notes`** · `packages/shared/src/agentSearch.ts` ·
+  Lås-säker lexikal+rerank, inkopplad i alla 4 ytorna. **Kvar (P2):** hybrid (query-vektor) för agenten på djup nivå.
+- ✅ **[KLAR 2026-06-19] Webbsök ej längre annonserad (ärlighet)** · `contextLevels.ts` · reserverad
+  tills ett riktigt verktyg byggs. **Kvar:** ev. implementera webbsök (kräver privacy-beslut).
+- ✅ **[KLAR 2026-06-19] Dokumentation + CI-grind** · `Doc/ai-search-indexing-and-agent.md` (länkad i
+  index.md + README) + namngiven blockerande CI-grind "AI search & semantic retrieval — RAG correctness"
+  (8 sviter / 84 tester). **Kvar (P2):** cross-encoder-rerank (on-device ONNX) — största kvalitetslyftet.
 - **Partial-batch-atomicitet i indexering** · `apps/{web,mobile}/services/ai/embeddingsService.ts` ·
   **E:M** · Committa vektorer först efter att hela batch-loopen lyckats, eller spåra `lastSuccessBatch`.
 

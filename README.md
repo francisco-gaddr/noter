@@ -30,6 +30,11 @@ enheternas lokala lagring.
   Anteckningar/uppgifter som **AI-agenten skapar är också end-to-end-krypterade** (krypteras
   på enheten med din nyckel innan de skickas; servern ser dem aldrig i klartext) och **syns i
   realtid** direkt utan omladdning. Se [`Doc/security/ai-agent-data-handling.md`](Doc/security/ai-agent-data-handling.md).
+- **AI-sök & semantisk hämtning (RAG):** hybrid-sök (lexikal + vektor → RRF → rerank, + GraphRAG)
+  med **on-device-embeddings** (lokal Ollama / Hermes-Pi / API), krypterat index på enheten, och ett
+  **lås-säkert `search_notes`-verktyg** för både chatt och agent — låst innehåll når aldrig en
+  hämtning, ett index eller AI:n. Hur det fungerar + val av källa/metod + tester/grindar:
+  **[`Doc/ai-search-indexing-and-agent.md`](Doc/ai-search-indexing-and-agent.md)**.
 - **Extern Markdown-delning:** exponera valda anteckningar/projektmappar som en säker, två-vägs
   Markdown-vault (WebDAV + realtids-CRDT) för Obsidian/Finder/Android/widgets — opt-in per
   objekt, lås-medveten, omedelbart återkallbar. Se [`Doc/external-markdown-sync.md`](Doc/external-markdown-sync.md).
@@ -95,6 +100,7 @@ CWE-liggare finns i [`Doc/security/`](Doc/security/).
 ## 📄 Dokumentation
 
 - **[`Doc/index.md`](Doc/index.md)** — master-index: var du börjar, hur dokumenten hänger ihop.
+- **[`Doc/ai-search-indexing-and-agent.md`](Doc/ai-search-indexing-and-agent.md)** — AI-sök, indexering, semantisk sökning & agentens sökförmåga (översikt + status + val av källa/metod + tester/grindar).
 - [`Doc/api-reference.md`](Doc/api-reference.md) — backend-API:t (genererat från rutterna).
 - [`Doc/security/`](Doc/security/) — kryptering, hotmodell, CWE, uppgraderingsplaybook.
 - [`Doc/adr/`](Doc/adr/) — arkitekturbeslut (ADR).

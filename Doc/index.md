@@ -32,7 +32,8 @@ ska öppna för en given fråga. Läs det här först, sedan den specifika filen
 | Driftsätta / härda servern | [`ops/server-hardening.md`](./ops/server-hardening.md), [`ops/disaster-recovery.md`](./ops/disaster-recovery.md) |
 | Förstå CI/kvalitet & död-kod-grinden | [`ops/ci-quality.md`](./ops/ci-quality.md) |
 | Förstå AI-runtime (web/mobil/Electron) | [`App AI.md`](./App%20AI.md), [`AI impl.md`](./AI%20impl.md) |
-| **AI-leverantörer (OpenAI/Anthropic/Grok m.fl.) + RAG-hämtning (semantisk/GraphRAG/rerank)** ⭐ | [`ai-retrieval-rag.md`](./ai-retrieval-rag.md) + [`adr/0010-two-stage-rag-retrieval.md`](./adr/0010-two-stage-rag-retrieval.md) |
+| **Hur AI-sök/agent-sök/indexering/semantisk sökning fungerar + val av källa & metod + tester/grindar (ÖVERSIKT + status)** ⭐🔒 | [`ai-search-indexing-and-agent.md`](./ai-search-indexing-and-agent.md) |
+| **AI-leverantörer (OpenAI/Anthropic/Grok m.fl.) + RAG-hämtning (semantisk/GraphRAG/rerank) — pipeline-detaljer** ⭐ | [`ai-retrieval-rag.md`](./ai-retrieval-rag.md) + [`adr/0010-two-stage-rag-retrieval.md`](./adr/0010-two-stage-rag-retrieval.md) |
 | **Hur Nextcloud-synken funkar (steg för steg, stabilitet, säkerhet, valda mappar)** ⭐🔒 | [`nextcloud-sync.md`](./nextcloud-sync.md) |
 | Synka in utvalda Nextcloud-mappar — design/beslut + selektiv Neo4j | [`nextcloud-ingestion.md`](./nextcloud-ingestion.md) + [`adr/0011-external-source-ingestion.md`](./adr/0011-external-source-ingestion.md) |
 | **Köra AI lokalt på mobilen (llama.rn, GGUF direkt)** | [`on-device-ai-llama.md`](./on-device-ai-llama.md) ⭐ (ersätter [`MLC AI.md`](./MLC%20AI.md)) |
@@ -61,7 +62,8 @@ ska öppna för en given fråga. Läs det här först, sedan den specifika filen
 | RAG-hämtning till AI-chatten (två-stegs) | `packages/shared/src/retrieval.ts` | Ren pipeline: lexikal+vektor→RRF → GraphRAG → rerank. Lås-säker via `buildIndexableEntities`; kopplas in med `retrieveForChat` i `embeddingsService.ts`. |
 | Web-API-klient | `noter-app/apps/web/services/api.ts` | `decryptNoteFromApi`/`decryptTaskFromApi`. |
 | Graf + layout | `packages/shared/src/{graphModel,graphLayout}.ts` | `buildGraph`/`layoutGraph`/`edgeGeometry` (riktade kanter + pilar); renderas i `apps/web/components/GraphExplorer.tsx` + `apps/mobile/app/graph.tsx`. |
-| Semantisk sök (vektor + RRF) | `packages/shared/src/{vectorSearch,embeddings,embeddingsClient,vectorStore}.ts` | Krypterat index på enheten; tjänst i `apps/{web,mobile}/services/ai/embeddingsService.ts`; inställningar `EmbeddingsSettings`. Låsta noter indexeras aldrig. |
+| Semantisk sök (vektor + RRF) | `packages/shared/src/{vectorSearch,embeddings,embeddingsClient,vectorStore}.ts` | Krypterat index på enheten (metadata: model+provider+dims, size-cap); tjänst i `apps/{web,mobile}/services/ai/embeddingsService.ts`; inställningar `EmbeddingsSettings` (källa local/hermes/api + modell). Låsta noter indexeras aldrig. **Översikt + status:** [`ai-search-indexing-and-agent.md`](./ai-search-indexing-and-agent.md). |
+| AI-agentens (+chattens) sökverktyg | `packages/shared/src/agentSearch.ts` | `search_notes(query, limit?)` — lås-säker lexikal+rerank (återbrukar index-lås-grinden + chattens hämtning). Inkopplad i alla 4 ytorna (web+mobil × agent+chatt). |
 | Produktivitet/admin-statistik | `packages/shared/src/insights.ts` | `computeProductivityStats`/`computeAgentStats`; visas i `AdminDashboard` (web + mobil, hopfällbara sektioner). |
 | Realtid (WSS) | `apps/{web,mobile}/stores/useStore.ts` | Lyssnar `note:created`/`task:created` + `cache:invalidate`-fallback (debouncad refetch). Backend emittar i GraphQL-resolvers, REST-rutter och Pi-agent-runnern. |
 | Versionshantering | `packages/shared/src/whatsNew.ts` | `WHATS_NEW_ENTRIES` + `SecurityClass` per release. |
