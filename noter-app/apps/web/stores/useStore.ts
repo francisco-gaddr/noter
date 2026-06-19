@@ -9,6 +9,7 @@ import CryptoJS from 'crypto-js';
 import { buildSecurityNoteMap, findBlockingLockedAncestor } from '../services/ai/security';
 import { forgetSessionCrypto } from '../lib/crypto';
 import { readStoredToken, readStoredUser, writeStoredToken, writeStoredUser } from '../lib/authStorage';
+import { applyNoteUpdate } from './notesMerge';
 
 let networkListenersReady = false;
 // Debounce handle for the cache:invalidate change-stream fallback (see socket setup).
@@ -760,30 +761,14 @@ export const useStore = create<StoreState>((set, get) => ({
         const decryptedNote = securedIncoming.find((n) => n._id === updatedNote._id);
         if (!decryptedNote) return;
         
-        // Use requestAnimationFrame to batch this potentially expensive operation
+        // Use requestAnimationFrame to batch this potentially expensive operation.
+        // Substitute ONLY the updated note into the CURRENT state.notes (last-writer-wins by
+        // updatedAt) via applyNoteUpdate — never replace the whole array with the snapshot
+        // captured before this rAF, which would drop a concurrently-created note (fix 49661ea).
         requestAnimationFrame(() => {
             set(state => {
-                const currentNote = state.notes.find(n => n._id === decryptedNote._id);
-                if (currentNote) {
-                    // Conflict handling: Merge using deepmerge based on updatedAt
-                    const localTime = new Date(currentNote.updatedAt).getTime();
-                    const remoteTime = new Date(decryptedNote.updatedAt).getTime();
-
-                    if (localTime > remoteTime) {
-                        // Local is newer, ignore remote (or merge carefully)
-                        // For now, let's assume local wins if strictly newer
-                         return {};
-                    }
-                }
-                
-                // Remote is newer or no local note, accept remote. Substitute ONLY the updated
-                // note into the CURRENT state.notes — do NOT overwrite the whole array with
-                // `securedIncoming`, which was captured BEFORE this requestAnimationFrame and
-                // would drop any note created/imported between the capture and this apply.
-                const newNotes = state.notes.some((n) => n._id === decryptedNote._id)
-                    ? state.notes.map((n) => (n._id === decryptedNote._id ? decryptedNote : n))
-                    : [decryptedNote, ...state.notes];
-                return { notes: newNotes };
+                const next = applyNoteUpdate(state.notes, decryptedNote);
+                return next ? { notes: next } : {};
             });
             db.saveNote(decryptedNote); // Cache incoming
         });
