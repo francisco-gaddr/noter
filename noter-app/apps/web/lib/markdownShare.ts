@@ -9,7 +9,7 @@ import {
   buildMarkdownVaultProjection,
   parseMarkdownFile,
   buildSecurityNoteMap,
-  isReadableWithLocks,
+  isReadableForAI,
   normalizeNoteType,
   type VaultNote,
 } from '@repo/shared';
@@ -57,12 +57,14 @@ const projectionFor = (share: { shareId: string; folderIds: string[]; noteIds: s
   const s: any = useStore.getState();
   const notes: VaultNote[] = (s.notes || []) as VaultNote[];
   const noteMap = buildSecurityNoteMap(notes as any);
-  const unlocked = new Set<string>(s.unlockedProtectedNoteIds || []);
+  // SECURITY: a published markdown share is served over WebDAV WITHOUT any unlock session, so
+  // lock-check with the EMPTY unlock set (isReadableForAI) — a locked note (even one open in
+  // the UI) must never be projected into the share.
   const files = buildMarkdownVaultProjection(notes, {
     folderIds: share.folderIds || [],
     noteIds: share.noteIds || [],
     isProject: (n) => normalizeNoteType((n as any).type) === 'project',
-    isLocked: (n) => !isReadableWithLocks(n as any, noteMap as any, unlocked),
+    isLocked: (n) => !isReadableForAI(n as any, noteMap as any),
   });
   const map = readPathMap();
   map[share.shareId] = Object.fromEntries(files.map((f) => [f.path, f.noteId]));

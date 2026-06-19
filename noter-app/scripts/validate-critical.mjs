@@ -38,6 +38,15 @@ const steps = [
     args: ['scripts/check-sql-cascade-replace.mjs'],
   },
   {
+    // Hard locked-folder invariant: a locked note/folder must never leak into an external
+    // publish surface or a persistent index. Fails if the UI unlock set is fed into a
+    // calendar/markdown-share projection, the Neo4j graph sync, or the embeddings index.
+    label: 'Locked-content leak guard (no UI unlock set into index/publish)',
+    cwd: repoRoot,
+    command: 'node',
+    args: ['scripts/check-index-unlock-leak.mjs'],
+  },
+  {
     // Shared is the crypto/widget foundation — gate it first so a broken
     // encrypt/cryptoV3/widgetData can't reach any app.
     label: 'Shared package tests (crypto, widgets, key bootstrap)',

@@ -43,10 +43,13 @@ const readCache = (): Share[] => {
 };
 const writeCache = (s: Share[]): void => { try { localStorage.setItem(SHARES_CACHE, JSON.stringify((s || []).filter(isValidShare))); } catch { /* ignore */ } };
 
-/** Lock-safe projection for a share's set of lists (empty = all tasks). */
+/** Lock-safe projection for a share's set of lists (empty = all tasks).
+ *  SECURITY: the published ICS/CalDAV feed persists on the server and is served WITHOUT any
+ *  unlock session, so we pass the EMPTY unlock set — a locked list (even one open in the UI)
+ *  must never be projected into the feed. */
 const projectionFor = (listIds: string[]) => {
   const s: any = useStore.getState();
-  return buildSafeCalendarProjection(s.tasks || [], s.notes || [], s.unlockedProtectedNoteIds || [], { listIds: listIds || [] });
+  return buildSafeCalendarProjection(s.tasks || [], s.notes || [], [], { listIds: listIds || [] });
 };
 
 export const getCachedShares = (): Share[] => readCache();

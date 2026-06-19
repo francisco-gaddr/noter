@@ -95,4 +95,14 @@ describe('neo4jSync Cypher generation', () => {
     expect(plan[0].text).toContain('DETACH DELETE');
     expect(plan.length).toBeGreaterThan(1);
   });
+
+  it('SECURITY: the sync plan never mirrors a locked folder (entry point hard-wired to empty unlock set)', () => {
+    // proj is the selected folder; lock it. Even though the UI may have it unlocked, the sync
+    // entry point takes no unlock set, so nothing from the locked subtree can reach Neo4j.
+    const locked = notes.map((n) => (n._id === 'proj' ? { ...n, locked: true } : n));
+    const plan = buildNeo4jSyncPlan('u', locked, [], cfg);
+    expect(plan).toHaveLength(1);                 // only the prune; nothing left to upsert
+    expect(plan[0].params.keep).toEqual([]);       // locked subtree → keep nothing
+    expect(plan.some((s) => s.text.includes('MERGE (n:NoterNode'))).toBe(false);
+  });
 });

@@ -506,9 +506,11 @@ export const syncConnection = async (connectionId: string, opts?: { onlyUnderPat
   }
 
   // Reindex (lock-safe; never throws) so the new notes are semantically searchable.
+  // SECURITY: EMPTY unlock set — the embeddings/vector index must never hold locked content,
+  // even a folder the user currently has open in the UI (the AI/RAG reads this index).
   try {
     const s2: any = useStore.getState();
-    await indexEntities(s2.notes || [], s2.tasks || [], new Set(s2.unlockedProtectedNoteIds || []));
+    await indexEntities(s2.notes || [], s2.tasks || [], new Set());
   } catch { /* best-effort */ }
 
   // Persist last-sync timestamp on the connection (drives isSyncDue).
@@ -622,9 +624,9 @@ export const pushNeo4j = async (): Promise<{ ok: boolean; applied?: number; erro
   }
   const s: any = useStore.getState();
   const userId = s.user?._id || s.user?.id || 'me';
-  const statements = buildNeo4jSyncPlan(
-    userId, s.notes || [], s.tasks || [], cfg, new Set(s.unlockedProtectedNoteIds || []),
-  );
+  // SECURITY: never pass the UI unlock set — buildNeo4jSyncPlan is hard-wired to the empty
+  // set so a locked folder (even one open in the UI) is never mirrored to the external graph.
+  const statements = buildNeo4jSyncPlan(userId, s.notes || [], s.tasks || [], cfg);
   if (!statements.length) return { ok: true, applied: 0 };
   try {
     const res = await fetchWithAuth('/neo4j/sync', {

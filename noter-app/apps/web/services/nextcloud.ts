@@ -477,7 +477,9 @@ export const pushNeo4j = async (): Promise<{ ok: boolean; applied?: number; erro
   }
   const s: any = useStore.getState();
   const userId = s.user?._id || s.user?.id || 'me';
-  const statements = buildNeo4jSyncPlan(userId, s.notes || [], s.tasks || [], cfg, new Set(s.unlockedProtectedNoteIds || []));
+  // SECURITY: never pass the UI unlock set here — buildNeo4jSyncPlan is hard-wired to the
+  // empty set so a locked folder (even one the user currently has open) is never mirrored.
+  const statements = buildNeo4jSyncPlan(userId, s.notes || [], s.tasks || [], cfg);
   if (!statements.length) return { ok: true, applied: 0 };
   try {
     const res = await fetch(`${getApiBaseUrl()}/neo4j/sync`, {

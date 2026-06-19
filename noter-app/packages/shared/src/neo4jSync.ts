@@ -216,15 +216,23 @@ export const buildCypherPrune = (userId: string, selection: Neo4jSelection): Cyp
   };
 };
 
-/** Convenience: the full idempotent sync plan (prune stale, then upsert in-scope). */
+/**
+ * Convenience: the full idempotent sync plan (prune stale, then upsert in-scope).
+ *
+ * SECURITY — this is THE entry point the app calls to mirror data to the external Neo4j
+ * graph, so it is hard-wired to the EMPTY unlock set (no `unlockedIds` parameter): a folder
+ * the user has merely unlocked in the UI must NEVER be mirrored, exactly like the AI/RAG
+ * index (see `AI_INDEX_NO_UNLOCK` in locks.ts). Removing the parameter makes it structurally
+ * impossible for a caller to leak locked content by passing the UI's `unlockedProtectedNoteIds`.
+ */
 export const buildNeo4jSyncPlan = (
   userId: string,
   notes: Note[],
   tasks: Task[],
   config: Neo4jConfig,
-  unlockedIds: Set<string> = new Set(),
 ): CypherStatement[] => {
   if (!config.enabled) return [];
-  const selection = selectForNeo4j(notes, tasks, config, unlockedIds);
+  // Always the empty unlock set — locked notes/folders are never mirrored.
+  const selection = selectForNeo4j(notes, tasks, config);
   return [buildCypherPrune(userId, selection), ...buildCypherSync(userId, selection, config)];
 };

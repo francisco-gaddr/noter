@@ -96,6 +96,7 @@ invisible regardless of what the user currently has open:
 | RAG retrieval for chat | `retrieveForChat(...)` call in `ai.tsx` / `AISidebar.tsx` |
 | Vector/embeddings index build | `EmbeddingsSettings.tsx` (both apps) + web `services/nextcloud.ts` → `indexEntities(... new Set())` |
 | GraphRAG neighbour hop | `services/ai/embeddingsService.ts` — neighbours constrained to the lock-filtered candidate set so a graph hop can't surface a locked note |
+| External Neo4j graph sync | `packages/shared/src/neo4jSync.ts` — `buildNeo4jSyncPlan` takes **no** unlock-set argument (hard-wired empty), so a locked folder is never mirrored to the user's Neo4j even while open in the UI; `web services/nextcloud.ts` calls it with no unlock set |
 | Agent memory injection | `agentExecutor.ts` → `collectAgentMemoryNotes(notes, …, emptyUnlock)` |
 
 The agent system prompt also carries `AGENT_LOCK_POLICY` (a firm "never access locked content"

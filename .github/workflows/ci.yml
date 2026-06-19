@@ -65,6 +65,14 @@ jobs:
           node scripts/check-sql-cascade-replace.mjs
           (cd packages/shared && npx jest locks)
           (cd apps/mobile && npx jest __tests__/database-conversation-cascade.test.ts __tests__/ai-model-safety.test.ts tests/ai-sync-service.test.ts)
+      # Hard locked-folder invariant: locked content must never reach an external publish
+      # surface or a persistent index. The guard fails if the UI unlock set is fed into a
+      # calendar/markdown-share projection, the Neo4j graph sync, or the embeddings index;
+      # the neo4jSync suite proves the sync entry point excludes locked subtrees.
+      - name: Locked-content leak guard (blocking)
+        run: |
+          node scripts/check-index-unlock-leak.mjs
+          (cd packages/shared && npx jest neo4jSync)
       # AI provider resilience: per-request timeouts + bounded transient retries (shared
       # httpRetry) and the streaming partial-keep / cancel / empty-stream-fallback
       # behaviour. Guards the "silent provider hangs the AI tab" and the duplicated-answer

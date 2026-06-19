@@ -40,7 +40,9 @@ const writeCache = async (s: Share[]): Promise<void> => { await AsyncStorage.set
 
 const projectionFor = (listIds: string[]) => {
   const s: any = useStore.getState();
-  return buildSafeCalendarProjection(s.tasks || [], s.notes || [], s.unlockedProtectedNoteIds || [], { listIds: listIds || [] });
+  // SECURITY: empty unlock set — the published ICS/CalDAV feed is served without an unlock
+  // session, so a locked list (even one open in the UI) must never reach it.
+  return buildSafeCalendarProjection(s.tasks || [], s.notes || [], [], { listIds: listIds || [] });
 };
 
 export const getCachedShares = async (): Promise<Share[]> => readCache();

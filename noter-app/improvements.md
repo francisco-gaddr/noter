@@ -59,3 +59,10 @@
 - [x] **Stale provider defaults**: Anthropic default model list dropped the retired `claude-3-7-sonnet`/`claude-3-5-haiku` (404 since 2026-02-19) and now lists `claude-opus-4-8`, `claude-opus-4-7`, `claude-sonnet-4-6`, `claude-haiku-4-5` (mobile + web).
 - [x] **CI/CD**: Added the `AI provider resilience` blocking gate to `.github/workflows/ci.yml`; `validate-critical.mjs` now gates the web streaming test and skips the Electron step gracefully when the sibling repo isn't checked out (CI).
 - [ ] **Dependency audit**: `npm audit` shows 138 advisories, almost all transitive (`ws` via socket.io/engine.io/metro/RN; `xlsx` no-fix; `yaml`). Surfaced non-blocking in CI; not auto-`fix --force`d (would rewrite the lockfile broadly and risk the Pi deploy). Needs a deliberate, reviewed upgrade pass.
+- [x] **Auth-path timeouts**: `login`/`register` (mobile + web) used a bare fetch with no timeout → a stalled backend froze the auth screen. Both now use a 15s `fetchWithTimeout`.
+- [x] **SECURITY — locked content leaked into external publish/index (6 sites)**: the UI unlock set (`unlockedProtectedNoteIds`) was being fed into projections that leave the device, so a locked folder *open in the UI* could be mirrored out:
+  - Neo4j graph sync — web + mobile `nextcloud.ts` (`buildNeo4jSyncPlan` now takes NO unlock arg — hard-wired empty; the mobile one was only found because removing the param broke its typecheck).
+  - Published ICS/CalDAV feed — web + mobile `calendarSubscription.ts` (`buildSafeCalendarProjection` now gets `[]`).
+  - Published markdown WebDAV share — web + mobile `markdownShare.ts` (now `isReadableForAI`, empty set).
+  - Embeddings/vector index — mobile `nextcloud.ts` reindex (`indexEntities(... new Set())`).
+  - New blocking guard `scripts/check-index-unlock-leak.mjs` (wired into validate-critical + CI) fails if any of these builders is ever passed the UI unlock set again — it found the embeddings leak the manual audit missed. Neo4j regression test added. `docs/LOCKED_FOLDER_SECURITY.md` updated with the Neo4j row.
