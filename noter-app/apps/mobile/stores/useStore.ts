@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import 'react-native-get-random-values';
 import * as Crypto from 'expo-crypto';
-import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, safeDecrypt, parseEntityLinks, serializeEntityLinks, parseNoteSource, relockFoldersOnLeave } from '@repo/shared';
+import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, safeDecrypt, parseEntityLinks, serializeEntityLinks, parseNoteSource, relockFoldersOnLeave, clearAllFolderKeys } from '@repo/shared';
 import { fetchWithAuth, login as apiLogin, register as apiRegister, setAuthToken, initApiUrl, setUnauthorizedHandler } from '../services/api';
 import * as Database from '../services/database';
 import { initSocket, disconnectSocket, getSocket } from '../services/socket';
@@ -531,6 +531,9 @@ export const useStore = create<AppState>((set, get) => ({
     if (get().securityLocked === locked) return;
     if (locked) {
       disconnectSocket();
+      // Wipe unlocked folder keys (ADR-0012) exactly when the UI unlock set is cleared, so a
+      // locked folder is cryptographically re-locked on app-lock. No-op until enrolment lands.
+      clearAllFolderKeys();
       set({ securityLocked: true, notes: [], tasks: [], activeProjectId: null, isLoading: false, error: null, unlockedProtectedNoteIds: [] });
       return;
     }
@@ -872,6 +875,7 @@ export const useStore = create<AppState>((set, get) => ({
     } catch {}
     setAuthToken(null);
     disconnectSocket();
+    clearAllFolderKeys(); // drop unlocked folder keys on logout (ADR-0012)
     set({ token: null, notes: [], tasks: [], activeProjectId: null, error: null, unlockedProtectedNoteIds: [] });
   },
 

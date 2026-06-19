@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Note, Task, UpdateTaskDto, User, decrypt, encrypt, safeDecrypt, normalizeNoteType, parseEntityLinks, parseNoteSource, relockFoldersOnLeave } from '@repo/shared';
+import { Note, Task, UpdateTaskDto, User, decrypt, encrypt, safeDecrypt, normalizeNoteType, parseEntityLinks, parseNoteSource, relockFoldersOnLeave, clearAllFolderKeys } from '@repo/shared';
 import { api, getApiBaseUrl, getUUID, setApiBaseUrl, setApiToken } from '../services/api';
 import { socket, connectSocket, disconnectSocket, setSocketToken } from '../services/socket';
 import { db } from '../services/db';
@@ -597,6 +597,7 @@ export const useStore = create<StoreState>((set, get) => ({
     // next user (or a left-open machine) can't decrypt without re-entering the
     // password. The key never left the browser; logout makes that explicit.
     try { forgetSessionCrypto(); } catch { /* best-effort */ }
+    clearAllFolderKeys(); // drop unlocked folder keys on logout (ADR-0012)
     set({ user: null, token: null, notes: [], tasks: [], selectedNoteId: null, selectedTaskListId: null, isAppLocked: false, unlockedProtectedNoteIds: [] });
   },
 
@@ -644,11 +645,14 @@ export const useStore = create<StoreState>((set, get) => ({
         else localStorage.removeItem('isAppLocked');
     }
     if (locked) {
-        // Clear sensitive data from memory to ensure it's not accessible via DevTools/Inspector
-        set({ 
-            isAppLocked: true, 
-            notes: [], 
-            tasks: [], 
+        // Clear sensitive data from memory to ensure it's not accessible via DevTools/Inspector.
+        // Wipe unlocked folder keys (ADR-0012) alongside the UI unlock set — a locked folder is
+        // cryptographically re-locked on app-lock. No-op until enrolment lands.
+        clearAllFolderKeys();
+        set({
+            isAppLocked: true,
+            notes: [],
+            tasks: [],
             unlockedProtectedNoteIds: [],
             activeUsers: {},
             selectedNoteId: null,

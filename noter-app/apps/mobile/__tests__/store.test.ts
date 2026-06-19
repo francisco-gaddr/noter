@@ -102,6 +102,16 @@ describe('Mobile Store', () => {
     expect(useStore.getState().unlockedProtectedNoteIds).toEqual([]);
   });
 
+  // SECURITY (ADR-0012): app-lock must wipe the in-memory folder-key session, so a locked
+  // folder is cryptographically re-locked (not just masked) when the app locks.
+  it('clears the folder-key session on app-lock', async () => {
+    const { setFolderKey, folderKeySessionSize } = require('@repo/shared');
+    setFolderKey('proj-1', new Uint8Array(32).fill(9));
+    expect(folderKeySessionSize()).toBe(1);
+    await useStore.getState().setSecurityLocked(true);
+    expect(folderKeySessionSize()).toBe(0);
+  });
+
   it('should unlock and load data on login when security lock is active', async () => {
     const { login, fetchWithAuth } = require('../services/api');
     const encryptedNow = encrypt(new Date().toISOString());

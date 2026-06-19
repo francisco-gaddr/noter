@@ -134,6 +134,18 @@ describe('Web Store', () => {
     expect(useStore.getState().unlockedProtectedNoteIds).toEqual([]);
   });
 
+  // SECURITY (ADR-0012): app-lock must wipe the in-memory folder-key session, so a locked
+  // folder is cryptographically re-locked (not just masked) when the app locks.
+  it('clears the folder-key session on app-lock', () => {
+    const { setFolderKey, folderKeySessionSize } = require('@repo/shared');
+    setFolderKey('proj-1', new Uint8Array(32).fill(9));
+    expect(folderKeySessionSize()).toBe(1);
+    act(() => {
+      useStore.getState().setAppLocked(true);
+    });
+    expect(folderKeySessionSize()).toBe(0);
+  });
+
   it('should restore active project selection from localStorage on hydrate', () => {
     localStorage.setItem('activeProjectId', 'project-abc');
     localStorage.setItem('user', JSON.stringify({ _id: '1', username: 'test' }));

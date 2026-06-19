@@ -71,9 +71,11 @@ E2E redan har; en mapp-recovery-kod kan övervägas senare).
    (`packages/shared/src/folderKeySession.ts`, 10 tester): `setFolderKey`/`getFolderKey`/
    `hasFolderKey`/`clearFolderKey`/`clearAllFolderKeys`/`unlockedFolderIds` — en in-memory-only karta
    (mapp-id → FK), aldrig persisterad, aldrig loggad, äger en kopia av varje nyckel och nollar
-   bytena vid omlåsning. **Kvar:** anropa `unlockFolderKey` → `setFolderKey` när användaren sätter/
-   anger mapp-lösenordet, och `clearAllFolderKeys()` vid app-lås/logout (mirror
-   `unlockedProtectedNoteIds`).
+   bytena vid omlåsning. **Clear-on-lock wired:** både stores anropar nu `clearAllFolderKeys()` i
+   app-lås/logout-vägen (mobil `setSecurityLocked(true)` + `logout`; web `setAppLocked(true)` +
+   `logout`), bevisat av `apps/{web,mobile} __tests__/store.test.ts` ("clears the folder-key session
+   on app-lock"). No-op tills enrolment landar. **Kvar:** anropa `unlockFolderKey` → `setFolderKey`
+   när användaren sätter/anger mapp-lösenordet (enrolment + upplåsning).
 3. **Skriv-väg.** Noter i en mapp med bundle sealas med `wrapNoteForFolder(fält, FK)` i stället för
    `encrypt(...)` under dataKey. Endast medan mappen är upplåst (FK i minnet).
 4. **Läs-väg (`materializeOneNote`).** ✅ **Shared-dispatch levererad** (`materializeFolderField`
