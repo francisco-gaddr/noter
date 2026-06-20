@@ -162,6 +162,7 @@ const resources = {
         e2ePwChanged: 'Password changed. No notes needed re-encryption.',
         e2ePwFailed: 'Could not change password. Check the old password and your connection.',
       },
+      relatedNotes: { title: 'Related notes', untitled: '(untitled)' },
       tabs: {
         notes: 'Notes',
         tasks: 'Tasks',
@@ -511,6 +512,7 @@ const resources = {
         e2ePwChanged: 'Lösenordet är bytt. Inga anteckningar behövde krypteras om.',
         e2ePwFailed: 'Kunde inte byta lösenord. Kontrollera det gamla lösenordet och anslutningen.',
       },
+      relatedNotes: { title: 'Relaterade anteckningar', untitled: '(namnlös)' },
       tabs: {
         notes: 'Anteckningar',
         tasks: 'Uppgifter',

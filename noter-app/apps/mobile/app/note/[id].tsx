@@ -18,6 +18,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { buildSecurityNoteMap, findBlockingLockedAncestor } from '@/services/ai/security';
 import { exportNoteToMarkdown, exportNoteToPdf } from '@/services/noteExport';
 import { MarkdownShareItemDialog } from '@/components/MarkdownShareItemDialog';
+import { RelatedNotes } from '@/components/RelatedNotes';
 import { useMarkdownLiveSync } from '@/services/markdownLive';
 
 export default function NoteEditorScreen() {
@@ -728,6 +729,7 @@ export default function NoteEditorScreen() {
             style={styles.editor}
             useContainer={false}
         />
+        {existingNote && <RelatedNotes noteId={existingNote._id} />}
         </ScrollView>
         <RichToolbar
           editor={richText}
