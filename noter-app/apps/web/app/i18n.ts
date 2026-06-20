@@ -7,6 +7,7 @@ const resources = {
   en: {
     translation: {
       tabs: { notes: 'Notes', tasks: 'Tasks' },
+      relatedNotes: { title: 'Related notes', untitled: '(untitled)' },
       header: { allNotes: 'All Notes', taskLists: 'Task Lists' },
       navbar: {
         topNav: 'Top navigation',
@@ -255,6 +256,7 @@ const resources = {
   sv: {
     translation: {
       tabs: { notes: 'Anteckningar', tasks: 'Uppgifter' },
+      relatedNotes: { title: 'Relaterade anteckningar', untitled: '(namnlös)' },
       header: { allNotes: 'Alla anteckningar', taskLists: 'Uppgiftslistor' },
       navbar: {
         topNav: 'Toppnavigering',

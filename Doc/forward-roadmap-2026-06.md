@@ -435,6 +435,12 @@ Externa best-practice-/trend-källor som styr besluten ovan. Uppdatera när ny r
   länkar och RAG. **Kandidater att plocka in:** AI-summering/auto-titel av anteckningar, automatiska
   backlink-/relaterat-förslag (bygger på befintlig vektor/GraphRAG), och en "daglig genomgång"-vy.
   Förslag för en kommande produktivitets-iteration (ej i P0–P3 ännu — kräver produktbeslut).
+  - 🟢 **[PÅBÖRJAD 2026-06-20] Relaterat-förslag + summering** · Delad lock-säker kärna klar
+    (`packages/shared/src/{relatedNotes,summarize}.ts`, 9 tester, RAG/lås-CI-grind): `relatedNotes`
+    cosine-söker notens REDAN indexerade vektor mot övriga (noll embedding-kostnad, on-device, låsta
+    noter kan aldrig dyka upp); `buildNoteSummaryPrompt` (token-capad, språkmedveten). **Web "Relaterade
+    anteckningar"-panel klar** (`components/RelatedNotesPanel.tsx` i NoteEditor, i18n en/sv). **Kvar:**
+    web Summera-knapp (anropar `generateApiProviderResponse` med användarens nyckel) + mobil-paritet för båda.
 - **Källor:** [Best note-taking apps 2026 (axis-intelligence)](https://axis-intelligence.com/best-note-taking-apps-2026-47-ai-tools/) ·
   [Best PKM apps 2026 (toolfinder)](https://toolfinder.com/best/pkm-apps).
 
