@@ -9,6 +9,10 @@ const resources = {
       tabs: { notes: 'Notes', tasks: 'Tasks' },
       relatedNotes: { title: 'Related notes', untitled: '(untitled)' },
       summarize: { action: 'Summarize', hint: 'Summarize this note with the AI model selected in the assistant' },
+      features: {
+        title: 'Creative features',
+        autoLink: { label: 'Inline auto-linking', hint: 'Suggest related notes live while you write (on-device, no AI cost)' },
+      },
       header: { allNotes: 'All Notes', taskLists: 'Task Lists' },
       navbar: {
         topNav: 'Top navigation',
@@ -259,6 +263,10 @@ const resources = {
       tabs: { notes: 'Anteckningar', tasks: 'Uppgifter' },
       relatedNotes: { title: 'Relaterade anteckningar', untitled: '(namnlös)' },
       summarize: { action: 'Sammanfatta', hint: 'Sammanfatta denna anteckning med AI-modellen du valt i assistenten' },
+      features: {
+        title: 'Kreativa funktioner',
+        autoLink: { label: 'Inline auto-länkning', hint: 'Föreslå relaterade anteckningar live medan du skriver (on-device, ingen AI-kostnad)' },
+      },
       header: { allNotes: 'Alla anteckningar', taskLists: 'Uppgiftslistor' },
       navbar: {
         topNav: 'Toppnavigering',

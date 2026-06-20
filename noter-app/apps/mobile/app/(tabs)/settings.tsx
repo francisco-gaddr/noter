@@ -16,6 +16,7 @@ import { enrollOrUnlockCrypto, changeCryptoPassword } from '@/services/crypto';
 import { hasActiveDataKey, FOLDER_IDLE_LOCK_OPTIONS_MIN } from '@repo/shared';
 import { AdminDashboard } from '@/components/AdminDashboard';
 import { EmbeddingsSettings } from '@/components/EmbeddingsSettings';
+import { FeatureToggles } from '@/components/FeatureToggles';
 import { NextcloudSettings } from '@/components/NextcloudSettings';
 import { forceSyncAllSources } from '@/services/forceSync';
 import * as Clipboard from 'expo-clipboard';
@@ -508,6 +509,10 @@ export default function SettingsScreen() {
       <Divider />
 
       <EmbeddingsSettings />
+
+      <Divider />
+
+      <FeatureToggles />
 
       <Divider />
 

@@ -48,4 +48,5 @@ export * from './debounce';
 export * from './agentSearch';
 export * from './relatedNotes';
 export * from './summarize';
+export * from './featureSettings';
 export * from './lruCache';

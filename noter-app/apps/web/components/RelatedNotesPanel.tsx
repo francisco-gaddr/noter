@@ -1,16 +1,16 @@
 'use client'
 
-import React, { useMemo } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { relatedNotes, type Note, type Task } from '@repo/shared'
+import { agentSearchNotes, type Note, type Task } from '@repo/shared'
 import { useStore } from '../stores/useStore'
-import { getVectorIndex, getEmbeddingsConfig } from '../services/ai/embeddingsService'
+import { getFeatureSettings } from '../services/featureSettings'
 
 /**
- * "Related notes" — the most semantically similar notes/tasks to the one being edited, from the local
- * embedding index. Pure reuse of the shared lock-safe relatedNotes() (no AI/network call, no cost).
- * Renders nothing when there's no selection, no index yet, or nothing related — so it's invisible
- * until embeddings exist. Locked notes can never appear (enforced in the shared helper).
+ * #1 Inline auto-linking — surfaces related notes/tasks as you write, LIVE. Uses the shared lock-safe
+ * agentSearchNotes() (lexical + rerank — no embedding/AI call, no cost, no stale-index issue), keyed
+ * off the current note's title + content, so it refreshes as the draft saves. Gated by the
+ * `autoLink` feature toggle. Locked notes can never appear (enforced in the shared helper).
  */
 export function RelatedNotesPanel() {
   const { t } = useTranslation()
@@ -18,18 +18,27 @@ export function RelatedNotesPanel() {
   const tasks = useStore((s) => s.tasks)
   const selectedNoteId = useStore((s) => s.selectedNoteId)
   const selectNote = useStore((s) => s.selectNote)
+  const [settingsTick, setSettingsTick] = useState(0)
+
+  useEffect(() => {
+    const h = () => setSettingsTick((n) => n + 1)
+    window.addEventListener('noter:feature-settings-changed', h)
+    return () => window.removeEventListener('noter:feature-settings-changed', h)
+  }, [])
+
+  const enabled = useMemo(() => getFeatureSettings().autoLink.enabled, [settingsTick])
 
   const related = useMemo(() => {
-    if (!selectedNoteId) return []
-    try {
-      const index = getVectorIndex(getEmbeddingsConfig().model)
-      return relatedNotes(index, selectedNoteId, notes as Note[], tasks as Task[], 5)
-    } catch {
-      return []
-    }
-  }, [selectedNoteId, notes, tasks])
+    if (!enabled || !selectedNoteId) return []
+    const note = (notes as Note[]).find((n) => n._id === selectedNoteId)
+    if (!note) return []
+    const query = `${note.title || ''} ${note.content || ''}`
+    return agentSearchNotes(notes as Note[], tasks as Task[], query, 6)
+      .filter((r) => r.id !== selectedNoteId)
+      .slice(0, 5)
+  }, [enabled, selectedNoteId, notes, tasks])
 
-  if (!selectedNoteId || related.length === 0) return null
+  if (!enabled || related.length === 0) return null
 
   return (
     <div className="mt-4 border-t border-gray-200 dark:border-gray-700 pt-3 px-2" aria-label={t('relatedNotes.title')}>
@@ -41,11 +50,10 @@ export function RelatedNotesPanel() {
           <li key={r.id}>
             <button
               onClick={() => selectNote(r.id)}
-              className="w-full text-left text-sm text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 flex items-center justify-between gap-2 py-0.5"
+              className="w-full text-left text-sm text-gray-700 dark:text-gray-200 hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-2 py-0.5"
               title={r.snippet || r.title}
             >
               <span className="truncate">{r.title?.trim() || t('relatedNotes.untitled')}</span>
-              <span className="shrink-0 text-xs text-gray-400 dark:text-gray-500">{Math.round(r.score * 100)}%</span>
             </button>
           </li>
         ))}

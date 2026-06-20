@@ -164,6 +164,10 @@ const resources = {
       },
       relatedNotes: { title: 'Related notes', untitled: '(untitled)' },
       summarize: { action: 'Summarize', hint: 'Summarize this note with the AI model selected in the assistant' },
+      features: {
+        title: 'Creative features',
+        autoLink: { label: 'Inline auto-linking', hint: 'Suggest related notes live while you write (on-device, no AI cost)' },
+      },
       tabs: {
         notes: 'Notes',
         tasks: 'Tasks',
@@ -515,6 +519,10 @@ const resources = {
       },
       relatedNotes: { title: 'Relaterade anteckningar', untitled: '(namnlös)' },
       summarize: { action: 'Sammanfatta', hint: 'Sammanfatta denna anteckning med AI-modellen du valt i assistenten' },
+      features: {
+        title: 'Kreativa funktioner',
+        autoLink: { label: 'Inline auto-länkning', hint: 'Föreslå relaterade anteckningar live medan du skriver (on-device, ingen AI-kostnad)' },
+      },
       tabs: {
         notes: 'Anteckningar',
         tasks: 'Uppgifter',

@@ -3,15 +3,15 @@ import { View, Pressable, StyleSheet } from 'react-native';
 import { Text, useTheme } from 'react-native-paper';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
-import { relatedNotes, type RelatedNote, type Note, type Task } from '@repo/shared';
+import { agentSearchNotes, type AgentSearchHit, type Note, type Task } from '@repo/shared';
 import { useStore } from '@/stores/useStore';
-import { getVectorIndex, getEmbeddingsConfig } from '@/services/ai/embeddingsService';
+import { getFeatureSettings } from '@/services/featureSettings';
 
 /**
- * "Related notes" — the most semantically similar notes/tasks to the one being viewed, from the local
- * embedding index (parity with web's RelatedNotesPanel). Pure reuse of the shared lock-safe
- * relatedNotes(): no AI/network call, on-device, and locked notes can never surface. Renders nothing
- * until embeddings exist or when nothing is related.
+ * #1 Inline auto-linking (parity with web) — surfaces related notes/tasks live as you write, via the
+ * shared lock-safe agentSearchNotes() (lexical + rerank, no AI/embedding call, on-device). Keyed off
+ * the current note's title + content so it refreshes as the draft saves. Gated by the `autoLink`
+ * feature toggle. Locked notes can never appear.
  */
 export function RelatedNotes({ noteId }: { noteId: string }) {
   const router = useRouter();
@@ -19,15 +19,20 @@ export function RelatedNotes({ noteId }: { noteId: string }) {
   const { t } = useTranslation();
   const notes = useStore((s) => s.notes);
   const tasks = useStore((s) => s.tasks);
-  const [related, setRelated] = useState<RelatedNote[]>([]);
+  const [related, setRelated] = useState<AgentSearchHit[]>([]);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const cfg = await getEmbeddingsConfig();
-        const index = await getVectorIndex(cfg.model);
-        const out = relatedNotes(index, noteId, notes as Note[], tasks as Task[], 5);
+        const settings = await getFeatureSettings();
+        if (!settings.autoLink.enabled) { if (!cancelled) setRelated([]); return; }
+        const note = (notes as Note[]).find((n) => n._id === noteId);
+        if (!note) { if (!cancelled) setRelated([]); return; }
+        const query = `${note.title || ''} ${note.content || ''}`;
+        const out = agentSearchNotes(notes as Note[], tasks as Task[], query, 6)
+          .filter((r) => r.id !== noteId)
+          .slice(0, 5);
         if (!cancelled) setRelated(out);
       } catch {
         if (!cancelled) setRelated([]);
@@ -48,7 +53,6 @@ export function RelatedNotes({ noteId }: { noteId: string }) {
           style={styles.row}
         >
           <Text numberOfLines={1} style={styles.title}>{r.title?.trim() || t('relatedNotes.untitled')}</Text>
-          <Text style={styles.score}>{Math.round(r.score * 100)}%</Text>
         </Pressable>
       ))}
     </View>
