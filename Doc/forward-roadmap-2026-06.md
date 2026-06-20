@@ -359,8 +359,12 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
   `_id`/`createdAt`.
 - **Feature-flags / config hot-reload** · `apps/backend/src/index.ts` · **E:M** · Ingen emergency-disable
   utan rebuild (5–10 min). Redis-/fil-baserade flaggor (`AI_PROVIDER_DISABLED` m.fl.).
-- **`console.log` → winston i backend** · `apps/backend/src/index.ts` (28 anrop) · **E:S** · Splittad
-  loggning; pre-commit-hook som blockerar `console.log` i `src/`.
+- ✅ **[KLAR 2026-06-20] `console.*` → winston i backend (server-kod)** · `apps/backend/src/{index.ts,services/cache.ts}` ·
+  Alla 10 `console.*` i SERVER-kod ersatta med strukturerad `logger` (socket connect/disconnect →
+  `logger.debug` med socketId; mongo/boot → strukturerade fält; redundanta console+logger-par konsoliderade).
+  De 19 i **CLI-skript** (`reconcileIndexes`, `generateOpenApi`) behålls medvetet — `console.*` är rätt för
+  människo-läsbar terminal-output. **Kvar (valfritt):** eslint `no-console`-regel scoped till `src/` (ej `scripts/`)
+  som regress-skydd.
 - ✅ **[KLAR 2026-06-20] Mongoose connection pooling + reconnect-observability** · `apps/backend/src/index.ts` ·
   `maxPoolSize`(20)/`minPoolSize`(2) (env-överridbart; default 100 är slöseri på single-backend-Pi:n) +
   `disconnected`/`reconnected`/`error`-handlers som LOGGAR (drivern auto-återansluter; en flap lämnade förut

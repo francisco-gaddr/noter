@@ -1,11 +1,12 @@
 import { createClient } from 'redis';
+import logger from '../utils/logger';
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 
 const client = createClient({ url: REDIS_URL });
 
 client.on('error', (err) => {
-  console.error('Redis Client Error', err);
+  logger.error('redis: client error', { error: (err as Error)?.message });
 });
 
 const ensureConnected = async () => {
@@ -13,7 +14,7 @@ const ensureConnected = async () => {
     try {
       await client.connect();
     } catch (err) {
-      console.error('Failed to connect to Redis', err);
+      logger.error('redis: failed to connect', { error: (err as Error)?.message });
       throw err;
     }
   }
@@ -54,7 +55,7 @@ const close = async (): Promise<void> => {
   try {
     if (client.isOpen) await client.quit();
   } catch (err) {
-    console.error('Failed to close Redis cache client', err);
+    logger.error('redis: failed to close cache client', { error: (err as Error)?.message });
   }
 };
 

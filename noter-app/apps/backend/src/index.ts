@@ -347,7 +347,7 @@ io.use((socket, next) => {
 });
 
 io.on('connection', (socket) => {
-  console.log('Client connected:', socket.id);
+  logger.debug('socket: connected', { socketId: socket.id });
   const userId = (socket.data as any).userId as string | undefined;
 
   // Install JWT-expiry tracking on this socket. The handshake already
@@ -447,7 +447,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
+    logger.debug('socket: disconnected', { socketId: socket.id });
     socketUsers.delete(socket.id);
   });
 });
@@ -636,8 +636,7 @@ const startServer = async () => {
         maxPoolSize: Number(process.env.MONGO_MAX_POOL_SIZE) || 20,
         minPoolSize: Number(process.env.MONGO_MIN_POOL_SIZE) || 2,
       });
-      console.log('Connected to MongoDB');
-      logger.info('Connected to MongoDB');
+      logger.info('mongo: connected');
       // Migrate calendarfeeds: drop the legacy userId-unique index so per-list feeds
       // are allowed, ensure the (userId, listId) compound unique. Idempotent.
       reconcileCalendarFeedIndexes().catch((err) => {
@@ -700,19 +699,16 @@ const startServer = async () => {
       }
       startCron();
     } catch (err) {
-      console.error('MongoDB connection error:', err);
-      logger.error('MongoDB connection error:', err);
-      console.log('Running without database connection (some features may fail)');
+      logger.error('mongo: startup connection failed', { error: (err as Error)?.message });
+      logger.warn('running without database connection (some features may fail)');
       // process.exit(1); // Do not exit, allow server to run for diagnostics/offline sync
     }
   } else {
-    console.log('MONGO_URI not set, running without database connection');
-    logger.info('MONGO_URI not set, running without database connection');
+    logger.warn('MONGO_URI not set — running without database connection');
   }
 
   server.listen(Number(port), '0.0.0.0', () => {
-    console.log(`Server running at http://0.0.0.0:${port}`);
-    logger.info(`Server running at http://0.0.0.0:${port}`);
+    logger.info('server: listening', { port: Number(port), url: `http://0.0.0.0:${port}` });
   });
 
   installGracefulShutdown({

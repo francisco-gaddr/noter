@@ -66,6 +66,8 @@ const trackedFiles = () => {
 
 const scanFile = (rel, baseDir = repoRoot) => {
   const findings = [];
+  // The scanner itself legitimately contains the secret PATTERNS + selftest fixtures — never scan it.
+  if (/(^|[\\/])scripts[\\/]check-secrets\.mjs$/.test(rel)) return findings;
   if (isCommittedEnvFile(rel)) findings.push({ file: rel, line: 0, what: 'committed .env file (add to .gitignore / use .env.example)' });
   if (BINARY_EXT.test(rel) || SKIP_PATH.test(rel)) return findings;
   // Tests/docs reference key FORMATS (regex matchers) and carry fake fixtures — scanning their content
