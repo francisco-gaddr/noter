@@ -30,6 +30,14 @@ datan aldrig lämnar enheten. Det är vinkeln.
 | 11 | **Multimodalt: bild→not (OCR/förståelse)** | Släpp bild → AI extraherar text + länkar; on-device OCR | befintlig OCR i sync-ingest | M | ⭐⭐ |
 | 12 | **AI-mallar / "gör om till …"** | "Gör om till mötesnot/beslutsdokument/checklista" | AI, summarize | S | ⭐ |
 
+## Status (bygge påbörjat 2026-06-20)
+
+- ✅ **Delad grund** — `featureSettings.ts` (på/av + per-funktion AI-källa/modell-val), per-app-lagring, inställnings-UI (`FeatureToggles` web+mobil).
+- ✅ **Delad AI-resolver** — web `services/ai/featureCompletion.ts` (`listAiOptions` + `runFeatureCompletion`) + återanvändbar `AiSourcePicker`. (mobil-resolver kvar)
+- ✅ **#1 Inline auto-länkning** — live lexikalt förslag via `agentSearchNotes`, toggle, web+mobil.
+- ✅ **#2 Flashcards (web)** — delad ren `flashcards.ts` (prompt + parse + SM-2, 8 tester); generera ur not via vald källa/modell + review-modal med betyg. (mobil-paritet kvar)
+- ⏳ **#3 Daglig genomgång** (klient-sidig) · **#5 Röst** (capture + vald transkriberings-provider; ej on-device pga no-EAS) · **#4 Spatial canvas** (per-not-toggle).
+
 ## Föreslagen ordning (om vi kör innovations-spår)
 
 1. **#6 Inline auto-länkning** — bygger DIREKT på `relatedNotes` (redan klar), liten yta, kännbart "smart". Snabb vinst.

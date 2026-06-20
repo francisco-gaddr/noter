@@ -4,6 +4,7 @@ import React, { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { FeatureSettings } from '@repo/shared'
 import { getFeatureSettings, saveFeatureSettings } from '../services/featureSettings'
+import { AiSourcePicker } from './AiSourcePicker'
 
 /** Settings panel for the creative features. Each row toggles a feature on/off; AI features also get
  *  a source/model picker (added per feature as they land). Persists to feature_settings_v1. */
@@ -25,7 +26,19 @@ export default function FeatureToggles() {
         label={t('features.autoLink.label')}
         hint={t('features.autoLink.hint')}
       />
-      {/* flashcards / dailyReview / voice / canvas toggles + AI pickers added as each feature lands */}
+
+      <div>
+        <ToggleRow
+          checked={settings.flashcards.enabled}
+          onChange={(v) => update({ flashcards: { ...settings.flashcards, enabled: v } })}
+          label={t('features.flashcards.label')}
+          hint={t('features.flashcards.hint')}
+        />
+        {settings.flashcards.enabled && (
+          <AiSourcePicker value={settings.flashcards.ai} onChange={(ai) => update({ flashcards: { ...settings.flashcards, ai } })} />
+        )}
+      </div>
+      {/* dailyReview / voice / canvas toggles + AI pickers added as each feature lands */}
     </div>
   )
 }

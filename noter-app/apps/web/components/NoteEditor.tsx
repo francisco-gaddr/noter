@@ -13,6 +13,7 @@ import { PasswordModal } from './PasswordModal';
 import { IconPicker } from './IconPicker';
 import { RelatedNotesPanel } from './RelatedNotesPanel';
 import { SummarizeButton } from './SummarizeButton';
+import { FlashcardsPanel } from './FlashcardsPanel';
 import dynamic from 'next/dynamic';
 const ReactPlayer = dynamic(() => import('react-player/lazy'), { ssr: false });
 import html2canvas from 'html2canvas';
@@ -1783,6 +1784,7 @@ function NoteEditorContent() {
       <div className="mt-3 px-2">
         <SummarizeButton />
       </div>
+      <FlashcardsPanel />
       <RelatedNotesPanel />
 
       {showTagsModal && (

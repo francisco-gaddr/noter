@@ -12,6 +12,13 @@ const resources = {
       features: {
         title: 'Creative features',
         autoLink: { label: 'Inline auto-linking', hint: 'Suggest related notes live while you write (on-device, no AI cost)' },
+        flashcards: { label: 'Flashcards', hint: 'Generate spaced-repetition study cards from a note' },
+        ai: { none: '(configure an AI source in the assistant)', model: 'model' },
+      },
+      flashcards: {
+        create: 'Create flashcards', generating: 'Generating…', created: 'Created {{count}} cards', none: 'No cards generated',
+        failed: 'Flashcard generation failed', review: 'Review ({{count}})', show: 'Show answer',
+        again: 'Again', hard: 'Hard', good: 'Good', easy: 'Easy', done: 'All caught up', close: 'Close',
       },
       header: { allNotes: 'All Notes', taskLists: 'Task Lists' },
       navbar: {
@@ -266,6 +273,13 @@ const resources = {
       features: {
         title: 'Kreativa funktioner',
         autoLink: { label: 'Inline auto-länkning', hint: 'Föreslå relaterade anteckningar live medan du skriver (on-device, ingen AI-kostnad)' },
+        flashcards: { label: 'Flashcards', hint: 'Generera repetitionskort från en anteckning' },
+        ai: { none: '(konfigurera en AI-källa i assistenten)', model: 'modell' },
+      },
+      flashcards: {
+        create: 'Skapa flashcards', generating: 'Genererar…', created: 'Skapade {{count}} kort', none: 'Inga kort genererades',
+        failed: 'Kunde inte generera flashcards', review: 'Öva ({{count}})', show: 'Visa svar',
+        again: 'Igen', hard: 'Svårt', good: 'Bra', easy: 'Lätt', done: 'Klart för nu', close: 'Stäng',
       },
       header: { allNotes: 'Alla anteckningar', taskLists: 'Uppgiftslistor' },
       navbar: {
