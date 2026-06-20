@@ -1,4 +1,8 @@
 #!/usr/bin/env sh
+# Pre-push review-gate. Git runs hooks from the repo ROOT, but the workspace + scripts live in
+# noter-app/, so resolve our own location and cd into it (works regardless of git's CWD).
+cd "$(dirname "$0")/.." || exit 1   # .husky/ → noter-app/
+
 echo "Kör obligatorisk valideringsmatris före push..."
 npm run validate:prepush
 status=$?
