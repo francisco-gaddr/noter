@@ -438,9 +438,12 @@ Externa best-practice-/trend-källor som styr besluten ovan. Uppdatera när ny r
   - 🟢 **[PÅBÖRJAD 2026-06-20] Relaterat-förslag + summering** · Delad lock-säker kärna klar
     (`packages/shared/src/{relatedNotes,summarize}.ts`, 9 tester, RAG/lås-CI-grind): `relatedNotes`
     cosine-söker notens REDAN indexerade vektor mot övriga (noll embedding-kostnad, on-device, låsta
-    noter kan aldrig dyka upp); `buildNoteSummaryPrompt` (token-capad, språkmedveten). **Web "Relaterade
-    anteckningar"-panel klar** (`components/RelatedNotesPanel.tsx` i NoteEditor, i18n en/sv). **Kvar:**
-    web Summera-knapp (anropar `generateApiProviderResponse` med användarens nyckel) + mobil-paritet för båda.
+    noter kan aldrig dyka upp); `buildNoteSummaryPrompt` (token-capad, språkmedveten). **"Relaterade
+    anteckningar" klar på BÅDE web OCH mobil** (`web/components/RelatedNotesPanel.tsx` +
+    `mobile/components/RelatedNotes.tsx`, i18n en/sv, paritet). **Kvar:** Summera-knapp (web + mobil) som
+    anropar `generateApiProviderResponse` med användarens nyckel — kräver att chatt-send-konfigen
+    (provider/nyckel/modell, idag intern i AISidebar) återanvänds via en delad service ELLER event-hand-off
+    till chattens send-pipeline (lägst risk). Promptkärnan finns redan; bara UI + config-återbruk kvar.
 - **Källor:** [Best note-taking apps 2026 (axis-intelligence)](https://axis-intelligence.com/best-note-taking-apps-2026-47-ai-tools/) ·
   [Best PKM apps 2026 (toolfinder)](https://toolfinder.com/best/pkm-apps).
 
