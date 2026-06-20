@@ -46,6 +46,38 @@ datan aldrig lämnar enheten. Det är vinkeln.
 4. **#1 Spatial canvas** — den stora differentieraren (visuellt tänkande), men störst effort → eget spår.
 5. **#3 Röst + on-device-transkribering** — multimodal capture, mobil-först, "privacy-wow".
 
+## Tillägg till backloggen — prioriterat (2026-06-20)
+
+Kandidater UTÖVER de 12 ovan, rankade efter nytta × passform × återanvändning × genomförbarhet
+(no-EAS / E2E). Återanvänder mycket av det vi just byggt (AI-resolver/picker, RAG, agentSearch, graf).
+
+**P1 — högst (störst nytta, mest återanvändning):**
+| # | Funktion | Vad | Återanvänder | Effort |
+|---|----------|-----|--------------|--------|
+| 13 | **Inline AI-skrivassistent** | Markera text → fortsätt / utveckla / skriv om / fixa / översätt (Notion-AI-stil), i editorn | AI-resolver + picker (klart) | M |
+| 14 | **Smarta samlingar (sparade semantiska sökningar)** | En "mapp"/vy definierad av en NL-fråga, auto-fylld via RAG (smart folder) | retrieval/RAG | M |
+| 15 | **Auto-backlink / `[[wiki-länk]]`-autocomplete** | Skriv `[[` → fuzzy-matcha titlar → infoga länk; föreslå länkar för nämnda titlar | agentSearch (ingen AI-kostnad) | M |
+
+**P2 — värdefullt:**
+| # | Funktion | Vad | Återanvänder | Effort |
+|---|----------|-----|--------------|--------|
+| 16 | **"Organisera/klustra mina noter" (AI-städning)** | AI grupperar lösa noter i föreslagna ämnen/mappar ("var hör detta hemma") | RAG + AI | M |
+| 17 | **Snabb-capture / global scratchpad** | Direkt-capture (hotkey/dela-till), AI auto-arkiverar senare (research: nyckel-differentiering) | store + AI | M |
+| 18 | **Dubblett-/sammanfognings-förslag** | Hitta nära-dubbletter via embeddings, föreslå merge | vektor-index | S |
+| 19 | **Not → presentation/slides (AI)** | Gör om en not till en deck/punkt-struktur | AI-resolver | M |
+| 20 | **Vecko-/månads-digest** | Utökar daglig genomgång till längre tidsspann | #3 daily-review | S |
+
+**P3 — senare / villkorat:**
+| # | Funktion | Vad | Notering | Effort |
+|---|----------|-----|----------|--------|
+| 21 | **Koncept-/entitets-extraktion → index** | AI drar ut personer/projekt/teman → rikare graf | bygger på GraphRAG | M |
+| 22 | **Handskrift/penna på canvas** | Stylus-input på surfplatta | multimodalt; canvas-utökning (#4) | L |
+| 23 | **Webb-clipper / dela-till-Noter** | Fånga webbsidor/markeringar → krypterad not | Android-intent OK; **iOS share-extension kräver native → no-EAS-block** | M |
+| 24 | **Realtids-samarbete (delade ytor)** | Co-edit i realtid | CRDT finns redan (`markdav/live.ts`) men stort | L |
+
+**Rekommenderad insprint efter de 5 pågående:** #15 (auto-backlink — billig, kärn-PKM, ingen AI-kostnad)
+→ #13 (inline AI-skrivassistent — återanvänder resolvern, hög daglig nytta) → #14 (smarta samlingar).
+
 ## Medvetet INTE här (säkerhet/härdning — separat backlog)
 
 Säkerhets-/drift-/parity-poster ligger kvar i [`forward-roadmap-2026-06.md`](forward-roadmap-2026-06.md)
