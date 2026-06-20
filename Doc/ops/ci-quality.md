@@ -1,66 +1,53 @@
-# CI & Code-Quality Pipeline
+# Validation & code-quality model (local + Raspberry Pi)
 
-**Updated:** 2026-06-13
+**Updated:** 2026-06-20 · **GitHub Actions: removed** (we don't burn CI minutes — the gate runs on
+hardware we own).
 
-## What runs
+## How it works now
 
-`.github/workflows/ci.yml` runs on push (`dev`, `main`, `agent/**`) and PRs to
-`dev`/`main`. Two jobs:
+There is **no GitHub Actions / CI service**. Quality is enforced at two points we control:
 
-### `app-quality` (noter-app)
-| Step | Gate | Notes |
-|------|------|-------|
-| `npm run check-types` | **blocking** | `turbo run check-types` across all workspaces |
-| core tests (`@repo/shared`, `@repo/ai`) | **blocking** | fast, deterministic, green |
-| `npm run knip:files` | **blocking** | **no dead/unimported source files** — backlog cleared 2026-06-13 (8 removed) |
-| app tests (`mobile`, `backend`, `web`) | non-blocking | has a pre-existing flake backlog (see below) |
-| `npm run knip` | non-blocking | broader dead-code / unused-dep report (deps still being triaged) |
+1. **Local pre-push gate (primary).** [`noter-app/.husky/pre-push`](../../noter-app/.husky/pre-push)
+   runs `npm run validate:prepush` → `validate:critical` → [`scripts/validate-critical.mjs`](../../noter-app/scripts/validate-critical.mjs)
+   before every `git push`. A failing gate blocks the push. This is the review-gate at push time.
+2. **Raspberry Pi run (second line).** [`noter-app/scripts/pi-validate.sh`](../../noter-app/scripts/pi-validate.sh)
+   runs the **same** matrix on the Pi. It's wired into the deploy as an **opt-in pre-build gate** —
+   `RUN_PI_TESTS=1 python deploy_pi.py` runs it and aborts the deploy if it fails. Off by default
+   because the full matrix is heavy on a Pi; enable it once the Pi host has Node 24 (or run it in a
+   `node:24` container — see the script header).
 
-### `electron-quality` (electron-noter)
-| Step | Gate | Notes |
-|------|------|-------|
-| `npm test` | non-blocking | jest unit tests |
+The Pi deploy also keeps its **runtime health-gate + rollback** ([`deploy_pi.py`](../../noter-app/deploy_pi.py)):
+after `docker compose up` it polls `/api/health` and rolls back to the previous revision if the new
+build never becomes healthy. That is a runtime smoke test on the real hardware.
 
-Blocking gates are deliberately limited to checks that are currently green so the
-required status never goes red through no fault of a PR. The non-blocking steps are
-**burn-down lists**: fix them, then promote each to blocking.
+## What the matrix enforces (`validate-critical.mjs`, 19 gates)
 
-## Local commands
-```bash
-cd noter-app
-npm run check-types          # tsc across workspaces
-npm test                     # turbo run test (all workspaces)
-npm run knip                 # dead-code + unused-dependency report
-npm run knip:production      # stricter: production entry points only
-```
+Run it any time with `npm run validate:critical` (from `noter-app/`). Highlights:
 
-## Promote-to-blocking checklist
-1. **Mobile/web/backend test flakes.** Several suites fail from an
-   `expo-modules-core` / `expo-clipboard` native-view mock gap
-   (`viewManagersMetadata` undefined) plus a few render-env issues
-   (`NoteItem.haptic`, `layout`, `project-selector`, `settings-press-feedback`,
-   `video-embed`, `notifications`, `ai-header`, `ai-sidebar`). These predate the
-   current work (verified identical on a clean `dev` checkout). Fix the shared mock,
-   then flip the "app tests" step to blocking.
-2. **knip backlog.** Current report (after false-positive tuning in `knip.json`):
-   - ~8 unused files (verify each — some are dynamically imported; **do not bulk
-     delete**). Platform files (`*.web.ts`) are already excluded as entry points.
-   - ~7 unused devDeps, ~18 unused deps — confirm per item before removing.
-   - **Unlisted dependencies (highest value):** used-but-undeclared packages
-     (`archiver`, `mongodb`, `react-native-mmkv`, `body-parser`, `uuid`, `dnd-core`…).
-     These are the same bug class as the EAS dep-strip trap — declare them in the
-     owning workspace's `package.json`.
-   Burn this down, then add `--strict` and make knip blocking.
+- **Typecheck** across all workspaces (`turbo run check-types`).
+- **Lockfile in sync** with package.json (npm@10 regen diff).
+- **Core package tests** — `@repo/shared` + `@repo/ai` (crypto, locks, RAG/retrieval, agent runner,
+  vector index, related-notes/summarize, error reporter, …).
+- **Security/invariant guards** (mechanical, each with a `--selftest`):
+  - Crypto-boundary — encryption only via `@repo/shared`.
+  - Locked-content leak — the UI unlock set never reaches an index/publish surface.
+  - Route-scoping & SQL cascade-replace.
+  - **Secret-scanning** — no committed credentials / `.env` files ([`scripts/check-secrets.mjs`](../../noter-app/scripts/check-secrets.mjs)).
+- **Named correctness gates** — CalDAV/calendar 2-way, AI-chat persistence, AI search & RAG, GDPR
+  export/delete, audit-log tamper-evidence, task-list windowing.
 
-## Already fixed this pass
-- `packages/ai/jest.config.js` scanned the compiled `dist/__tests__` copy, failing the
-  run with "must contain at least one test". Restricted to `src/` → green, now a
-  blocking gate.
-- `turbo.json` gained a `test` task (there was none, so no CI ran tests before).
+## What used to be CI-only (now run on demand / on the Pi)
 
-## Config files
-- `noter-app/turbo.json` — `test` task wired for `turbo run test`.
-- `noter-app/knip.json` — per-workspace entry points so framework-routed files
-  (expo-router `app/`, Next `app/`) and platform files aren't mis-flagged. `eslint`,
-  `jest`, `next` plugins disabled (they crashed on this monorepo's configs); knip runs
-  as a pure unused-code/dep analyzer.
+The removed `ci.yml` also ran a few heavier, non-blocking steps. Run them locally or on the Pi when
+relevant (deliberately **not** in the fast pre-push gate, so pushing stays quick):
+
+- **Web SSR build** — `cd apps/web && npx next build`.
+- **Dead-code / unused-deps report** — `npm run knip` (and the blocking `npm run knip:files`).
+- **Broad app test suite** — `npx turbo run test --filter=mobile --filter=backend --filter=web`
+  (a known flake backlog under parallel load — the deterministic subset is in the matrix above).
+
+## Re-enabling hosted CI later
+
+If a hosted CI is ever wanted again, the gate is a single command (`node scripts/validate-critical.mjs`)
+plus the heavier steps above — trivially re-expressible as a workflow. None of the gate logic lives in
+GitHub Actions; it all lives in the repo scripts.

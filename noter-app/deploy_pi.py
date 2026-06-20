@@ -185,7 +185,19 @@ try:
 
     # Docker compose up
     docker_path = f"{project_path}/noter-app"
-    
+
+    # Optional pre-build gate: run the validation matrix ON THE PI (replaces GitHub Actions). Opt-in via
+    # RUN_PI_TESTS=1 because the full matrix is heavy on a Pi — the dev-machine pre-push hook is the
+    # primary gate. When enabled, a test failure aborts the deploy so a broken build never goes live.
+    if os.environ.get("RUN_PI_TESTS") == "1":
+        print("RUN_PI_TESTS=1 — running the validation matrix on the Pi before building...")
+        test_code = execute_command(ssh, f"cd {docker_path} && bash scripts/pi-validate.sh")
+        if test_code != 0:
+            print("Pi validation FAILED — aborting deploy (no changes deployed).")
+            ssh.close()
+            exit(1)
+        print("Pi validation passed.")
+
     print("Stopping existing containers...")
     # Force stop and remove any existing noter containers to free up ports
     stop_cmd = "docker ps -aq --filter 'name=noter' | xargs -r docker rm -f"

@@ -476,9 +476,10 @@ Finnar-poster som verifieringen eller jag **avfärdade** — så ingen jagar dem
   `socket.on()` ersätter, staplar inte (`useStore.ts:714-929`). Ingen åtgärd.
 - **`materializeNotesFromEncrypted` O(n) per uppdatering** — React Compiler coalescar renders; **mät
   med Profiler innan** ev. memoisering. Inte en blind optimering.
-- **"GitHub Actions CI saknas helt"** — FELAKTIGT: `Noter/.github/workflows/ci.yml` (repo-root) kör
-  validate-critical-grindarna + `web-build` för `noter-app`. _Korrekt restpunkt:_ branch-protection
-  + en deploy-grind kan stärkas (se P1 health-gate).
+- **GitHub Actions** — ✅ **[BORTTAGEN 2026-06-20] medvetet bortkopplad.** Alla workflows raderade
+  (`ci.yml`, `rekor-audit.yml`, `actionlint*.yml`) — vi bränner inte CI-minuter. Grinden körs nu på
+  hårdvara vi äger: **lokal pre-push-hook** (`validate:critical`, 19 grindar) + **Pi-validering**
+  (`scripts/pi-validate.sh`, opt-in i deploy via `RUN_PI_TESTS=1`). Se [`ops/ci-quality.md`](ops/ci-quality.md).
 - **"GraphQL exponerar bcrypt-hash"** — delvis fel rationale (GraphQL-vägen server-_krypterar_,
   bcrypt är REST-vägen) — men output-fältet är ändå **borttaget** (P1-sektionen / levererat).
 

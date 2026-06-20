@@ -30,7 +30,7 @@ ska öppna för en given fråga. Läs det här först, sedan den specifika filen
 | Veta varför ett arkitekturbeslut togs | [`adr/`](./adr/) (ADR-register) |
 | **Migrera desktop Electron → Tauri (körguide + beslut)** | [`migrations/electron-to-tauri-runbook.md`](./migrations/electron-to-tauri-runbook.md) ⭐ + [`adr/0007-electron-vs-tauri.md`](./adr/0007-electron-vs-tauri.md) |
 | Driftsätta / härda servern | [`ops/server-hardening.md`](./ops/server-hardening.md), [`ops/disaster-recovery.md`](./ops/disaster-recovery.md) |
-| Förstå CI/kvalitet & död-kod-grinden | [`ops/ci-quality.md`](./ops/ci-quality.md) |
+| Förstå validerings-modellen (lokal pre-push-grind + Pi, INGEN GitHub Actions) | [`ops/ci-quality.md`](./ops/ci-quality.md) |
 | Fel-/krasch-spårning (self-hosted GlitchTip på Pi:n) | [`ops/error-tracking-glitchtip.md`](./ops/error-tracking-glitchtip.md) |
 | Förstå AI-runtime (web/mobil/Electron) | [`App AI.md`](./App%20AI.md), [`AI impl.md`](./AI%20impl.md) |
 | **Hur AI-sök/agent-sök/indexering/semantisk sökning fungerar + val av källa & metod + tester/grindar (ÖVERSIKT + status)** ⭐🔒 | [`ai-search-indexing-and-agent.md`](./ai-search-indexing-and-agent.md) |
