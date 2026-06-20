@@ -69,6 +69,19 @@ const steps = [
     args: ['scripts/check-crypto-boundary.mjs', '--selftest'],
   },
   {
+    // Fail if a credential or an env file is committed (a hardcoded password, a private key, a .env).
+    label: 'Secret-scanning guard (no committed credentials)',
+    cwd: repoRoot,
+    command: 'node',
+    args: ['scripts/check-secrets.mjs'],
+  },
+  {
+    label: 'Secret-scanning guard self-test',
+    cwd: repoRoot,
+    command: 'node',
+    args: ['scripts/check-secrets.mjs', '--selftest'],
+  },
+  {
     // Shared is the crypto/widget foundation — gate it first so a broken
     // encrypt/cryptoV3/widgetData can't reach any app.
     label: 'Shared package tests (crypto, widgets, key bootstrap)',

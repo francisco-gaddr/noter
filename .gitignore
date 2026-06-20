@@ -48,3 +48,8 @@ logs/
 
 /Visuals/
 /AppIcons.zip
+
+# Env backups / variants (never commit secrets)
+*.env.bak
+.env.*.bak
+.env.bak

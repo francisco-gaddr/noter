@@ -361,15 +361,27 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
   utan rebuild (5–10 min). Redis-/fil-baserade flaggor (`AI_PROVIDER_DISABLED` m.fl.).
 - **`console.log` → winston i backend** · `apps/backend/src/index.ts` (28 anrop) · **E:S** · Splittad
   loggning; pre-commit-hook som blockerar `console.log` i `src/`.
-- **Mongoose connection pooling + reconnect-handlers** · `apps/backend/src/index.ts:600-615` · **E:M** ·
-  `maxPoolSize` + `disconnected`/`reconnect`/`error`-handlers.
+- ✅ **[KLAR 2026-06-20] Mongoose connection pooling + reconnect-observability** · `apps/backend/src/index.ts` ·
+  `maxPoolSize`(20)/`minPoolSize`(2) (env-överridbart; default 100 är slöseri på single-backend-Pi:n) +
+  `disconnected`/`reconnected`/`error`-handlers som LOGGAR (drivern auto-återansluter; en flap lämnade förut
+  inget spår).
 - **Migration-runner: `down()`/rollback + dry-run** · `apps/backend/src/services/migrationRunner.ts:81-146` ·
   **E:M** · Startup fortsätter trots misslyckad migration → inkonsekvent state. Kasta vid fail +
   rollback i omvänd ordning + `--validate-migrations` mot temp-DB.
-- **Data-retention/purge** · `apps/backend/src/services/cronScheduler.ts`, `softDeletePlugin.ts` · **E:M** ·
-  Soft-deletes ligger kvar för evigt. `DATA_RETENTION_DAYS` + daglig purge-job + dokumentera policy.
-- **Secret-scanning i CI** · `scripts/validate-critical.mjs`, `.gitignore` · **E:M** · Ingen
-  truffleHog/secretlint. Lägg scan + `.env.example` + pre-commit-hook.
+- ✅ **[KLAR 2026-06-20] Data-retention (audit-logg) — PREMISS KORRIGERAD** · `apps/backend/src/index.ts` ·
+  Verifierat: `softDeletePlugin` är **oanvänd** (server-deletes är HÅRDA → ingen soft-delete-ackumulering att
+  purga). Den verkliga obegränsade radväxten utan TTL är **`_audit_log`** (en rad per mutation, som jag införde).
+  Ny daglig `audit-log-retention`-cron purgar `_audit_log` äldre än `AUDIT_LOG_RETENTION_DAYS` (default 180,
+  `0`=av). Hash-kedjan förblir verifierbar inom fönstret (ankra vid äldsta kvarvarande postens `prevHash`);
+  nyaste chain-head:en rörs aldrig. (`_quota_usage` är en doc/användare med en buckets-map → ej radväxt; MCP-audit
+  har redan 45d TTL.)
+- ✅ **[KLAR 2026-06-20] Secret-scanning i CI** · `noter-app/scripts/check-secrets.mjs`, `.gitignore` · Ny
+  konservativ guard (privata nycklar, AWS/GitHub/Slack/Google/Stripe/OpenAI-token-format, hårdkodade
+  credential-literaler, committade `.env`-filer) som scannar HELA repot (git ls-files), med `--selftest` +
+  allowlist. Inkopplad i `validate-critical` + namngiven CI-grind. **Fångade direkt:** ett committat
+  `.env.bak` (bara publik URL — borttaget + `.gitignore` täcker nu `*.env.bak`) OCH ett ANDRA hårdkodat
+  Pi-lösenord i `check_pi_status.py` (env-ifierat, speglar `deploy_pi.py`). FP:er (i18n-etiketter, regex-matchers)
+  hanterade via entropi-krav + test/doc-skip.
 
 ---
 

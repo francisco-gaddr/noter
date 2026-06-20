@@ -36,3 +36,8 @@ yarn-error.log*
 # Misc
 .DS_Store
 *.pem
+
+# Env backups / variants (never commit secrets)
+*.env.bak
+.env.*.bak
+.env.bak

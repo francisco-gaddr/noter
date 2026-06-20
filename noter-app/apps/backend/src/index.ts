@@ -619,10 +619,22 @@ const startServer = async () => {
 
   if (mongoUri) {
     try {
+      // Connection-event observability: the driver auto-reconnects, but a flap currently left NO
+      // trace. Log disconnect/reconnect/error so a DB blip is visible in ops. Registered before
+      // connect so the very first transitions are captured. (Attached once — startServer runs once.)
+      const conn = mongoose.connection;
+      conn.on('disconnected', () => logger.warn('mongo: disconnected (driver will attempt to reconnect)'));
+      conn.on('reconnected', () => logger.info('mongo: reconnected'));
+      conn.on('error', (err) => logger.error('mongo: connection error', { error: (err as Error)?.message }));
+
       await mongoose.connect(mongoUri, {
         serverSelectionTimeoutMS: 5000,
         socketTimeoutMS: 45000,
         bufferCommands: false, // Fail immediately if not connected
+        // Bounded pool — the default (100) is wasteful for the single-backend Pi deploy; keep a couple
+        // warm so the first requests after idle don't pay connection setup. Env-overridable.
+        maxPoolSize: Number(process.env.MONGO_MAX_POOL_SIZE) || 20,
+        minPoolSize: Number(process.env.MONGO_MIN_POOL_SIZE) || 2,
       });
       console.log('Connected to MongoDB');
       logger.info('Connected to MongoDB');
@@ -652,6 +664,24 @@ const startServer = async () => {
             await mongoose.connection.db?.collection('_instances').deleteMany({ lastSeen: { $lt: cutoff } });
           } catch (err) {
             logger.warn('cron.instances-cleanup failed', { error: (err as Error)?.message });
+          }
+        });
+
+        // Data retention: the tamper-evident _audit_log grows one row per mutation with NO TTL, so it
+        // would eventually fill the Pi's disk. Purge entries older than the retention window. The hash
+        // chain stays verifiable WITHIN the retained window (anchor at the oldest kept entry's prevHash);
+        // the newest-entry chain head that new writes link to is never touched. Set
+        // AUDIT_LOG_RETENTION_DAYS=0 to disable. (Server deletes are HARD — there is no soft-delete
+        // accumulation to purge; the softDeletePlugin is currently unused.)
+        scheduleCron('audit-log-retention', { kind: 'daily', hourUtc: 3, minuteUtc: 30 }, async () => {
+          try {
+            const days = Number(process.env.AUDIT_LOG_RETENTION_DAYS ?? 180);
+            if (!days || days <= 0) return;
+            const cutoff = new Date(Date.now() - days * 86_400_000);
+            const res = await mongoose.connection.db?.collection('_audit_log').deleteMany({ ts: { $lt: cutoff } });
+            if (res?.deletedCount) logger.info('cron.audit-log-retention purged', { count: res.deletedCount, olderThanDays: days });
+          } catch (err) {
+            logger.warn('cron.audit-log-retention failed', { error: (err as Error)?.message });
           }
         });
 

@@ -1,10 +1,15 @@
 import paramiko
 import time
 import sys
+import os
 
-host = "192.168.50.16"
-user = "realdini"
-password = "12345678"
+# Credentials come from the environment — NOT hardcoded (mirrors deploy_pi.py).
+host = os.environ.get("PI_DEPLOY_HOST", "192.168.50.16")
+user = os.environ.get("PI_DEPLOY_USER", "realdini")
+password = os.environ.get("PI_DEPLOY_PASSWORD")
+if not password:
+    print("ERROR: set PI_DEPLOY_PASSWORD (the Pi password is no longer hardcoded).")
+    sys.exit(1)
 
 def execute_command(ssh, command):
     print(f"Executing: {command}")
