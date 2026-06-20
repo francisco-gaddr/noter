@@ -30,6 +30,7 @@ import {
   buildIndexableEntities,
   vectorSearch,
   emptyVectorIndex,
+  isValidVectorIndex,
   buildGraph,
   neighborsOf,
   retrieveContext,
@@ -47,6 +48,8 @@ import { resolveAiSettingsScope } from './settingsScope';
 
 const CONFIG_KEY = 'embeddings_config';
 const INDEX_KEY = 'embeddings_index';
+const INDEX_CORRUPT_KEY = 'embeddings_index__corrupt';
+let loggedIndexCorruption = false;
 const APIKEY_KEY = 'embeddings_api_key';
 const EMBED_BATCH = 32;
 
@@ -116,17 +119,38 @@ const embedQuery = async (
 // ---- index store -------------------------------------------------------------
 
 export const getVectorIndex = async (model: string): Promise<VectorIndex> => {
+  let raw: string | null = null;
   try {
-    const raw = await AsyncStorage.getItem(await scoped(INDEX_KEY));
-    if (!raw) return emptyVectorIndex(model);
-    const parsed = JSON.parse(safeDecrypt(raw, raw) || 'null');
-    if (parsed && Array.isArray(parsed.items) && typeof parsed.model === 'string') return parsed;
-  } catch { /* fall through */ }
-  return emptyVectorIndex(model);
+    raw = await AsyncStorage.getItem(await scoped(INDEX_KEY));
+  } catch { return emptyVectorIndex(model); }
+  if (!raw) return emptyVectorIndex(model); // genuinely absent — fine
+  try {
+    const dec = safeDecrypt(raw, '');
+    const parsed = dec ? JSON.parse(dec) : null;
+    if (isValidVectorIndex(parsed)) return parsed;
+    throw new Error('decrypted index is not a valid VectorIndex');
+  } catch (e) {
+    // Present but unreadable → CORRUPTION, not absence. Observable + quarantine so the next save can't
+    // silently overwrite it (the index is a derived cache — we re-embed loudly). Self-heals on rebuild.
+    if (!loggedIndexCorruption) {
+      console.error('[embeddings] vector index unreadable (corrupt/undecryptable) — quarantining + rebuilding', e);
+      loggedIndexCorruption = true;
+    }
+    try {
+      const ck = await scoped(INDEX_CORRUPT_KEY);
+      if (!(await AsyncStorage.getItem(ck))) await AsyncStorage.setItem(ck, raw);
+    } catch { /* ignore */ }
+    return emptyVectorIndex(model);
+  }
 };
 
 const saveVectorIndex = async (index: VectorIndex): Promise<void> => {
-  try { await AsyncStorage.setItem(await scoped(INDEX_KEY), encrypt(JSON.stringify(index))); } catch { /* best-effort */ }
+  if (!isValidVectorIndex(index)) {
+    console.error('[embeddings] refusing to persist an invalid vector index');
+    return;
+  }
+  try { await AsyncStorage.setItem(await scoped(INDEX_KEY), encrypt(JSON.stringify(index))); }
+  catch (e) { console.error('[embeddings] failed to persist vector index (keeping previous value)', e); }
 };
 
 export const clearVectorIndex = async (): Promise<void> => {

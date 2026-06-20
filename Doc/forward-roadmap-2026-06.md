@@ -95,15 +95,15 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
 
 ### AI / agent
 
-- **Web agent-executor saknar run-budget-guard + await på persist** ·
-  `apps/web/services/ai/agentExecutor.ts:175-202` · **E:S R:med** · Ingen `isOverRunBudget`-check
-  före första persist (mobil har den, rad 257); `persist()` är inte awaitad → en task med
-  `maxRuns=N` kan överskrida budgeten med 1. Lägg guarden + `await` båda persist-anropen; logga
-  run-log även på fel-returvägen.
-- **Tool-result-trunkering äter hela feltexten** · `packages/ai/src/agentRunner.ts:105-109,205` ·
-  **E:S R:med** · `clampJson` klipper till 4000 tecken utan att skilja på fel vs data; en lång
-  stacktrace blir `'…[truncated]'` och agenten kan inte återhämta. Lägg `isError`-flagga som
-  bevarar (eller höjer taket för) feltext.
+- ✅ **[KLAR 2026-06-20] Web agent-executor run-budget-guard** · `apps/web/services/ai/agentExecutor.ts` ·
+  La till `isOverRunBudget`-guarden (importerades men användes aldrig) → en fast-körande agent-task kan
+  inte längre köra förbi sin körbudget och bränna användarens API-kvot. **Verifierat:** webbens
+  `patchDelegation` är SYNKRON (localStorage), så "await på persist"-racet var mobil-format (AsyncStorage)
+  och gäller inte web — bara guarden saknades faktiskt.
+- ✅ **[KLAR 2026-06-20] Tool-result-trunkering åt feltexten** · `packages/ai/src/agentRunner.ts` ·
+  Ny exporterad `formatToolResultMessage`: fel returneras nu som REN text med större tak (8000) istället
+  för JSON-wrappat + klippt vid 4000 (vilket gav ogiltig, mitt-i-strängen-kapad JSON) → agenten ser den
+  faktiska root-causen och kan återhämta. Data klamras fortfarande vid 4000. 3 tester.
 
 ### RAG / indexering
 
@@ -117,10 +117,13 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
   vektor; `indexEntities` fångar det och returnerar `ok:false` utan att spara ett partiellt index →
   batchen retries istället för att halv-skrivas. Pure `parseEmbeddingsResponse` förblir lenient.
   2 nya tester.
-- **Index-korruption tyst vid krypto-fel** · `apps/{web,mobile}/services/ai/embeddingsService.ts` ·
-  **E:S R:high** · `readEncryptedJson`/`writeEncryptedJson` sväljer alla fel och returnerar
-  fallback → ett krypto-fel kan tyst spara skräp eller radera hela vektor-indexet utan att
-  användaren märker det. Logga strukturerat, validera schema, ytan ett fel-tillstånd till UI:t.
+- ✅ **[KLAR 2026-06-20] Tyst index-korruption vid krypto-fel** · `apps/{web,mobile}/services/ai/embeddingsService.ts`,
+  `packages/shared/src/vectorStore.ts` · Ny delad `isValidVectorIndex` + omskrivna `getVectorIndex`/`saveVectorIndex`
+  på BÅDA plattformarna: läsning skiljer nu **frånvaro** (tyst tom) från **korruption** (raw finns men
+  dekryptering/parse failar) → loggar (en gång) + **karantänar** den oläsbara blobben (`__corrupt`) istället för
+  att tyst svälja den; sparning **vägrar persistera ett ogiltigt index** över ett bra (skydd mot tyst skräp-spar);
+  write loggar vid fel och rör aldrig den befintliga nyckeln. Indexet är en härledd cache → self-heal vid nästa
+  ombyggnad, men nu observerbart + återställbart. 2 nya tester.
 
 ### Säkerhet / krypto
 

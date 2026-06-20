@@ -178,6 +178,14 @@ export const runScheduledAgentTask = async (
   if (!delegation || delegation.assignee !== 'ai') return { ok: false, summary: 'Inte en AI-uppgift', accesses: [], stopped: 'error' };
 
   const persist = (patch: Partial<AiTaskDelegation>) => patchDelegation(task._id, patch, opts.userId);
+
+  // Run-budget guard (parity with mobile): never run a task past its allowed number of runs — a stuck
+  // agent task could otherwise keep re-running and burning the user's API quota indefinitely.
+  if (isOverRunBudget(delegation)) {
+    persist({ status: 'done', result: 'Körbudget uppnådd.' });
+    return { ok: false, summary: 'Körbudget uppnådd', accesses: [], stopped: 'error' };
+  }
+
   persist({ status: 'running', lastRunAt: new Date().toISOString(), runCount: (delegation.runCount || 0) + 1 });
 
   const config = resolveModelConfig(delegation);

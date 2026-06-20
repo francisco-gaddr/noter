@@ -108,6 +108,23 @@ const clampJson = (value: unknown, max = 4000): string => {
   return s.length > max ? `${s.slice(0, max)}…[truncated]` : s;
 };
 
+// Errors get a larger budget than data and are returned as PLAIN TEXT (not JSON-wrapped). A long
+// stack trace JSON-wrapped + clamped at 4000 turned into invalid, mid-string-cut JSON — so the agent
+// couldn't read the actual failure and couldn't recover. Keep the (root-cause-first) error readable.
+const ERROR_MAX = 8000;
+const clampError = (msg: string): string =>
+  msg.length > ERROR_MAX ? `${msg.slice(0, ERROR_MAX)}…[truncated]` : msg;
+
+/**
+ * The `tool`-role message fed back to the model after a tool call. Errors are surfaced clearly and
+ * with a bigger budget so the agent can actually recover from a failure; successful data is clamped.
+ * Exported so the error-vs-data formatting is unit-tested.
+ */
+export const formatToolResultMessage = (tool: string, tc: { result?: unknown; error?: string }): string =>
+  tc.error
+    ? `Fel vid ${tool}: ${clampError(tc.error)}`
+    : `Resultat för ${tool}: ${clampJson(tc.result)}`;
+
 export const runAgentTask = async (params: {
   system: string;
   goal: string;
@@ -202,7 +219,7 @@ export const runAgentTask = async (params: {
       allToolCalls.push(tc);
       messages.push({
         role: 'tool',
-        content: `Resultat för ${call.tool}: ${clampJson(tc.error ? { error: tc.error } : tc.result)}`,
+        content: formatToolResultMessage(call.tool, tc),
       });
     }
 

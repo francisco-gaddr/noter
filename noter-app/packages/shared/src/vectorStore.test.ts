@@ -1,4 +1,4 @@
-import { diffIndex, emptyVectorIndex, makeStoredVector, indexToEmbeddedItems, entitySignature, buildIndexableEntities, buildVectorIndex, vectorIndexNeedsRebuild, DEFAULT_MAX_INDEX_ITEMS } from './vectorStore';
+import { diffIndex, emptyVectorIndex, makeStoredVector, indexToEmbeddedItems, entitySignature, buildIndexableEntities, buildVectorIndex, vectorIndexNeedsRebuild, isValidVectorIndex, DEFAULT_MAX_INDEX_ITEMS } from './vectorStore';
 import type { IndexableEntity, StoredVector, VectorIndex } from './vectorStore';
 import type { Note, Task } from './types';
 
@@ -156,5 +156,20 @@ describe('indexToEmbeddedItems', () => {
     const items = indexToEmbeddedItems(index);
     expect(items.map((i) => i.id)).toEqual(['a']);
     expect(items[0].vector).toEqual([1, 2]);
+  });
+});
+
+describe('isValidVectorIndex (corruption / garbage-save guard)', () => {
+  it('accepts a structurally valid index (incl. empty items)', () => {
+    expect(isValidVectorIndex({ model: 'm', items: [] })).toBe(true);
+    expect(isValidVectorIndex(emptyVectorIndex('m'))).toBe(true);
+  });
+  it('rejects anything missing model or items (corrupt / wrong shape)', () => {
+    expect(isValidVectorIndex(null)).toBe(false);
+    expect(isValidVectorIndex(undefined)).toBe(false);
+    expect(isValidVectorIndex('not-json')).toBe(false);
+    expect(isValidVectorIndex({ items: [] })).toBe(false); // no model
+    expect(isValidVectorIndex({ model: 'm' })).toBe(false); // items not an array
+    expect(isValidVectorIndex({ model: 'm', items: 'nope' })).toBe(false);
   });
 });

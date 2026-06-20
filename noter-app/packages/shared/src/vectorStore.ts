@@ -57,6 +57,17 @@ export const DEFAULT_MAX_INDEX_ITEMS = 4000;
 
 export const emptyVectorIndex = (model: string, provider?: string): VectorIndex => ({ model, provider, items: [] });
 
+/**
+ * Structural validity of a loaded/stored vector index. Used to (a) tell a CORRUPT blob apart from a
+ * genuinely-absent index on read (so a decrypt failure isn't silently treated as "no index", which
+ * would trigger a needless full re-embed), and (b) REFUSE to persist a malformed index over a good
+ * one (so a bad in-memory value can't silently overwrite the on-disk cache).
+ */
+export const isValidVectorIndex = (x: unknown): x is VectorIndex =>
+  !!x && typeof x === 'object'
+  && typeof (x as VectorIndex).model === 'string'
+  && Array.isArray((x as VectorIndex).items);
+
 /** Stable hash of an entity's embedding text — the staleness key. */
 export const entitySignature = (e: IndexableEntity): string =>
   embeddingContentHash(embeddingText(e.title || '', e.body || ''));

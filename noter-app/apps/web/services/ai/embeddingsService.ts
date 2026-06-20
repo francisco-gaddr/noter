@@ -29,6 +29,7 @@ import {
   buildIndexableEntities,
   vectorSearch,
   emptyVectorIndex,
+  isValidVectorIndex,
   buildGraph,
   neighborsOf,
   retrieveContext,
@@ -48,23 +49,16 @@ const APIKEY_KEY = 'embeddings_api_key_v1';
 const INDEX_KEY = 'embeddings_index_v1';
 const EMBED_BATCH = 32;
 
-const readEncryptedJson = <T>(key: string, fallback: T): T => {
-  try {
-    if (typeof localStorage === 'undefined') return fallback;
-    const raw = localStorage.getItem(key);
-    if (!raw) return fallback;
-    const parsed = JSON.parse(safeDecrypt(raw, raw) || 'null');
-    return parsed && typeof parsed === 'object' ? parsed : fallback;
-  } catch {
-    return fallback;
-  }
-};
+const INDEX_CORRUPT_KEY = `${INDEX_KEY}__corrupt`;
+let loggedIndexCorruption = false;
+
 const writeEncryptedJson = (key: string, value: unknown): void => {
+  if (typeof localStorage === 'undefined') return;
   try {
-    if (typeof localStorage === 'undefined') return;
     localStorage.setItem(key, encrypt(JSON.stringify(value)));
-  } catch {
-    /* best-effort */
+  } catch (e) {
+    // Loud, not silent — and we NEVER remove the existing key, so the previous good value survives.
+    console.error(`[embeddings] failed to persist ${key} (keeping previous value)`, e);
   }
 };
 
@@ -141,12 +135,35 @@ const embedQuery = async (
 // ---- index store -------------------------------------------------------------
 
 export const getVectorIndex = (model: string): VectorIndex => {
-  const stored = readEncryptedJson<VectorIndex | null>(INDEX_KEY, null);
-  if (stored && Array.isArray(stored.items) && typeof stored.model === 'string') return stored;
-  return emptyVectorIndex(model);
+  if (typeof localStorage === 'undefined') return emptyVectorIndex(model);
+  const raw = localStorage.getItem(INDEX_KEY);
+  if (!raw) return emptyVectorIndex(model); // genuinely absent — fine
+  try {
+    const dec = safeDecrypt(raw, '');
+    const parsed = dec ? JSON.parse(dec) : null;
+    if (isValidVectorIndex(parsed)) return parsed;
+    throw new Error('decrypted index is not a valid VectorIndex');
+  } catch (e) {
+    // Present but unreadable → CORRUPTION, not absence. Make it observable + quarantine the blob so it
+    // isn't silently overwritten on the next save (the index is a derived cache — we re-embed loudly,
+    // never silently). Self-heals once a fresh valid index is written.
+    if (!loggedIndexCorruption) {
+      console.error('[embeddings] vector index unreadable (corrupt/undecryptable) — quarantining + rebuilding', e);
+      loggedIndexCorruption = true;
+    }
+    try { if (!localStorage.getItem(INDEX_CORRUPT_KEY)) localStorage.setItem(INDEX_CORRUPT_KEY, raw); } catch { /* ignore */ }
+    return emptyVectorIndex(model);
+  }
 };
 
-const saveVectorIndex = (index: VectorIndex): void => writeEncryptedJson(INDEX_KEY, index);
+const saveVectorIndex = (index: VectorIndex): void => {
+  // Refuse to persist a malformed index over a good one (defense against silently saving garbage).
+  if (!isValidVectorIndex(index)) {
+    console.error('[embeddings] refusing to persist an invalid vector index');
+    return;
+  }
+  writeEncryptedJson(INDEX_KEY, index);
+};
 
 export const clearVectorIndex = (): void => {
   try { if (typeof localStorage !== 'undefined') localStorage.removeItem(INDEX_KEY); } catch { /* ignore */ }

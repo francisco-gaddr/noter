@@ -1,4 +1,25 @@
-import { runAgentTask, parseAgentToolCalls, type AgentRunDeps } from '../agentRunner';
+import { runAgentTask, parseAgentToolCalls, formatToolResultMessage, type AgentRunDeps } from '../agentRunner';
+
+describe('formatToolResultMessage (errors must stay recoverable)', () => {
+  it('returns success data clamped at 4000 chars', () => {
+    const msg = formatToolResultMessage('search', { result: { items: 'x'.repeat(5000) } });
+    expect(msg.startsWith('Resultat för search:')).toBe(true);
+    expect(msg).toContain('…[truncated]');
+    expect(msg.length).toBeLessThan(4100);
+  });
+  it('keeps an error as clean text (NOT JSON-wrapped) with a larger budget so the agent can recover', () => {
+    const stack = 'Error: boom\n' + 'at frame\n'.repeat(900); // ~8k, would be cut mid-JSON at 4000
+    const msg = formatToolResultMessage('create_note', { error: stack });
+    expect(msg.startsWith('Fel vid create_note:')).toBe(true);
+    expect(msg).not.toContain('{"error"'); // not JSON-wrapped → no mid-string structural cut
+    expect(msg).toContain('Error: boom'); // the actionable root cause survives
+    expect(msg.length).toBeGreaterThan(4100); // bigger budget than data
+  });
+  it('prefers the error over a (stale) result when both are present', () => {
+    const msg = formatToolResultMessage('t', { result: { ok: true }, error: 'failed' });
+    expect(msg).toContain('Fel vid t: failed');
+  });
+});
 
 const baseDeps = (over: Partial<AgentRunDeps> = {}): AgentRunDeps => ({
   invokeModel: async () => 'done',
