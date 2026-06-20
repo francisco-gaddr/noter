@@ -244,6 +244,13 @@ Resiliens + säkerhet + stabilitet, allt i `dev` med tester och gröna grindar:
   (`shouldWindowTaskList`) är ren + enhetstestad (windowing får ALDRIG bryta DnD). `next build` verifierad.
   `VirtualList` återanvändbar för chat-meddelanden härnäst. **Medvetet ej virtualiserat:** `SidebarTree`
   (rekursiv DnD-träd — hög risk; redan kapad 200 root/50 per nod) + `TaskBoard` (Kanban-DnD).
+- ✅ **[KLAR 2026-06-20] Chatt-historik-windowing (render-recent + load-earlier)** · `apps/web/lib/messageWindow.ts`,
+  `apps/web/components/AISidebar.tsx` · Långa AI-chattar (500+ meddelanden) renderade varje meddelande →
+  frös. Istället för att scroll-virtualisera en streamande lista (skulle kräva omskrivning av
+  scroll/auto-scroll-modellen i en 5215-raders kärnkomponent → hög regressionsrisk) valdes **chat-app-
+  standarden**: rendera de senaste `MESSAGE_WINDOW` (60) meddelandena, visa äldre via "Visa tidigare"-knapp.
+  Bevarar scroll-till-botten-ankaret + streamande sista-meddelandet EXAKT (nyaste alltid monterade), speglar
+  `SidebarTree`s show-more-mönster. Ren `computeMessageWindow` + 4 enhetstester; `next build` verifierad.
 - **Klient-pagination — OMVÄRDERAD (delvis fel premiss)** · `apps/web/services/api.ts:279`,
   `apps/web/stores/useStore.ts:1122` · **E:M** · Appen är **local-first/E2E**: den lokala RAG-indexeringen,
   sidoträdet, sök och offline KRÄVER att alla noter finns lokalt → **server-side pagination skulle bryta

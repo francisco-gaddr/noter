@@ -117,7 +117,7 @@ jobs:
       # or DnD breaks. Guards the threshold decision + that VirtualList mounts.
       - name: Task list windowing safety (blocking)
         run: |
-          (cd apps/web && npx jest __tests__/VirtualList.test.tsx)
+          (cd apps/web && npx jest __tests__/VirtualList.test.tsx __tests__/messageWindow.test.ts)
       - name: No dead files (knip --include files)
         run: npm run knip:files
 

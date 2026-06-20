@@ -11,6 +11,7 @@ import { LmStudioModel, normalizeLmStudioBaseUrl, buildLmStudioHeaders, splitSse
 import { FaBars, FaCog, FaPlus, FaRegSmile, FaComments, FaCopy } from 'react-icons/fa';
 import * as FaIcons from 'react-icons/fa';
 import { IconPicker } from './IconPicker';
+import { computeMessageWindow, MESSAGE_WINDOW } from '../lib/messageWindow';
 import { getApiBaseUrl } from '../services/api';
 import { resolveAuthToken as apiResolveAuthToken, resolveGraphqlUrl as apiResolveGraphqlUrl, graphqlRequest as apiGraphqlRequest } from '../services/apiClient';
 import { shouldStopToolIteration, toToolCallKeys, toToolIterationSignature } from '../services/ai/toolChain';
@@ -110,6 +111,9 @@ export const AISidebar = () => {
   // Chat State
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  // Chat history windowing: render only the most recent messages (newest always mounted, so
+  // scroll-to-bottom + streaming are untouched), reveal older ones via a "load earlier" button.
+  const [visibleCount, setVisibleCount] = useState(MESSAGE_WINDOW);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [inputHistory, setInputHistory] = useState<string[]>([]);
@@ -746,6 +750,11 @@ export const AISidebar = () => {
     if (scrollSignal === 0) return;
     scrollBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [scrollSignal]);
+
+  // Switching conversations snaps back to the recent window (don't carry a big "show all" over).
+  useEffect(() => {
+    setVisibleCount(MESSAGE_WINDOW);
+  }, [currentConversationId]);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -3602,7 +3611,16 @@ export const AISidebar = () => {
                         Start a conversation...
                     </div>
                 )}
-                {messages.map((msg, i) => {
+                {(() => { const { hiddenCount } = computeMessageWindow(messages.length, visibleCount); return hiddenCount > 0 ? (
+                    <button
+                        onClick={() => setVisibleCount((c) => c + MESSAGE_WINDOW)}
+                        className="w-full text-xs text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-100 py-1 border border-dashed border-gray-300 dark:border-gray-600 rounded"
+                    >
+                        Visa {Math.min(hiddenCount, MESSAGE_WINDOW)} tidigare meddelanden ({hiddenCount} dolda)
+                    </button>
+                ) : null; })()}
+                {(() => { const { startIndex } = computeMessageWindow(messages.length, visibleCount); return messages.slice(startIndex).map((msg, idx) => {
+                    const i = startIndex + idx; // original index → stable keys + collapse state
                     const key = msg.id || `msg-${i}`;
                     const isAssistant = msg.role === 'assistant';
                     const isTool = msg.role === 'tool';
@@ -3702,7 +3720,7 @@ export const AISidebar = () => {
                       </div>
                       </div>
                     );
-                })}
+                }); })()}
                 {loading && <div className="text-gray-500 dark:text-gray-300 text-sm animate-pulse">Thinking...</div>}
                 <div ref={scrollBottomRef} />
             </div>
