@@ -46,4 +46,6 @@ export * from './errorReporter';
 export * from './mutationLedger';
 export * from './debounce';
 export * from './agentSearch';
+export * from './relatedNotes';
+export * from './summarize';
 export * from './lruCache';

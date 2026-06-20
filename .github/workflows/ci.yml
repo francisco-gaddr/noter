@@ -96,7 +96,7 @@ jobs:
       # Blocking — semantic search + the lock guard on it are core, security-relevant functionality.
       - name: AI search & semantic retrieval — RAG correctness (blocking)
         run: |
-          (cd packages/shared && npx jest vectorSearch retrieval vectorStore embeddings graphModel agentSearch contextLevels)
+          (cd packages/shared && npx jest vectorSearch retrieval vectorStore embeddings graphModel agentSearch contextLevels relatedNotes summarize)
       # GDPR account data-export (access/portability) + deletion (erasure). Destructive + security-
       # sensitive: export must be COMPLETE (every user-keyed collection) yet leak NO secrets, and
       # both export and delete must be strictly own-data-only (IDOR) and gated by confirmation.
