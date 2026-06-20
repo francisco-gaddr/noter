@@ -36,6 +36,8 @@ interface AppState {
   beginSourceSync: () => void;
   endSourceSync: () => void;
   activeProjectId: string | null;
+  /** A prompt queued by another screen (e.g. note "Summarize") for the AI tab to run on focus. */
+  pendingAiPrompt: string | null;
   token: string | null;
   isInitialized: boolean;
   notificationsEnabled: boolean;
@@ -44,6 +46,7 @@ interface AppState {
   
   // UI Actions
   setActiveProject: (id: string | null) => void;
+  setPendingAiPrompt: (p: string | null) => void;
   relockProtectedFolders: () => void;
   setViewMode: (mode: 'list' | 'tree') => void;
   /** Optimistically merge a freshly server-created note into state + local DB (for
@@ -453,12 +456,14 @@ export const useStore = create<AppState>((set, get) => ({
   endSourceSync: () => set((s) => ({ syncingCount: Math.max(0, s.syncingCount - 1) })),
   isSyncingOffline: false,
   activeProjectId: null,
+  pendingAiPrompt: null,
   token: null,
   isInitialized: false,
   notificationsEnabled: false,
   securityLocked: false,
   unlockedProtectedNoteIds: [],
 
+  setPendingAiPrompt: (p) => set({ pendingAiPrompt: p }),
   setActiveProject: (id) => {
     // AUTO RE-LOCK ON LEAVE: any locked project folder the user navigates AWAY from is
     // removed from the unlocked set, so its notes immediately re-mask and a password is

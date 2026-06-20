@@ -2458,9 +2458,12 @@ function AIScreenInner() {
       }
   };
 
-  const handleSend = async () => {
+  const handleSend = async (sendText?: string) => {
+    // sendText lets another screen (the note "Summarize" action) run a prompt through the SAME pipeline,
+    // using whatever model/source the user selected here. Defaults to the typed chat input.
+    const effectiveInput = sendText ?? input;
     const hasAttachments = attachmentsEnabled && attachments.length > 0;
-    if ((!input.trim() && !hasAttachments) || loading) return;
+    if ((!effectiveInput.trim() && !hasAttachments) || loading) return;
 
     // Whole-handler guard: an error thrown in an async event handler is NOT caught by the
     // React error boundary — it becomes an unhandled rejection that can crash the release
@@ -2500,7 +2503,7 @@ function AIScreenInner() {
     let conversationId = currentConversationId;
     if (!conversationId) {
         const newId = uuidv4();
-        const titleSeed = input.trim() || (attachmentsEnabled && attachments[0]?.name) || 'Ny chatt';
+        const titleSeed = effectiveInput.trim() || (attachmentsEnabled && attachments[0]?.name) || 'Ny chatt';
         const newConv: LocalConversation = {
             id: newId,
             title: titleSeed.substring(0, 30) + (titleSeed.length > 30 ? '...' : ''),
@@ -2530,12 +2533,12 @@ function AIScreenInner() {
     const userMsg: ChatMessage = {
         id: uuidv4(),
         role: 'user',
-        content: input + attachmentNote,
+        content: effectiveInput + attachmentNote,
         createdAt: new Date().toISOString()
     };
     // Separate copy for the model with the file context block prepended (not stored).
     const modelUserMsg: ChatMessage = sentAttachments.length
-        ? { ...userMsg, content: buildAttachmentContextBlock(sentAttachments) + input }
+        ? { ...userMsg, content: buildAttachmentContextBlock(sentAttachments) + effectiveInput }
         : userMsg;
 
     // Auto-name the thread from the FIRST user message (e.g. a chat started via the +
@@ -2546,7 +2549,7 @@ function AIScreenInner() {
       const conv = conversations.find((c) => c.id === conversationId);
       const DEFAULT_TITLES = ['', 'new chat', 'ny chatt', 'untitled'];
       if (conv && isFirstUserMsg && DEFAULT_TITLES.includes((conv.title || '').trim().toLowerCase())) {
-        const seed = (input.trim() || sentAttachments[0]?.name || 'Ny chatt');
+        const seed = (effectiveInput.trim() || sentAttachments[0]?.name || 'Ny chatt');
         const newTitle = seed.substring(0, 40) + (seed.length > 40 ? '…' : '');
         const updated: LocalConversation = { ...conv, title: newTitle, updatedAt: new Date().toISOString() };
         await saveConversationLocal(updated);
@@ -2624,6 +2627,19 @@ function AIScreenInner() {
       try { setLoading(false); } catch { /* ignore */ }
     }
   };
+
+  // Run a prompt queued by another screen (the note "Summarize" action) through THIS pipeline once,
+  // then clear it. A ref keeps the effect bound to the latest handleSend.
+  const pendingAiPrompt = useStore((s) => s.pendingAiPrompt);
+  const setPendingAiPrompt = useStore((s) => s.setPendingAiPrompt);
+  const handleSendRef = useRef(handleSend);
+  handleSendRef.current = handleSend;
+  useEffect(() => {
+    if (!pendingAiPrompt || loading) return;
+    const p = pendingAiPrompt;
+    setPendingAiPrompt(null);
+    void handleSendRef.current(p);
+  }, [pendingAiPrompt, loading]);
 
   const handleAttach = async () => {
     try {
@@ -3878,7 +3894,7 @@ function AIScreenInner() {
                   autoCorrect
                   autoCapitalize="sentences"
                   returnKeyType="send"
-                  onSubmitEditing={handleSend}
+                  onSubmitEditing={() => handleSend()}
                   blurOnSubmit={false}
                 />
                 {loading ? (
@@ -3889,7 +3905,7 @@ function AIScreenInner() {
                 ) : (
                   <IconButton
                     icon="send"
-                    onPress={handleSend}
+                    onPress={() => handleSend()}
                   />
                 )}
               </View>

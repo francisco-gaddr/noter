@@ -163,6 +163,7 @@ const resources = {
         e2ePwFailed: 'Could not change password. Check the old password and your connection.',
       },
       relatedNotes: { title: 'Related notes', untitled: '(untitled)' },
+      summarize: { action: 'Summarize', hint: 'Summarize this note with the AI model selected in the assistant' },
       tabs: {
         notes: 'Notes',
         tasks: 'Tasks',
@@ -513,6 +514,7 @@ const resources = {
         e2ePwFailed: 'Kunde inte byta lösenord. Kontrollera det gamla lösenordet och anslutningen.',
       },
       relatedNotes: { title: 'Relaterade anteckningar', untitled: '(namnlös)' },
+      summarize: { action: 'Sammanfatta', hint: 'Sammanfatta denna anteckning med AI-modellen du valt i assistenten' },
       tabs: {
         notes: 'Anteckningar',
         tasks: 'Uppgifter',

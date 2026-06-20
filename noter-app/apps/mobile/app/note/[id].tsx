@@ -19,6 +19,7 @@ import { buildSecurityNoteMap, findBlockingLockedAncestor } from '@/services/ai/
 import { exportNoteToMarkdown, exportNoteToPdf } from '@/services/noteExport';
 import { MarkdownShareItemDialog } from '@/components/MarkdownShareItemDialog';
 import { RelatedNotes } from '@/components/RelatedNotes';
+import { SummarizeButton } from '@/components/SummarizeButton';
 import { useMarkdownLiveSync } from '@/services/markdownLive';
 
 export default function NoteEditorScreen() {
@@ -729,6 +730,7 @@ export default function NoteEditorScreen() {
             style={styles.editor}
             useContainer={false}
         />
+        {existingNote && <SummarizeButton noteId={existingNote._id} />}
         {existingNote && <RelatedNotes noteId={existingNote._id} />}
         </ScrollView>
         <RichToolbar
