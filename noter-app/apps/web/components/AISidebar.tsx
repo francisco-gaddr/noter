@@ -3307,8 +3307,11 @@ export const AISidebar = () => {
     setLoading(false);
   };
 
-  const handleSend = async () => {
-    if ((!input.trim() && attachments.length === 0) || loading) return;
+  const handleSend = async (sendText?: string) => {
+    // sendText lets a non-chat surface (e.g. the note editor's Summarize action) run a prompt through
+    // the SAME pipeline — so it uses whatever model/source the user selected in the assistant.
+    const effectiveInput = sendText ?? input;
+    if ((!effectiveInput.trim() && attachments.length === 0) || loading) return;
     if (activeProvider === 'lmstudio' && !lmSelectedModel) {
       setMessages(prev => [...prev, { id: uuidv4(), role: 'system', content: 'Välj en LM Studio‑modell först.', createdAt: new Date().toISOString() }]);
       return;
@@ -3329,7 +3332,7 @@ export const AISidebar = () => {
     let convId = currentConversationId;
     if (!convId) {
         convId = uuidv4();
-        const title = getDefaultChatTitle(input);
+        const title = getDefaultChatTitle(effectiveInput);
         const userId = getUserId();
         const newConv: LocalConversation = {
             id: convId,
@@ -3350,7 +3353,7 @@ export const AISidebar = () => {
     } else {
         const existing = conversations.find(c => c.id === convId);
         if (existing && (existing.title === 'New Chat' || existing.title === 'Ny chatt')) {
-            const title = getDefaultChatTitle(input);
+            const title = getDefaultChatTitle(effectiveInput);
             const updated = { ...existing, title, updatedAt: new Date().toISOString() };
             await db.saveConversation(updated);
             setConversations(prev => prev.map(c => c.id === convId ? updated : c));
@@ -3361,7 +3364,7 @@ export const AISidebar = () => {
     }
 
     const attachmentText = buildAttachmentText();
-    const trimmedInput = input.trim();
+    const trimmedInput = effectiveInput.trim();
     if (trimmedInput) {
       setInputHistory(prev => {
         const last = prev[prev.length - 1];
@@ -3371,10 +3374,10 @@ export const AISidebar = () => {
       setHistoryIndex(-1);
       draftInputRef.current = '';
     }
-    const userMsg: ChatMessage = { 
+    const userMsg: ChatMessage = {
         id: uuidv4(),
-        role: 'user', 
-        content: `${input}${attachmentText}`,
+        role: 'user',
+        content: `${effectiveInput}${attachmentText}`,
         createdAt: new Date().toISOString()
     };
 
@@ -3417,6 +3420,22 @@ export const AISidebar = () => {
         setLoading(false);
     }
   };
+
+  // Let the note editor's "Summarize" action run a prompt through THIS pipeline, so it uses whatever
+  // model/source the user has selected in the assistant (local, any API provider, or a custom endpoint).
+  // A ref keeps the stable listener bound to the latest handleSend without re-subscribing each render.
+  const summarizeSendRef = useRef(handleSend);
+  summarizeSendRef.current = handleSend;
+  useEffect(() => {
+    const onSummarize = (e: Event) => {
+      const prompt = (e as CustomEvent<{ prompt?: string }>).detail?.prompt;
+      if (!prompt) return;
+      setIsOpen(true);
+      void summarizeSendRef.current(prompt);
+    };
+    window.addEventListener('noter:summarize-note', onSummarize as EventListener);
+    return () => window.removeEventListener('noter:summarize-note', onSummarize as EventListener);
+  }, []);
 
   const openSystemDashboardQuick = async () => {
     setIsOpen(true);
@@ -3899,7 +3918,7 @@ export const AISidebar = () => {
                     ) : (
                       <button 
                           className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 disabled:opacity-50 transition-colors"
-                          onClick={handleSend}
+                          onClick={() => handleSend()}
                           disabled={(!input.trim() && attachments.length === 0) || (aiUseApiProviders ? apiConfigInvalidReason() !== null : activeProvider === 'mlc' ? !modelPath : activeProvider === 'lmstudio' ? !lmSelectedModel : false)}
                           data-testid="ai-chat-send"
                       >

@@ -8,6 +8,7 @@ const resources = {
     translation: {
       tabs: { notes: 'Notes', tasks: 'Tasks' },
       relatedNotes: { title: 'Related notes', untitled: '(untitled)' },
+      summarize: { action: 'Summarize', hint: 'Summarize this note with the AI model selected in the assistant' },
       header: { allNotes: 'All Notes', taskLists: 'Task Lists' },
       navbar: {
         topNav: 'Top navigation',
@@ -257,6 +258,7 @@ const resources = {
     translation: {
       tabs: { notes: 'Anteckningar', tasks: 'Uppgifter' },
       relatedNotes: { title: 'Relaterade anteckningar', untitled: '(namnlös)' },
+      summarize: { action: 'Sammanfatta', hint: 'Sammanfatta denna anteckning med AI-modellen du valt i assistenten' },
       header: { allNotes: 'Alla anteckningar', taskLists: 'Uppgiftslistor' },
       navbar: {
         topNav: 'Toppnavigering',
