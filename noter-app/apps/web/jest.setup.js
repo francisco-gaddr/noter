@@ -21,3 +21,11 @@ Object.defineProperty(window, 'matchMedia', {
 const { TextEncoder, TextDecoder } = require('util');
 if (typeof global.TextEncoder === 'undefined') global.TextEncoder = TextEncoder;
 if (typeof global.TextDecoder === 'undefined') global.TextDecoder = TextDecoder;
+
+// jsdom has no fetch. Screens fire best-effort background syncs (markdown/calendar
+// mutation drains) on mount; without a stub those become loud ReferenceErrors that
+// fail unrelated suites. Real code treats any network failure as a no-op, so an
+// always-failing fetch is the faithful test-env equivalent.
+if (typeof global.fetch === 'undefined') {
+  global.fetch = jest.fn(async () => ({ ok: false, status: 0, json: async () => null, text: async () => '' }));
+}

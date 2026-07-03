@@ -19,6 +19,10 @@ Object.defineProperty(globalThis, 'localStorage', {
 
 // Mock the shared encryption functions
 jest.mock('@repo/shared', () => ({
+  // Everything REAL by default so api.ts can grow new @repo/shared imports
+  // without this suite crashing on a missing mock…
+  ...jest.requireActual('@repo/shared'),
+  // …but the crypto surface stays stubbed & deterministic for the assertions.
   encrypt: jest.fn((text: string) => `encrypted_${text}`),
   decrypt: jest.fn((ciphertext: string) => ciphertext.replace('encrypted_', '')),
   // safeDecrypt mirrors the real one: plaintext passes through, ciphertext
@@ -27,6 +31,8 @@ jest.mock('@repo/shared', () => ({
     typeof v === 'string'
       ? (v.startsWith('encrypted_') ? v.replace('encrypted_', '') : v)
       : (typeof fb === 'string' ? fb : '')),
+  // Folder-key sealing degrades to plain encrypt when no key is enrolled.
+  sealNoteFieldForWrite: jest.fn((text: string) => `encrypted_${text}`),
   // EntityLink (graph) helpers used by decryptNoteFromApi / decryptTaskFromApi.
   parseEntityLinks: jest.fn(() => []),
   serializeEntityLinks: jest.fn(() => ''),
@@ -80,6 +86,7 @@ describe('E2E Encryption Tests', () => {
         locked: true,
         order: 0,
         links: [],
+        source: null, // external-sync origin (parseNoteSource) — null for app-native notes
         createdAt: '2024-01-01T00:00:00.000Z',
         updatedAt: '2024-01-02T00:00:00.000Z',
         parentId: null,
