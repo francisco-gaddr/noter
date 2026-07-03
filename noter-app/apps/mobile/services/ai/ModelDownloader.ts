@@ -129,10 +129,47 @@ export const deleteModelFile = async (uri: string): Promise<void> => {
   try { await FileSystem.deleteAsync(uri, { idempotent: true }); } catch { /* ignore */ }
 };
 
+const fileSizeBytes = async (uri: string): Promise<number> => {
+  try {
+    const info = await FileSystem.getInfoAsync(uri);
+    return info.exists && typeof (info as any).size === 'number' ? (info as any).size : 0;
+  } catch { return 0; }
+};
+
+// Every valid GGUF starts with the 4-byte magic "GGUF" — base64 "R0dVRg==".
+const GGUF_MAGIC_B64 = 'R0dVRg==';
+
+/**
+ * Integrity check for a downloaded model file: the size must cover what the
+ * server said it would send, and the header must be real GGUF. Without this a
+ * truncated partial (app kill, dropped connection the resume token missed) or an
+ * HTML error page saved as .gguf gets "completed" — and then crashes the native
+ * engine at load time instead of failing here with a clear story.
+ */
+export const verifyModelFile = async (uri: string, expectedBytes?: number): Promise<boolean> => {
+  const size = await fileSizeBytes(uri);
+  if (size <= 0) return false;
+  if (expectedBytes && expectedBytes > 0 && size < expectedBytes) return false;
+  try {
+    const head = await FileSystem.readAsStringAsync(uri, {
+      encoding: FileSystem.EncodingType.Base64, position: 0, length: 4,
+    });
+    return head === GGUF_MAGIC_B64;
+  } catch {
+    // Header read unsupported/failed — fall back to the size check alone.
+    return true;
+  }
+};
+
 // ---- Controls --------------------------------------------------------------------
 /** Cancel a download (the ONLY thing that stops it short of completion) + clean up. */
 export const stopModelDownload = async (modelId: string): Promise<boolean> => {
   const entry = activeDownloads.get(modelId);
+  // Resolve the ACTUAL partial-file target (the entry's, else the persisted
+  // registry's) — `getModelPath(modelId)` alone assumes the default quantization
+  // and used to leave non-default-quant partials orphaned on disk.
+  const reg = await readRegistry();
+  const target = entry?.meta.target ?? reg[modelId]?.target ?? getModelPath(modelId);
   if (entry) {
     entry.control.cancelled = true;
     try { await entry.resumable.cancelAsync(); } catch { /* already done */ }
@@ -141,8 +178,7 @@ export const stopModelDownload = async (modelId: string): Promise<boolean> => {
   emit(modelId, { percent: 0, stage: 'cancelled' });
   clearState(modelId);
   await writeRegistryEntry(modelId, null);
-  const path = getModelPath(modelId);
-  if (path) await deleteModelFile(path);
+  if (target) await deleteModelFile(target);
   return Boolean(entry);
 };
 
@@ -223,6 +259,15 @@ const runEntry = async (entry: DownloadEntry, alreadyStarted: boolean): Promise<
         emit(entry.modelId, { stage: 'failed', error: `HTTP ${result.status}` });
         throw new Error(`Download failed (HTTP ${result.status})`);
       }
+      // Never hand back a truncated/bogus file as "completed" — that would crash
+      // the native engine later, at activation, with no way to see why.
+      const intact = await verifyModelFile(entry.meta.target, entry.meta.totalBytes);
+      if (!intact) {
+        await deleteModelFile(entry.meta.target);
+        await writeRegistryEntry(entry.modelId, null);
+        emit(entry.modelId, { stage: 'failed', error: 'Filen blev ofullständig eller skadad — ladda ner igen.' });
+        throw new Error('Downloaded model file failed verification');
+      }
       emit(entry.modelId, { percent: 1, stage: 'completed' });
       await writeRegistryEntry(entry.modelId, null);
       return entry.meta.target;
@@ -261,6 +306,23 @@ export const downloadGgufModel = async (
   // If one is already running for this model, don't start a second.
   if (activeDownloads.has(modelId)) {
     throw new Error('En nedladdning pågår redan för den här modellen.');
+  }
+
+  // Refuse up-front when the file clearly won't fit — otherwise the transfer
+  // burns through all retries and surfaces as a misleading "network error".
+  if (meta?.totalBytes && meta.totalBytes > 0) {
+    try {
+      const free = await FileSystem.getFreeDiskStorageAsync();
+      // ~256 MB headroom so the download can't wedge the whole device.
+      if (typeof free === 'number' && free > 0 && meta.totalBytes + 256 * 1024 * 1024 > free) {
+        const needGb = (meta.totalBytes / 1e9).toFixed(1);
+        const freeGb = (free / 1e9).toFixed(1);
+        throw new Error(`Otillräckligt lagringsutrymme: modellen behöver ~${needGb} GB men bara ~${freeGb} GB är ledigt. Frigör utrymme och försök igen.`);
+      }
+    } catch (e: any) {
+      if (e?.message?.startsWith('Otillräckligt lagringsutrymme')) throw e;
+      // free-space API unavailable → proceed; the transfer itself will surface errors.
+    }
   }
 
   // Fresh start: remove any stale partial so progress is correct.
@@ -302,8 +364,10 @@ export const resumePersistedDownloads = async (
   const reg = await readRegistry();
   for (const [modelId, rec] of Object.entries(reg)) {
     if (activeDownloads.has(modelId)) continue;
-    // Already finished on disk? clean the registry and skip.
-    if (await modelFileExists(rec.target)) { await writeRegistryEntry(modelId, null); continue; }
+    // Already finished on disk? Only when the file passes integrity checks — a
+    // mere "exists" also matches the partial the kill left behind, which used to
+    // get promoted to a "downloaded" (corrupt) model here.
+    if (await verifyModelFile(rec.target, rec.totalBytes)) { await writeRegistryEntry(modelId, null); continue; }
     const fullMeta: DownloadMeta = { url: rec.url, target: rec.target, quantization: rec.quantization, name: rec.name, totalBytes: rec.totalBytes };
     const resumeData = rec.savable?.resumeData;
     const entry: DownloadEntry = {

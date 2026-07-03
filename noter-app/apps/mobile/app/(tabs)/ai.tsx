@@ -2446,15 +2446,21 @@ function AIScreenInner() {
   };
 
   const handleDeleteModel = async (id: string, path: string) => {
-      if (activeModel === path) {
-          alert('Cannot delete active model');
+      // Guard BOTH the selected model and the actually-resident/loading one —
+      // deleting the GGUF under a live mmap:ad native context crashes the engine.
+      if (activeModel === path || modelManager.currentModelPath === path) {
+          alert(t('ai.cannotDeleteActiveModel'));
+          return;
+      }
+      if (modelManager.isLoading) {
+          alert(t('ai.modelBusyLoading'));
           return;
       }
       try {
           await serviceDeleteModel(id, path);
           await loadModels();
       } catch (e) {
-          alert('Delete failed: ' + String(e));
+          alert(t('ai.deleteModelFailed') + ': ' + String((e as any)?.message || e));
       }
   };
 

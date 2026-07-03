@@ -43,12 +43,20 @@ class ModelManager {
 
   async load(path: string, onProgress?: (progress: number) => void) {
     if (this.isModelLoaded && this.currentModelPath === path) return;
-    // Join an in-flight load of the same model instead of starting a second one.
+    // Join an in-flight load of the SAME model instead of starting a second one.
     if (this.loadingPromise && this.loadingPath === path) return this.loadingPromise;
     if (!isLlamaLinked()) {
       throw new Error("Lokal AI-motor saknas i detta bygge. Installera EAS-bygget.");
     }
     if (!path) throw new Error("Ingen modell vald. Välj en nedladdad modell.");
+    // A DIFFERENT model is mid-load: initLlama must never run twice in parallel
+    // (it wedges the native engine). Wait the old load out — its outcome (including
+    // errors) belongs to its own caller — then continue with ours.
+    while (this.loadingPromise) {
+      await this.loadingPromise.catch(() => { /* handled by the original caller */ });
+    }
+    // The awaited load may have loaded exactly what we want.
+    if (this.isModelLoaded && this.currentModelPath === path) return;
 
     this.loadingPath = path;
     this.loadingPromise = (async () => {
@@ -74,6 +82,11 @@ class ModelManager {
     }
   }
 
+  // Completions are serialized: llama.rn has ONE resident context, and two native
+  // completions on it at once corrupt each other. Late callers queue behind the
+  // current one instead of failing (each still has its own watchdog inside llama.ts).
+  private completionChain: Promise<unknown> = Promise.resolve();
+
   /**
    * Run a chat completion on the resident model. Passing the `messages` array lets
    * llama.rn apply the model's own chat template. Streams tokens via opts.onToken.
@@ -82,7 +95,14 @@ class ModelManager {
     if (!this.isModelLoaded) {
       throw new Error("Model not loaded");
     }
-    return completeLlama(messages, opts);
+    const run = this.completionChain
+      .catch(() => { /* the previous completion's error belongs to its caller */ })
+      .then(() => {
+        if (!this.isModelLoaded) throw new Error("Model not loaded");
+        return completeLlama(messages, opts);
+      });
+    this.completionChain = run;
+    return run;
   }
 
   async unload() {

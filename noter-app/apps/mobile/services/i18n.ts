@@ -227,6 +227,9 @@ const resources = {
         checkLocalEngine: 'Check on-device engine',
         localEngineReady: 'On-device engine (llama.rn) is ready — downloaded GGUF models run directly on this device.',
         localEngineMissing: 'On-device engine is not in this build (e.g. Expo Go). Build a dev/EAS client to run models locally, or use a Hermes source meanwhile.',
+        cannotDeleteActiveModel: 'This model is active or loaded — switch model before deleting it.',
+        modelBusyLoading: 'A model is loading right now — wait until it finishes before deleting.',
+        deleteModelFailed: 'Could not delete the model',
         project: {
           createTitle: 'New project',
           editTitle: 'Edit project',
@@ -594,6 +597,9 @@ const resources = {
         checkLocalEngine: 'Kontrollera lokal motor',
         localEngineReady: 'Lokal motor (llama.rn) är redo — nedladdade GGUF-modeller körs direkt på den här enheten.',
         localEngineMissing: 'Lokal motor saknas i detta bygge (t.ex. Expo Go). Bygg en dev/EAS-klient för att köra modeller lokalt, eller använd en Hermes-källa tills vidare.',
+        cannotDeleteActiveModel: 'Modellen är aktiv eller laddad — byt modell innan du tar bort den.',
+        modelBusyLoading: 'En modell laddas just nu — vänta tills den är klar innan du tar bort.',
+        deleteModelFailed: 'Kunde inte ta bort modellen',
       },
       tasks: {
         new: 'Ny uppgift',
