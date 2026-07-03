@@ -533,7 +533,8 @@ const slateNodeToHtml = (node: any): string => {
       const sanitized = sanitizeUrl(url, 'video');
       if (!sanitized) return '';
       const embedUrl = resolveVideoEmbedUrl(sanitized);
-      return `<iframe src="${escapeAttr(embedUrl)}" style="width:100%;height:300px;border:0;" allowfullscreen></iframe>`;
+      if (!embedUrl) return '';
+      return `<iframe src="${escapeAttr(embedUrl)}" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" sandbox="allow-scripts allow-same-origin allow-presentation allow-popups" style="width:100%;height:300px;border:0;" allowfullscreen></iframe>`;
     }
     case 'table':
       return `<table style="border-collapse: collapse; width: 100%; border: 1px solid #ddd;"><tbody>${childrenHtml}</tbody></table>`;
@@ -1976,6 +1977,9 @@ const Element = ({ attributes, children, element }: any) => {
                 <iframe
                   src={tikTokEmbedUrl}
                   className="absolute top-0 left-0 w-full h-full"
+                  loading="lazy"
+                  referrerPolicy="strict-origin-when-cross-origin"
+                  sandbox="allow-scripts allow-same-origin allow-presentation allow-popups"
                   allowFullScreen
                   title="TikTok Video"
                 />
@@ -1991,6 +1995,8 @@ const Element = ({ attributes, children, element }: any) => {
               <iframe
                 src={element.url}
                 className="absolute top-0 left-0 w-full h-full"
+                loading="lazy"
+                referrerPolicy="strict-origin-when-cross-origin"
                 allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
                 allowFullScreen
                 title="YouTube Video"

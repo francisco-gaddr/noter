@@ -1,3 +1,5 @@
+import { buildVideoEmbedHtml } from '@repo/shared';
+
 const escapeHtml = (input: string) =>
   input
     .replace(/&/g, '&amp;')
@@ -7,6 +9,24 @@ const escapeHtml = (input: string) =>
     .replace(/'/g, '&#039;');
 
 const escapeAttr = (input: string) => escapeHtml(input);
+
+// Only ever emit link/image URLs with a safe scheme — a synced note must not be
+// able to smuggle `javascript:`/`vbscript:` into the WebView-rendered editor HTML.
+const sanitizeHref = (raw: unknown): string => {
+  const url = typeof raw === 'string' ? raw.trim() : '';
+  if (!url) return '';
+  if (/^(https?:|mailto:|tel:)/i.test(url)) return url;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(url)) return ''; // any other explicit scheme → drop
+  return url; // relative URL
+};
+
+const sanitizeImageSrc = (raw: unknown): string => {
+  const url = typeof raw === 'string' ? raw.trim() : '';
+  if (!url) return '';
+  if (/^(https?:|data:image\/)/i.test(url)) return url;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(url)) return '';
+  return url;
+};
 
 const stripHtml = (html: string) => {
   // Decode common entities first to avoid "div" showing up if it was &lt;div&gt;
@@ -82,7 +102,9 @@ const slateNodeToHtml = (node: any): string => {
     case 'video': {
       const url = typeof (node as any).url === 'string' ? (node as any).url : '';
       if (!url) return '';
-      return `<a href="${escapeAttr(url)}">${escapeHtml(url)}</a>`;
+      // Embed instead of a bare link so videos in web-authored (slate) notes
+      // play inline on mobile, exactly like in the web app.
+      return buildVideoEmbedHtml(url) || `<a href="${escapeAttr(url)}">${escapeHtml(url)}</a>`;
     }
     case 'table':
       return `<table style="border-collapse: collapse; width: 100%; border: 1px solid #ddd;"><tbody>${childrenHtml}</tbody></table>`;
@@ -291,14 +313,19 @@ export const tiptapJsonToHtml = (json: any): string => {
     case 'heading':
       return `<h${json.attrs?.level || 1}>${content}</h${json.attrs?.level || 1}>`;
     case 'text':
-      let text = json.text || '';
+      // SECURITY: text nodes are user/synced content — escape them so a note
+      // body can never inject raw HTML into the WebView editor.
+      let text = escapeHtml(json.text || '');
       if (json.marks) {
         json.marks.forEach((mark: any) => {
           if (mark.type === 'bold') text = `<strong>${text}</strong>`;
           if (mark.type === 'italic') text = `<em>${text}</em>`;
           if (mark.type === 'strike') text = `<s>${text}</s>`;
           if (mark.type === 'underline') text = `<u>${text}</u>`;
-          if (mark.type === 'link') text = `<a href="${mark.attrs.href}">${text}</a>`;
+          if (mark.type === 'link') {
+            const href = sanitizeHref(mark.attrs?.href);
+            if (href) text = `<a href="${escapeAttr(href)}">${text}</a>`;
+          }
         });
       }
       return text;
@@ -312,8 +339,15 @@ export const tiptapJsonToHtml = (json: any): string => {
       return `<blockquote>${content}</blockquote>`;
     case 'codeBlock':
       return `<pre><code>${content}</code></pre>`;
-    case 'image':
-      return `<img src="${json.attrs.src}" alt="${json.attrs.alt || ''}" />`;
+    case 'image': {
+      const src = sanitizeImageSrc(json.attrs?.src);
+      if (!src) return '';
+      return `<img src="${escapeAttr(src)}" alt="${escapeAttr(String(json.attrs?.alt || ''))}" />`;
+    }
+    case 'video': {
+      const src = typeof json.attrs?.src === 'string' ? json.attrs.src : (typeof json.attrs?.url === 'string' ? json.attrs.url : '');
+      return src ? buildVideoEmbedHtml(src) : '';
+    }
     case 'hardBreak':
         return '<br>';
     default:

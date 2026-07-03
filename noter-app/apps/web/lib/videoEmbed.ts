@@ -1,3 +1,14 @@
+import { resolveVideoEmbed } from '@repo/shared';
+
+/**
+ * Web-specific video-embed URL resolution on top of the shared parser
+ * (@repo/shared/videoEmbed). The shared module owns URL validation and
+ * provider parsing; this file only decides WHERE YouTube embeds load from:
+ * on the hosted web app they go through our same-origin relay page
+ * (/embed/youtube) so the note view never talks to Google directly, while
+ * Electron/file builds embed straight from youtube.com.
+ */
+
 export const resolveEmbedBaseUrl = (baseOverride?: string) => {
   if (baseOverride) return baseOverride.replace(/\/$/, '');
   if (typeof window === 'undefined') return 'https://daylited.com/app';
@@ -6,39 +17,28 @@ export const resolveEmbedBaseUrl = (baseOverride?: string) => {
   return `${window.location.origin}${basePath}`;
 };
 
-export const getTikTokEmbedUrl = (url: string) => {
-  if (!url) return null;
-  if (url.includes('embed/v2/')) return url;
-  const match = url.match(/video\/(\d+)/);
-  if (match && match[1]) {
-    return `https://www.tiktok.com/embed/v2/${match[1]}`;
-  }
-  return null;
+export const getTikTokEmbedUrl = (url: string): string | null => {
+  const resolved = resolveVideoEmbed(url);
+  return resolved?.provider === 'tiktok' ? resolved.embedUrl : null;
 };
 
-export const getYouTubeEmbedUrl = (url: string, baseOverride?: string) => {
-  if (!url) return null;
-  if (url.includes('/embed/')) return url;
-  if (url.includes('youtube.com') || url.includes('youtu.be')) {
-    const idFromQuery = url.includes('v=') ? url.split('v=')[1]?.split('&')[0] : null;
-    const idFromPath = url.split('/').pop()?.split('?')[0] || null;
-    const videoId = idFromQuery || idFromPath;
-    if (videoId) {
-      const isFileProtocol = typeof window !== 'undefined' && window.location.protocol === 'file:';
-      const isElectron = typeof window !== 'undefined' && Boolean((window as any).mlc?.isElectron);
-      if (isFileProtocol || isElectron) {
-        return `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?rel=0&modestbranding=1&playsinline=1`;
-      }
-      return `${resolveEmbedBaseUrl(baseOverride)}/embed/youtube?id=${encodeURIComponent(videoId)}`;
-    }
-  }
-  return null;
+export const getYouTubeEmbedUrl = (url: string, baseOverride?: string): string | null => {
+  const resolved = resolveVideoEmbed(url);
+  if (resolved?.provider !== 'youtube' || !resolved.videoId) return null;
+  const isFileProtocol = typeof window !== 'undefined' && window.location.protocol === 'file:';
+  const isElectron = typeof window !== 'undefined' && Boolean((window as any).mlc?.isElectron);
+  if (isFileProtocol || isElectron) return resolved.embedUrl;
+  return `${resolveEmbedBaseUrl(baseOverride)}/embed/youtube?id=${encodeURIComponent(resolved.videoId)}`;
 };
 
-export const resolveVideoEmbedUrl = (url: string, baseOverride?: string) => {
-  const tikTokEmbed = getTikTokEmbedUrl(url);
-  if (tikTokEmbed) return tikTokEmbed;
-  const youtubeEmbed = getYouTubeEmbedUrl(url, baseOverride);
-  if (youtubeEmbed) return youtubeEmbed;
-  return url;
+/**
+ * Resolve any pasted URL to an iframe-safe embed URL. Unknown-but-valid http(s)
+ * URLs pass through normalized (generic embeds like Spotify/Loom); invalid or
+ * non-http input resolves to '' so it can never reach an iframe src.
+ */
+export const resolveVideoEmbedUrl = (url: string, baseOverride?: string): string => {
+  const resolved = resolveVideoEmbed(url);
+  if (!resolved) return '';
+  if (resolved.provider === 'youtube') return getYouTubeEmbedUrl(url, baseOverride) ?? resolved.embedUrl;
+  return resolved.embedUrl;
 };
