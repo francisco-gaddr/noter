@@ -135,6 +135,67 @@ describe('AI sync routes', () => {
     );
   });
 
+  it('never lets a stale snapshot overwrite a newer conversation (multi-device race)', async () => {
+    const conv = (title: string, updatedAt: string) => ({
+      id: 'c-race',
+      titleEnc: encrypt(title),
+      modelEnc: '',
+      projectIdEnc: '',
+      iconEnc: '',
+      iconColorEnc: '',
+      createdAtEnc: encrypt('2026-03-12T10:00:00.000Z'),
+      updatedAtEnc: encrypt(updatedAt),
+      updatedAt,
+    });
+    const push = (payload: object) => request(app)
+      .post('/api/ai/sync/push')
+      .set('Authorization', 'Bearer demo-token')
+      .send({ projects: [], messages: [], ...payload });
+
+    // Device A pushes the newer version first…
+    await push({ conversations: [conv('nyare titel', '2026-03-12T12:00:00.000Z')] });
+    // …then device B comes back online and pushes an older offline snapshot.
+    const stale = await push({ conversations: [conv('gammal titel', '2026-03-12T11:00:00.000Z')] });
+    expect(stale.status).toBe(200);
+
+    const stored = await AIConversationSync.findOne({ conversationId: 'c-race' }).lean();
+    expect(decrypt(String(stored!.titleEnc))).toBe('nyare titel');
+
+    // A genuinely newer push still wins.
+    await push({ conversations: [conv('senaste titel', '2026-03-12T13:00:00.000Z')] });
+    const updated = await AIConversationSync.findOne({ conversationId: 'c-race' }).lean();
+    expect(decrypt(String(updated!.titleEnc))).toBe('senaste titel');
+  });
+
+  it('caps the pull payload instead of streaming unbounded collections', async () => {
+    // Sanity guard for the PULL_MAX_* caps: a normal account round-trips intact.
+    await request(app)
+      .post('/api/ai/sync/push')
+      .set('Authorization', 'Bearer demo-token')
+      .send({
+        projects: [],
+        conversations: [{
+          id: 'c-cap',
+          titleEnc: encrypt('titel'),
+          modelEnc: '', projectIdEnc: '', iconEnc: '', iconColorEnc: '',
+          createdAtEnc: encrypt('2026-03-12T10:00:00.000Z'),
+          updatedAtEnc: encrypt('2026-03-12T10:00:00.000Z'),
+          updatedAt: '2026-03-12T10:00:00.000Z',
+        }],
+        messages: [
+          { id: 'm-1', conversationId: 'c-cap', roleEnc: encrypt('user'), contentEnc: encrypt('hej'), createdAtEnc: encrypt('2026-03-12T10:00:01.000Z'), createdAt: '2026-03-12T10:00:01.000Z' },
+          { id: 'm-2', conversationId: 'c-cap', roleEnc: encrypt('assistant'), contentEnc: encrypt('hej!'), createdAtEnc: encrypt('2026-03-12T10:00:02.000Z'), createdAt: '2026-03-12T10:00:02.000Z' },
+        ],
+      });
+    const res = await request(app)
+      .get('/api/ai/sync/pull')
+      .set('Authorization', 'Bearer demo-token');
+    expect(res.status).toBe(200);
+    // Messages must come back ascending by createdAt even though the capped
+    // query fetches newest-first internally.
+    expect(res.body.messages.map((m: any) => m.id)).toEqual(['m-1', 'm-2']);
+  });
+
   it('rejects plaintext ai sync payload fields', async () => {
     const res = await request(app)
       .post('/api/ai/sync/push')

@@ -83,7 +83,9 @@ const noteType = (n: any): string => {
  * permanently unreadable (unlockedIds is empty here, by design).
  */
 const loadNoteSecurityMap = async (userId: string): Promise<Map<string, SecurityNote>> => {
-  const rows = await Note.find({ userId }).select('+password').lean();
+  // Minimal projection: the lock map only needs the tree structure + lock signals —
+  // never pull title/content ciphertexts for the whole collection per tool call.
+  const rows = await Note.find({ userId }).select('_id parentId locked type +password').lean();
   const secNotes: SecurityNote[] = rows.map((n: any) => ({
     _id: String(n._id),
     parentId: n.parentId ? String(n.parentId) : null,

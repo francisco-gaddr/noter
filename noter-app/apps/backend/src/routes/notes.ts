@@ -39,7 +39,7 @@ const parseEncryptedBoolean = (value: string): boolean => {
 const noteSchema = Joi.object({
   title: encryptedRequired.required(),
   content: encryptedRequired.required(),
-  tags: Joi.array().items(encryptedRequired),
+  tags: Joi.array().items(encryptedRequired).max(200),
   parentId: Joi.string().allow(null),
   locked: encryptedOptional.optional(),
   password: encryptedOptional.optional(),
@@ -59,7 +59,7 @@ const noteSchema = Joi.object({
 const updateSchema = Joi.object({
   title: encryptedRequired.optional(),
   content: encryptedRequired.optional(),
-  tags: Joi.array().items(encryptedRequired).optional(),
+  tags: Joi.array().items(encryptedRequired).max(200).optional(),
   parentId: Joi.string().allow(null),
   locked: encryptedOptional.optional(),
   password: encryptedOptional.optional(),

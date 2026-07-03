@@ -194,7 +194,10 @@ const requireUser = (userId?: string | null) => {
  * `notes` / `task` / `tasks` query server-decrypts and leaks a locked note's content.
  */
 const loadNoteSecurityMap = async (userId: string): Promise<Map<string, SecurityNote>> => {
-  const rows = await Note.find({ userId }).select('+password').lean();
+  // Minimal projection: the lock map only needs the tree structure + lock signals.
+  // Pulling full docs (title/content ciphertexts) here loaded the user's entire
+  // note collection into memory on EVERY tool-use query.
+  const rows = await Note.find({ userId }).select('_id parentId locked +password').lean();
   const secNotes: SecurityNote[] = rows.map((n: any) => ({
     _id: String(n._id),
     parentId: n.parentId ? String(n.parentId) : null,

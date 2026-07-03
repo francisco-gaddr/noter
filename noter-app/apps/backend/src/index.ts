@@ -372,10 +372,22 @@ io.on('connection', (socket) => {
     logger.warn('markdown-live register failed', { error: (err as Error)?.message });
   }
 
-  socket.on('note:join', ({ noteId, user }) => {
+  socket.on('note:join', async ({ noteId, user }) => {
     if (typeof noteId !== 'string' || noteId.trim().length === 0 || noteId.length > 128) return;
-    if (userId && user?._id && user._id !== userId) return;
+    if (!userId) return; // never allow unauthenticated presence
+    if (user?._id && user._id !== userId) return;
     const safeNoteId = noteId.trim();
+    // SECURITY: room names are raw strings — without these checks a client could
+    // join arbitrary rooms (e.g. `user:<otherId>`) and receive another user's
+    // realtime events, or shadow presence in notes it doesn't own.
+    if (!mongoose.Types.ObjectId.isValid(safeNoteId)) return;
+    try {
+      const NoteModel = mongoose.model('Note');
+      const owns = await NoteModel.exists({ _id: safeNoteId, userId });
+      if (!owns) return;
+    } catch {
+      return; // fail closed
+    }
     socket.join(safeNoteId);
     socketUsers.set(socket.id, user);
     
@@ -464,7 +476,15 @@ app.get('/api/health', (req, res) => {
 });
 
 app.use('/api/health/deep', healthDeepRoutes);
-app.use('/api/csp-report', cspReportRoutes);
+// CSP reports are unauthenticated by nature (browsers post them automatically) —
+// keep a tight dedicated cap so report floods can't eat the global budget or logs.
+const cspReportLimiter = createRateLimit({
+  keyPrefix: 'csp-report',
+  points: 60,
+  durationSec: 10 * 60,
+  message: 'Too many reports.',
+});
+app.use('/api/csp-report', cspReportLimiter, cspReportRoutes);
 
 app.get('/internal/perf-snapshot', (req, res) => {
   // Auth: shared-secret header OR loopback only.
