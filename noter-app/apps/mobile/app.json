@@ -11,12 +11,15 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.noter.app",
-      "buildNumber": "14",
+      "buildNumber": "15",
       "infoPlist": {
         "NSFaceIDUsageDescription": "Noter uses FaceID to unlock your secure notes.",
-        "NSPhotoLibraryUsageDescription": "Noter beh\u00f6ver \u00e5tkomst till dina bilder f\u00f6r att bifoga dem till anteckningar.",
-        "NSCameraUsageDescription": "Noter beh\u00f6ver \u00e5tkomst till kameran f\u00f6r att ta bilder till anteckningar.",
-        "UIBackgroundModes": ["fetch", "processing"]
+        "NSPhotoLibraryUsageDescription": "Noter behöver åtkomst till dina bilder för att bifoga dem till anteckningar.",
+        "NSCameraUsageDescription": "Noter behöver åtkomst till kameran för att ta bilder till anteckningar.",
+        "UIBackgroundModes": [
+          "fetch",
+          "processing"
+        ]
       }
     },
     "android": {
@@ -26,7 +29,7 @@
         "backgroundColor": "#0C0C10"
       },
       "package": "com.noter.app",
-      "versionCode": 15,
+      "versionCode": 16,
       "softwareKeyboardLayoutMode": "resize",
       "permissions": [
         "android.permission.USE_BIOMETRIC",
