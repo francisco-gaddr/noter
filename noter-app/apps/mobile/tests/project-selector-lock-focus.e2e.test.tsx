@@ -34,16 +34,29 @@ jest.mock('react-native-paper', () => {
 
 jest.mock('react-native', () => {
   const React = require('react');
-  return {
+  const actual = jest.requireActual('react-native');
+  // Narrow stubs + everything REAL via Proxy — a bare stub object breaks
+  // Platform/AccessibilityInfo/etc. as the app grows, and eager Object.assign
+  // would fire RN's deprecated-module getters.
+  const overrides: any = {
     View: ({ children }: any) => React.createElement('View', null, children),
     StyleSheet: { create: (v: any) => v, hairlineWidth: 1 },
     TouchableOpacity: ({ children, onPress, testID }: any) => React.createElement('TouchableOpacity', { onPress, testID }, children),
+    // Stubbed so a deferred render doesn't hit RN's lazy ScrollView getter after jest teardown.
+    ScrollView: ({ children }: any) => React.createElement('ScrollView', null, children),
   };
+  return new Proxy(overrides, { get: (t: any, p: any) => (p in t ? t[p] : (actual as any)[p]) });
 });
 
 jest.mock('react-native-svg', () => ({ SvgUri: 'SvgUri' }));
 jest.mock('@expo/vector-icons/FontAwesome5', () => 'FontAwesome5');
-jest.mock('expo-haptics', () => ({ impactAsync: jest.fn(), ImpactFeedbackStyle: { Medium: 'Medium' } }));
+jest.mock('expo-haptics', () => ({
+  impactAsync: jest.fn(),
+  selectionAsync: jest.fn(),
+  notificationAsync: jest.fn(),
+  ImpactFeedbackStyle: { Light: 'Light', Medium: 'Medium', Heavy: 'Heavy' },
+  NotificationFeedbackType: { Success: 'Success', Warning: 'Warning', Error: 'Error' },
+}));
 jest.mock('react-native-draggable-flatlist', () => {
   const React = require('react');
   return ({ data, renderItem }: any) => React.createElement(
@@ -54,10 +67,10 @@ jest.mock('react-native-draggable-flatlist', () => {
 });
 jest.mock('@/components/IconPickerModal', () => 'IconPickerModal');
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ i18n: { language: 'sv' } }),
+  useTranslation: () => ({ t: (key: string) => key, i18n: { language: 'sv' } }),
 }));
-jest.mock('@/stores/useStore', () => ({
-  useStore: () => ({
+jest.mock('@/stores/useStore', () => {
+  const state = {
     notes: [
       { _id: 'pLocked', title: 'Låst Projekt', type: 'project-folder', parentId: null, locked: true, tags: [], content: '', createdAt: '2026-01-01', updatedAt: '2026-01-01' },
     ],
@@ -68,8 +81,14 @@ jest.mock('@/stores/useStore', () => ({
     deleteNote: jest.fn(),
     verifyNoteLock: jest.fn(),
     reorderNotes: jest.fn(),
-  }),
-}));
+    fetchNotes: jest.fn(),
+    unlockedProtectedNoteIds: [],
+  };
+  // Selector-aware: the component may call useStore(s => s.something) as well as useStore().
+  const useStore: any = (sel?: (s: typeof state) => unknown) => (sel ? sel(state) : state);
+  useStore.getState = () => state;
+  return { useStore };
+});
 
 describe('ProjectSelector unlock focus e2e', () => {
   beforeEach(() => {

@@ -17,11 +17,18 @@ jest.mock('expo-router', () => ({
     return null;
 };
 
-jest.mock('react-native', () => ({
+jest.mock('react-native', () => {
+  const actual = jest.requireActual('react-native');
+  // Narrow stubs for what the test asserts on + everything REAL via Proxy —
+  // a bare stub object breaks Platform/AccessibilityInfo/etc. as the app grows,
+  // and eager Object.assign would fire RN's deprecated-module getters.
+  const overrides = {
   Pressable: 'Pressable',
   View: 'View',
   useColorScheme: () => 'light',
-}));
+};
+  return new Proxy(overrides, { get: (t: any, p: any) => (p in t ? t[p] : actual[p]) });
+});
 jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }));

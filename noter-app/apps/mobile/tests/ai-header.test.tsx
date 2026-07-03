@@ -10,6 +10,7 @@ jest.mock('uuid', () => ({
 
 jest.mock('expo-router', () => ({
   useNavigation: () => ({ setOptions: mockSetOptions }),
+  useLocalSearchParams: () => ({}),
 }));
 
 jest.mock('react-native-paper', () => {
@@ -28,13 +29,23 @@ jest.mock('react-native-paper', () => {
     ProgressBar: 'ProgressBar',
     Portal: ({ children }: any) => React.createElement('Portal', null, children),
     Dialog,
+    Switch: 'Switch',
+    Menu: Object.assign(({ children }: any) => React.createElement(React.Fragment, null, children), { Item: 'MenuItem' }),
+    Divider: 'Divider',
+    Chip: ({ children }: any) => React.createElement('Chip', null, children),
+    Surface: ({ children }: any) => React.createElement('Surface', null, children),
     useTheme: () => ({ colors: { background: '#fff', surface: '#fff', outline: '#ccc', onSurface: '#000', onSurfaceVariant: '#777', primaryContainer: '#eee', surfaceVariant: '#eee' } }),
   };
 });
 
 jest.mock('@/components/IconPickerModal', () => () => null);
 
-jest.mock('react-native', () => ({
+jest.mock('react-native', () => {
+  const actual = jest.requireActual('react-native');
+  // Narrow stubs for what the test asserts on + everything REAL via Proxy —
+  // a bare stub object breaks Platform/AccessibilityInfo/etc. as the app grows,
+  // and eager Object.assign would fire RN's deprecated-module getters.
+  const overrides = {
   StyleSheet: { create: () => ({}) },
   View: 'View',
   TextInput: 'TextInput',
@@ -45,8 +56,11 @@ jest.mock('react-native', () => ({
   TouchableOpacity: 'TouchableOpacity',
   Platform: { OS: 'ios', select: (obj: any) => obj.ios },
   NativeModules: {},
-  AppState: { addEventListener: jest.fn() },
-}));
+  AppState: { addEventListener: jest.fn(() => ({ remove: jest.fn() })), currentState: 'active' },
+  useWindowDimensions: () => ({ width: 400, height: 800, scale: 2, fontScale: 1 }),
+};
+  return new Proxy(overrides, { get: (t: any, p: any) => (p in t ? t[p] : actual[p]) });
+});
 
 jest.mock('@expo/vector-icons/FontAwesome5', () => 'FontAwesome5');
 

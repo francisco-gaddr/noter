@@ -11,6 +11,23 @@ jest.mock('expo-font', () => ({
 }));
 jest.mock('@expo/vector-icons/FontAwesome5', () => 'FontAwesome5');
 
+// PaperProvider subscribes to AccessibilityInfo (reduce-motion) on mount; under
+// jest-expo the RN export resolves to undefined, so stub the deep module path.
+jest.mock(
+  'react-native/Libraries/Components/AccessibilityInfo/AccessibilityInfo',
+  () => ({
+    __esModule: true,
+    default: {
+      addEventListener: jest.fn(() => ({ remove: jest.fn() })),
+      removeEventListener: jest.fn(),
+      isReduceMotionEnabled: jest.fn(() => Promise.resolve(false)),
+      isScreenReaderEnabled: jest.fn(() => Promise.resolve(false)),
+      fetch: jest.fn(() => Promise.resolve(false)),
+      announceForAccessibility: jest.fn(),
+    },
+  })
+);
+
 jest.mock('expo-haptics', () => ({
   selectionAsync: jest.fn(),
   impactAsync: jest.fn(),

@@ -14,9 +14,12 @@ export const useReduceMotion = (): boolean => {
   const [reduce, setReduce] = useState<boolean>(false);
 
   useEffect(() => {
+    // Defensive: AccessibilityInfo can be absent (jest env, exotic platforms).
+    // Reduce-motion is a progressive enhancement — never let it crash a screen.
+    if (!AccessibilityInfo?.isReduceMotionEnabled) return;
     let mounted = true;
     AccessibilityInfo.isReduceMotionEnabled().then((v) => { if (mounted) setReduce(Boolean(v)); }).catch(() => { /* noop */ });
-    const sub = AccessibilityInfo.addEventListener('reduceMotionChanged', (v) => { setReduce(Boolean(v)); });
+    const sub = AccessibilityInfo.addEventListener?.('reduceMotionChanged', (v) => { setReduce(Boolean(v)); });
     return () => {
       mounted = false;
       // RN >= 0.65 sub is an EventSubscription with remove()

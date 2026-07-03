@@ -10,6 +10,7 @@ jest.mock('uuid', () => ({
 
 jest.mock('expo-router', () => ({
   useNavigation: () => ({ setOptions: mockSetOptions }),
+  useLocalSearchParams: () => ({}),
 }));
 
 jest.mock('react-native-paper', () => {
@@ -31,11 +32,21 @@ jest.mock('react-native-paper', () => {
     ProgressBar: (props: any) => React.createElement('ProgressBar', props),
     Portal: ({ children }: any) => React.createElement('Portal', null, children),
     Dialog,
+    Switch: 'Switch',
+    Menu: Object.assign(({ children }: any) => React.createElement(React.Fragment, null, children), { Item: 'MenuItem' }),
+    Divider: 'Divider',
+    Chip: ({ children }: any) => React.createElement('Chip', null, children),
+    Surface: ({ children }: any) => React.createElement('Surface', null, children),
     useTheme: () => ({ colors: { background: '#fff', surface: '#fff', outline: '#ccc', onSurface: '#000', onSurfaceVariant: '#777', primaryContainer: '#eee', surfaceVariant: '#eee' } }),
   };
 });
 
-jest.mock('react-native', () => ({
+jest.mock('react-native', () => {
+  const actual = jest.requireActual('react-native');
+  // Narrow stubs for what the test asserts on + everything REAL via Proxy —
+  // a bare stub object breaks Platform/AccessibilityInfo/etc. as the app grows,
+  // and eager Object.assign would fire RN's deprecated-module getters.
+  const overrides = {
   StyleSheet: { create: () => ({}) },
   View: 'View',
   TextInput: 'TextInput',
@@ -45,8 +56,11 @@ jest.mock('react-native', () => ({
   Pressable: 'Pressable',
   Platform: { OS: 'ios', select: (obj: any) => obj.ios },
   NativeModules: {},
-  AppState: { addEventListener: jest.fn() },
-}));
+  AppState: { addEventListener: jest.fn(() => ({ remove: jest.fn() })), currentState: 'active' },
+  useWindowDimensions: () => ({ width: 400, height: 800, scale: 2, fontScale: 1 }),
+};
+  return new Proxy(overrides, { get: (t: any, p: any) => (p in t ? t[p] : actual[p]) });
+});
 
 jest.mock('@expo/vector-icons/FontAwesome5', () => 'FontAwesome5');
 
@@ -75,7 +89,13 @@ jest.mock('@/services/ai/modelService', () => ({
 }));
 
 jest.mock('react-i18next', () => ({
-  useTranslation: () => ({ t: (key: string) => key }),
+  useTranslation: () => ({
+    // Resolve the two labels the test asserts on to their real Swedish values
+    // (the app moved from hardcoded strings to i18n keys); other keys pass through.
+    t: (key: string) => (
+      ({ 'ai.project.name': 'Projektnamn', 'ai.chatDialog.name': 'Chattnamn' } as Record<string, string>)[key] ?? key
+    ),
+  }),
 }));
 
 jest.mock('@react-native-async-storage/async-storage', () => ({

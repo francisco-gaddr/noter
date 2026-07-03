@@ -24,11 +24,17 @@ jest.mock('react-native-paper', () => {
     Text: ({ children }: any) => React.createElement('Text', null, children),
     Button: ({ children, onPress }: any) => React.createElement('Button', { onPress }, children),
     Avatar: 'Avatar',
+    Snackbar: 'Snackbar',
     useTheme: () => ({ colors: { background: '#fff' } }),
   };
 });
 
-jest.mock('react-native', () => ({
+jest.mock('react-native', () => {
+  const actual = jest.requireActual('react-native');
+  // Narrow stubs for what the test asserts on + everything REAL via Proxy —
+  // a bare stub object breaks Platform/AccessibilityInfo/etc. as the app grows,
+  // and eager Object.assign would fire RN's deprecated-module getters.
+  const overrides = {
   StyleSheet: { create: () => ({}) },
   View: 'View',
   TouchableOpacity: ({ children, onPress }: any) => {
@@ -36,10 +42,12 @@ jest.mock('react-native', () => ({
     return React.createElement('TouchableOpacity', { onPress }, children);
   },
   Alert: { alert: jest.fn() },
-}));
+};
+  return new Proxy(overrides, { get: (t: any, p: any) => (p in t ? t[p] : actual[p]) });
+});
 
-jest.mock('@/stores/useStore', () => ({
-  useStore: () => ({
+jest.mock('@/stores/useStore', () => {
+  const state = {
     notes: [
       { _id: 'p1', title: 'Projekt A', type: 'project-folder', parentId: null, content: '', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
       { _id: 'n1', title: 'Anteckning 1', type: 'note', parentId: 'p1', content: '', locked: false, tags: [], createdAt: '2026-01-01', updatedAt: '2026-01-01' },
@@ -56,8 +64,14 @@ jest.mock('@/stores/useStore', () => ({
     updateNote: jest.fn(),
     reorderNotes: jest.fn(),
     deleteNote: jest.fn(),
-  }),
-}));
+    unlockedProtectedNoteIds: [],
+    syncingCount: 0,
+  };
+  // Selector-aware: the screen calls useStore(s => s.something) as well as useStore().
+  const useStore: any = (sel?: (s: typeof state) => unknown) => (sel ? sel(state) : state);
+  useStore.getState = () => state;
+  return { useStore };
+});
 
 jest.mock('@/components/NoteList', () => (props: any) => {
   const React = require('react');

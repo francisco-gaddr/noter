@@ -43,16 +43,23 @@ jest.mock('react-native-paper', () => {
   };
 });
 
-jest.mock('react-native', () => ({
+jest.mock('react-native', () => {
+  const actual = jest.requireActual('react-native');
+  // Narrow stubs for what the test asserts on + everything REAL via Proxy —
+  // a bare stub object breaks Platform/AccessibilityInfo/etc. as the app grows,
+  // and eager Object.assign would fire RN's deprecated-module getters.
+  const overrides = {
   StyleSheet: { create: () => ({}) },
   View: 'View',
   ScrollView: 'ScrollView',
   Alert: { alert: jest.fn() },
-  Platform: { OS: 'ios' },
-}));
+  Platform: { OS: 'ios', select: (obj: any) => (obj ? (obj.ios ?? obj.native ?? obj.default) : undefined) },
+};
+  return new Proxy(overrides, { get: (t: any, p: any) => (p in t ? t[p] : actual[p]) });
+});
 
-jest.mock('@/stores/useStore', () => ({
-  useStore: () => ({
+jest.mock('@/stores/useStore', () => {
+  const state = {
     tasks: [],
     notes: [],
     isLoading: false,
@@ -64,8 +71,14 @@ jest.mock('@/stores/useStore', () => ({
     updateNote: jest.fn(),
     deleteNote: jest.fn(),
     deleteTask: jest.fn(),
-  }),
-}));
+    unlockedProtectedNoteIds: [],
+    syncingCount: 0,
+  };
+  // Selector-aware: the screen calls useStore(s => s.something) as well as useStore().
+  const useStore: any = (sel?: (s: typeof state) => unknown) => (sel ? sel(state) : state);
+  useStore.getState = () => state;
+  return { useStore };
+});
 
 jest.mock('@/components/TaskList', () => 'TaskList');
 jest.mock('@/components/TaskBoard', () => ({ TaskBoard: 'TaskBoard' }));

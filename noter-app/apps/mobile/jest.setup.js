@@ -164,3 +164,12 @@ jest.mock('react-native-safe-area-context', () => {
     withSafeAreaInsets: (Comp) => Comp,
   };
 });
+
+// expo-clipboard's ClipboardPasteButton registers a native view manager at import
+// time, which crashes under jest ("viewManagersMetadata" undefined) and takes every
+// screen that imports Clipboard down with it. Mock the JS API surface we use.
+jest.mock('expo-clipboard', () => ({
+  setStringAsync: jest.fn(async () => true),
+  getStringAsync: jest.fn(async () => ''),
+  hasStringAsync: jest.fn(async () => false),
+}));
