@@ -41,3 +41,6 @@ yarn-error.log*
 *.env.bak
 .env.*.bak
 .env.bak
+
+# Python bytecode (deploy scripts)
+__pycache__/
