@@ -199,3 +199,26 @@ export const fetchWithRetry = async (
   // Unreachable (loop returns/throws), but keeps the type checker happy.
   throw lastError ?? new Error(`${label} failed`);
 };
+
+/**
+ * Turn a failed AI-provider response into a message a HUMAN can act on: what
+ * went wrong (key / model / rate limit / server) plus a short excerpt of the
+ * provider's own detail. Raw multi-KB JSON error bodies never reach the chat.
+ */
+export const providerError = (label: string, status: number, body: string): Error => {
+  const detail = (() => {
+    try {
+      const j = JSON.parse(body);
+      return String(j?.error?.message || j?.message || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+    } catch {
+      return String(body || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+    }
+  })();
+  const base =
+    status === 401 || status === 403 ? `Ogiltig eller saknad API-nyckel för ${label}. Kontrollera nyckeln i AI-inställningarna.`
+    : status === 404 ? `Modellen hittades inte hos ${label} — kontrollera modell-id:t i inställningarna.`
+    : status === 429 ? `${label} har nått sin användningsgräns (rate limit). Vänta en stund och försök igen.`
+    : status >= 500 ? `${label} har tillfälliga serverproblem. Försök igen om en stund.`
+    : `${label}-förfrågan misslyckades (HTTP ${status}).`;
+  return new Error(detail ? `${base} (${detail})` : base);
+};

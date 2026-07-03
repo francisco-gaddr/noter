@@ -1364,7 +1364,13 @@ export const useStore = create<StoreState>((set, get) => ({
         isLoading: false,
         error: 'Offline: Note created locally and will sync when online'
       }));
-      await db.saveNote(tempNote, true);
+      try {
+        await db.saveNote(tempNote, true);
+      } catch {
+        // IndexedDB write failed too — the note lives in memory this session, but
+        // won't survive a reload. Surface that instead of failing silently.
+        set({ error: 'Anteckningen kunde inte sparas lokalt — den försvinner vid omladdning.' });
+      }
     }
   },
 

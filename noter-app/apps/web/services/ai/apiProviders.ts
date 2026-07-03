@@ -1,5 +1,5 @@
 import { ChatMessage } from '@repo/ai';
-import { parseDataUrl, fetchWithRetry, boundChatHistory } from '@repo/shared';
+import { parseDataUrl, fetchWithRetry, boundChatHistory, providerError } from '@repo/shared';
 import { SseBuffer, sseDataPayloads, openAiDelta, openAiUsageTokens, geminiDelta, geminiUsageTokens, anthropicDelta, anthropicUsage } from './sseParser';
 
 // Mirrors apps/mobile/services/ai/apiProviders.ts so the desktop/web AI chat
@@ -240,6 +240,7 @@ export interface ApiProviderResult {
   totalTokens: number;
 }
 
+
 export const generateApiProviderResponse = async (params: {
   provider: ApiProviderType;
   apiKey: string;
@@ -270,7 +271,7 @@ export const generateApiProviderResponse = async (params: {
     }, { signal, label: meta?.label ?? 'Anthropic', timeoutMs: REQUEST_TIMEOUT_MS });
     if (!response.ok) {
       const text = await response.text().catch(() => '');
-      throw new Error(text || `${meta?.label ?? 'Anthropic'} request failed`);
+      throw providerError(meta?.label ?? 'Anthropic', response.status, text);
     }
     const json = await response.json();
     const blocks = Array.isArray(json?.content) ? json.content : [];
@@ -295,7 +296,7 @@ export const generateApiProviderResponse = async (params: {
     }, { signal, label: meta?.label ?? provider, timeoutMs: REQUEST_TIMEOUT_MS });
     if (!response.ok) {
       const text = await response.text().catch(() => '');
-      throw new Error(text || `${meta?.label ?? provider} request failed`);
+      throw providerError(meta?.label ?? provider, response.status, text);
     }
     const json = await response.json();
     return {
@@ -317,7 +318,7 @@ export const generateApiProviderResponse = async (params: {
   }, { signal, label: 'Gemini', timeoutMs: REQUEST_TIMEOUT_MS });
   if (!response.ok) {
     const text = await response.text().catch(() => '');
-    throw new Error(text || 'Gemini request failed');
+    throw providerError('Gemini', response.status, text);
   }
   const json = await response.json();
   const parts = json?.candidates?.[0]?.content?.parts;
@@ -389,7 +390,7 @@ export const streamApiProviderResponse = async (params: {
     const response = await fetch(url, { method: 'POST', headers, body, signal: streamController.signal });
     if (!response.ok || !response.body) {
       const text = await response.text().catch(() => '');
-      throw new Error(text || `${meta?.label ?? provider} stream failed`);
+      throw providerError(meta?.label ?? provider, response.status, text);
     }
 
     const reader = response.body.getReader();

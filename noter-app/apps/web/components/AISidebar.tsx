@@ -15,7 +15,7 @@ import { computeMessageWindow, MESSAGE_WINDOW } from '../lib/messageWindow';
 import { getApiBaseUrl } from '../services/api';
 import { resolveAuthToken as apiResolveAuthToken, resolveGraphqlUrl as apiResolveGraphqlUrl, graphqlRequest as apiGraphqlRequest } from '../services/apiClient';
 import { shouldStopToolIteration, toToolCallKeys, toToolIterationSignature } from '../services/ai/toolChain';
-import { ApiProviderType, API_PROVIDERS, API_PROVIDER_LIST, resolveChatCompletionsUrl, streamApiProviderResponse } from '../services/ai/apiProviders';
+import { ApiProviderType, API_PROVIDERS, API_PROVIDER_LIST, resolveChatCompletionsUrl, streamApiProviderResponse, type ApiProviderResult } from '../services/ai/apiProviders';
 import { retrieveForChat } from '../services/ai/embeddingsService';
 import { getSourceMinLevels } from '../services/nextcloud';
 import { getUsageSnapshot, recordUsage, recordToolUse, type UsageSnapshot } from '../services/ai/usageTracker';
@@ -148,6 +148,10 @@ export const AISidebar = () => {
   const mcpDashboardRequestIdRef = useRef(0);
   const systemDashboardRequestIdRef = useRef(0);
   const stopRequestedRef = useRef(false);
+  // Synchronous double-send guard: `loading` is React state and commits AFTER the
+  // first awaits in handleSend, so two rapid sends could both pass the `loading`
+  // check and run two generations into the same thread. The ref flips synchronously.
+  const sendInFlightRef = useRef(false);
   const activeChatIdRef = useRef<string | null>(null);
   
   // History State
@@ -1547,25 +1551,46 @@ export const AISidebar = () => {
         .map(a => `data:${a.type};base64,${a.content}`)
         .slice(0, 4);
       let built = '';
-      const result = await streamApiProviderResponse({
-        provider: eff.sendProvider,
-        apiKey: eff.apiKey,
-        model: eff.model,
-        baseUrl: eff.baseUrl,
-        history,
-        images,
-        signal: controller.signal,
-        onToken: (delta) => {
-          if (stopRequestedRef.current) return;
-          built += delta;
-          setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: built } : m));
-          void saveAssistantProgress(convId, assistantMsg.id as string, built);
-        },
-      });
+      // Backpressure: a fast provider can emit 100+ deltas/s. Rendering per token
+      // re-renders the whole thread each time, and saving per token hammers
+      // IndexedDB. Batch UI updates (~80ms) and progress saves (~1s) instead.
+      let uiFlushedAt = 0;
+      let dbFlushedAt = 0;
+      let flushTimer: ReturnType<typeof setTimeout> | null = null;
+      const flushProgress = () => {
+        flushTimer = null;
+        uiFlushedAt = Date.now();
+        const text = built;
+        setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: text } : m));
+        if (Date.now() - dbFlushedAt >= 1000) {
+          dbFlushedAt = Date.now();
+          void saveAssistantProgress(convId, assistantMsg.id as string, text);
+        }
+      };
+      let result: ApiProviderResult;
+      try {
+        result = await streamApiProviderResponse({
+          provider: eff.sendProvider,
+          apiKey: eff.apiKey,
+          model: eff.model,
+          baseUrl: eff.baseUrl,
+          history,
+          images,
+          signal: controller.signal,
+          onToken: (delta) => {
+            if (stopRequestedRef.current) return;
+            built += delta;
+            if (Date.now() - uiFlushedAt >= 80) flushProgress();
+            else if (!flushTimer) flushTimer = setTimeout(flushProgress, 80);
+          },
+        });
+      } finally {
+        if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
+      }
       const finalText = built || result.text;
-      if (!built && result.text) {
-        setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: result.text } : m));
-        await saveAssistantProgress(convId, assistantMsg.id as string, result.text);
+      if (finalText) {
+        setMessages(prev => prev.map(m => m.id === assistantMsg.id ? { ...m, content: finalText } : m));
+        await saveAssistantProgress(convId, assistantMsg.id as string, finalText);
       }
       // Record usage (calls + tokens) and refresh the live snapshot for the bars.
       try {
@@ -1573,6 +1598,12 @@ export const AISidebar = () => {
         setApiUsage(getUsageSnapshot(eff.usageKey, eff.model));
       } catch {}
       abortControllerRef.current = null;
+      // An empty final response (model produced nothing, or the stream died before
+      // the first token without erroring) must be a VISIBLE failure — otherwise a
+      // blank assistant bubble sits in the thread with no way to understand why.
+      if (!finalText.trim() && !stopRequestedRef.current) {
+        throw new Error('Modellen gav inget svar. Försök igen — kontrollera modellval och API-nyckel om det upprepas.');
+      }
       return finalText;
     }
     
@@ -3329,6 +3360,9 @@ export const AISidebar = () => {
       }
     }
 
+    if (sendInFlightRef.current) return;
+    sendInFlightRef.current = true;
+    try {
     let convId = currentConversationId;
     if (!convId) {
         convId = uuidv4();
@@ -3418,6 +3452,9 @@ export const AISidebar = () => {
         setMessages(prev => [...prev, { id: uuidv4(), role: 'system', content: 'Error: ' + error.message, createdAt: new Date().toISOString() }]);
     } finally {
         setLoading(false);
+    }
+    } finally {
+      sendInFlightRef.current = false;
     }
   };
 
