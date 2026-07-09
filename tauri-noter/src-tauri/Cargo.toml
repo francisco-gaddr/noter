@@ -23,6 +23,10 @@ serde_json = "1"
 # content stays E2E-encrypted by @repo/shared. Stronghold is deprecated → not used.
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 thiserror = "2"
+# Native OS surfaces ported so far (each is an official, audited Tauri plugin — the simplest path):
+tauri-plugin-notification = "2"   # reminders / update notices
+tauri-plugin-dialog = "2"         # native open/save dialogs (import/export)
+tauri-plugin-single-instance = "2" # focus the existing window instead of launching a second app
 
 [features]
 # By default Tauri ships with dev-tools disabled in release; keep parity with electron builds.

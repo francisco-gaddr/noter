@@ -71,8 +71,16 @@
     findStop: () => Promise.resolve(),
     onFindResult: () => noop,
 
-    // Notifications — TODO(tauri): port to tauri-plugin-notification.
-    notify: notPorted('notify'),
+    // Notifications — PORTED (tauri-plugin-notification). Requests permission on first use.
+    notify: async (payload) => {
+      const n = T && T.notification;
+      if (!n) return;
+      try {
+        let granted = await n.isPermissionGranted();
+        if (!granted) granted = (await n.requestPermission()) === 'granted';
+        if (granted) n.sendNotification({ title: (payload && payload.title) || 'Noter', body: (payload && payload.body) || '' });
+      } catch (_) { /* notifications are best-effort */ }
+    },
     onNoteOpenRequested: () => noop,
     setBadge: () => Promise.resolve(),
 
@@ -104,9 +112,30 @@
     removeFromUserDictionary: () => Promise.resolve(),
     listUserDictionary: () => Promise.resolve([]),
 
-    // Native dialogs — TODO(tauri): port to tauri-plugin-dialog.
-    showOpenDialog: notPorted('showOpenDialog'),
-    showSaveDialog: notPorted('showSaveDialog'),
+    // Native dialogs — PORTED (tauri-plugin-dialog). Electron opts are adapted to Tauri's shape and
+    // the result is adapted back to Electron's { canceled, filePaths|filePath } so the UI is unchanged.
+    showOpenDialog: async (opts) => {
+      const d = T && T.dialog;
+      if (!d) return { canceled: true, filePaths: [] };
+      const o = opts || {};
+      const props = Array.isArray(o.properties) ? o.properties : [];
+      const res = await d.open({
+        multiple: props.includes('multiSelections'),
+        directory: props.includes('openDirectory'),
+        filters: o.filters,
+        defaultPath: o.defaultPath,
+        title: o.title,
+      });
+      const paths = res == null ? [] : Array.isArray(res) ? res : [res];
+      return { canceled: paths.length === 0, filePaths: paths };
+    },
+    showSaveDialog: async (opts) => {
+      const d = T && T.dialog;
+      if (!d) return { canceled: true, filePath: undefined };
+      const o = opts || {};
+      const res = await d.save({ filters: o.filters, defaultPath: o.defaultPath, title: o.title });
+      return { canceled: res == null, filePath: res || undefined };
+    },
 
     // Recent notes (dock/JumpList) — TODO(tauri): port.
     recordRecentNote: () => Promise.resolve(),

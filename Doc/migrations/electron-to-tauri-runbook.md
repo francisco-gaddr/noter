@@ -23,6 +23,20 @@ Companion decision record: [ADR-0007](../adr/0007-electron-vs-tauri.md).
     deep-link/file-assoc, find-in-page, print, multi-window — then the spike gates (§1) + security
     gate (§9) on all three webviews.
 
+- **2026-07-09 — Phase 1a: native OS surfaces via official plugins (`cargo check` green).** Added the
+  three plugins that each have a real consumer in the UI (no speculative deps):
+  - **Notifications — DONE** (`tauri-plugin-notification`). `noterDesktop.notify(payload)` requests
+    permission on first use, then `sendNotification`. Best-effort (never throws into the UI).
+  - **Native dialogs — DONE** (`tauri-plugin-dialog`). `showOpenDialog`/`showSaveDialog` adapt the
+    Electron opts (`properties`, `filters`) to Tauri's shape and adapt the result back to Electron's
+    `{ canceled, filePaths|filePath }`, so import/export UI code is unchanged.
+  - **Single-instance — DONE** (`tauri-plugin-single-instance`, registered first). A second launch
+    focuses/unminimizes the running window instead of opening a duplicate (Electron-lock parity).
+  - Permissions granted explicitly in `capabilities/default.json` (`notification:default`,
+    `dialog:default`) — Tauri v2 locked-down default preserved. Dropped a speculative `os` plugin that
+    had no consumer (keep deps lean). Runtime verification of the two JS plugin APIs is deferred to the
+    spike gate (§1), since a GUI run is required.
+
 
 This runbook is written so the migration does **not start from zero**. It maps every
 native surface of the current Electron app (`electron-noter/`) to its Tauri v2

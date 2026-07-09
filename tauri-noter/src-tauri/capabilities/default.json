@@ -3,5 +3,9 @@
   "identifier": "default",
   "description": "Core capability for the main window. Custom app commands (secure_store, settings) are exposed via the invoke handler; plugin/core APIs are opted into here explicitly (Tauri v2 locked-down default).",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "notification:default",
+    "dialog:default"
+  ]
 }
