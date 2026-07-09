@@ -428,6 +428,29 @@ WebKitGTK — but never claim Electron-level rendering parity.
 - [ ] **Updater.** Signature verification is ON; Windows two-pass signing in place.
 - [ ] **CSP** present and tight (§5).
 
+### 9a. Static pre-audit of the Tauri native layer (headless, 2026-07-09)
+
+The runtime/GUI parts of §9 still need a display, but the **no-plaintext-at-rest** and **renderer
+boundary** properties are already verifiable statically against the ported native layer, and hold:
+
+- **Every `std::fs::write` in `src-tauri/src` (non-test) accounts for only non-note data:**
+  `settings.rs` → `settings.json` (non-secret prefs); `mlc.rs` → `mlc_models/index.json` (model
+  metadata: id/modelId/quant/path/target/createdAt). No file write touches note/task content.
+- **Secrets:** `secure_store.rs` writes **only** to the OS secret service (`keyring::Entry::set_password`)
+  — the auth token + v3 `dataKey`, plus a small index of *key names* (`__noter_secure_index`). Nothing
+  secret is written to disk; nothing note-related is stored at all.
+- **Bridge:** `preload-bridge.js` performs **no** `localStorage` / filesystem / note-content
+  persistence (grep-clean). Note content stays in the webview (IndexedDB, E2E-encrypted by
+  `@repo/shared`), exactly as under Electron — the native layer never sees plaintext.
+- **Renderer boundary:** the webview reaches native only through the explicit `invoke_handler` command
+  allow-list + the opted-in capabilities in `capabilities/default.json` (Tauri v2 denies by default).
+- **CSP** is set in `tauri.conf.json`. *(Follow-up to tighten before release: the dev-oriented
+  `connect-src http: ws:` should drop to `https: wss:` once local-dev no longer needs an http backend.)*
+
+Still pending a GUI run: E2E round-trip of a real encrypted note, keychain round-trip on the real OS
+secret service, transport enforcement in the live renderer, and (once activated) updater signature
+verification.
+
 ---
 
 ## 10. Phased plan + exit gates
