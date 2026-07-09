@@ -134,8 +134,13 @@
     setTouchBar: () => Promise.resolve(),
     onTouchBarAction: () => noop,
 
-    // Print — TODO(tauri): port (webview print / print-to-pdf).
-    printNote: notPorted('printNote'),
+    // Print — PORTED via the webview's own print dialog. The lock invariant is preserved: a locked
+    // note is NEVER printed (mirrors Electron's { ok:false, reason:'note-is-locked' } guard).
+    // print-to-pdf needs native PDF generation Tauri lacks out-of-box → still a stub (no fake dataUrl).
+    printNote: async (_options, lockedNote) => {
+      if (lockedNote === true) return { ok: false, reason: 'note-is-locked' };
+      try { window.print(); return { ok: true }; } catch (e) { return { ok: false, reason: e && e.message }; }
+    },
     printNoteToPdf: notPorted('printNoteToPdf'),
     openPrintPreview: notPorted('openPrintPreview'),
 

@@ -67,6 +67,14 @@ Companion decision record: [ADR-0007](../adr/0007-electron-vs-tauri.md).
     deferred — it needs a ready handshake so the event isn't emitted before the UI subscribes. The
     running-app paths (the common case) are done.
 
+- **2026-07-09 — Phase 1e: print (lock-invariant preserved).** `noterDesktop.printNote` uses the
+  webview's own `window.print()` and keeps the security guard verbatim: a locked note is **never**
+  printed (returns `{ ok:false, reason:'note-is-locked' }`, mirroring Electron). `printNoteToPdf` and
+  `openPrintPreview` remain honest stubs — `print-to-pdf` needs native PDF generation Tauri lacks
+  out-of-box, and returning a fake `dataUrl` would be sloppy. Find-in-page and multi-window remain
+  stubs too: Tauri's webview has no `findInPage` equivalent and `openNoteInWindow` needs the same
+  ready-handshake as cold-start deep-links.
+
 
 This runbook is written so the migration does **not start from zero**. It maps every
 native surface of the current Electron app (`electron-noter/`) to its Tauri v2
