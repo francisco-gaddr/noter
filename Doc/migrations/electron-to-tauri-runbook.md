@@ -315,6 +315,51 @@ battery-aware, signature verification stubbed behind `NOTER_UPDATE_VERIFY_SIGSTO
       so the renderer's existing updater UI keeps working unchanged.
 - [ ] Keep signature verification **on** from day one (don't ship the stub).
 
+### 6a. Turnkey activation procedure (verified against Tauri v2 docs, July 2026)
+
+The updater is deliberately **not** wired into code yet — Tauri's updater cannot be built without a
+real signing pubkey (signature verification is not disableable), and it needs an endpoint URL. Both are
+things only Francisco can supply, and the **private signing key must never touch this repo or an AI
+session**. So this is a documented, one-session activation, not inert code. Steps, in order:
+
+1. **Two infra decisions (Francisco):**
+   - *Where updates are hosted.* The endpoint returns a per-target manifest; `{{target}}`,
+     `{{arch}}` and `{{current_version}}` are substituted into the URL. Natural fit for our stack: the
+     Raspberry Pi that already serves releases, e.g. `https://updates.noter.app/{{target}}/{{arch}}/{{current_version}}`.
+   - *Where the minisign private key lives.* A password-protected secret, offline + in the release
+     CI secret store only. If it is ever lost, existing installs can never be updated again.
+
+2. **Generate the keypair (on Francisco's machine, NOT here):**
+   `cargo tauri signer generate -w ~/.tauri/noter-updater.key` → prints the **public** key. The public
+   key is safe to commit; the private key + its password are secrets.
+
+3. **Config (`tauri.conf.json`):** add
+   ```json
+   "plugins": { "updater": { "pubkey": "<PUBLIC KEY FROM STEP 2>",
+     "endpoints": ["https://updates.noter.app/{{target}}/{{arch}}/{{current_version}}"] } }
+   ```
+   Add `"createUpdaterArtifacts": true` under `bundle`. Keep the default (HTTPS-only) transport — do
+   **not** set `dangerousInsecureTransportProtocol`.
+
+4. **Rust:** `cargo add tauri-plugin-updater`, register `.plugin(tauri_plugin_updater::Builder::new().build())`,
+   grant `updater:default` in `capabilities/default.json`.
+
+5. **Bridge (replaces the four safe stubs):** implement `checkForUpdate` →
+   `window.__TAURI__.updater.check()`; `installUpdateNow` → `update.downloadAndInstall(progressCb)`
+   then `window.__TAURI__.process.relaunch()`; drive `getUpdaterState` / `onUpdaterState` from a small
+   state machine (`idle/checking/available/downloading/ready/error`) so the renderer UI is unchanged.
+   Re-add the battery/thermal-aware cadence (6h on AC, slower on battery).
+
+6. **Server contract:** `204 No Content` when up-to-date; `200` with `{ "version", "url", "signature",
+   "notes"?, "pub_date"? }` when an update exists. On **Windows** the binary needs Authenticode signing
+   AND the minisign signature (two-pass) or updates fail silently.
+
+7. **Release/CI:** sign at build time via `TAURI_SIGNING_PRIVATE_KEY` + `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`
+   env vars; publish the artifacts + the per-target manifest to the endpoint.
+
+Until step 3 lands, `noterDesktop.checkForUpdate` safely returns `{ status:'unsupported' }` and the
+state stays `idle` — the UI never errors.
+
 ---
 
 ## 7. Cross-platform webview QA (recurring cost — budget for it)
