@@ -5,12 +5,14 @@
 //! deep-link, print, find-in-page, …) are ported in subsequent phases per
 //! `Doc/migrations/electron-to-tauri-runbook.md`. The shared Next.js static UI is reused unchanged.
 
+mod deeplink;
 mod secure_store;
 mod settings;
 
 use settings::SettingsState;
 use std::sync::Mutex;
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri_plugin_deep_link::DeepLinkExt;
 
 /// The preload bridge (window.mlc / window.noterDesktop) injected before the app loads, so the shared
 /// Next.js UI runs unchanged. Embedded at compile time.
@@ -21,14 +23,21 @@ pub fn run() {
     tauri::Builder::default()
         // single-instance MUST be registered first: a second launch focuses the running window
         // instead of opening a duplicate app (parity with the Electron single-instance lock).
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.set_focus();
                 let _ = w.unminimize();
             }
+            // A second launch may carry a noter:// deep-link or a .noter file (Windows/Linux); route it.
+            if let Some(route) = deeplink::find_deeplink_in_argv(&args) {
+                let _ = app.emit("note:open", serde_json::json!({ "deeplink": route }));
+            } else if let Some(path) = deeplink::find_noter_file_in_argv(&args) {
+                let _ = app.emit("file:open", serde_json::json!({ "path": path }));
+            }
         }))
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
             // Seed the in-memory settings from disk once at startup.
             let handle = app.handle().clone();
@@ -50,6 +59,20 @@ pub fn run() {
                 if let WindowEvent::ThemeChanged(theme) = event {
                     let dark = matches!(theme, tauri::Theme::Dark);
                     let _ = emitter.emit("theme:updated", serde_json::json!({ "shouldUseDarkColors": dark }));
+                }
+            });
+
+            // Deep-link runtime handler: macOS delivers noter:// while running via `open_url`; parse it
+            // through the trusted validator and emit only a validated internal route. Cold-start
+            // file/link launch (app not yet running) is a follow-up — it needs a ready handshake so the
+            // event isn't emitted before the UI subscribes.
+            let dl_handle = app.handle().clone();
+            app.deep_link().on_open_url(move |event| {
+                for u in event.urls() {
+                    if let Some(route) = deeplink::parse_deeplink(u.as_str()) {
+                        let _ = dl_handle.emit("note:open", serde_json::json!({ "deeplink": route }));
+                        break;
+                    }
                 }
             });
             Ok(())

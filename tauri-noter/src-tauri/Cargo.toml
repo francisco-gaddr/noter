@@ -27,6 +27,8 @@ thiserror = "2"
 tauri-plugin-notification = "2"   # reminders / update notices
 tauri-plugin-dialog = "2"         # native open/save dialogs (import/export)
 tauri-plugin-single-instance = "2" # focus the existing window instead of launching a second app
+tauri-plugin-deep-link = "2"      # noter:// protocol + .noter file open
+url = "2"                         # trusted URL parsing for the deep-link validator
 
 [features]
 # By default Tauri ships with dev-tools disabled in release; keep parity with electron builds.

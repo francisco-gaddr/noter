@@ -51,6 +51,22 @@ Companion decision record: [ADR-0007](../adr/0007-electron-vs-tauri.md).
   **tray** (icon + menu + macOS accessory `trayOnly`) remains its own task (needs a tray icon asset +
   a GUI to verify). `cargo check` + `node --check` green.
 
+- **2026-07-09 — Phase 1d: deep-link (`noter://`) + `.noter` file association — with tests.** The
+  security-critical parser (`electron-noter/src/deeplink.js`) is ported to Rust (`deeplink.rs`), which
+  is now the trust boundary the Electron main process used to be — only a *validated* internal route
+  ever crosses into the webview. Ten `cargo test` unit tests mirror the JS suite exactly (foreign
+  protocol, path traversal, `%`-escaped ids, external-redirect `open?route=`, argv scan, `.noter`
+  detection) so the two cannot silently diverge — **all green**.
+  - Wired: `tauri-plugin-deep-link` (`on_open_url` for macOS-while-running) + the single-instance argv
+    scan (Windows/Linux second launch) both emit the exact Electron payloads: `note:open`
+    `{ deeplink }` and `file:open` `{ path }`. `noterDesktop.onNoteOpenRequested` /
+    `onFileOpenRequested` subscribe to them.
+  - `noter://` scheme registered in `plugins.deep-link.desktop.schemes`; `.noter` file association in
+    `bundle.fileAssociations`; `deep-link:default` permission granted.
+  - **Known follow-up:** cold-start launch (app opened *by* a file/link before the window exists) is
+    deferred — it needs a ready handshake so the event isn't emitted before the UI subscribes. The
+    running-app paths (the common case) are done.
+
 
 This runbook is written so the migration does **not start from zero**. It maps every
 native surface of the current Electron app (`electron-noter/`) to its Tauri v2

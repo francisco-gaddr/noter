@@ -121,7 +121,8 @@
         if (granted) n.sendNotification({ title: (payload && payload.title) || 'Noter', body: (payload && payload.body) || '' });
       } catch (_) { /* notifications are best-effort */ }
     },
-    onNoteOpenRequested: () => noop,
+    // noter:// deep-link → { deeplink: route } (Rust validated the route). PORTED.
+    onNoteOpenRequested: (handler) => on('note:open', handler),
     setBadge: () => Promise.resolve(),
 
     // Drag-drop import — TODO(tauri): port (fs + drag-drop events).
@@ -138,8 +139,9 @@
     printNoteToPdf: notPorted('printNoteToPdf'),
     openPrintPreview: notPorted('openPrintPreview'),
 
-    // File association open — TODO(tauri): port to tauri-plugin-deep-link + file-open events.
-    onFileOpenRequested: () => noop,
+    // .noter file opened via OS file-association → { path }. PORTED (running-app case; cold-start
+    // launch is a documented follow-up).
+    onFileOpenRequested: (handler) => on('file:open', handler),
 
     // Metrics — TODO(tauri): port.
     getAppMetrics: () => Promise.resolve(null),
