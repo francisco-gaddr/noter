@@ -75,6 +75,32 @@ Companion decision record: [ADR-0007](../adr/0007-electron-vs-tauri.md).
   stubs too: Tauri's webview has no `findInPage` equivalent and `openNoteInWindow` needs the same
   ready-handshake as cold-start deep-links.
 
+- **2026-07-09 — Frontend pipeline validated end-to-end.** Ran `node scripts/build-frontend.mjs`: the
+  shared Next.js static export compiles cleanly (via `electron-noter/src/build-web.js`) and syncs 79
+  files into `tauri-noter/dist/`. The Tauri shell now has a **real, reproducible frontend** (not the
+  placeholder). This is the last thing verifiable without a display — everything up to
+  `cargo tauri dev` is green.
+
+### Status snapshot — done (headless-verified) vs. gated
+
+**Ported + verified (`cargo check`/`cargo test`/`node --check` all green):** secure store (keyring,
+Rust), settings, notifications, native dialogs, single-instance, system theme, mlc model *discovery*,
+`noter://` deep-link + `.noter` file-assoc (10 Rust unit tests), print (lock-guarded), frontend build.
+
+**Gated — each blocked on a specific thing this headless session cannot supply (landing them blind
+would violate "no sloppy, must be tested"):**
+- **Auto-updater** — needs two *infra decisions* from Francisco: (1) where the update manifest is
+  hosted (the Pi?), (2) where the minisign **private** signing key lives (a secret, never committed).
+  Code wiring is a 30-min job once those are set; until then the bridge safely reports `unsupported`.
+- **System tray** — needs a `tray.png` icon asset + a GUI to verify menu/click/`trayOnly` behaviour.
+- **mlc subprocess (download/convert/chat)** — needs the `mlc_llm` runtime + a GUI + real model
+  downloads to validate token streaming. The biggest single piece; discovery already works.
+- **find-in-page** — Tauri's webview has no `findInPage`; needs a JS-based implementation (frontend).
+- **print-to-pdf / multi-window / cold-start file-open** — need native PDF gen / a ready-handshake +
+  a GUI.
+- **Spike gate (§1) + security gate (§9)** — a GUI run: confirm the 3 webviews load, secure store
+  round-trips in the real OS keychain, no plaintext leak, CSP holds.
+
 
 This runbook is written so the migration does **not start from zero**. It maps every
 native surface of the current Electron app (`electron-noter/`) to its Tauri v2
