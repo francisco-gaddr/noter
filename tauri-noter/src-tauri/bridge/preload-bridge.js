@@ -50,9 +50,9 @@
   window.mlc = {
     isElectron: true, // "a native desktop bridge is present" — the UI's desktop-detection flag
     isTauri: true,
-    // On-device model registry — no local models until the subprocess phase lands, so return an
-    // empty list (the UI renders "no installed models" instead of erroring). TODO(tauri): back with Rust.
-    getModels: () => Promise.resolve([]),
+    // On-device model registry — PORTED (Rust data layer reads mlc_models/index.json). Empty until the
+    // subprocess phase can install a model.
+    getModels: () => invoke('mlc_get_models'),
     // Model discovery — PORTED. Pure HuggingFace HTTP (CSP allows https:), so no native code needed.
     // Shapes mirror electron-noter/src/mlc.js exactly.
     searchModels: async (query) => {
@@ -87,9 +87,10 @@
         .filter((f) => String((f && f.rfilename) || '').endsWith('.gguf'))
         .map((f) => ({ filename: f.rfilename, size: f.size || 0, url: `https://huggingface.co/${modelId}/resolve/main/${f.rfilename}`, quantization: extractQuant(f.rfilename) }));
     },
+    // Delete an installed model — PORTED (Rust removes the package dir + registry entry).
+    deleteModel: (id) => invoke('mlc_delete_model', { id }),
     // Download / convert / chat need the mlc_llm subprocess — TODO(tauri): port (Phase: AI subprocess).
     downloadAndConvert: notPorted('mlc.downloadAndConvert'),
-    deleteModel: notPorted('mlc.deleteModel'),
     chat: notPorted('mlc.chat'),
     cancelChat: () => Promise.resolve(),
     onDownloadProgress: () => noop,

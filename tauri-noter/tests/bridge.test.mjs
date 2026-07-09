@@ -34,9 +34,18 @@ test('flags: bridge presents itself as a native desktop bridge', () => {
   assert.equal(win.noterDesktop.isTauri, true);
 });
 
-test('mlc.getModels returns [] until the subprocess phase lands', async () => {
-  const win = loadBridge();
+test('mlc.getModels reads the Rust registry command', async () => {
+  let cmd = null;
+  const win = loadBridge({ core: { invoke: async (c) => { cmd = c; return []; } } });
   assert.deepEqual(await win.mlc.getModels(), []);
+  assert.equal(cmd, 'mlc_get_models');
+});
+
+test('mlc.deleteModel calls the Rust command with the id', async () => {
+  let call = null;
+  const win = loadBridge({ core: { invoke: async (c, a) => { call = { c, a }; return true; } } });
+  assert.equal(await win.mlc.deleteModel('m:Q4_K_M'), true);
+  assert.deepEqual(call, { c: 'mlc_delete_model', a: { id: 'm:Q4_K_M' } });
 });
 
 test('mlc.searchModels maps HuggingFace results to the app shape', async () => {

@@ -77,6 +77,16 @@ Companion decision record: [ADR-0007](../adr/0007-electron-vs-tauri.md).
   stubs too: Tauri's webview has no `findInPage` equivalent and `openNoteInWindow` needs the same
   ready-handshake as cold-start deep-links.
 
+- **2026-07-09 — Phase 1g: mlc model *registry* ported to Rust (data layer) — with tests.** The
+  registry half of `electron-noter/src/mlc.js` is now Rust (`mlc.rs`): `mlc_get_models` reads
+  `mlc_models/index.json` (missing/corrupt → empty, never an error) and `mlc_delete_model` removes a
+  model's package dir + registry entry (missing dir is not fatal). The bridge's `getModels`/`deleteModel`
+  now call these real commands instead of returning a stub. 3 Rust tests (empty/corrupt read, write→read
+  round-trip, delete removes dir+entry+reports found) + 2 JS tests (command routing). The **subprocess**
+  half (download → `mlc_llm convert` → `mlc_llm chat` streaming, plus the quant-map + per-model dir
+  helpers it needs) is deliberately NOT landed — it needs the `mlc_llm` binary + an HTTP client + a GUI,
+  and shipping unrunnable code (with the dead helpers) would be sloppy. Kept lean: no dead-code warnings.
+
 - **2026-07-09 — Frontend pipeline validated end-to-end.** Ran `node scripts/build-frontend.mjs`: the
   shared Next.js static export compiles cleanly (via `electron-noter/src/build-web.js`) and syncs 79
   files into `tauri-noter/dist/`. The Tauri shell now has a **real, reproducible frontend** (not the
@@ -102,7 +112,8 @@ would violate "no sloppy, must be tested"):**
   Code wiring is a 30-min job once those are set; until then the bridge safely reports `unsupported`.
 - **System tray** — needs a `tray.png` icon asset + a GUI to verify menu/click/`trayOnly` behaviour.
 - **mlc subprocess (download/convert/chat)** — needs the `mlc_llm` runtime + a GUI + real model
-  downloads to validate token streaming. The biggest single piece; discovery already works.
+  downloads to validate token streaming. Discovery *and* the model **registry** (`mlc_get_models` /
+  `mlc_delete_model`, Rust + tests) now work; only the subprocess/streaming half remains.
 - **find-in-page** — Tauri's webview has no `findInPage`; needs a JS-based implementation (frontend).
 - **print-to-pdf / multi-window** — need native PDF generation / a second window with shared session +
   a GUI. (Cold-start file/link open is now DONE — see Phase 1f.)

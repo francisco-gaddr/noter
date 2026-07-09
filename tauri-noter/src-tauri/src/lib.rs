@@ -6,6 +6,7 @@
 //! `Doc/migrations/electron-to-tauri-runbook.md`. The shared Next.js static UI is reused unchanged.
 
 mod deeplink;
+mod mlc;
 mod secure_store;
 mod settings;
 
@@ -91,6 +92,8 @@ pub fn run() {
             settings::settings_get,
             settings::settings_set,
             deeplink::take_pending_opens,
+            mlc::mlc_get_models,
+            mlc::mlc_delete_model,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Noter (Tauri)");
