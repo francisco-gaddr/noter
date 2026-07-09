@@ -1,0 +1,30 @@
+[package]
+name = "noter-tauri"
+version = "0.1.0"
+description = "Noter desktop (Tauri v2)"
+authors = ["Noter"]
+edition = "2021"
+rust-version = "1.77"
+
+# The library the mobile/desktop entrypoints share (Tauri v2 layout).
+[lib]
+name = "noter_tauri_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# OS-keychain secret store (macOS Keychain / Windows Credential Manager / Linux libsecret).
+# The ADR's chosen pattern: keep SMALL secrets (auth token + the v3 dataKey) here; note/task
+# content stays E2E-encrypted by @repo/shared. Stronghold is deprecated → not used.
+keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+thiserror = "2"
+
+[features]
+# By default Tauri ships with dev-tools disabled in release; keep parity with electron builds.
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

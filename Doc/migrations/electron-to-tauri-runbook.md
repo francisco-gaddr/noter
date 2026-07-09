@@ -1,7 +1,28 @@
 # Electron → Tauri v2 migration runbook (Noter desktop)
 
-Status: **Prepared / ready to execute** · drafted 2026-06-14 · owner: Francisco
+Status: **In progress — Phase 0 scaffold landed** · drafted 2026-06-14 · owner: Francisco
 Companion decision record: [ADR-0007](../adr/0007-electron-vs-tauri.md).
+
+## Progress log
+
+- **2026-06-24 — Phase 0 scaffold (`tauri-noter/`, compiles: `cargo check` green).** `electron-noter/`
+  untouched (golden rule). Landed:
+  - Tauri v2 project: `src-tauri/{Cargo.toml,build.rs,tauri.conf.json,capabilities/default.json}`,
+    `main.rs`/`lib.rs`. Window built in `setup()` so the preload bridge is injected before load.
+  - **Secure store (§4) — the sharpest edge — DONE in Rust** (`secure_store.rs`) using the `keyring`
+    crate: OS keychain for the auth token + v3 `dataKey` only (never note content). Self-contained
+    key index so `secure_clear` can enumerate. `secure_status/get/set/delete/clear` commands.
+  - **Settings (`settings:get/set` parity) — DONE** (`settings.rs`): JSON KV in the app-config dir,
+    Mutex-cached, non-secret only.
+  - **Preload bridge** (`bridge/preload-bridge.js`): re-creates `window.mlc` + `window.noterDesktop`
+    on Tauri `invoke`/`listen`. Ported channels call Rust; the rest return SAFE defaults with clear
+    "being ported" messages (UI never crashes) — each tagged `// TODO(tauri): port` for grepability.
+  - **Frontend reuse:** `scripts/build-frontend.mjs` reuses the proven Electron static-export build
+    100% and syncs it into `dist/` (the exported UI is runtime-agnostic).
+  - Next phases (in order): mlc subprocess bridge (AI), updater, dialogs/notifications/tray,
+    deep-link/file-assoc, find-in-page, print, multi-window — then the spike gates (§1) + security
+    gate (§9) on all three webviews.
+
 
 This runbook is written so the migration does **not start from zero**. It maps every
 native surface of the current Electron app (`electron-noter/`) to its Tauri v2
