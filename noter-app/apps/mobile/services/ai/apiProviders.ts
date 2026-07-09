@@ -132,6 +132,9 @@ export const API_PROVIDERS: Record<ApiProviderType, ApiProviderMeta> = {
     apiKeyOptional: true,
     hint: 'Bas-URL till din Hermes-agent, t.ex. http://192.168.50.16:8080 (Pi) eller http://din-mac.local:1234',
   },
+  // Note: LM Studio is a first-class provider on DESKTOP only (apps/web), where it runs on the same
+  // machine (zero-config localhost:1234). On mobile you reach a LAN LM Studio via a custom provider
+  // (its localhost default is meaningless on a phone), so there is intentionally no `lmstudio` here.
 };
 
 export const API_PROVIDER_LIST: ApiProviderMeta[] = Object.values(API_PROVIDERS);

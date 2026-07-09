@@ -7,8 +7,11 @@ import { SseBuffer, sseDataPayloads, openAiDelta, openAiUsageTokens, geminiDelta
 // self-hosted Hermes) and the same vision + true-SSE-streaming behaviour. The only
 // platform difference is the streaming transport: the browser's native `fetch` already
 // exposes a real ReadableStream body, so there is no expo/fetch shim here.
+// Desktop-only divergence: `lmstudio` is a first-class provider HERE but not on mobile —
+// its zero-config localhost:1234 default only makes sense where LM Studio runs on the same
+// machine (desktop). On mobile you reach a LAN LM Studio via a custom provider instead.
 
-export type ApiProviderType = 'openrouter' | 'openai' | 'anthropic' | 'grok' | 'gemini' | 'groq' | 'hermes';
+export type ApiProviderType = 'openrouter' | 'openai' | 'anthropic' | 'grok' | 'gemini' | 'groq' | 'hermes' | 'lmstudio';
 
 /** Wire format of a provider's API. 'openai' = OpenAI-compatible /chat/completions
  *  (OpenRouter, Groq, OpenAI, xAI Grok, Hermes); 'gemini' = Google generateContent;
@@ -131,6 +134,22 @@ export const API_PROVIDERS: Record<ApiProviderType, ApiProviderMeta> = {
     apiKeyOptional: true,
     hint: 'Bas-URL till din Hermes-agent, t.ex. http://192.168.50.16:8080 (Pi) eller http://din-mac.local:1234',
   },
+  // LM Studio's built-in local server is OpenAI-compatible, so it reuses the OpenAI path entirely. It
+  // is first-class + zero-config: the default endpoint is LM Studio's own default (localhost:1234), and
+  // it stays configurable so a non-default port/host still works. No API key (local server).
+  lmstudio: {
+    id: 'lmstudio',
+    label: 'LM Studio (lokal)',
+    endpoint: 'http://localhost:1234/v1/chat/completions',
+    format: 'openai',
+    apiKeyUrl: '',
+    // LM Studio serves whichever model you've loaded; these are common ids, all editable. The exact id
+    // must match the loaded model (see LM Studio's "API" panel) — LM Studio also accepts the loaded one.
+    defaultModels: ['qwen2.5-7b-instruct', 'llama-3.2-3b-instruct', 'mistral-7b-instruct-v0.3'],
+    configurableEndpoint: true,
+    apiKeyOptional: true,
+    hint: 'Starta LM Studios lokala server (Developer → Start Server). Standard http://localhost:1234 — ändra bara om du kör annan port/dator.',
+  },
 };
 
 export const API_PROVIDER_LIST: ApiProviderMeta[] = Object.values(API_PROVIDERS);
@@ -144,7 +163,12 @@ export const API_PROVIDER_LIST: ApiProviderMeta[] = Object.values(API_PROVIDERS)
 export const resolveChatCompletionsUrl = (meta: ApiProviderMeta, baseUrl?: string): string => {
   if (!meta.configurableEndpoint) return meta.endpoint || '';
   const raw = (baseUrl || '').trim().replace(/\/+$/, '');
-  if (!raw) throw new Error('Bas-URL saknas för egen server');
+  // Configurable but no URL given: fall back to the provider's own default if it has one (LM Studio →
+  // localhost:1234); providers without a default (Hermes) still require an explicit base URL.
+  if (!raw) {
+    if (meta.endpoint) return meta.endpoint;
+    throw new Error('Bas-URL saknas för egen server');
+  }
   if (/\/chat\/completions$/.test(raw)) return raw;
   if (/\/v1$/.test(raw)) return `${raw}/chat/completions`;
   return `${raw}/v1/chat/completions`;

@@ -77,6 +77,20 @@ Companion decision record: [ADR-0007](../adr/0007-electron-vs-tauri.md).
   stubs too: Tauri's webview has no `findInPage` equivalent and `openNoteInWindow` needs the same
   ready-handshake as cold-start deep-links.
 
+- **2026-07-09 — Local AI = LM Studio (product decision), not the mlc subprocess.** Per Francisco:
+  start with API AI + **LM Studio**; document the rest for later. LM Studio's built-in server is
+  OpenAI-compatible, so local AI becomes simple HTTP — the simplest path, no subprocess/download
+  pipeline. Added a **first-class `lmstudio` provider** (`apps/web/services/ai/apiProviders.ts`,
+  desktop-only — its localhost default only fits where LM Studio runs on the same machine; mobile
+  reaches a LAN LM Studio via a custom provider): zero-config default `http://localhost:1234`, no API
+  key (`apiKeyOptional`), still overridable for a custom port/host; reuses the shared OpenAI path
+  entirely. `resolveChatCompletionsUrl` now falls
+  back to a provider's own default endpoint when configurable + no base URL given (LM Studio → localhost;
+  Hermes still requires an explicit URL). Tests: web (zero-config default, override, no-auth-header
+  call, Hermes regression) + mobile (registry set, resolution). The Tauri CSP already allows
+  `http://localhost`. Docs: `Doc/LM Studio.md`. The on-device `mlc_llm` **subprocess** stays a documented
+  later phase (needs the binary + GUI); model **discovery + registry** already work.
+
 - **2026-07-09 — Phase 1g: mlc model *registry* ported to Rust (data layer) — with tests.** The
   registry half of `electron-noter/src/mlc.js` is now Rust (`mlc.rs`): `mlc_get_models` reads
   `mlc_models/index.json` (missing/corrupt → empty, never an error) and `mlc_delete_model` removes a
@@ -111,9 +125,11 @@ would violate "no sloppy, must be tested"):**
   hosted (the Pi?), (2) where the minisign **private** signing key lives (a secret, never committed).
   Code wiring is a 30-min job once those are set; until then the bridge safely reports `unsupported`.
 - **System tray** — needs a `tray.png` icon asset + a GUI to verify menu/click/`trayOnly` behaviour.
-- **mlc subprocess (download/convert/chat)** — needs the `mlc_llm` runtime + a GUI + real model
-  downloads to validate token streaming. Discovery *and* the model **registry** (`mlc_get_models` /
-  `mlc_delete_model`, Rust + tests) now work; only the subprocess/streaming half remains.
+- **Local AI = LM Studio (DONE).** First-class `lmstudio` provider (OpenAI-compatible, zero-config
+  localhost) is the chosen local-AI path. The on-device `mlc_llm` **subprocess** (download/convert/chat
+  streaming) is deferred as its own phase — it needs the `mlc_llm` runtime + a GUI + real downloads to
+  validate. mlc discovery *and* the registry (`mlc_get_models` / `mlc_delete_model`, Rust + tests)
+  already work.
 - **find-in-page** — Tauri's webview has no `findInPage`; needs a JS-based implementation (frontend).
 - **print-to-pdf / multi-window** — need native PDF generation / a second window with shared session +
   a GUI. (Cold-start file/link open is now DONE — see Phase 1f.)

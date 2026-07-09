@@ -56,6 +56,37 @@ describe('apiProviders', () => {
     );
   });
 
+  it('LM Studio resolves zero-config to its localhost default, and honours an override', () => {
+    // No base URL → LM Studio's own default (localhost:1234).
+    expect(resolveChatCompletionsUrl(API_PROVIDERS.lmstudio)).toBe('http://localhost:1234/v1/chat/completions');
+    // A custom host/port still works and is normalised.
+    expect(resolveChatCompletionsUrl(API_PROVIDERS.lmstudio, 'http://192.168.1.20:5000')).toBe(
+      'http://192.168.1.20:5000/v1/chat/completions'
+    );
+  });
+
+  it('Hermes (no default endpoint) still requires an explicit base URL', () => {
+    expect(() => resolveChatCompletionsUrl(API_PROVIDERS.hermes)).toThrow(/Bas-URL saknas/);
+  });
+
+  it('calls LM Studio with NO Authorization header (local server, no key)', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: 'lokalt svar' } }] }),
+    });
+    global.fetch = fetchMock as any;
+    const result = await generateApiProviderResponse({
+      provider: 'lmstudio',
+      apiKey: '',
+      model: 'qwen2.5-7b-instruct',
+      history: [{ id: '1', role: 'user', content: 'Hej', createdAt: new Date().toISOString() }],
+    });
+    expect(result.text).toBe('lokalt svar');
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe('http://localhost:1234/v1/chat/completions');
+    expect((init as any).headers).not.toHaveProperty('Authorization');
+  });
+
   it('registers OpenAI, Anthropic and Grok', () => {
     expect(API_PROVIDERS.openai.endpoint).toBe('https://api.openai.com/v1/chat/completions');
     expect(API_PROVIDERS.grok.endpoint).toBe('https://api.x.ai/v1/chat/completions');

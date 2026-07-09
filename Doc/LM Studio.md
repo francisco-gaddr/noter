@@ -10,19 +10,26 @@ lms server start
 ```
 ## Status för Noter‑integration
 
+**LM Studio är den valda lokala AI‑vägen för Tauri‑migrationen.** Istället för att porta hela
+`mlc_llm`‑subprocessen (nedladdning/konvertering/streaming) — som är komplex, sällananvänd och kräver
+en extern binär + GUI för att validera — kör vi lokal AI via LM Studios inbyggda OpenAI‑kompatibla
+server. Det är den enklaste vägen: ingen subprocess, ingen nedladdnings‑pipeline, bara HTTP.
+
 Klar:
-- LM Studio‑inställningar och modellval i AI‑fliken (Electron‑UI).
-- Streaming‑chat via /api/v1/chat med felhantering och fallback.
-- Modelllistning via /api/v1/models.
-- Projektmappar med systemspecifika prompts i AI‑panelen.
-- Visning av tokens/s för LM Studio‑svar.
-- Filuppladdning i chatten (MD/TXT samt binär via base64).
+- **Förstklassig provider `lmstudio`** i `apps/web/services/ai/apiProviders.ts` (desktop/web — på mobil
+  når man en LAN‑LM‑Studio via en egen provider, eftersom localhost‑standarden bara är meningsfull där
+  LM Studio kör på samma dator): OpenAI‑kompatibel, **noll‑konfig** (standard `http://localhost:1234`),
+  utan API‑nyckel (`apiKeyOptional`), och fortfarande överstyrbar för annan port/dator. Väljs i
+  AI‑inställningarna under källa = API → provider = "LM Studio (lokal)". Testtäckt.
+- Streaming‑chat + modellval via den delade OpenAI‑vägen (samma som OpenAI/Groq/Grok/Hermes).
+- Kör i Tauri‑skalet: CSP:n tillåter `http://localhost` (`connect-src http:`), så desktop‑appen når
+  den lokala servern direkt.
 
 Återstår:
-- Sluttesta mot aktiv LM Studio‑server i Electron (riktig modell).
-- UI‑E2E kräver E2E_UI=1 och kör dev‑server; mock‑E2E körs i test‑renderer.
-- Electron‑E2E körs med E2E_ELECTRON=1.
-- Stäm av filtolkning för PDF/DOC och ev. förbättrad extraction.
+- Sluttesta mot aktiv LM Studio‑server i en GUI‑session (riktig modell, streaming, tokens/s).
+- (Valfritt, senare) Auto‑lista laddade modeller via `GET /api/v1/models` i modellväljaren.
+- On‑device `mlc_llm`‑subprocess: skjuten till egen fas, se
+  [`migrations/electron-to-tauri-runbook.md`](migrations/electron-to-tauri-runbook.md) och `MLC AI.md`.
 
 By default, the server is available at `http://localhost:1234`.
 

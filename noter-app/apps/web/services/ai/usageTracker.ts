@@ -66,6 +66,7 @@ export const PROVIDER_LIMITS: Record<ApiProviderType, ProviderLimit> = {
   anthropic: { callsPerDay: null, tokensPerDay: null }, // paid usage-based
   grok: { callsPerDay: null, tokensPerDay: null }, // paid usage-based
   hermes: { callsPerDay: null, tokensPerDay: null }, // self-hosted — no provider cap
+  lmstudio: { callsPerDay: null, tokensPerDay: null }, // local LM Studio server — no provider cap
 };
 
 export const usageKey = (provider: ApiProviderType | string, model: string): string => `${provider}::${model}`;
