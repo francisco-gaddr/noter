@@ -87,6 +87,12 @@ Companion decision record: [ADR-0007](../adr/0007-electron-vs-tauri.md).
 Rust), settings, notifications, native dialogs, single-instance, system theme, mlc model *discovery*,
 `noter://` deep-link + `.noter` file-assoc (10 Rust unit tests), print (lock-guarded), frontend build.
 
+**Tests (`npm test` in `tauri-noter/` = 14 JS + 10 Rust, all green):** `tests/bridge.test.mjs` loads the
+injected bridge against a mocked Tauri surface and asserts the seam behaviour — most importantly the
+**lock invariant** (a locked note's `window.print` is never called), plus dialog shape-adaptation,
+the notify permission flow, secure/settings command routing, event subscription, and that unported
+channels reject clearly. `cargo test` covers the deep-link security parser.
+
 **Gated — each blocked on a specific thing this headless session cannot supply (landing them blind
 would violate "no sloppy, must be tested"):**
 - **Auto-updater** — needs two *infra decisions* from Francisco: (1) where the update manifest is
