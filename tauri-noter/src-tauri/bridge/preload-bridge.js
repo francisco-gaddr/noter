@@ -95,8 +95,8 @@
     setTrayOnly: (enabled) => invoke('settings_set', { key: 'trayOnly', value: enabled === true }),
     setSpellCheckerCdn: (url) => invoke('settings_set', { key: 'spellCheckerCdn', value: typeof url === 'string' ? url : null }),
 
-    // System theme — TODO(tauri): port via window theme events.
-    onThemeChanged: () => noop,
+    // System theme — PORTED. Rust emits `theme:updated` { shouldUseDarkColors } on OS theme changes.
+    onThemeChanged: (handler) => on('theme:updated', handler),
 
     // Auto-updater — TODO(tauri): port to tauri-plugin-updater (Phase: updater).
     checkForUpdate: () => Promise.resolve({ status: 'unsupported' }),

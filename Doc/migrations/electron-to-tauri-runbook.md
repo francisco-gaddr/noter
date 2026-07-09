@@ -45,6 +45,12 @@ Companion decision record: [ADR-0007](../adr/0007-electron-vs-tauri.md).
   `mlc_llm` subprocess — stays its own phase (needs the `mlc_llm` runtime + a GUI to validate; landing
   untested Rust for it would be sloppy). Bridge JS syntax-checked (`node --check`); `cargo check` green.
 
+- **2026-07-09 — Phase 1c: system-theme signal ported.** Rust registers a `ThemeChanged` window-event
+  handler that emits `theme:updated` `{ shouldUseDarkColors }` — the exact Electron payload — so the
+  UI's dark-mode sync works unchanged. `noterDesktop.onThemeChanged` now subscribes to it. The system
+  **tray** (icon + menu + macOS accessory `trayOnly`) remains its own task (needs a tray icon asset +
+  a GUI to verify). `cargo check` + `node --check` green.
+
 
 This runbook is written so the migration does **not start from zero**. It maps every
 native surface of the current Electron app (`electron-noter/`) to its Tauri v2

@@ -10,7 +10,7 @@ mod settings;
 
 use settings::SettingsState;
 use std::sync::Mutex;
-use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 
 /// The preload bridge (window.mlc / window.noterDesktop) injected before the app loads, so the shared
 /// Next.js UI runs unchanged. Embedded at compile time.
@@ -36,12 +36,22 @@ pub fn run() {
             app.manage(SettingsState(Mutex::new(initial)));
 
             // Build the main window ourselves so we can inject the preload bridge before page load.
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
+            let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
                 .title("Noter")
                 .inner_size(1200.0, 800.0)
                 .min_inner_size(640.0, 480.0)
                 .initialization_script(PRELOAD_BRIDGE)
                 .build()?;
+
+            // System-theme signal: mirror Electron's `theme:updated` { shouldUseDarkColors } so the
+            // UI's dark-mode sync works unchanged. Emitted on OS theme changes.
+            let emitter = window.clone();
+            window.on_window_event(move |event| {
+                if let WindowEvent::ThemeChanged(theme) = event {
+                    let dark = matches!(theme, tauri::Theme::Dark);
+                    let _ = emitter.emit("theme:updated", serde_json::json!({ "shouldUseDarkColors": dark }));
+                }
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
