@@ -37,6 +37,14 @@ Companion decision record: [ADR-0007](../adr/0007-electron-vs-tauri.md).
     had no consumer (keep deps lean). Runtime verification of the two JS plugin APIs is deferred to the
     spike gate (§1), since a GUI run is required.
 
+- **2026-07-09 — Phase 1b: mlc model *discovery* ported (no native code).** `mlc.searchModels` and
+  `mlc.getModelFiles` are pure HuggingFace HTTP; the CSP already allows `https:`, so they run as direct
+  `fetch` in the bridge with shapes mirroring `electron-noter/src/mlc.js` exactly (shared `extractQuant`
+  helper). `mlc.getModels` now returns `[]` (no on-device models until the subprocess phase — the UI
+  renders an empty list instead of erroring). The heavy part — model **download/convert/chat** via the
+  `mlc_llm` subprocess — stays its own phase (needs the `mlc_llm` runtime + a GUI to validate; landing
+  untested Rust for it would be sloppy). Bridge JS syntax-checked (`node --check`); `cargo check` green.
+
 
 This runbook is written so the migration does **not start from zero**. It maps every
 native surface of the current Electron app (`electron-noter/`) to its Tauri v2

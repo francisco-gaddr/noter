@@ -21,13 +21,53 @@
   const notPorted = (name) => () => Promise.reject(new Error(`"${name}" is not available yet in the Tauri build (being ported).`));
   const noop = () => {};
 
+  // Mirror of electron-noter/src/mlc.js extractQuant — keep in sync if that changes.
+  const extractQuant = (filename) => {
+    const match = String(filename || '').match(/(q\d_[0-9a-z_]+|f16|f32)/i);
+    return match ? match[1].toUpperCase() : undefined;
+  };
+
   window.mlc = {
     isElectron: true, // "a native desktop bridge is present" — the UI's desktop-detection flag
     isTauri: true,
-    // On-device model manager — TODO(tauri): port the mlc subprocess bridge (Phase: AI).
-    getModels: notPorted('mlc.getModels'),
-    searchModels: notPorted('mlc.searchModels'),
-    getModelFiles: notPorted('mlc.getModelFiles'),
+    // On-device model registry — no local models until the subprocess phase lands, so return an
+    // empty list (the UI renders "no installed models" instead of erroring). TODO(tauri): back with Rust.
+    getModels: () => Promise.resolve([]),
+    // Model discovery — PORTED. Pure HuggingFace HTTP (CSP allows https:), so no native code needed.
+    // Shapes mirror electron-noter/src/mlc.js exactly.
+    searchModels: async (query) => {
+      const url = `https://huggingface.co/api/models?search=${encodeURIComponent(query)}&filter=gguf&sort=downloads&direction=-1&limit=20`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Search failed (${res.status}) ${await res.text().catch(() => '')}`);
+      const data = await res.json();
+      return (Array.isArray(data) ? data : []).map((m) => ({
+        id: m.id,
+        name: (m.id && m.id.split('/')[1]) || m.id,
+        author: m.author || (m.id && m.id.split('/')[0]) || '',
+        downloads: m.downloads || 0,
+        likes: m.likes || 0,
+        tags: m.tags || [],
+      }));
+    },
+    getModelFiles: async (modelId) => {
+      const treeUrl = `https://huggingface.co/api/models/${encodeURIComponent(modelId)}/tree/main?recursive=true`;
+      const treeRes = await fetch(treeUrl);
+      if (treeRes.ok) {
+        const data = await treeRes.json();
+        const files = Array.isArray(data) ? data : (data.tree || []);
+        return files
+          .filter((f) => String((f && f.path) || '').endsWith('.gguf'))
+          .map((f) => ({ filename: f.path, size: f.size || 0, url: `https://huggingface.co/${modelId}/resolve/main/${f.path}`, quantization: extractQuant(f.path) }));
+      }
+      const modelRes = await fetch(`https://huggingface.co/api/models/${encodeURIComponent(modelId)}`);
+      if (!modelRes.ok) throw new Error(`Files fetch failed (${modelRes.status}) ${await modelRes.text().catch(() => '')}`);
+      const data = await modelRes.json();
+      const files = Array.isArray(data && data.siblings) ? data.siblings : [];
+      return files
+        .filter((f) => String((f && f.rfilename) || '').endsWith('.gguf'))
+        .map((f) => ({ filename: f.rfilename, size: f.size || 0, url: `https://huggingface.co/${modelId}/resolve/main/${f.rfilename}`, quantization: extractQuant(f.rfilename) }));
+    },
+    // Download / convert / chat need the mlc_llm subprocess — TODO(tauri): port (Phase: AI subprocess).
     downloadAndConvert: notPorted('mlc.downloadAndConvert'),
     deleteModel: notPorted('mlc.deleteModel'),
     chat: notPorted('mlc.chat'),
