@@ -141,6 +141,37 @@ test('onNoteOpenRequested subscribes to the note:open event', async () => {
   assert.equal(subscribed, 'note:open');
 });
 
+test('cold-start: a pending note:open is delivered to onNoteOpenRequested', async () => {
+  let taken = 0;
+  const win = loadBridge({
+    core: {
+      invoke: async (cmd) => {
+        if (cmd === 'take_pending_opens') { taken += 1; return [{ event: 'note:open', payload: { deeplink: '/note/x' } }]; }
+        return undefined;
+      },
+    },
+    event: { listen: async () => () => {} },
+  });
+  let got = null;
+  win.noterDesktop.onNoteOpenRequested((p) => { got = p; });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(got, { deeplink: '/note/x' });
+  assert.equal(taken, 1, 'pending opens must be drained exactly once');
+});
+
+test('cold-start: a file handler does not receive a pending note:open', async () => {
+  const win = loadBridge({
+    core: {
+      invoke: async (cmd) => (cmd === 'take_pending_opens' ? [{ event: 'note:open', payload: { deeplink: '/note/x' } }] : undefined),
+    },
+    event: { listen: async () => () => {} },
+  });
+  let fileGot = null;
+  win.noterDesktop.onFileOpenRequested((p) => { fileGot = p; });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(fileGot, null, 'a note:open pending must not reach the file handler');
+});
+
 test('unported channels reject with a clear message', async () => {
   const win = loadBridge();
   await assert.rejects(() => win.mlc.chat({}), /being ported/);

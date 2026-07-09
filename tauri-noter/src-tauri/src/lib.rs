@@ -44,6 +44,11 @@ pub fn run() {
             let initial = settings::load(&handle);
             app.manage(SettingsState(Mutex::new(initial)));
 
+            // Stash any cold-start open (noter:// link / .noter file on the launch argv) for the
+            // frontend to drain once it registers its handlers.
+            let argv: Vec<String> = std::env::args().collect();
+            app.manage(deeplink::PendingOpens(Mutex::new(deeplink::pending_from_argv(&argv))));
+
             // Build the main window ourselves so we can inject the preload bridge before page load.
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
                 .title("Noter")
@@ -85,6 +90,7 @@ pub fn run() {
             secure_store::secure_clear,
             settings::settings_get,
             settings::settings_set,
+            deeplink::take_pending_opens,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Noter (Tauri)");

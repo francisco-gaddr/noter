@@ -63,9 +63,11 @@ Companion decision record: [ADR-0007](../adr/0007-electron-vs-tauri.md).
     `onFileOpenRequested` subscribe to them.
   - `noter://` scheme registered in `plugins.deep-link.desktop.schemes`; `.noter` file association in
     `bundle.fileAssociations`; `deep-link:default` permission granted.
-  - **Known follow-up:** cold-start launch (app opened *by* a file/link before the window exists) is
-    deferred — it needs a ready handshake so the event isn't emitted before the UI subscribes. The
-    running-app paths (the common case) are done.
+  - Cold-start launch (app opened *by* a file/link before the window exists) — **now DONE too**
+    (Phase 1f): Rust stashes the launch-argv open in a `PendingOpens` queue; the bridge drains it via
+    `take_pending_opens` exactly once (memoised) the moment the UI registers a handler, and delivers
+    only the matching event type. No event is emitted before the UI subscribes, and nothing is lost or
+    double-delivered. Covered by Rust + JS tests.
 
 - **2026-07-09 — Phase 1e: print (lock-invariant preserved).** `noterDesktop.printNote` uses the
   webview's own `window.print()` and keeps the security guard verbatim: a locked note is **never**
@@ -102,8 +104,8 @@ would violate "no sloppy, must be tested"):**
 - **mlc subprocess (download/convert/chat)** — needs the `mlc_llm` runtime + a GUI + real model
   downloads to validate token streaming. The biggest single piece; discovery already works.
 - **find-in-page** — Tauri's webview has no `findInPage`; needs a JS-based implementation (frontend).
-- **print-to-pdf / multi-window / cold-start file-open** — need native PDF gen / a ready-handshake +
-  a GUI.
+- **print-to-pdf / multi-window** — need native PDF generation / a second window with shared session +
+  a GUI. (Cold-start file/link open is now DONE — see Phase 1f.)
 - **Spike gate (§1) + security gate (§9)** — a GUI run: confirm the 3 webviews load, secure store
   round-trips in the real OS keychain, no plaintext leak, CSP holds.
 

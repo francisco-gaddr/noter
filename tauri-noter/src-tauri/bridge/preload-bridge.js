@@ -21,6 +21,26 @@
   const notPorted = (name) => () => Promise.reject(new Error(`"${name}" is not available yet in the Tauri build (being ported).`));
   const noop = () => {};
 
+  // Cold-start opens (a noter:// link / .noter file passed at launch) are drained from Rust exactly
+  // once — memoised so both open-handlers share the single drain. Each subscriber then delivers only
+  // the pending entries whose event matches, so nothing is lost and nothing is double-delivered.
+  let pendingOpensPromise = null;
+  const getPendingOpens = () => {
+    if (!pendingOpensPromise) pendingOpensPromise = invoke('take_pending_opens').catch(() => []);
+    return pendingOpensPromise;
+  };
+  const subscribeWithPending = (evt, handler) => {
+    const un = on(evt, handler);
+    getPendingOpens().then((list) => {
+      (Array.isArray(list) ? list : []).forEach((item) => {
+        if (item && item.event === evt) {
+          try { handler(item.payload); } catch (_) { /* handler errors are the app's problem */ }
+        }
+      });
+    });
+    return un;
+  };
+
   // Mirror of electron-noter/src/mlc.js extractQuant — keep in sync if that changes.
   const extractQuant = (filename) => {
     const match = String(filename || '').match(/(q\d_[0-9a-z_]+|f16|f32)/i);
@@ -121,8 +141,8 @@
         if (granted) n.sendNotification({ title: (payload && payload.title) || 'Noter', body: (payload && payload.body) || '' });
       } catch (_) { /* notifications are best-effort */ }
     },
-    // noter:// deep-link → { deeplink: route } (Rust validated the route). PORTED.
-    onNoteOpenRequested: (handler) => on('note:open', handler),
+    // noter:// deep-link → { deeplink: route } (Rust validated the route). PORTED, incl. cold-start.
+    onNoteOpenRequested: (handler) => subscribeWithPending('note:open', handler),
     setBadge: () => Promise.resolve(),
 
     // Drag-drop import — TODO(tauri): port (fs + drag-drop events).
@@ -144,9 +164,8 @@
     printNoteToPdf: notPorted('printNoteToPdf'),
     openPrintPreview: notPorted('openPrintPreview'),
 
-    // .noter file opened via OS file-association → { path }. PORTED (running-app case; cold-start
-    // launch is a documented follow-up).
-    onFileOpenRequested: (handler) => on('file:open', handler),
+    // .noter file opened via OS file-association → { path }. PORTED, incl. cold-start launch.
+    onFileOpenRequested: (handler) => subscribeWithPending('file:open', handler),
 
     // Metrics — TODO(tauri): port.
     getAppMetrics: () => Promise.resolve(null),

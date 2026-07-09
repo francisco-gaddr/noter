@@ -11,9 +11,35 @@
 //!   noter://task/<taskId>             → /task/<taskId>
 //!   noter://open?route=<encoded-path> → arbitrary internal route (must stay inside our SPA)
 
+use std::sync::Mutex;
+use tauri::State;
 use url::Url;
 
 const MAX_RAW: usize = 1024;
+
+/// Cold-start opens: a `noter://` link or `.noter` file passed on the launch command line, before the
+/// window exists. We stash them here and the frontend drains them via `take_pending_opens` the moment
+/// it registers its handlers — so the event is never emitted before the UI subscribes (the race the
+/// running-app paths don't have).
+pub struct PendingOpens(pub Mutex<Vec<serde_json::Value>>);
+
+/// Build the pending-opens list from the launch argv (called once at startup).
+pub fn pending_from_argv(argv: &[String]) -> Vec<serde_json::Value> {
+    if let Some(route) = find_deeplink_in_argv(argv) {
+        vec![serde_json::json!({ "event": "note:open", "payload": { "deeplink": route } })]
+    } else if let Some(path) = find_noter_file_in_argv(argv) {
+        vec![serde_json::json!({ "event": "file:open", "payload": { "path": path } })]
+    } else {
+        Vec::new()
+    }
+}
+
+/// Drain the cold-start opens exactly once (returns them and clears the queue).
+#[tauri::command]
+pub fn take_pending_opens(state: State<PendingOpens>) -> Vec<serde_json::Value> {
+    let mut guard = state.0.lock().unwrap();
+    std::mem::take(&mut *guard)
+}
 
 /// `^[A-Za-z0-9._:-]{1,128}$`
 fn is_valid_id(s: &str) -> bool {
@@ -176,5 +202,19 @@ mod tests {
         let argv = vec!["/app".to_string(), "/Users/x/My Note.noter".to_string()];
         assert_eq!(find_noter_file_in_argv(&argv), Some("/Users/x/My Note.noter".into()));
         assert_eq!(find_noter_file_in_argv(&["/app".to_string()]), None);
+    }
+
+    #[test]
+    fn pending_from_argv_builds_note_and_file_and_empty() {
+        let link = pending_from_argv(&["/app".into(), "noter://note/abc123".into()]);
+        assert_eq!(link.len(), 1);
+        assert_eq!(link[0]["event"], "note:open");
+        assert_eq!(link[0]["payload"]["deeplink"], "/note/abc123");
+
+        let file = pending_from_argv(&["/app".into(), "/x/a.noter".into()]);
+        assert_eq!(file[0]["event"], "file:open");
+        assert_eq!(file[0]["payload"]["path"], "/x/a.noter");
+
+        assert!(pending_from_argv(&["/app".into(), "--flag".into()]).is_empty());
     }
 }
