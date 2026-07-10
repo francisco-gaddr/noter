@@ -69,6 +69,8 @@ export const AdminDashboard: React.FC = () => {
       const token = readStoredToken();
       const res = await fetch(`${getApiBaseUrl()}/admin/overview`, {
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        // A hung backend must reject into the catch/finally (otherwise "Uppdaterar…" spins forever).
+        signal: AbortSignal.timeout(15_000),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setOverview(await res.json());

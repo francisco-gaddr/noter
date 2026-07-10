@@ -145,6 +145,9 @@ export const AISidebar = () => {
   const assistantCreatedRef = useRef<Record<string, string>>({});
   const draftInputRef = useRef('');
   const abortControllerRef = useRef<AbortController | null>(null);
+  // Abort any in-flight stream when the sidebar unmounts — otherwise the request leaks and
+  // late chunks fire setState on an unmounted component.
+  useEffect(() => () => { abortControllerRef.current?.abort(); }, []);
   const mcpDashboardRequestIdRef = useRef(0);
   const systemDashboardRequestIdRef = useRef(0);
   const stopRequestedRef = useRef(false);
@@ -977,6 +980,7 @@ export const AISidebar = () => {
         }
     } catch (e) {
         console.error(e);
+        useStore.setState({ error: 'Kunde inte hämta lokala modeller.' });
     }
   };
 
@@ -990,11 +994,13 @@ export const AISidebar = () => {
             return;
         }
         const res = await fetch(`/app/api/ai/models/search?q=${encodeURIComponent(searchQuery)}`);
+        if (!res.ok) throw new Error(`Modellsökningen svarade ${res.status}`);
         const data = await res.json();
-        setSearchResults(data);
+        setSearchResults(Array.isArray(data) ? data : []);
         setSelectedModel(null);
     } catch (e) {
         console.error(e);
+        useStore.setState({ error: 'Modellsökningen misslyckades. Försök igen.' });
     }
   };
 
@@ -1647,10 +1653,16 @@ export const AISidebar = () => {
         const decoder = new TextDecoder();
         let buffer = '';
         let fullText = '';
+        // Stall guard: a stream that stops producing chunks (server hang) must abort instead of
+        // waiting forever for the user to notice and press Stop.
+        let stallTimer = window.setTimeout(() => controller.abort(), 90_000);
+        const bumpStall = () => { window.clearTimeout(stallTimer); stallTimer = window.setTimeout(() => controller.abort(), 90_000); };
+        try {
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
           if (stopRequestedRef.current) break;
+          bumpStall();
           const chunk = decoder.decode(value);
           const split = splitSseBuffer(buffer, chunk);
           buffer = split.buffer;
@@ -1674,6 +1686,9 @@ export const AISidebar = () => {
               }
             } catch {}
           }
+        }
+        } finally {
+          window.clearTimeout(stallTimer);
         }
         return fullText;
     }
@@ -2158,7 +2173,8 @@ export const AISidebar = () => {
     }
     const mcpUrl = `${resolveMcpUrl()}/mcp${path}`;
     ensureSecureTransport(mcpUrl);
-    const response = await fetch(mcpUrl, {
+    // Hard deadline: a hung MCP endpoint must not hang the whole AI turn (Stop can't reach this).
+    const response = await fetchWithTimeout(mcpUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -2169,7 +2185,7 @@ export const AISidebar = () => {
         mcpUiSettings: mcpSettings,
         mcpUiSettingsEnc: encrypt(JSON.stringify(mcpSettings)),
       }),
-    });
+    }, 60_000);
     const json = await response.json().catch(() => null);
     if (!response.ok || !json || json.message) {
       throw new Error(json?.message || 'MCP request failed');

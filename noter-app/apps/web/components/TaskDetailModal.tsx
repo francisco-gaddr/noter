@@ -220,7 +220,10 @@ export const TaskDetailModal: React.FC<TaskDetailModalProps> = ({
            const delegation = applyDelegationDefaults(getDelegationDefaults(userId));
            setLocalDelegation(created._id, delegation, userId);
            if (delegation.runOnBackend) {
-             void graphqlRequest('mutation($id:String!,$input:TaskInput!){updateTask(id:$id,input:$input){_id}}', { id: created._id, input: { aiAgent: serializeAiDelegation(delegation) } }).catch(() => undefined);
+             void graphqlRequest('mutation($id:String!,$input:TaskInput!){updateTask(id:$id,input:$input){_id}}', { id: created._id, input: { aiAgent: serializeAiDelegation(delegation) } }).catch((e) => {
+               console.error('[delegation] backend sync failed:', e);
+               useStore.setState({ error: 'Delegeringen kunde inte sparas till servern — agenten körs inte förrän den synkats.' });
+             });
            }
          }
       }

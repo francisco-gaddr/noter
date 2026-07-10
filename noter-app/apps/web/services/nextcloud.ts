@@ -103,7 +103,7 @@ export const startNextcloudOAuth = async (
   try {
     const initUrl = buildLoginFlowInitUrl(host);
     enforceHttps(initUrl);
-    const initRes = await fetch(initUrl, { method: 'POST' });
+    const initRes = await fetch(initUrl, { method: 'POST', signal: AbortSignal.timeout(15_000) });
     if (!initRes.ok) return { ok: false, error: 'Login Flow init misslyckades (' + initRes.status + ')' };
     const init = parseLoginFlowInit(await initRes.json().catch(() => null));
     if (!init) return { ok: false, error: 'Oväntat svar från Nextcloud' };
@@ -512,7 +512,7 @@ export const syncDueConnections = async (): Promise<number> => {
 
 export const neo4jStatus = async (): Promise<{ enabled: boolean }> => {
   try {
-    const res = await fetch(`${getApiBaseUrl()}/neo4j/status`, { headers: await buildAuthHeaders() });
+    const res = await fetch(`${getApiBaseUrl()}/neo4j/status`, { headers: await buildAuthHeaders(), signal: AbortSignal.timeout(15_000) });
     return res.ok ? await res.json() : { enabled: false };
   } catch { return { enabled: false }; }
 };
@@ -533,6 +533,7 @@ export const pushNeo4j = async (): Promise<{ ok: boolean; applied?: number; erro
   if (!statements.length) return { ok: true, applied: 0 };
   try {
     const res = await fetch(`${getApiBaseUrl()}/neo4j/sync`, {
+      signal: AbortSignal.timeout(30_000),
       method: 'POST',
       headers: await buildAuthHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ statements, database: cfg.database || undefined, httpUrl: cfg.httpUrl || undefined }),

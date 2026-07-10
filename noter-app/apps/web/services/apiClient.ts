@@ -76,11 +76,24 @@ export const buildAuthHeaders = async (extra?: Record<string, string>): Promise<
 
 /** Execute a GraphQL query/mutation and return `data` (throws on GraphQL errors). */
 export const graphqlRequest = async <T = any>(query: string, variables: Record<string, any>): Promise<T> => {
-  const res = await fetch(resolveGraphqlUrl(), {
-    method: 'POST',
-    headers: await buildAuthHeaders(),
-    body: JSON.stringify({ query, variables }),
-  });
+  // Deadline: a stalled backend must reject (callers show errors) instead of pending forever.
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), 20_000);
+  let res: Response;
+  try {
+    res = await fetch(resolveGraphqlUrl(), {
+      method: 'POST',
+      headers: await buildAuthHeaders(),
+      body: JSON.stringify({ query, variables }),
+      signal: controller.signal,
+    });
+  } finally {
+    window.clearTimeout(timer);
+  }
+  if (!res.ok) {
+    // A proxy error page (nginx 502 HTML) must surface as a status error, not a JSON-parse error.
+    throw new Error(`GraphQL-servern svarade ${res.status}`);
+  }
   const json = await res.json();
   if (json.errors?.length) {
     throw new Error(json.errors[0]?.message || 'GraphQL error');

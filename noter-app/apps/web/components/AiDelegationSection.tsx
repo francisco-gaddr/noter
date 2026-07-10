@@ -16,7 +16,12 @@ import { useStore } from '../stores/useStore';
 
 const UPDATE_TASK_MUT = 'mutation($id:String!,$input:TaskInput!){updateTask(id:$id,input:$input){_id}}';
 const syncBackend = (taskId: string, aiAgent: string) =>
-  graphqlRequest(UPDATE_TASK_MUT, { id: taskId, input: { aiAgent } }).catch(() => undefined);
+  graphqlRequest(UPDATE_TASK_MUT, { id: taskId, input: { aiAgent } }).catch((e) => {
+    // Local and server state have DIVERGED: the UI shows "runs on backend" but the server never
+    // recorded it — the agent would silently never run. Surface it instead of swallowing.
+    console.error('[delegation] backend sync failed:', e);
+    useStore.setState({ error: 'Delegeringen kunde inte sparas till servern — agenten körs inte förrän den synkats.' });
+  });
 
 const accessLabel = (kind: string): string => ({
   note: 'Läste anteckning', task: 'Läste uppgift', list: 'Läste uppgiftslista',
