@@ -5,7 +5,8 @@
   "identifier": "com.noter.desktop",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:3000"
+    "devUrl": "http://localhost:3000",
+    "beforeBuildCommand": "npm run prebuild-full"
   },
   "app": {
     "withGlobalTauri": true,
