@@ -37,14 +37,25 @@ pub fn settings_get(state: tauri::State<'_, SettingsState>, key: String) -> Opti
     state.0.lock().ok().and_then(|m| m.get(&key).cloned())
 }
 
-#[tauri::command]
-pub fn settings_set(app: AppHandle, state: tauri::State<'_, SettingsState>, key: String, value: Value) {
+/// Set (or remove, when the value is null) a setting and persist. Shared by the `settings_set` command
+/// and internal callers (e.g. the tray's Tray-only toggle) so the write path is not duplicated.
+pub fn set_value(app: &AppHandle, state: &SettingsState, key: &str, value: Value) {
     if let Ok(mut map) = state.0.lock() {
         if value.is_null() {
-            map.remove(&key);
+            map.remove(key);
         } else {
-            map.insert(key, value);
+            map.insert(key.to_string(), value);
         }
-        persist(&app, &map);
+        persist(app, &map);
     }
+}
+
+/// Read a boolean setting (defaulting to `false` when absent/other-typed). Used by the tray.
+pub fn get_bool(state: &SettingsState, key: &str) -> bool {
+    state.0.lock().ok().and_then(|m| m.get(key).and_then(Value::as_bool)).unwrap_or(false)
+}
+
+#[tauri::command]
+pub fn settings_set(app: AppHandle, state: tauri::State<'_, SettingsState>, key: String, value: Value) {
+    set_value(&app, &state, &key, value);
 }

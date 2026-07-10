@@ -9,6 +9,7 @@ mod deeplink;
 mod mlc;
 mod secure_store;
 mod settings;
+mod tray;
 
 use settings::SettingsState;
 use std::sync::Mutex;
@@ -81,6 +82,11 @@ pub fn run() {
                     }
                 }
             });
+
+            // System tray (icon + menu + Tray-only). Non-fatal if it fails to build.
+            if let Err(e) = tray::build(app.handle()) {
+                eprintln!("tray init failed: {e}");
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
