@@ -493,15 +493,30 @@ cargo tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc
 ```
 Windows-signering (Authenticode) görs separat före distribution; för updatern krävs den (§6).
 
-**Verifierat läge 2026-07-10 (rotorsak isolerad):** Rust-cross-kompilen fungerar — `noter-tauri.exe`
-(PE32+ x86-64 GUI, 12 MB) byggdes felfritt från denna Mac. Själva NSIS-*paketeringen* är blockerad av
-en makensis-bugg på macOS 26: `std::bad_alloc` vid **unicode**-output (`x86-unicode`) — ett trivialt
-`Unicode false`-script kompilerar felfritt, och Tauris installer-template kräver unicode (rätteligen).
-Testat: reinstall, zlib-komprimering, källbygge, och NSIS-Dev-tappens `makensis@3.11` — samma krasch,
-dvs. inte en versionsregression utan värd-toolchainens unicode-konvertering (känd bugg-klass,
-SourceForge #1165). Åtgärd när installern behövs: kör `cargo tauri build` på en Windows-maskin (ger
-NSIS **och** MSI), eller vänta på lagad Homebrew-bottle. `bundle.windows.nsis.compression: "zlib"`
-behålls — rätt för cross-byggen oavsett.
+**LÖST 2026-07-10 — Windows-installern byggs nu från Macen.** `Noter_0.1.0_x64-setup.exe` (5,1 MB,
+verifierad "PE32 executable, Nullsoft Installer self-extracting archive") producerades av det fulla
+`cargo tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc`-flödet.
+
+Vägen dit (fullständig felsökning, dokumenterad för eftervärlden):
+- *Symptom:* alla makensis-byggen på macOS 26 (brew-bottle, brew-källbygge, NSIS-Dev 3.11,
+  electron-builders arm64 **och** x64-under-Rosetta) kraschade med `std::bad_alloc` vid unicode-output.
+- *Diagnos:* macOS-kraschrapportens backtrace pekade på `ExeHeadStringList::add` → källinstrumentering
+  visade `iconv()`-fel `EILSEQ` — **inte** minnesbrist: NSIS kastar `bad_alloc` när en
+  teckenkonvertering misslyckas.
+- *Rotorsak:* macOS 26 bytte system-iconv till **GNU libiconv**, vars `"wchar_t"`-kodek är
+  **locale-beroende** — i C-locale avvisas alla icke-ASCII-tecken med EILSEQ, medan `iconv_open()`
+  fortfarande lyckas (går alltså inte att proba bort).
+- *Fix:* namnge wchar_t:s minneslayout explicit (UTF-32LE på Apple) istället för det locale-beroende
+  namnet. Patch-skript: [`nsis-macos26-iconv-fix.py`](nsis-macos26-iconv-fix.py) (körbart mot orörd
+  nsis-3.11/3.12-källa; validerat på båda). Borde rapporteras uppströms till NSIS.
+- *Installerat:* patchad makensis 3.12 i `~/tools/nsis-fixed/` (wrapper sätter `NSISDIR` mot brews
+  datafiler). Windows-bygge från Macen:
+  ```bash
+  export PATH="$HOME/tools/nsis-fixed:/opt/homebrew/opt/llvm/bin:$PATH"
+  cd tauri-noter/src-tauri && cargo tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc
+  ```
+`bundle.windows.nsis.compression: "zlib"` behålls (bra för cross-byggen). MSI kräver fortsatt en
+Windows-maskin (WiX). Authenticode-signering görs före distribution (§6).
 
 ---
 
