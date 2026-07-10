@@ -45,7 +45,16 @@
     "expo": "54.0.35",
     "expo-font": "14.0.12",
     "expo-asset": "12.0.13",
-    "expo-modules-core": "3.0.30"
+    "expo-modules-core": "3.0.30",
+    "lodash": "4.18.1",
+    "lodash-es": "4.18.1",
+    "fast-xml-parser": "5.9.3",
+    "axios": "1.18.1",
+    "form-data": "4.0.6",
+    "fast-uri": "3.1.3",
+    "@grpc/grpc-js": "1.14.4",
+    "yaml": "2.9.0",
+    "mongodb": "6.21.0"
   },
   "packageManager": "npm@11.3.0",
   "workspaces": [
