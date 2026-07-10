@@ -7,3 +7,18 @@ yarn-error.log
 dist/
 web-build/
 .next/
+
+# Sibling DESKTOP projects — irrelevant to the RN/Expo (apps/mobile) build and huge
+# (tauri-noter carries a multi-GB Rust target/, electron-noter a full Electron tree). Excluding
+# these keeps the EAS upload under the 2.0 GB archive limit.
+tauri-noter/
+electron-noter/
+**/target/
+**/build/
+**/.turbo/
+**/coverage/
+Doc/
+*.dmg
+*.exe
+*.apk
+*.aab
