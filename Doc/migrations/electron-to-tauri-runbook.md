@@ -117,6 +117,20 @@ Companion decision record: [ADR-0007](../adr/0007-electron-vs-tauri.md).
   **Tauri tests are now a blocking pre-push gate** (`validate-critical` step "Tauri desktop tests" runs
   `npm test` = 17 JS bridge tests + 14 Rust tests on every push, skip-if-missing like the Electron step).
 
+- **2026-07-10 — SPIKE GATE PASSED on macOS (live run, screenshot-verified).** Launched the built
+  `Noter.app` on the Mac and verified visually:
+  - **UI renders fully** in the Tauri WKWebView (dark theme, sidebar, lists, search, toolbar — the
+    complete shared Next.js UI).
+  - **Auto-login worked**: the user was signed in without any re-authentication. This proves the
+    single most important migration property end-to-end: `secure_store.rs` (service
+    `com.noter.desktop`) read the auth token + v3 `dataKey` from the **real macOS keychain** — the
+    service name was chosen for exactly this continuity — so the Electron → Tauri switch costs the
+    user **no re-login and no re-encryption**.
+  - **E2E decryption + backend connectivity live**: real task lists and tasks rendered decrypted
+    in-app; data loaded from the backend.
+  - App quit cleanly. Remaining §9 runtime items: Windows/WebView2 + Linux/WebKitGTK render check
+    (needs those OSes), live transport-enforcement observation, updater signature verification (§6a).
+
 ### Status snapshot — done (headless-verified) vs. gated
 
 **Ported + verified (`cargo check`/`cargo test`/`node --check` all green):** secure store (keyring,
