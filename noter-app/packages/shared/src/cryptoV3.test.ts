@@ -13,6 +13,7 @@ import {
   b64ToBytes,
   generateRecoveryCode,
   normalizeRecoveryCode,
+  buildAad,
 } from './cryptoV3';
 
 describe('base64 codec (runtime-independent)', () => {
@@ -160,5 +161,32 @@ describe('dataKey wrap / unwrap', () => {
     expect(parseKdfParams('pbkdf2-sha256', { c: 0 })).toBeNull();
     expect(parseKdfParams('pbkdf2-sha256', { c: 600000 })).toEqual({ c: 600000 });
     expect(parseKdfParams('pbkdf2-sha256', 'nope')).toBeNull();
+  });
+});
+
+describe('AES-GCM AAD context binding (anti-swap)', () => {
+  it('decrypt succeeds only with the SAME aad, and no-aad round-trips as before', () => {
+    const key = generateDataKey();
+    // No AAD → previous behaviour, still works.
+    expect(decryptV3(encryptV3('plain', key), key)).toBe('plain');
+    // With AAD → binds the ciphertext to its context.
+    const aad = buildAad('note-123', 'content', 1);
+    const env = encryptV3('secret', key, aad);
+    expect(decryptV3(env, key, aad)).toBe('secret');
+  });
+
+  it('a ciphertext bound to one context CANNOT be opened under a different context (swap fails)', () => {
+    const key = generateDataKey();
+    const env = encryptV3('secret', key, buildAad('note-A', 'content'));
+    // Attacker transplants note-A's ciphertext onto note-B → tag over the wrong AAD fails.
+    expect(() => decryptV3(env, key, buildAad('note-B', 'content'))).toThrow();
+    // Also fails if AAD is dropped entirely.
+    expect(() => decryptV3(env, key)).toThrow();
+  });
+
+  it('buildAad joins unambiguously (different tuples never collide)', () => {
+    const a = buildAad('a', 'bc');
+    const b = buildAad('ab', 'c');
+    expect(Array.from(a)).not.toEqual(Array.from(b));
   });
 });

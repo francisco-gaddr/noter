@@ -65,3 +65,25 @@ versionerad, per-scope-subnyckel) sund.
   in-memory-only + re-derive vid reload eller wrap under en icke-extraherbar WebCrypto-nyckel.
 - **Argon2id på OWASP-golvet** (19 MiB/t2/p1). Nu höjbart tack vare parameter-lagringen; en höjning bör
   mätas mot unlock-latens på low-end-telefoner (ren-JS Hermes) innan den slås på.
+
+## Online-research & best-practice-avstämning (2026)
+
+Källor konsulterade och hur vår implementation står sig mot dem:
+
+| Område | Modern best practice (2026) | Vår status |
+|---|---|---|
+| **Lösenordshashning** | OWASP: Argon2id (min 19 MiB/t2/p1, "high" 64 MiB/t3/p1); PBKDF2-HMAC-SHA256 **600k** min | Argon2id på min-profilen (höjbart via lagrade params); PBKDF2-fallback **höjd till 600k** ✓ |
+| **AES-GCM nonce** | Färsk unik IV per kryptering; parametrar/IV lagras med chiffertexten | `randomBytes(12)` per seal, IV prependas ✓ |
+| **AES-GCM AAD** | Bind kontext (id/fält/version) i auth-taggen → förhindrar "swap"-attacker | **AAD-stöd tillagt** i `encryptV3/decryptV3` + `buildAad` (testat); full utrullning = backlog |
+| **Mobil secret-lagring** | expo-secure-store (hårdvaru-backad keychain/keystore), aldrig AsyncStorage; rensa nyckel-refs efter bruk | Token + dataKey i SecureStore ✓; **zeroization tillagd** ✓ |
+| **JWT** | Pinna algoritmen i verifiern (mot alg-confusion); korta access-tokens + refresh-rotation + jti-revoke | **HS256 pinnad** ✓; refresh/rotation/revoke = dokumenterad backlog |
+| **JWT-lagring web** | Access i minne, refresh i HttpOnly/Secure/SameSite-cookie (ej localStorage/sessionStorage) | Nuvarande sessionStorage-dataKey = dokumenterad backlog |
+| **Tauri v2** | CSP så restriktiv som möjligt (endast betrodda hosts, ingen CDN); explicita capabilities (least privilege); ev. Isolation-mönster | CSP `connect-src` **hårdad** (ingen godtycklig klartext) ✓; script-src `'self'` (ingen CDN) ✓; explicita capabilities ✓; Isolation-mönster = övervägt tillägg (lågt värde för första-parts-frontend + CSP redan tight) |
+
+Sökningar: OWASP Argon2id/AES-GCM (2026), expo-secure-store/RN-secure-storage (2026), Tauri v2
+security/CSP/capabilities (2026), JWT best practices 2026 (alg-confusion + refresh/revoke), AES-GCM AAD
+context-binding mot swap-attacker. Se länkarna i sessionsloggen; kärnfynden är inbakade i tabellen ovan.
+
+**Nytt research-informerat tillägg:** AAD-kontextbindning i kryptoprimitiven (bakåtkompatibelt — utan
+AAD = oförändrat beteende). Full utrullning (binda noteId+fält+version vid varje seal/open + versionerad
+envelope) är en stagead ändring och ligger som backlog tillsammans med min-version-pinningen.

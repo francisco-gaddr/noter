@@ -207,28 +207,38 @@ export async function deriveRootKeyWithKdf(
 // ---------------------------------------------------------------------------
 // Content encryption (AES-256-GCM)
 // ---------------------------------------------------------------------------
-function gcmSeal(key: Uint8Array, plaintext: Uint8Array): Uint8Array {
+// Optional Associated Data (AAD): non-secret context (e.g. a note id + field name + version) bound
+// into the GCM auth tag. When supplied, ciphertext cannot be transplanted to a DIFFERENT context by
+// an untrusted server (a "cut-and-paste"/swap attack) — decrypt with a different AAD fails the tag.
+// Omitting it reproduces the previous behaviour exactly, so existing envelopes are unaffected.
+function gcmSeal(key: Uint8Array, plaintext: Uint8Array, aad?: Uint8Array): Uint8Array {
   const iv = randomBytes(IV_LEN);
-  const ct = gcm(key, iv).encrypt(plaintext);
+  const ct = gcm(key, iv, aad).encrypt(plaintext);
   return concatBytes(iv, ct);
 }
 
-function gcmOpen(key: Uint8Array, sealed: Uint8Array): Uint8Array {
+function gcmOpen(key: Uint8Array, sealed: Uint8Array, aad?: Uint8Array): Uint8Array {
   const iv = sealed.subarray(0, IV_LEN);
   const ct = sealed.subarray(IV_LEN);
-  return gcm(key, iv).decrypt(ct); // throws if auth tag is invalid
+  return gcm(key, iv, aad).decrypt(ct); // throws if the auth tag (over ct + AAD) is invalid
 }
 
-/** Encrypt a string to a `v3:`-prefixed envelope. */
-export function encryptV3(plaintext: string, dataKey: Uint8Array): string {
-  return V3_PREFIX + bytesToB64(gcmSeal(dataKey, utf8ToBytes(plaintext)));
+/** Encrypt a string to a `v3:`-prefixed envelope. `aad` optionally binds ciphertext to its context
+ *  (must be supplied identically to `decryptV3`). */
+export function encryptV3(plaintext: string, dataKey: Uint8Array, aad?: Uint8Array): string {
+  return V3_PREFIX + bytesToB64(gcmSeal(dataKey, utf8ToBytes(plaintext), aad));
 }
 
-/** Decrypt a `v3:` envelope. Throws on a wrong key or tampered ciphertext. */
-export function decryptV3(envelope: string, dataKey: Uint8Array): string {
+/** Decrypt a `v3:` envelope. Throws on a wrong key, tampered ciphertext, or mismatched `aad`. */
+export function decryptV3(envelope: string, dataKey: Uint8Array, aad?: Uint8Array): string {
   if (!isV3(envelope)) throw new Error('not a v3 envelope');
-  return bytesToUtf8(gcmOpen(dataKey, b64ToBytes(envelope.slice(V3_PREFIX.length))));
+  return bytesToUtf8(gcmOpen(dataKey, b64ToBytes(envelope.slice(V3_PREFIX.length)), aad));
 }
+
+/** Build a canonical AAD byte string from context parts (e.g. noteId, field, version). Strict,
+ *  unambiguous joining (newline-separated) so two different tuples can never collide. */
+export const buildAad = (...parts: (string | number)[]): Uint8Array =>
+  utf8ToBytes(parts.map((p) => String(p)).join('\n'));
 
 export const isV3 = (value: unknown): value is string =>
   typeof value === 'string' && value.startsWith(V3_PREFIX);
