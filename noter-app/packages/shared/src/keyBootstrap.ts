@@ -30,6 +30,30 @@ import { setActiveDataKey } from './encrypt';
 
 export const KEY_VERSION = 1;
 
+/**
+ * Minimum E2E password length. Argon2id raises the per-guess cost but cannot rescue a trivially small
+ * search space against an offline attack on the server-held wrapped dataKey — so the shared bootstrap
+ * enforces a floor (not only the UI). 8 is the OWASP absolute minimum for a user-chosen secret; this
+ * is deliberately a LOW floor (usability) not a strength meter — the UI may require more.
+ *
+ * IMPORTANT: enforced ONLY on enrolment + password CHANGE (where the user picks a NEW secret). Unlock
+ * of an EXISTING bundle never applies it — a user who enrolled earlier with a short password must
+ * still be able to sign in (the fix must not lock anyone out of their own data).
+ */
+export const MIN_E2E_PASSWORD_LENGTH = 8;
+
+export class WeakPasswordError extends Error {
+  constructor(message = `Lösenordet måste vara minst ${MIN_E2E_PASSWORD_LENGTH} tecken.`) {
+    super(message);
+    this.name = 'WeakPasswordError';
+    Object.setPrototypeOf(this, WeakPasswordError.prototype);
+  }
+}
+
+/** True when a NEW password meets the minimum policy for wrapping the dataKey. */
+export const isAcceptableE2EPassword = (password: unknown): password is string =>
+  typeof password === 'string' && password.length >= MIN_E2E_PASSWORD_LENGTH;
+
 export interface KeyBundle {
   wrappedDataKey: string;
   kdfSalt: string; // base64
@@ -94,7 +118,9 @@ export async function enrollOrUnlock(password: string, deps: BootstrapDeps): Pro
     return { result: 'unlocked' };
   }
 
-  // First-time enrolment.
+  // First-time enrolment — the user is choosing a NEW secret, so enforce the floor here (never on
+  // the unlock path above).
+  if (!isAcceptableE2EPassword(password)) throw new WeakPasswordError();
   const salt = generateSalt();
   const { key: rootKey, kdf, params } = await deriveRootKey(password, salt);
   const dataKey = generateDataKey();
@@ -162,6 +188,8 @@ export async function changePassword(
   if (!newPassword || newPassword.length < 1) {
     throw new Error('Nytt lösenord saknas');
   }
+  // The new password re-wraps the dataKey → enforce the same floor as enrolment.
+  if (!isAcceptableE2EPassword(newPassword)) throw new WeakPasswordError();
   const existing = await deps.getBundle();
   if (!existing) {
     throw new Error('Inget nyckelpaket att byta lösenord för (ej registrerad)');
