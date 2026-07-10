@@ -99,17 +99,28 @@ const loadNoteSecurityMap = async (userId: string): Promise<Map<string, Security
 /** Server-side tool executor over the Mongoose models, scoped to one user. */
 const buildToolExecutor = (userId: string, io: Io) => {
   const emit = (event: string, payload: unknown) => { try { io?.to?.(`user:${userId}`)?.emit?.(event, payload); } catch { /* best-effort */ } };
+  // The lock map used to be re-scanned from Mongo on EVERY tool call — a full-partition scan
+  // multiplied by step count. Memoize per executor with a short TTL: a burst of tool calls in one
+  // run shares a scan, while a note locked mid-run is still picked up within 30s.
+  let secMapCache: { map: Awaited<ReturnType<typeof loadNoteSecurityMap>>; at: number } | null = null;
+  const getSecMap = async () => {
+    const now = Date.now();
+    if (secMapCache && now - secMapCache.at < 30_000) return secMapCache.map;
+    const map = await loadNoteSecurityMap(userId);
+    secMapCache = { map, at: now };
+    return map;
+  };
   return async (tool: string, args: Record<string, any>): Promise<unknown> => {
     switch (tool) {
       case 'list_tasks': {
-        const secMap = await loadNoteSecurityMap(userId);
+        const secMap = await getSecMap();
         const tasks = await Task.find({ userId }).limit(200).lean();
         // Drop any task whose parent list/project is locked.
         const readable = tasks.filter((t) => !t.parentNoteId || isReadableWithLocks(secMap.get(String(t.parentNoteId)), secMap));
         return { tasks: readable.map((t) => ({ _id: String(t._id), title: dec(t.title), completed: decBool(t.completed), dueDate: dec(t.dueDate), priority: dec(t.priority), parentNoteId: t.parentNoteId ? String(t.parentNoteId) : null })) };
       }
       case 'get_task': {
-        const secMap = await loadNoteSecurityMap(userId);
+        const secMap = await getSecMap();
         const t = await Task.findOne({ _id: args.id, userId }).lean();
         if (t && t.parentNoteId && !isReadableWithLocks(secMap.get(String(t.parentNoteId)), secMap)) {
           return { task: null, error: 'Uppgiften tillhör en låst lista och kan inte läsas.' };
@@ -120,7 +131,7 @@ const buildToolExecutor = (userId: string, io: Io) => {
       case 'list_projects':
       case 'list_tasklists': {
         const wanted = tool === 'list_projects' ? 'project' : tool === 'list_tasklists' ? 'task_list' : 'note';
-        const secMap = await loadNoteSecurityMap(userId);
+        const secMap = await getSecMap();
         const notes = await Note.find({ userId }).limit(200).lean();
         return {
           notes: notes
@@ -130,7 +141,7 @@ const buildToolExecutor = (userId: string, io: Io) => {
         };
       }
       case 'get_note': {
-        const secMap = await loadNoteSecurityMap(userId);
+        const secMap = await getSecMap();
         // SECURITY: refuse BEFORE decrypting content — locked notes stay encrypted.
         if (!isReadableWithLocks(secMap.get(String(args.id)), secMap)) {
           return { note: null, error: 'Anteckningen är låst och kan inte läsas eller avkrypteras av AI-agenten.' };
@@ -189,8 +200,16 @@ const buildToolExecutor = (userId: string, io: Io) => {
   };
 };
 
-const persistDelegation = async (taskId: string, delegation: AiTaskDelegation) => {
-  await Task.updateOne({ _id: taskId }, { $set: { aiAgent: enc(serializeAiDelegation(delegation)), updatedAt: enc(new Date().toISOString()) } }).catch(() => undefined);
+/** Returns whether the write actually persisted — callers that GATE work on a status (e.g. the
+ *  'running' marker that prevents duplicate runs) must abort when it did not. */
+const persistDelegation = async (taskId: string, delegation: AiTaskDelegation): Promise<boolean> => {
+  try {
+    await Task.updateOne({ _id: taskId }, { $set: { aiAgent: enc(serializeAiDelegation(delegation)), updatedAt: enc(new Date().toISOString()) } });
+    return true;
+  } catch (err) {
+    logger.warn('backendAgentRunner.persist-failed', { taskId, error: (err as Error)?.message });
+    return false;
+  }
 };
 
 let running = false;
@@ -246,7 +265,10 @@ const runOne = async (task: any, delegation: AiTaskDelegation, io?: Io): Promise
     logger.warn('backendAgentRunner.quota-check-failed', { error: (err as Error)?.message });
   }
 
-  await persistDelegation(String(task._id), { ...delegation, status: 'running', lastRunAt: new Date().toISOString(), runCount: (delegation.runCount || 0) + 1 });
+  // If the 'running' marker cannot be persisted, ABORT this run: proceeding would let the next
+  // cron tick re-select the task and execute the agent twice (duplicate work + duplicate pushes).
+  const marked = await persistDelegation(String(task._id), { ...delegation, status: 'running', lastRunAt: new Date().toISOString(), runCount: (delegation.runCount || 0) + 1 });
+  if (!marked) return;
   if (notify.onStart) await sendPushToUser(userId, { title: 'AI-agent startade', body: `"${title}" körs nu på servern.`, data: { taskId: String(task._id) } }).catch(() => undefined);
 
   const system = [

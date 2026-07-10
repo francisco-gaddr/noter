@@ -139,7 +139,14 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
       return;
     }
 
-    const notes = await Note.find({ userId: (req as AuthRequest).user!.userId }).sort({ createdAt: -1 });
+    // Abuse/OOM guard, deliberately HIGH: clients reconcile their local store against this
+    // response as the complete set, so a low cap could make them drop local notes. 10k bounds a
+    // pathological account without touching any realistic library; heavier clients paginate.
+    // .lean(): plain objects instead of hydrated documents — this is a read-only serialize path.
+    const notes = await Note.find({ userId: (req as AuthRequest).user!.userId })
+      .sort({ createdAt: -1 })
+      .limit(10_000)
+      .lean();
 
     // Early return if no notes
     if (notes.length === 0) {
@@ -147,14 +154,9 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
       return;
     }
 
-    // Since locked is now E2E encrypted, we cannot determine lock status on the server
-    // The client handles lock logic and decryption. We return all notes as-is.
-    const sanitizedNotes = notes.map(note => {
-      const noteObj = note.toObject();
-      // Note: Content hiding for locked notes is now handled client-side
-      // since we cannot decrypt the locked field server-side
-      return noteObj;
-    });
+    // Since locked is E2E encrypted we cannot determine lock status server-side; the client
+    // handles lock logic and decryption. Lean docs are already plain objects.
+    const sanitizedNotes = notes;
 
     await cache.set(cacheKey, sanitizedNotes, 300); // Cache for 5 minutes
     res.json(sanitizedNotes);
@@ -331,7 +333,20 @@ router.post('/', validate(noteSchema), async (req: Request, res: Response, next:
     io.to(`user:${userId}`).emit('note:created', createdNote);
 
     res.status(201).json(createdNote);
-  } catch (error) {
+  } catch (error: any) {
+    // Concurrent duplicate create (double-tap / client retry): both requests pass the findOne
+    // dedup check, the second save hits the unique {userId, clientId} index. Idempotent success —
+    // return the existing note instead of a 500 (mirrors the tasks route).
+    if (error.code === 11000 && error.keyPattern?.clientId) {
+      const existingNote = await Note.findOne({
+        userId: (req as AuthRequest).user!.userId,
+        clientId: req.body.clientId,
+      });
+      if (existingNote) {
+        res.status(200).json(existingNote);
+        return;
+      }
+    }
     next(error);
   }
 });

@@ -85,7 +85,9 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
       res.json(page);
       return;
     }
-    const tasks = await Task.find(filter).sort({ createdAt: -1 });
+    // Same abuse/OOM guard rationale as the notes list: HIGH cap (clients treat this response
+    // as the complete set for local reconciliation), .lean() for the read-only serialize path.
+    const tasks = await Task.find(filter).sort({ createdAt: -1 }).limit(10_000).lean();
     res.json(tasks);
   } catch (error) {
     next(error);

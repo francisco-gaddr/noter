@@ -16,7 +16,19 @@ const parseService = (raw: unknown): McpIntegrationId => {
   return service as McpIntegrationId;
 };
 
-router.post('/tools', async (req: AuthRequest, res) => {
+/** True for failures caused by the MCP dependency itself (subprocess/HTTP timeout, refused
+ *  connection, crash). These must surface as 5xx via the error middleware — logged, error-tracked
+ *  and visible in monitoring — not be masked as a 400 "client error" with the raw message. */
+const isDependencyFailure = (error: any): boolean => {
+  const msg = String(error?.message || '');
+  return (
+    error?.name === 'AbortError' ||
+    error?.name === 'TimeoutError' ||
+    /timeout|timed out|ECONNREFUSED|ECONNRESET|EPIPE|ENOTFOUND|socket hang up|spawn/i.test(msg)
+  );
+};
+
+router.post('/tools', async (req: AuthRequest, res, next) => {
   try {
     const userId = req.user?.userId;
     if (!userId) return res.status(401).json({ message: 'Unauthorized' });
@@ -28,11 +40,12 @@ router.post('/tools', async (req: AuthRequest, res) => {
     });
     return res.json({ service, result });
   } catch (error: any) {
+    if (isDependencyFailure(error)) return next(error);
     return res.status(400).json({ message: error?.message || 'Kunde inte lista MCP-tools' });
   }
 });
 
-router.post('/call', async (req: AuthRequest, res) => {
+router.post('/call', async (req: AuthRequest, res, next) => {
   try {
     const userId = req.user?.userId;
     if (!userId) return res.status(401).json({ message: 'Unauthorized' });
@@ -52,6 +65,7 @@ router.post('/call', async (req: AuthRequest, res) => {
     });
     return res.json({ service, toolName, result });
   } catch (error: any) {
+    if (isDependencyFailure(error)) return next(error);
     return res.status(400).json({ message: error?.message || 'Kunde inte köra MCP-tool' });
   }
 });
@@ -67,7 +81,7 @@ router.get('/health', async (req: AuthRequest, res) => {
   }
 });
 
-router.get('/dashboard', async (req: AuthRequest, res) => {
+router.get('/dashboard', async (req: AuthRequest, res, next) => {
   try {
     const userId = req.user?.userId;
     if (!userId) return res.status(401).json({ message: 'Unauthorized' });
@@ -76,11 +90,12 @@ router.get('/dashboard', async (req: AuthRequest, res) => {
     const data = await mcpRuntime.dashboard({ userId, limit });
     return res.json(data);
   } catch (error: any) {
+    if (isDependencyFailure(error)) return next(error);
     return res.status(400).json({ message: error?.message || 'Kunde inte läsa MCP-dashboard' });
   }
 });
 
-router.get('/dashboard/system', async (req: AuthRequest, res) => {
+router.get('/dashboard/system', async (req: AuthRequest, res, next) => {
   try {
     const userId = req.user?.userId;
     if (!userId) return res.status(401).json({ message: 'Unauthorized' });
@@ -98,6 +113,7 @@ router.get('/dashboard/system', async (req: AuthRequest, res) => {
     });
     return res.json(data);
   } catch (error: any) {
+    if (isDependencyFailure(error)) return next(error);
     return res.status(400).json({ message: error?.message || 'Kunde inte läsa systemdashboard' });
   }
 });

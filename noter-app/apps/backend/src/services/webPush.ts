@@ -122,6 +122,8 @@ export const sendPush = async (
         ...(options.topic ? { Topic: options.topic } : {}),
         'Content-Length': '0',
       },
+      // A stalled push service must not hang the caller; abort maps to the catch below.
+      signal: AbortSignal.timeout(10_000),
     });
     if (res.status >= 200 && res.status < 300) return { ok: true };
     return {

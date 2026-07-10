@@ -45,6 +45,8 @@ export const sendPushToUser = async (userId: string, message: PushMessage): Prom
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
         body: JSON.stringify(messages),
+        // A stalled Expo push API must not hang the notification path; abort → catch below.
+        signal: AbortSignal.timeout(10_000),
       });
       const json: any = await res.json().catch(() => null);
       const tickets: any[] = Array.isArray(json?.data) ? json.data : [];

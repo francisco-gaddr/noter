@@ -9,6 +9,7 @@
  * decrypt it locally. Secrets (the password hash, API-key hashes) are never exported.
  */
 import mongoose from 'mongoose';
+import logger from '../utils/logger';
 import User from '../models/User';
 import Note from '../models/Note';
 import Task from '../models/Task';
@@ -56,16 +57,23 @@ export const exportUserData = async (userId: string): Promise<Record<string, unk
     ? { _id: String(user._id), username: user.username, createdAt: user.createdAt, keyBundle: user.keyBundle ?? null }
     : null;
 
+  // Memory bound for pathological accounts: cap each collection and SAY SO in the export
+  // (silent truncation would violate the access right; the marker lets support follow up).
+  const EXPORT_CAP = 100_000;
+  const truncated: string[] = [];
   for (const c of USER_MODELS) {
-    const rows = await c.model.find({ [c.field]: userId }).lean();
+    const rows = await c.model.find({ [c.field]: userId }).limit(EXPORT_CAP + 1).lean();
+    if (rows.length > EXPORT_CAP) { truncated.push(c.key); rows.length = EXPORT_CAP; }
     out[c.key] = c.redact ? rows.map((r) => c.redact!(r as Record<string, unknown>)) : rows;
   }
   const db = mongoose.connection.db;
   for (const c of USER_RAW_COLLECTIONS) {
     if (!db) { out[c.key] = []; continue; }
-    const rows = await db.collection(c.coll).find({ [c.field]: userId }).toArray();
+    const rows = await db.collection(c.coll).find({ [c.field]: userId }).limit(EXPORT_CAP + 1).toArray();
+    if (rows.length > EXPORT_CAP) { truncated.push(c.key); rows.length = EXPORT_CAP; }
     out[c.key] = c.redact ? rows.map((r) => c.redact!(r as Record<string, unknown>)) : rows;
   }
+  if (truncated.length) out.truncatedCollections = truncated;
   return out;
 };
 
@@ -73,7 +81,12 @@ export const exportUserData = async (userId: string): Promise<Record<string, unk
  *  per-collection deleted-count summary for the audit trail. Backend metadata (_instances,
  *  _migrations) is never user-keyed and is left untouched. */
 export const deleteUserData = async (userId: string): Promise<{ deleted: Record<string, number>; totalDeleted: number }> => {
+  // Not transactional (standalone Mongo has no multi-doc transactions) but SAFELY RE-RUNNABLE by
+  // construction: deleteMany is idempotent and the User row is deleted LAST, so a mid-way failure
+  // leaves the account intact and a retried call finishes the job. On failure we log which
+  // collections were already purged so the partial progress is visible in the audit trail.
   const deleted: Record<string, number> = {};
+  try {
   for (const c of USER_MODELS) {
     const r = await c.model.deleteMany({ [c.field]: userId });
     deleted[c.key] = r.deletedCount ?? 0;
@@ -87,6 +100,10 @@ export const deleteUserData = async (userId: string): Promise<{ deleted: Record<
   }
   const u = await User.deleteOne({ _id: userId });
   deleted.user = u.deletedCount ?? 0;
+  } catch (err) {
+    logger.warn('userData.delete-partial', { userId, purged: Object.keys(deleted), error: (err as Error)?.message });
+    throw err; // the route 500s; a client retry completes the remaining collections + the user row
+  }
   const totalDeleted = Object.values(deleted).reduce((a, b) => a + b, 0);
   return { deleted, totalDeleted };
 };

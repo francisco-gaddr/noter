@@ -104,6 +104,8 @@ export const relayToNeo4j = async (
       Authorization: `Basic ${auth}`,
     },
     body: JSON.stringify(body),
+    // A hung Neo4j must not pin the /neo4j/sync handler (and its socket) open indefinitely.
+    signal: AbortSignal.timeout(15_000),
   });
 
   if (!res.ok) {
