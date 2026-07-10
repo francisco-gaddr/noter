@@ -107,6 +107,16 @@ Companion decision record: [ADR-0007](../adr/0007-electron-vs-tauri.md).
   placeholder). This is the last thing verifiable without a display — everything up to
   `cargo tauri dev` is green.
 
+- **2026-07-10 — Phase 1h: system tray + FIRST REAL macOS BUILD.** Tray ported (icon + tooltip,
+  left-click shows window, menu Show/Tray-only/Quit; Tray-only persists via the shared settings write
+  path and flips the macOS activation policy to Accessory = Dock hidden, exactly like Electron; state
+  re-applied on launch; reuses the bundled app icon — no new asset). Then **`cargo tauri build`
+  succeeded headless**: `Noter.app` + `Noter_0.1.0_aarch64.dmg` (≈6 MB DMG, 12 MB .app — vs ~100 MB+
+  for Electron). Verified in the bundle: `noter://` in `CFBundleURLSchemes`, `.noter` in
+  `CFBundleDocumentTypes`, ad-hoc code signature, and the Next.js frontend embedded in the binary.
+  **Tauri tests are now a blocking pre-push gate** (`validate-critical` step "Tauri desktop tests" runs
+  `npm test` = 17 JS bridge tests + 14 Rust tests on every push, skip-if-missing like the Electron step).
+
 ### Status snapshot — done (headless-verified) vs. gated
 
 **Ported + verified (`cargo check`/`cargo test`/`node --check` all green):** secure store (keyring,

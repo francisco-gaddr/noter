@@ -230,6 +230,15 @@ const steps = [
     // noter-app is). Skip gracefully there; run it locally where the dir exists.
     skipIfMissingCwd: true,
   },
+  {
+    // The Tauri desktop app (the one we ship going forward): bridge seam tests (node:test)
+    // + Rust unit tests (deep-link security parser, mlc registry) via `npm test`.
+    label: 'Tauri desktop tests (bridge + Rust)',
+    cwd: path.resolve(repoRoot, '..', 'tauri-noter'),
+    command: 'npm',
+    args: ['run', 'test'],
+    skipIfMissingCwd: true,
+  },
 ];
 
 for (const step of steps) {
