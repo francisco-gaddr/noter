@@ -227,3 +227,22 @@ describe('sealNoteFieldForWrite (ADR-0012 write-path seal)', () => {
     expect(materializeFolderField(sealed, { folderKey })).toBe('Hemligt');
   });
 });
+
+describe('setActiveDataKey memory hygiene', () => {
+  it('zeroizes the previous key bytes when replaced or cleared', () => {
+    const k1 = generateDataKey();
+    const snapshot = Uint8Array.from(k1); // keep a copy of the original bytes
+    setActiveDataKey(k1);
+    expect(hasActiveDataKey()).toBe(true);
+    // Replace with a new key → the OLD key's bytes must be wiped.
+    setActiveDataKey(generateDataKey());
+    expect(Array.from(k1)).toEqual(new Array(k1.length).fill(0));
+    expect(Array.from(k1)).not.toEqual(Array.from(snapshot));
+    // Clearing wipes the current key too.
+    const k2ref = generateDataKey();
+    setActiveDataKey(k2ref);
+    setActiveDataKey(null);
+    expect(Array.from(k2ref)).toEqual(new Array(k2ref.length).fill(0));
+    expect(hasActiveDataKey()).toBe(false);
+  });
+});

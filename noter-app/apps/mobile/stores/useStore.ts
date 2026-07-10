@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import 'react-native-get-random-values';
 import * as Crypto from 'expo-crypto';
-import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, safeDecrypt, parseEntityLinks, serializeEntityLinks, parseNoteSource, relockFoldersOnLeave, clearAllFolderKeys, isFolderWrapped, materializeFolderField, resolveSessionFolderKeyForNote, resolveSessionFolderKeyForNewNote, sealNoteFieldForWrite, enrolFolderPassword as enrolFolderPasswordCore, unlockFolderWithPassword, changeFolderPassword as changeFolderPasswordCore, type KdfId } from '@repo/shared';
+import { Note, Task, CreateNoteDto, UpdateNoteDto, CreateTaskDto, UpdateTaskDto, encrypt, decrypt, safeDecrypt, hasActiveDataKey, isAnyCiphertext, parseEntityLinks, serializeEntityLinks, parseNoteSource, relockFoldersOnLeave, clearAllFolderKeys, isFolderWrapped, materializeFolderField, resolveSessionFolderKeyForNote, resolveSessionFolderKeyForNewNote, sealNoteFieldForWrite, enrolFolderPassword as enrolFolderPasswordCore, unlockFolderWithPassword, changeFolderPassword as changeFolderPasswordCore, type KdfId } from '@repo/shared';
 import { fetchWithAuth, login as apiLogin, register as apiRegister, setAuthToken, initApiUrl, setUnauthorizedHandler } from '../services/api';
 import * as Database from '../services/database';
 import { initSocket, disconnectSocket, getSocket } from '../services/socket';
@@ -1107,6 +1107,19 @@ export const useStore = create<AppState>((set, get) => ({
     const state = get();
     const currentNote = state.notes.find(n => n._id === id);
     if (!currentNote) throw new Error('Note not found');
+
+    // DATA-LOSS GUARD: if this note's stored body is v3 ciphertext we currently CANNOT read (E2E
+    // locked / not yet unlocked), a materialize pass may have surfaced title/content as a blank.
+    // Re-encrypting that blank would overwrite the real ciphertext with an empty note — so when the
+    // note is unreadable, drop title/content from the incoming update entirely (other fields still
+    // apply; the stored ciphertext is preserved). Not for the explicit lock action below.
+    const rawBody = (currentNote as any).__rawEncryptedContent ?? currentNote.content;
+    const rawTitleField = (currentNote as any).__rawEncryptedTitle ?? currentNote.title;
+    if (!hasActiveDataKey() && data.locked !== true && (isAnyCiphertext(rawBody) || isAnyCiphertext(rawTitleField))) {
+      data = { ...data };
+      delete (data as any).content;
+      delete (data as any).title;
+    }
 
     // Optimistic Update
     set({ isLoading: true, error: null });

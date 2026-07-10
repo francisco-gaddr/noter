@@ -22,8 +22,14 @@ const SALT_PREFIX = 'U2FsdGVkX1';
 // ---------------------------------------------------------------------------
 let activeDataKey: Uint8Array | null = null;
 
-/** Install the per-user data key (after unlock). Pass null to clear (on lock). */
+/** Install the per-user data key (after unlock). Pass null to clear (on lock). The PREVIOUS key's
+ *  bytes are zeroized before the reference is dropped, so a replaced/cleared dataKey does not linger
+ *  in the heap until GC (best-effort memory hygiene — matches the folder-session behaviour). The new
+ *  key is adopted by reference (callers must not reuse/zero the array they pass in). */
 export const setActiveDataKey = (key: Uint8Array | null): void => {
+  if (activeDataKey && activeDataKey !== key) {
+    try { activeDataKey.fill(0); } catch { /* best-effort */ }
+  }
   activeDataKey = key;
 };
 export const hasActiveDataKey = (): boolean => activeDataKey !== null;

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Note, Task, UpdateTaskDto, User, decrypt, encrypt, safeDecrypt, normalizeNoteType, parseEntityLinks, parseNoteSource, relockFoldersOnLeave, clearAllFolderKeys, isFolderWrapped, materializeFolderField, resolveSessionFolderKeyForNote, resolveSessionFolderKeyForNewNote, enrolFolderPassword as enrolFolderPasswordCore, unlockFolderWithPassword, changeFolderPassword as changeFolderPasswordCore, type KdfId } from '@repo/shared';
+import { Note, Task, UpdateTaskDto, User, decrypt, encrypt, safeDecrypt, hasActiveDataKey, isAnyCiphertext, normalizeNoteType, parseEntityLinks, parseNoteSource, relockFoldersOnLeave, clearAllFolderKeys, isFolderWrapped, materializeFolderField, resolveSessionFolderKeyForNote, resolveSessionFolderKeyForNewNote, enrolFolderPassword as enrolFolderPasswordCore, unlockFolderWithPassword, changeFolderPassword as changeFolderPasswordCore, type KdfId } from '@repo/shared';
 import { api, getApiBaseUrl, getUUID, setApiBaseUrl, setApiToken } from '../services/api';
 import { socket, connectSocket, disconnectSocket, setSocketToken } from '../services/socket';
 import { db } from '../services/db';
@@ -1392,6 +1392,23 @@ export const useStore = create<StoreState>((set, get) => ({
 
     const stateUpdates = { ...updates };
     const currentBeforeLock = get().notes.find(n => n._id === id) as any;
+
+    // DATA-LOSS GUARD: if this note's stored body is v3 ciphertext we currently CANNOT read (E2E
+    // locked / not yet unlocked this session), a materialize pass may have surfaced its title/content
+    // as a mask/blank. Re-encrypting that display value would overwrite the real ciphertext with an
+    // empty note. So when the note is unreadable, strip title/content from BOTH the outgoing payload
+    // and the optimistic state — the server keeps the existing ciphertext, and only the other
+    // (genuinely-edited) fields are updated.
+    const rawBody = currentBeforeLock?.__rawEncryptedContent ?? currentBeforeLock?.content;
+    const rawTitleField = currentBeforeLock?.__rawEncryptedTitle ?? currentBeforeLock?.title;
+    const noteUnreadable = !hasActiveDataKey() && (isAnyCiphertext(rawBody) || isAnyCiphertext(rawTitleField));
+    if (noteUnreadable && updates.locked !== true) {
+      delete (updates as any).content;
+      delete (updates as any).title;
+      delete (stateUpdates as any).content;
+      delete (stateUpdates as any).title;
+    }
+
     if (updates.locked === true) {
         if (currentBeforeLock) {
             stateUpdates.__rawEncryptedTitle = currentBeforeLock.__rawEncryptedTitle || encrypt(currentBeforeLock.title || '');
