@@ -57,6 +57,22 @@ describe('key bundle routes (E2E key storage)', () => {
     expect(get.body.keyVersion).toBe(1);
   });
 
+  it('round-trips opaque kdfParams (needed so raised KDF defaults don\'t lock out existing wraps)', async () => {
+    const withParams = { ...validBundle, kdfParams: { m: 19456, t: 2, p: 1 }, keyVersion: 1 };
+    const put = await request(app).put('/api/keys/bundle').set('Authorization', `Bearer ${token}`).send(withParams);
+    expect(put.status).toBe(200);
+    const get = await request(app).get('/api/keys/bundle').set('Authorization', `Bearer ${token}`);
+    expect(get.body.kdfParams).toEqual({ m: 19456, t: 2, p: 1 });
+  });
+
+  it('rejects a kdfParams with out-of-range / junk values', async () => {
+    const res = await request(app)
+      .put('/api/keys/bundle')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ ...validBundle, kdfParams: { m: -5, evil: 'x' } });
+    expect(res.status).toBe(400);
+  });
+
   it('rejects a wrappedDataKey without the v3w: envelope prefix', async () => {
     const res = await request(app)
       .put('/api/keys/bundle')

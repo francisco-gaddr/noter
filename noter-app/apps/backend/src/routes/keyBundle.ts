@@ -13,14 +13,25 @@ import { UnauthorizedError, NotFoundError } from '../utils/httpErrors';
  */
 const router = express.Router();
 
+// Opaque KDF params: a small map of known numeric cost keys. Bounded tightly so a client can't
+// stash arbitrary data; the server never interprets it (the client reproduces the key from it).
+const kdfParamsSchema = Joi.object({
+  m: Joi.number().integer().min(1).max(4_194_304), // argon memory (KiB), <= 4 GiB
+  t: Joi.number().integer().min(1).max(64),        // argon passes
+  p: Joi.number().integer().min(1).max(64),        // argon parallelism
+  c: Joi.number().integer().min(1).max(50_000_000), // pbkdf2 iterations
+}).max(4);
+
 const putSchema = Joi.object({
   wrappedDataKey: Joi.string().max(1024).pattern(/^v3w:/).required(),
   kdfSalt: Joi.string().base64().max(256).required(),
   kdf: Joi.string().valid('argon2id', 'pbkdf2-sha256').required(),
+  kdfParams: kdfParamsSchema.optional(),
   keyVersion: Joi.number().integer().min(1).max(1_000_000).required(),
   recoveryWrappedDataKey: Joi.string().max(1024).pattern(/^v3w:/).optional(),
   recoverySalt: Joi.string().base64().max(256).optional(),
   recoveryKdf: Joi.string().valid('argon2id', 'pbkdf2-sha256').optional(),
+  recoveryKdfParams: kdfParamsSchema.optional(),
 });
 
 // GET /api/keys/bundle — fetch this user's key bundle (404 if not enrolled yet).
@@ -32,8 +43,8 @@ router.get('/bundle', async (req: AuthRequest, res: Response, next: NextFunction
     const user = await User.findById(userId).select('keyBundle').lean();
     if (!user?.keyBundle) throw new NotFoundError('No key bundle', { code: 'NO_KEY_BUNDLE' });
 
-    const { wrappedDataKey, kdfSalt, kdf, keyVersion, updatedAt, recoveryWrappedDataKey, recoverySalt, recoveryKdf } = user.keyBundle;
-    res.json({ wrappedDataKey, kdfSalt, kdf, keyVersion, updatedAt, recoveryWrappedDataKey, recoverySalt, recoveryKdf });
+    const { wrappedDataKey, kdfSalt, kdf, kdfParams, keyVersion, updatedAt, recoveryWrappedDataKey, recoverySalt, recoveryKdf, recoveryKdfParams } = user.keyBundle;
+    res.json({ wrappedDataKey, kdfSalt, kdf, kdfParams, keyVersion, updatedAt, recoveryWrappedDataKey, recoverySalt, recoveryKdf, recoveryKdfParams });
   } catch (error) {
     next(error);
   }
@@ -47,10 +58,10 @@ router.put('/bundle', validate(putSchema), async (req: AuthRequest, res: Respons
     const userId = req.user?.userId;
     if (!userId) throw new UnauthorizedError('Not authenticated');
 
-    const { wrappedDataKey, kdfSalt, kdf, keyVersion, recoveryWrappedDataKey, recoverySalt, recoveryKdf } = req.body;
+    const { wrappedDataKey, kdfSalt, kdf, kdfParams, keyVersion, recoveryWrappedDataKey, recoverySalt, recoveryKdf, recoveryKdfParams } = req.body;
     const updated = await User.findByIdAndUpdate(
       userId,
-      { keyBundle: { wrappedDataKey, kdfSalt, kdf, keyVersion, updatedAt: new Date(), recoveryWrappedDataKey, recoverySalt, recoveryKdf } },
+      { keyBundle: { wrappedDataKey, kdfSalt, kdf, kdfParams, keyVersion, updatedAt: new Date(), recoveryWrappedDataKey, recoverySalt, recoveryKdf, recoveryKdfParams } },
       { new: true },
     )
       .select('keyBundle')

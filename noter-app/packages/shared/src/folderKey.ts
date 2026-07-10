@@ -37,7 +37,9 @@ import {
   bytesToB64,
   b64ToBytes,
   V3_PREFIX,
+  parseKdfParams,
   type KdfId,
+  type KdfParams,
 } from './cryptoV3';
 
 /** Envelope prefix for note content sealed under a folder key (vs. `v3:` under the user dataKey). */
@@ -57,6 +59,9 @@ export interface FolderKeyBundle {
   salt: string;
   /** Which KDF produced the root key (so unlock uses the same one). */
   kdf: KdfId;
+  /** KDF cost params recorded with the wrap so unlock reproduces the exact key even after the
+   *  NEW-wrap defaults are raised. Absent on folders created before this field → legacy baselines. */
+  kdfParams?: KdfParams;
   /** The folder key wrapped under the password-derived root key (`v3w:` envelope). */
   wrappedKey: string;
 }
@@ -86,10 +91,11 @@ export async function createFolderKey(
   if (!folderPassword) throw new Error('folderPassword is required');
   const salt = generateSalt();
   const folderKey = generateDataKey();
-  const { key: rootKey, kdf } = await deriveRootKey(folderPassword, salt, preferred);
+  const { key: rootKey, kdf, params } = await deriveRootKey(folderPassword, salt, preferred);
   const wrappedKey = wrapDataKey(folderKey, rootKey);
+  rootKey.fill(0);
   return {
-    bundle: { v: FOLDER_KEY_BUNDLE_VERSION, salt: bytesToB64(salt), kdf, wrappedKey },
+    bundle: { v: FOLDER_KEY_BUNDLE_VERSION, salt: bytesToB64(salt), kdf, kdfParams: params, wrappedKey },
     folderKey,
   };
 }
@@ -108,13 +114,16 @@ export async function unlockFolderKey(
   if (!parsed) throw new FolderUnlockError('malformed folder key bundle');
   let rootKey: Uint8Array;
   try {
-    rootKey = await deriveRootKeyWithKdf(folderPassword, b64ToBytes(parsed.salt), parsed.kdf);
+    rootKey = await deriveRootKeyWithKdf(folderPassword, b64ToBytes(parsed.salt), parsed.kdf, parsed.kdfParams);
   } catch {
     throw new FolderUnlockError('could not derive folder root key');
   }
   try {
-    return unwrapDataKey(parsed.wrappedKey, rootKey);
+    const fk = unwrapDataKey(parsed.wrappedKey, rootKey);
+    rootKey.fill(0);
+    return fk;
   } catch {
+    rootKey.fill(0);
     throw new FolderUnlockError();
   }
 }
@@ -134,12 +143,15 @@ export async function rewrapFolderKey(
     throw new Error('a valid unlocked folderKey is required');
   }
   const salt = generateSalt();
-  const { key: rootKey, kdf } = await deriveRootKey(newFolderPassword, salt, preferred);
+  const { key: rootKey, kdf, params } = await deriveRootKey(newFolderPassword, salt, preferred);
+  const wrappedKey = wrapDataKey(folderKey, rootKey);
+  rootKey.fill(0);
   return {
     v: FOLDER_KEY_BUNDLE_VERSION,
     salt: bytesToB64(salt),
     kdf,
-    wrappedKey: wrapDataKey(folderKey, rootKey),
+    kdfParams: params,
+    wrappedKey,
   };
 }
 
@@ -177,7 +189,10 @@ export function parseFolderKeyBundle(raw: unknown): FolderKeyBundle | null {
   if (typeof o.salt !== 'string' || !o.salt) return null;
   if (o.kdf !== 'argon2id' && o.kdf !== 'pbkdf2-sha256') return null;
   if (typeof o.wrappedKey !== 'string' || !o.wrappedKey.startsWith('v3w:')) return null;
-  return { v: FOLDER_KEY_BUNDLE_VERSION, salt: o.salt, kdf: o.kdf, wrappedKey: o.wrappedKey };
+  // Preserve validated KDF params when present (a tampered/garbage params object is dropped, so
+  // unlock falls back to the legacy baselines rather than being broken by bad input).
+  const kdfParams = parseKdfParams(o.kdf, o.kdfParams) ?? undefined;
+  return { v: FOLDER_KEY_BUNDLE_VERSION, salt: o.salt, kdf: o.kdf, ...(kdfParams ? { kdfParams } : {}), wrappedKey: o.wrappedKey };
 }
 
 /** Serialise a bundle for storage as a single string (e.g. a folder-note field). */

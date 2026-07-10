@@ -125,14 +125,40 @@ describe('dataKey wrap / unwrap', () => {
     const salt = generateSalt();
 
     // enrolment
-    const { key: rootKey, kdf } = await deriveRootKey(password, salt, 'pbkdf2-sha256');
+    const { key: rootKey, kdf, params } = await deriveRootKey(password, salt, 'pbkdf2-sha256');
     const dataKey = generateDataKey();
     const wrapped = wrapDataKey(dataKey, rootKey); // this is what the server keeps
     const note = encryptV3('Top secret note', dataKey);
 
-    // new session / device: only password + (salt, kdf, wrapped) available
-    const rootKey2 = await deriveRootKeyWithKdf(password, salt, kdf);
+    // new session / device: password + (salt, kdf, params, wrapped) available. Params are stored WITH
+    // the wrap so unwrap reproduces the exact key even after the new-wrap KDF defaults change.
+    const rootKey2 = await deriveRootKeyWithKdf(password, salt, kdf, params);
     const dataKey2 = unwrapDataKey(wrapped, rootKey2);
     expect(decryptV3(note, dataKey2)).toEqual('Top secret note');
+  });
+
+  it('BACKWARD COMPAT: a legacy pbkdf2 wrap with NO stored params unwraps via the 200k baseline', async () => {
+    const { deriveRootKeyWithKdf: dk } = await import('./cryptoV3');
+    const password = 'legacy-pw';
+    const salt = generateSalt();
+    // Simulate a pre-params wrap: derive at the OLD 200k count directly (what old code produced).
+    const { pbkdf2Async } = await import('@noble/hashes/pbkdf2');
+    const { sha256 } = await import('@noble/hashes/sha2');
+    const { utf8ToBytes } = await import('@noble/hashes/utils');
+    const legacyRoot = await pbkdf2Async(sha256, utf8ToBytes(password), salt, { c: 200_000, dkLen: 32 });
+    const dataKey = generateDataKey();
+    const wrapped = wrapDataKey(dataKey, legacyRoot);
+    // Unwrap with NO params → must fall back to 200k and reproduce the same key.
+    const root2 = await dk(password, salt, 'pbkdf2-sha256');
+    expect(Array.from(unwrapDataKey(wrapped, root2))).toEqual(Array.from(dataKey));
+  });
+
+  it('rejects a tampered/garbage KDF params object (falls back to safe defaults)', async () => {
+    const { parseKdfParams } = await import('./cryptoV3');
+    expect(parseKdfParams('argon2id', { m: -1, t: 2, p: 1 })).toBeNull();
+    expect(parseKdfParams('argon2id', { m: 19456, t: 2, p: 1 })).toEqual({ m: 19456, t: 2, p: 1 });
+    expect(parseKdfParams('pbkdf2-sha256', { c: 0 })).toBeNull();
+    expect(parseKdfParams('pbkdf2-sha256', { c: 600000 })).toEqual({ c: 600000 });
+    expect(parseKdfParams('pbkdf2-sha256', 'nope')).toBeNull();
   });
 });

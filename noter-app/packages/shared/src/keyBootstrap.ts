@@ -24,6 +24,7 @@ import {
   generateRecoveryCode,
   normalizeRecoveryCode,
   type KdfId,
+  type KdfParams,
 } from './cryptoV3';
 import { setActiveDataKey } from './encrypt';
 
@@ -33,12 +34,17 @@ export interface KeyBundle {
   wrappedDataKey: string;
   kdfSalt: string; // base64
   kdf: KdfId;
+  /** KDF cost params recorded WITH the wrap so unwrap reproduces the exact key even after the
+   *  NEW-wrap defaults are raised. Absent on bundles enrolled before this field existed → unwrap
+   *  falls back to the original baselines (argon 19MiB/t2/p1, pbkdf2 200k). */
+  kdfParams?: KdfParams;
   keyVersion: number;
   // Optional recovery wrap: a second copy of the dataKey sealed under a key
   // derived from a one-time recovery code, so a forgotten password isn't data loss.
   recoveryWrappedDataKey?: string;
   recoverySalt?: string; // base64
   recoveryKdf?: KdfId;
+  recoveryKdfParams?: KdfParams;
 }
 
 export interface BootstrapDeps {
@@ -80,8 +86,9 @@ export async function enrollOrUnlock(password: string, deps: BootstrapDeps): Pro
   const existing = await deps.getBundle();
 
   if (existing) {
-    const rootKey = await deriveRootKeyWithKdf(password, b64ToBytes(existing.kdfSalt), existing.kdf);
+    const rootKey = await deriveRootKeyWithKdf(password, b64ToBytes(existing.kdfSalt), existing.kdf, existing.kdfParams);
     const dataKey = unwrapDataKey(existing.wrappedDataKey, rootKey); // throws on wrong password
+    rootKey.fill(0); // zeroize the password-derived key once the dataKey is unwrapped
     await deps.secureSetDataKey(bytesToB64(dataKey));
     setActiveDataKey(dataKey);
     return { result: 'unlocked' };
@@ -89,23 +96,27 @@ export async function enrollOrUnlock(password: string, deps: BootstrapDeps): Pro
 
   // First-time enrolment.
   const salt = generateSalt();
-  const { key: rootKey, kdf } = await deriveRootKey(password, salt);
+  const { key: rootKey, kdf, params } = await deriveRootKey(password, salt);
   const dataKey = generateDataKey();
 
   // Also wrap the dataKey under a one-time recovery code.
   const recoveryCode = generateRecoveryCode();
   const recoverySalt = generateSalt();
-  const { key: recoveryKey, kdf: recoveryKdf } = await deriveRootKey(normalizeRecoveryCode(recoveryCode), recoverySalt);
+  const { key: recoveryKey, kdf: recoveryKdf, params: recoveryParams } = await deriveRootKey(normalizeRecoveryCode(recoveryCode), recoverySalt);
 
   const bundle: KeyBundle = {
     wrappedDataKey: wrapDataKey(dataKey, rootKey),
     kdfSalt: bytesToB64(salt),
     kdf,
+    kdfParams: params,
     keyVersion: KEY_VERSION,
     recoveryWrappedDataKey: wrapDataKey(dataKey, recoveryKey),
     recoverySalt: bytesToB64(recoverySalt),
     recoveryKdf,
+    recoveryKdfParams: recoveryParams,
   };
+  rootKey.fill(0);
+  recoveryKey.fill(0);
   // Persist everywhere BEFORE activating writes.
   await deps.putBundle(bundle);
   await deps.secureSetDataKey(bytesToB64(dataKey));
@@ -127,8 +138,10 @@ export async function recoverWithCode(code: string, deps: BootstrapDeps): Promis
     normalizeRecoveryCode(code),
     b64ToBytes(bundle.recoverySalt),
     bundle.recoveryKdf,
+    bundle.recoveryKdfParams,
   );
   const dataKey = unwrapDataKey(bundle.recoveryWrappedDataKey, recoveryKey); // throws on wrong code
+  recoveryKey.fill(0);
   await deps.secureSetDataKey(bytesToB64(dataKey));
   setActiveDataKey(dataKey);
 }
@@ -155,22 +168,26 @@ export async function changePassword(
   }
 
   // Verify the old password by unwrapping the current dataKey.
-  const oldRootKey = await deriveRootKeyWithKdf(oldPassword, b64ToBytes(existing.kdfSalt), existing.kdf);
+  const oldRootKey = await deriveRootKeyWithKdf(oldPassword, b64ToBytes(existing.kdfSalt), existing.kdf, existing.kdfParams);
   const dataKey = unwrapDataKey(existing.wrappedDataKey, oldRootKey); // throws on wrong old password
+  oldRootKey.fill(0);
 
-  // Re-wrap the SAME dataKey under a fresh root key derived from the new password.
+  // Re-wrap the SAME dataKey under a fresh root key derived from the new password (with the
+  // current — possibly strengthened — KDF defaults, recorded in the new bundle).
   const newSalt = generateSalt();
-  const { key: newRootKey, kdf: newKdf } = await deriveRootKey(newPassword, newSalt);
+  const { key: newRootKey, kdf: newKdf, params: newParams } = await deriveRootKey(newPassword, newSalt);
 
   const bundle: KeyBundle = {
     ...existing,
     wrappedDataKey: wrapDataKey(dataKey, newRootKey),
     kdfSalt: bytesToB64(newSalt),
     kdf: newKdf,
+    kdfParams: newParams,
     keyVersion: KEY_VERSION,
     // recovery* fields preserved from `existing` via the spread — same dataKey,
     // so the recovery code still unwraps it.
   };
+  newRootKey.fill(0);
 
   await deps.putBundle(bundle);
   // dataKey is unchanged, but refresh the device copy for good measure and keep

@@ -29,13 +29,52 @@ export const SALT_LEN = 16;
  * Argon2id parameters. Tuned for a pure-JS runtime (Hermes/browsers): OWASP's
  * lighter-but-acceptable profile (19 MiB, 2 passes) so a once-per-unlock
  * derivation stays in the sub-second-to-low-second range on a phone. The chosen
- * KDF + params are recorded alongside the wrapped key so they can be bumped
- * later without breaking existing wraps.
+ * KDF + params are recorded alongside the wrapped key (see `KdfParams`) so they
+ * can be bumped later WITHOUT breaking existing wraps — a wrap made with old
+ * params is always re-derived with those exact stored params.
  */
 export const ARGON2_PARAMS = { t: 2, m: 19456, p: 1, dkLen: KEY_LEN } as const;
-export const PBKDF2_ITERATIONS = 200_000;
+
+/**
+ * PBKDF2-HMAC-SHA256 iteration count for NEW derivations. 600k is the OWASP 2023+
+ * minimum for PBKDF2-SHA256 (the earlier 200k baseline is retained only as the
+ * fallback for wraps enrolled before params were persisted — see LEGACY). PBKDF2 is
+ * only ever reached when Argon2id is unavailable in the runtime, so this heavier
+ * count runs on a rare path.
+ */
+export const PBKDF2_ITERATIONS = 600_000;
+/** Iteration count for pbkdf2 wraps created before per-wrap params were stored. */
+export const LEGACY_PBKDF2_ITERATIONS = 200_000;
 
 export type KdfId = 'argon2id' | 'pbkdf2-sha256';
+
+/** Argon2id cost params as persisted alongside a wrap (dkLen is fixed at KEY_LEN). */
+export interface Argon2Params { m: number; t: number; p: number }
+/** PBKDF2 cost params as persisted alongside a wrap. */
+export interface Pbkdf2Params { c: number }
+/** The KDF cost parameters recorded with a wrapped key so unwrap can reproduce the exact key. */
+export type KdfParams = Argon2Params | Pbkdf2Params;
+
+/** The cost params a NEW derivation uses for a given KDF (persist these with the wrap). */
+export const defaultKdfParams = (kdf: KdfId): KdfParams =>
+  kdf === 'argon2id'
+    ? { m: ARGON2_PARAMS.m, t: ARGON2_PARAMS.t, p: ARGON2_PARAMS.p }
+    : { c: PBKDF2_ITERATIONS };
+
+/** Validate an untrusted params object for a KDF; returns null if not usable (caller then uses
+ *  the legacy defaults). Guards against a tampered/garbage params field weakening or breaking a
+ *  derivation. */
+export const parseKdfParams = (kdf: KdfId, raw: unknown): KdfParams | null => {
+  if (!raw || typeof raw !== 'object') return null;
+  const o = raw as Record<string, unknown>;
+  const posInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0;
+  if (kdf === 'argon2id') {
+    if (posInt(o.m) && posInt(o.t) && posInt(o.p)) return { m: o.m, t: o.t, p: o.p };
+    return null;
+  }
+  if (posInt(o.c)) return { c: o.c };
+  return null;
+};
 
 // ---------------------------------------------------------------------------
 // base64 (pure, no btoa/Buffer dependency so it is identical across runtimes)
@@ -121,29 +160,48 @@ export async function deriveRootKey(
   password: string,
   salt: Uint8Array,
   preferred: KdfId = 'argon2id',
-): Promise<{ key: Uint8Array; kdf: KdfId }> {
+): Promise<{ key: Uint8Array; kdf: KdfId; params: KdfParams }> {
   const pwd = utf8ToBytes(password);
   if (preferred === 'argon2id') {
-    try {
-      const key = await argon2idAsync(pwd, salt, ARGON2_PARAMS);
-      return { key, kdf: 'argon2id' };
-    } catch {
-      // fall through to PBKDF2
+    // Argon2id from @noble is PURE JS, so it is always *available* — a throw here is a transient
+    // condition (e.g. a 19 MiB alloc failing under memory pressure), not "unsupported". Retrying
+    // once avoids silently and PERMANENTLY pinning the account to the weaker KDF on a one-off blip
+    // (audit finding: silent KDF downgrade). Only a repeated failure falls back — and the fallback
+    // is now OWASP-strength PBKDF2 (600k), not the old 200k.
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const key = await argon2idAsync(pwd, salt, ARGON2_PARAMS);
+        return { key, kdf: 'argon2id', params: defaultKdfParams('argon2id') };
+      } catch {
+        // retry once, then fall through to PBKDF2
+      }
     }
   }
   const key = await pbkdf2Async(sha256, pwd, salt, { c: PBKDF2_ITERATIONS, dkLen: KEY_LEN });
-  return { key, kdf: 'pbkdf2-sha256' };
+  return { key, kdf: 'pbkdf2-sha256', params: defaultKdfParams('pbkdf2-sha256') };
 }
 
-/** Re-derive a root key with a known KDF (used on unwrap). */
+/**
+ * Re-derive a root key with a known KDF (used on unwrap). `params` are the cost parameters that were
+ * recorded with the wrap; when absent (a wrap enrolled before params were persisted) the original
+ * baselines are used so the SAME key is reproduced — this is what makes it safe to raise the NEW-wrap
+ * defaults above without locking anyone out.
+ */
 export async function deriveRootKeyWithKdf(
   password: string,
   salt: Uint8Array,
   kdf: KdfId,
+  params?: KdfParams | null,
 ): Promise<Uint8Array> {
   const pwd = utf8ToBytes(password);
-  if (kdf === 'argon2id') return argon2idAsync(pwd, salt, ARGON2_PARAMS);
-  return pbkdf2Async(sha256, pwd, salt, { c: PBKDF2_ITERATIONS, dkLen: KEY_LEN });
+  const valid = params ? parseKdfParams(kdf, params) : null;
+  if (kdf === 'argon2id') {
+    const a = valid as Argon2Params | null;
+    const argonParams = a ? { m: a.m, t: a.t, p: a.p, dkLen: KEY_LEN } : ARGON2_PARAMS;
+    return argon2idAsync(pwd, salt, argonParams);
+  }
+  const c = (valid as Pbkdf2Params | null)?.c ?? LEGACY_PBKDF2_ITERATIONS;
+  return pbkdf2Async(sha256, pwd, salt, { c, dkLen: KEY_LEN });
 }
 
 // ---------------------------------------------------------------------------

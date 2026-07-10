@@ -10,12 +10,16 @@ export interface IKeyBundle {
   wrappedDataKey: string; // `v3w:` envelope
   kdfSalt: string; // base64
   kdf: string; // 'argon2id' | 'pbkdf2-sha256'
+  // Opaque KDF cost params recorded WITH the wrap (argon {m,t,p} | pbkdf2 {c}) so the client can
+  // reproduce the exact key even after the new-wrap defaults are raised. Server never interprets it.
+  kdfParams?: Record<string, number>;
   keyVersion: number;
   updatedAt: Date;
   // Optional recovery wrap (a second copy of the dataKey under a recovery code).
   recoveryWrappedDataKey?: string;
   recoverySalt?: string;
   recoveryKdf?: string;
+  recoveryKdfParams?: Record<string, number>;
 }
 
 export interface IUser extends Document {
@@ -30,11 +34,15 @@ const KeyBundleSchema = new Schema<IKeyBundle>(
     wrappedDataKey: { type: String, required: true, maxlength: 1024 },
     kdfSalt: { type: String, required: true, maxlength: 256 },
     kdf: { type: String, required: true, enum: ['argon2id', 'pbkdf2-sha256'] },
+    // Opaque numeric params; a plain object (not Map) so `.lean()` + res.json serialize cleanly.
+    // Shape is enforced by the route's Joi schema on the way in; server never interprets it.
+    kdfParams: { type: Schema.Types.Mixed, required: false },
     keyVersion: { type: Number, required: true, min: 1, max: 1_000_000 },
     updatedAt: { type: Date, default: Date.now },
     recoveryWrappedDataKey: { type: String, required: false, maxlength: 1024 },
     recoverySalt: { type: String, required: false, maxlength: 256 },
     recoveryKdf: { type: String, required: false, enum: ['argon2id', 'pbkdf2-sha256'] },
+    recoveryKdfParams: { type: Schema.Types.Mixed, required: false },
   },
   { _id: false },
 );
