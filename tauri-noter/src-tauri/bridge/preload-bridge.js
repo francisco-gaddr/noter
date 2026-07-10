@@ -194,10 +194,16 @@
     validateDroppedFiles: () => Promise.resolve([]),
     readDroppedFile: notPorted('readDroppedFile'),
 
-    // macOS share menu / Touch Bar — TODO(tauri): port (macOS only).
+    // macOS share menu — TODO(tauri): port (macOS only).
     openShareMenu: () => Promise.resolve(),
     setTouchBar: () => Promise.resolve(),
-    onTouchBarAction: () => noop,
+    // App-action events — PORTED (exact Electron shape: handler({ action })). Today Rust emits
+    // action:newNote from the Quick Capture global hotkey; the rest are wired for future emitters.
+    onTouchBarAction: (handler) => {
+      const actions = ['newNote', 'find', 'save', 'findPrev', 'findNext', 'findStop', 'openSettings'];
+      const uns = actions.map((a) => on(`action:${a}`, () => handler({ action: a })));
+      return () => uns.forEach((un) => un());
+    },
 
     // Print — PORTED via the webview's own print dialog. The lock invariant is preserved: a locked
     // note is NEVER printed (mirrors Electron's { ok:false, reason:'note-is-locked' } guard).

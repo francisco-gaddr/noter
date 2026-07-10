@@ -227,6 +227,23 @@ test('multi-window: openNoteInWindow calls the Rust command with the id', async 
   assert.deepEqual(call, { c: 'open_note_window', a: { id: 'abc123' } });
 });
 
+test('onTouchBarAction subscribes to all 7 action:* events and delivers { action }', async () => {
+  const subscribed = [];
+  const handlers = {};
+  const win = loadBridge({
+    event: { listen: async (evt, cb) => { subscribed.push(evt); handlers[evt] = cb; return () => {}; } },
+  });
+  let got = null;
+  win.noterDesktop.onTouchBarAction((p) => { got = p; });
+  await Promise.resolve();
+  assert.deepEqual(
+    subscribed.sort(),
+    ['action:find', 'action:findNext', 'action:findPrev', 'action:findStop', 'action:newNote', 'action:openSettings', 'action:save']
+  );
+  handlers['action:newNote']({ payload: {} }); // Rust quick-capture emit
+  assert.deepEqual(got, { action: 'newNote' }, 'exact Electron handler shape');
+});
+
 test('unported channels reject with a clear message', async () => {
   const win = loadBridge();
   await assert.rejects(() => win.mlc.chat({}), /being ported/);

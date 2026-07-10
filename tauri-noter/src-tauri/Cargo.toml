@@ -28,6 +28,7 @@ tauri-plugin-notification = "2"   # reminders / update notices
 tauri-plugin-dialog = "2"         # native open/save dialogs (import/export)
 tauri-plugin-single-instance = "2" # focus the existing window instead of launching a second app
 tauri-plugin-deep-link = "2"      # noter:// protocol + .noter file open
+tauri-plugin-global-shortcut = "2" # Quick Capture: global "new note" hotkey (Bear/Obsidian-style)
 url = "2"                         # trusted URL parsing for the deep-link validator
 
 [features]

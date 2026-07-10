@@ -94,6 +94,34 @@ pub fn run() {
             if let Err(e) = tray::build(app.handle()) {
                 eprintln!("tray init failed: {e}");
             }
+
+            // Quick Capture (Bear/Obsidian-style): a system-wide hotkey that raises the app and asks
+            // the UI to start a new note (the Electron `action:newNote` contract). Registration is
+            // best-effort — another app may own the combo; the feature degrades to in-app shortcuts.
+            {
+                use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
+                let quick = Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyN);
+                match tauri_plugin_global_shortcut::Builder::new().with_shortcut(quick) {
+                    Ok(builder) => {
+                        let plugin = builder
+                            .with_handler(move |app, _shortcut, event| {
+                                if event.state() == ShortcutState::Pressed {
+                                    if let Some(w) = app.get_webview_window("main") {
+                                        let _ = w.show();
+                                        let _ = w.unminimize();
+                                        let _ = w.set_focus();
+                                    }
+                                    let _ = app.emit("action:newNote", serde_json::json!({}));
+                                }
+                            })
+                            .build();
+                        if let Err(e) = app.handle().plugin(plugin) {
+                            eprintln!("quick-capture shortcut unavailable: {e}");
+                        }
+                    }
+                    Err(e) => eprintln!("quick-capture shortcut invalid: {e}"),
+                }
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
