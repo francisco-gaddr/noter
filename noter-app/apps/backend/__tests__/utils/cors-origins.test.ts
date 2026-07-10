@@ -34,4 +34,29 @@ describe('getAllowedOrigins (CORS allowlist)', () => {
     const origins = getAllowedOrigins();
     expect(new Set(origins).size).toBe(origins.length);
   });
+
+  it('allows the Tauri desktop origins (migration target)', () => {
+    delete process.env.CORS_ORIGINS;
+    const origins = getAllowedOrigins();
+    expect(origins).toContain('tauri://localhost');
+    expect(origins).toContain('http://tauri.localhost');
+  });
+
+  it('SECURITY: does NOT trust dev-localhost origins in production', () => {
+    // security.ts reads NODE_ENV at MODULE LOAD, so re-import under a production env.
+    const prevEnv = process.env.NODE_ENV;
+    jest.resetModules();
+    process.env.NODE_ENV = 'production';
+    delete process.env.CORS_ORIGINS;
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const prodMod = require('../../src/utils/security');
+    const origins: string[] = prodMod.getAllowedOrigins();
+    expect(origins).not.toContain('http://localhost:3000');
+    expect(origins).not.toContain('http://127.0.0.1:3000');
+    // first-party origins still allowed
+    expect(origins).toContain('https://daylited.com');
+    expect(origins).toContain('app://noter');
+    process.env.NODE_ENV = prevEnv;
+    jest.resetModules();
+  });
 });

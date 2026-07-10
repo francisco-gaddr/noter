@@ -2,6 +2,7 @@ import express from 'express';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
+import { createHash, timingSafeEqual } from 'crypto';
 import cors from 'cors';
 import mongoose from 'mongoose';
 import http from 'http';
@@ -493,7 +494,12 @@ app.get('/internal/perf-snapshot', (req, res) => {
   const remote = req.ip || '';
   const isLoopback = remote === '127.0.0.1' || remote === '::1' || remote === '::ffff:127.0.0.1';
   if (expected) {
-    if (provided !== expected) return res.status(401).json({ message: 'unauthorized' });
+    // Constant-time compare over SHA-256 digests (fixed 32 bytes → no length leak, no early-exit
+    // timing side-channel that could reveal PERF_SNAPSHOT_TOKEN byte-by-byte).
+    const providedStr = typeof provided === 'string' ? provided : '';
+    const eq = providedStr.length > 0 &&
+      timingSafeEqual(createHash('sha256').update(providedStr).digest(), createHash('sha256').update(expected).digest());
+    if (!eq) return res.status(401).json({ message: 'unauthorized' });
   } else if (!isLoopback) {
     return res.status(401).json({ message: 'unauthorized' });
   }
@@ -596,7 +602,9 @@ app.use('/api/graphql', authMiddleware, async (req, res, next) => {
       let userId: string | undefined = (incoming as any).user?.userId;
       let tenant: ReturnType<typeof extractTenantClaims> | undefined = (incoming as any).tenant;
       const token = getBearerTokenFromRequestLike(incoming);
-      if (!userId && token === 'demo-token') userId = 'demo-user-id';
+      // Gate the demo identity behind the same flag as the other two auth paths (defence in depth:
+      // the route already sits behind authMiddleware, but never rely on mount order for a security check).
+      if (!userId && token === 'demo-token' && isDemoTokenEnabled()) userId = 'demo-user-id';
       if (token && token !== 'demo-token' && (!userId || !tenant)) {
         try {
           const decoded = jwt.verify(token, getJwtSecret(), getJwtVerifyOptions());
