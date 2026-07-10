@@ -38,6 +38,11 @@
         "description": "Noter note file",
         "role": "Editor"
       }
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "compression": "zlib"
+      }
+    }
   }
 }

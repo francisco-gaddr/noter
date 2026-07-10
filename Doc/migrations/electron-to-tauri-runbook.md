@@ -464,6 +464,14 @@ cargo tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc
 ```
 Windows-signering (Authenticode) görs separat före distribution; för updatern krävs den (§6).
 
+**Verifierat läge 2026-07-10:** Rust-cross-kompilen fungerar — `noter-tauri.exe` (PE32+ x86-64 GUI,
+12 MB) byggdes felfritt från denna Mac. Själva NSIS-*paketeringen* är däremot blockerad av en trasig
+Homebrew-bottle: `makensis` 3.12 kraschar med `std::bad_alloc` på macOS 26/ARM **även på ett trivialt
+3-raders .nsi** (alltså verktyget, inte vårt projekt; reinstall + zlib-komprimering hjälpte inte).
+Åtgärd när det behövs: `brew upgrade nsis` när bottlen är lagad, eller kör `cargo tauri build` på en
+riktig Windows-maskin (ger då både NSIS och MSI). `bundle.windows.nsis.compression: "zlib"` behålls —
+det är rätt inställning för cross-byggen oavsett.
+
 ---
 
 ## 9. Security gate (run at the end of EVERY phase, and before release)
