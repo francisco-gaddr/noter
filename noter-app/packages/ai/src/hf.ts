@@ -87,8 +87,11 @@ export class HuggingFaceService {
       }
 
       const data = await response.json();
-      
-      return data.map((model: any) => ({
+      // A 200 with a non-array body (rate-limit page, error object) must degrade to an
+      // empty result, not TypeError the model browser.
+      const rows: any[] = Array.isArray(data) ? data : Array.isArray((data as any)?.models) ? (data as any).models : [];
+
+      return rows.map((model: any) => ({
         id: model.id,
         author: model.author,
         name: model.id.split('/')[1] || model.id,

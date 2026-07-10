@@ -232,6 +232,13 @@ export const buildNeo4jSyncPlan = (
   config: Neo4jConfig,
 ): CypherStatement[] => {
   if (!config.enabled) return [];
+  // SAFETY: empty INPUT (no notes and no tasks at all) means the data hasn't loaded/decrypted
+  // yet — a sync fired too early. Pruning then would DETACH DELETE the user's ENTIRE mirrored
+  // graph against an empty keep-list, so skip; the next real sync reconciles. NOTE: this is
+  // deliberately different from an empty SELECTION with non-empty input — that is a legitimate
+  // "everything became locked/deselected" state whose prune-all is exactly how newly-locked
+  // content gets scrubbed from the mirror (see the security test).
+  if (notes.length + tasks.length === 0) return [];
   // Always the empty unlock set — locked notes/folders are never mirrored.
   const selection = selectForNeo4j(notes, tasks, config);
   return [buildCypherPrune(userId, selection), ...buildCypherSync(userId, selection, config)];

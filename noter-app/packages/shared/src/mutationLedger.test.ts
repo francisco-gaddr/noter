@@ -1,4 +1,4 @@
-import { createAppliedLedger, applyMutationsOnce, DEFAULT_LEDGER_SIZE } from './mutationLedger';
+import { createAppliedLedger, applyMutationsOnce, DEFAULT_LEDGER_SIZE, POISON_MUTATION_MAX_ATTEMPTS } from './mutationLedger';
 
 describe('createAppliedLedger', () => {
   it('tracks added ids and ignores empty/duplicate adds', () => {
@@ -65,5 +65,33 @@ describe('applyMutationsOnce', () => {
       async () => {},
     );
     expect(ack).toEqual(['1']);
+  });
+});
+
+describe('poison-mutation quarantine', () => {
+  const m = (id: string) => ({ id, kind: 'noop' });
+  it('acks-and-drops a mutation after POISON_MUTATION_MAX_ATTEMPTS failures, and reports it', async () => {
+    const l = createAppliedLedger();
+    const quarantined: string[] = [];
+    const alwaysFails = async () => { throw new Error('permanent 4xx'); };
+    for (let i = 0; i < POISON_MUTATION_MAX_ATTEMPTS - 1; i += 1) {
+      const ack = await applyMutationsOnce([m('poison')], l, alwaysFails, (mu) => quarantined.push(mu.id));
+      expect(ack).toEqual([]); // still retrying
+    }
+    const finalAck = await applyMutationsOnce([m('poison')], l, alwaysFails, (mu) => quarantined.push(mu.id));
+    expect(finalAck).toEqual(['poison']);      // quarantined: acked so the server drops it
+    expect(quarantined).toEqual(['poison']);   // and the caller was told
+    expect(l.has('poison')).toBe(true);        // never re-applied
+  });
+
+  it('a success resets the failure count (no false quarantine after recovery)', async () => {
+    const l = createAppliedLedger();
+    let fail = true;
+    const flaky = async () => { if (fail) throw new Error('transient'); };
+    await applyMutationsOnce([m('x')], l, flaky);
+    fail = false;
+    const ack = await applyMutationsOnce([m('x')], l, flaky);
+    expect(ack).toEqual(['x']);
+    expect(l.has('x')).toBe(true);
   });
 });

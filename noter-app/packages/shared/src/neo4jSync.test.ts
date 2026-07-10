@@ -106,3 +106,10 @@ describe('neo4jSync Cypher generation', () => {
     expect(plan.some((s) => s.text.includes('MERGE (n:NoterNode'))).toBe(false);
   });
 });
+
+describe('empty-input safety guard', () => {
+  const cfg2 = { enabled: true, includeAll: true, folderIds: [], includeTasks: true } as any;
+  it('returns NO plan (especially no prune) when input data is entirely empty — a transient not-yet-loaded state must never wipe the mirrored graph', () => {
+    expect(buildNeo4jSyncPlan('u', [], [], cfg2)).toEqual([]);
+  });
+});

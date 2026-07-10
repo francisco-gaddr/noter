@@ -105,7 +105,12 @@ export const scheduleNext = (
   return { ease, intervalDays, reps, due: new Date(now.getTime() + intervalDays * DAY_MS).toISOString() };
 };
 
-export const isDue = (card: { due: string }, now: Date): boolean => new Date(card.due).getTime() <= now.getTime();
+/** A card with a corrupt/unparsable `due` is treated as DUE (it surfaces for review and gets a
+ *  fresh valid date on answer) instead of silently dropping out of every session forever. */
+export const isDue = (card: { due: string }, now: Date): boolean => {
+  const t = new Date(card.due).getTime();
+  return Number.isNaN(t) ? true : t <= now.getTime();
+};
 
 /** Newly-created card defaults (due immediately). */
 export const newCardState = (now: Date): Pick<Flashcard, 'ease' | 'intervalDays' | 'reps' | 'due'> => ({

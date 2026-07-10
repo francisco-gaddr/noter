@@ -11,7 +11,7 @@
  * incidental client-side store masking. Locked content stays encrypted/blank unless the
  * user unlocked it first.
  */
-import { decrypt } from './encrypt';
+import { decrypt, isAnyCiphertext } from './encrypt';
 
 export type SecurityNote = {
   _id: string;
@@ -26,18 +26,29 @@ export type SecurityNote = {
   icon?: string;
 };
 
-/** Parse a `locked` flag that may be a boolean, number, plain string, or ciphertext. */
+/** Parse a `locked` flag that may be a boolean, number, plain string, or ciphertext.
+ *
+ *  SECURITY: fails CLOSED. A ciphertext flag we cannot decrypt (no active dataKey — e.g. on the
+ *  always-on backend — or a key mismatch) must be treated as LOCKED: the flag being ciphertext at
+ *  all proves the note carries a lock-relevant field we cannot verify, and guessing "unlocked"
+ *  would let the AI read a note its owner locked. Only an explicit decrypted 'false' unlocks. */
 export const parseLockedFlag = (value: unknown): boolean => {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'number') return value === 1;
   if (typeof value === 'string') {
     if (value === 'true') return true;
     if (value === 'false' || value === '') return false;
-    try {
-      return decrypt(value) === 'true';
-    } catch {
-      return false;
+    if (isAnyCiphertext(value)) {
+      try {
+        // decrypt() signals failure by returning '' — that is the undecryptable case (no/wrong
+        // key), NOT an unlocked flag. Only an explicit decrypted 'false' unlocks.
+        return decrypt(value) !== 'false';
+      } catch {
+        return true;
+      }
     }
+    // A plain (non-ciphertext) unexpected string is not a lock signal.
+    return false;
   }
   return false;
 };

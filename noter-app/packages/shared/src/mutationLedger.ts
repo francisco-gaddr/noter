@@ -55,12 +55,22 @@ export const createAppliedLedger = (maxSize: number = DEFAULT_LEDGER_SIZE): Appl
  * Returns the ids to ACK (applied-now ∪ already-applied). Never throws — a single mutation's failure
  * doesn't abort the batch.
  */
+/** After this many failed applies of the SAME mutation it is quarantined: acked-and-dropped so a
+ *  poison message (malformed body, deleted parent, permanent 4xx) can't re-fail on every drain
+ *  forever. Failures are counted across drains within the session. */
+export const POISON_MUTATION_MAX_ATTEMPTS = 5;
+
+const failureCounts = new WeakMap<AppliedLedger, Map<string, number>>();
+
 export const applyMutationsOnce = async <M extends { id: string }>(
   mutations: M[],
   ledger: AppliedLedger,
   apply: (mutation: M) => Promise<void>,
+  onQuarantine?: (mutation: M, error: unknown) => void,
 ): Promise<string[]> => {
   const ackIds: string[] = [];
+  let failures = failureCounts.get(ledger);
+  if (!failures) { failures = new Map(); failureCounts.set(ledger, failures); }
   for (const m of Array.isArray(mutations) ? mutations : []) {
     if (!m || typeof m.id !== 'string' || !m.id) continue;
     if (ledger.has(m.id)) { ackIds.push(m.id); continue; } // duplicate redelivery — re-ack, don't re-apply
@@ -68,8 +78,19 @@ export const applyMutationsOnce = async <M extends { id: string }>(
       await apply(m);
       ledger.add(m.id);
       ackIds.push(m.id);
-    } catch {
-      // leave un-acked: it stays queued and retries on the next drain
+      failures.delete(m.id);
+    } catch (error) {
+      const attempts = (failures.get(m.id) ?? 0) + 1;
+      failures.set(m.id, attempts);
+      if (attempts >= POISON_MUTATION_MAX_ATTEMPTS) {
+        // Poison: quarantine by acking WITHOUT applying — the server drops it and the drain
+        // loop stops re-failing on it. The caller is told so it can log/surface the loss.
+        ledger.add(m.id);
+        ackIds.push(m.id);
+        failures.delete(m.id);
+        try { onQuarantine?.(m, error); } catch { /* observer must not break the drain */ }
+      }
+      // otherwise: leave un-acked — it stays queued and retries on the next drain
     }
   }
   return ackIds;

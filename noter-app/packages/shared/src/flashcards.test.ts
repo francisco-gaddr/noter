@@ -58,3 +58,10 @@ describe('isDue', () => {
     expect(isDue({ due: '2026-06-21T00:00:00.000Z' }, now)).toBe(false);
   });
 });
+
+describe('isDue with corrupt dates', () => {
+  it('treats an unparsable due date as DUE so the card is never silently lost', () => {
+    expect(isDue({ due: 'not-a-date' } as any, new Date())).toBe(true);
+    expect(isDue({ due: '' } as any, new Date())).toBe(true);
+  });
+});

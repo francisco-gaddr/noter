@@ -79,3 +79,15 @@ describe('embedTexts', () => {
     ).rejects.toThrow(/tom vektor/);
   });
 });
+
+describe('parseEmbeddingsResponse corrupt-component guard', () => {
+  it('maps a vector with any non-finite component to [] so embedTexts fails the batch loudly', () => {
+    const json = { data: [
+      { index: 0, embedding: [0.1, 0.2] },
+      { index: 1, embedding: [0.3, null, 0.5] },  // corrupt row
+    ] };
+    const rows = parseEmbeddingsResponse(json, 2);
+    expect(rows[0]).toEqual([0.1, 0.2]);
+    expect(rows[1]).toEqual([]);                   // NOT zero-padded
+  });
+});

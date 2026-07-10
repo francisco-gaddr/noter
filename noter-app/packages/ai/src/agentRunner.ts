@@ -125,6 +125,22 @@ export const formatToolResultMessage = (tool: string, tc: { result?: unknown; er
     ? `Fel vid ${tool}: ${clampError(tc.error)}`
     : `Resultat för ${tool}: ${clampJson(tc.result)}`;
 
+/** Race a promise against a hard deadline (timer always cleared — no leaked handles). The
+ *  model/tool impls are injected and not all of them enforce their own timeouts, so the loop
+ *  defends itself: a provider that connects but never completes must not freeze the run. */
+const raceDeadline = <T>(promise: Promise<T>, ms: number, what: string): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} tog för lång tid (>${Math.round(ms / 1000)}s)`)), ms);
+  });
+  return Promise.race([promise, deadline]).finally(() => { if (timer) clearTimeout(timer); }) as Promise<T>;
+};
+
+/** Generous by design: local models on modest hardware stream slowly, and tools may do real
+ *  work — these bound "hung forever", not "slow". */
+const MODEL_CALL_TIMEOUT_MS = 300_000;
+const TOOL_CALL_TIMEOUT_MS = 120_000;
+
 export const runAgentTask = async (params: {
   system: string;
   goal: string;
@@ -163,7 +179,7 @@ export const runAgentTask = async (params: {
 
     let assistant: string;
     try {
-      assistant = await deps.invokeModel(messages);
+      assistant = await raceDeadline(deps.invokeModel(messages), MODEL_CALL_TIMEOUT_MS, 'Modellanropet');
     } catch (e) {
       finalText = `Modellanrop misslyckades: ${(e as Error)?.message ?? e}`;
       stopped = 'error';
@@ -211,7 +227,7 @@ export const runAgentTask = async (params: {
       }
 
       try {
-        tc.result = await deps.executeTool(call.tool, call.arguments);
+        tc.result = await raceDeadline(deps.executeTool(call.tool, call.arguments), TOOL_CALL_TIMEOUT_MS, `Verktyget ${call.tool}`);
       } catch (e) {
         tc.error = (e as Error)?.message ?? String(e);
       }

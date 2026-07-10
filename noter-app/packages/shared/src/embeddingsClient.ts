@@ -40,10 +40,15 @@ export const parseEmbeddingsResponse = (json: any, expected = 0): number[][] => 
   const data = json?.data;
   if (!Array.isArray(data)) return [];
   const rows = data
-    .map((d: any, i: number) => ({
-      index: Number.isFinite(d?.index) ? Number(d.index) : i,
-      vector: Array.isArray(d?.embedding) ? d.embedding.map((n: any) => Number(n) || 0) : [],
-    }))
+    .map((d: any, i: number) => {
+      // A vector with ANY non-numeric/non-finite component is corrupt — map it to [] so
+      // embedTexts' empty-vector guard fails the batch loudly (retried), instead of silently
+      // storing a zero-padded embedding that degrades semantic search forever. Validate the
+      // ORIGINAL values: Number(null) is 0 (finite) and would slip through a post-cast check.
+      const src: any[] = Array.isArray(d?.embedding) ? d.embedding : [];
+      const ok = src.length > 0 && src.every((n: any) => typeof n === 'number' && Number.isFinite(n));
+      return { index: Number.isFinite(d?.index) ? Number(d.index) : i, vector: ok ? (src as number[]) : [] };
+    })
     .sort((a, b) => a.index - b.index)
     .map((r) => r.vector);
   if (expected > 0 && rows.length !== expected) {

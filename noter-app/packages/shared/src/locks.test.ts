@@ -19,6 +19,19 @@ describe('parseLockedFlag', () => {
     expect(parseLockedFlag('')).toBe(false);
     expect(parseLockedFlag(undefined)).toBe(false);
   });
+
+  it('SECURITY: fails CLOSED on ciphertext that cannot be decrypted (no/wrong key)', () => {
+    // A v3 envelope with no active dataKey in this process: decrypt() cannot open it.
+    // Guessing "unlocked" would let the AI read a locked note — must resolve LOCKED.
+    expect(parseLockedFlag('v3:AAAA:BBBB:CCCC')).toBe(true);
+    // Legacy CryptoJS marker with garbage body (wrong key/corrupt) — same rule.
+    expect(parseLockedFlag('U2FsdGVkX1+garbagegarbage')).toBe(true);
+  });
+
+  it('a plain non-ciphertext junk string is not a lock signal', () => {
+    expect(parseLockedFlag('yes')).toBe(false);
+    expect(parseLockedFlag('0')).toBe(false);
+  });
 });
 
 describe('hasLockSignal', () => {
