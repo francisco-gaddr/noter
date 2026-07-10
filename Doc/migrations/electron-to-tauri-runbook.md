@@ -436,6 +436,36 @@ WebKitGTK — but never claim Electron-level rendering parity.
 
 ---
 
+## 8a. Verified build paths (macOS + Windows, no GitHub Actions)
+
+Both artifacts build **from Francisco's Mac** — no CI service needed (GH Actions is deliberately
+removed from this repo; tests run locally via the pre-push gate + the Pi).
+
+**macOS (proven 2026-07-10):**
+```bash
+cd tauri-noter && npm run build:frontend   # static export → dist/
+cd src-tauri && cargo tauri build          # → Noter.app + Noter_<ver>_aarch64.dmg (~6 MB)
+```
+For distribution: add Developer-ID signing + notarization (the ad-hoc signature works for local use).
+
+**Windows från macOS (cross-compile, officiellt stödd väg):** NSIS `-setup.exe` (MSI/WiX kräver
+Windows — NSIS är den officiella cross-vägen). One-time setup:
+```bash
+brew install nsis llvm                      # makensis + llvm-rc
+rustup target add x86_64-pc-windows-msvc
+cargo install cargo-xwin                    # downloads the Windows SDK to a cache on first build
+```
+Build:
+```bash
+export PATH="/opt/homebrew/opt/llvm/bin:$PATH"
+cd tauri-noter/src-tauri
+cargo tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc
+# → target/x86_64-pc-windows-msvc/release/bundle/nsis/Noter_<ver>_x64-setup.exe
+```
+Windows-signering (Authenticode) görs separat före distribution; för updatern krävs den (§6).
+
+---
+
 ## 9. Security gate (run at the end of EVERY phase, and before release)
 
 - [ ] **No plaintext secrets at rest.** Grep the on-disk app data: the auth token and v3
