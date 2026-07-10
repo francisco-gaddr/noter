@@ -9,7 +9,8 @@
     "build": "cargo tauri build",
     "build:frontend": "node scripts/build-frontend.mjs",
     "check": "cargo check --manifest-path src-tauri/Cargo.toml",
-    "test": "node --test \"tests/*.test.mjs\" && cargo test --manifest-path src-tauri/Cargo.toml",
+    "lint": "cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
+    "test": "node --test \"tests/*.test.mjs\" && npm run lint && cargo test --manifest-path src-tauri/Cargo.toml",
     "prebuild-full": "npm run build:frontend && npm run test"
   }
 }

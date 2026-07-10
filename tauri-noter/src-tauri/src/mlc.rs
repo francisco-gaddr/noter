@@ -119,14 +119,14 @@ mod tests {
         ];
         write_index(&base, &data).unwrap();
 
-        assert_eq!(delete_model_at(&base, "m:Q4_K_M").unwrap(), true);
+        assert!(delete_model_at(&base, "m:Q4_K_M").unwrap());
         assert!(!pkg.exists(), "package dir should be removed");
         let remaining = read_index(&base);
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0]["id"], "other:Q4_K_M");
 
         // deleting an unknown id reports not-found and leaves the registry intact
-        assert_eq!(delete_model_at(&base, "missing").unwrap(), false);
+        assert!(!delete_model_at(&base, "missing").unwrap());
         assert_eq!(read_index(&base).len(), 1);
     }
 }

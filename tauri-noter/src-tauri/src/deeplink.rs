@@ -45,8 +45,7 @@ pub fn take_pending_opens(window: tauri::WebviewWindow, state: State<PendingOpen
 /// `^[A-Za-z0-9._:-]{1,128}$` — shared with `windows::open_note_window` (same trust boundary).
 pub(crate) fn is_valid_id(s: &str) -> bool {
     let len = s.chars().count();
-    len >= 1
-        && len <= 128
+    (1..=128).contains(&len)
         && s.chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '-'))
 }

@@ -163,9 +163,15 @@ would violate "no sloppy, must be tested"):**
   is delivered through the now **per-window-label** `PendingOpens` queue — so note windows never race
   the main window, and nothing is emitted before the new window's UI subscribes. Failed window build
   cleans up its queued entry. Capability extended to `note-*` labels. 1 JS test + zero-warning compile.
-- **print-to-pdf** — still needs native PDF generation Tauri lacks out-of-box (webview print dialog
-  can "save as PDF" on macOS as a user-level workaround).
+- **print-to-pdf — NOT A GAP (verified 2026-07-10)**: grep shows the shared UI **never calls**
+  `noterDesktop.printNoteToPdf`/`openPrintPreview` — the PDF export in `NoteEditor.tsx` runs entirely
+  in the frontend (jsPDF v4 + canvas) and therefore already works in Tauri. The two bridge stubs stay
+  only as Electron-preload contract parity for dead channels.
   (Cold-start file/link open is DONE — see Phase 1f.)
+- **Rust code quality/supply chain (Phase 1j)**: `cargo clippy -D warnings` is now part of `npm test`
+  (runs at every build + push; existing findings fixed), and `cargo audit` scanned all 497 crate
+  dependencies: **0 vulnerabilities** (only the Tauri-ecosystem's standard unmaintained/unsound infos
+  in transitive GTK/unicode crates).
 - **Spike gate (§1) + security gate (§9)** — a GUI run: confirm the 3 webviews load, secure store
   round-trips in the real OS keychain, no plaintext leak, CSP holds.
 
