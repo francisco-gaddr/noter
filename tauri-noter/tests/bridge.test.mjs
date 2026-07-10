@@ -15,13 +15,19 @@ const bridgeSrc = fs.readFileSync(
 );
 
 // Load the bridge with a mocked Tauri surface; returns the populated `window`.
-function loadBridge(tauri = {}, { fetch, print } = {}) {
+function loadBridge(tauri = {}, { fetch, print, find, bodyText } = {}) {
   const T = {
     core: { invoke: async () => {} },
     event: { listen: async () => () => {} },
     ...tauri,
   };
-  const win = { __TAURI__: T, print: print || (() => {}) };
+  const win = {
+    __TAURI__: T,
+    print: print || (() => {}),
+    find,
+    getSelection: () => ({ removeAllRanges: () => {} }),
+    document: { body: { innerText: bodyText || '' } },
+  };
   // eslint-disable-next-line no-new-func
   new Function('window', 'fetch', bridgeSrc)(win, fetch);
   return win;
@@ -179,6 +185,46 @@ test('cold-start: a file handler does not receive a pending note:open', async ()
   win.noterDesktop.onFileOpenRequested((p) => { fileGot = p; });
   await new Promise((r) => setTimeout(r, 0));
   assert.equal(fileGot, null, 'a note:open pending must not reach the file handler');
+});
+
+test('find-in-page: findStart counts matches (case-insensitive) and reports ordinal 1', async () => {
+  const win = loadBridge({}, { find: () => true, bodyText: 'Foo bar foo baz FOO' });
+  let result = null;
+  win.noterDesktop.onFindResult((r) => { result = r; });
+  await win.noterDesktop.findStart('foo');
+  assert.deepEqual(result, { matches: 3, activeMatchOrdinal: 1, finalUpdate: true });
+});
+
+test('find-in-page: findNext advances and wraps the ordinal', async () => {
+  const win = loadBridge({}, { find: () => true, bodyText: 'a b a' });
+  let result = null;
+  win.noterDesktop.onFindResult((r) => { result = r; });
+  await win.noterDesktop.findStart('a');           // 2 matches, ordinal 1
+  await win.noterDesktop.findNext('a', true);      // -> 2
+  assert.equal(result.activeMatchOrdinal, 2);
+  await win.noterDesktop.findNext('a', true);      // wraps -> 1
+  assert.equal(result.activeMatchOrdinal, 1);
+  await win.noterDesktop.findNext('a', false);     // backwards wraps -> 2
+  assert.equal(result.activeMatchOrdinal, 2);
+});
+
+test('find-in-page: findStop clears state; unsubscribe stops delivery', async () => {
+  const win = loadBridge({}, { find: () => true, bodyText: 'x x' });
+  const seen = [];
+  const un = win.noterDesktop.onFindResult((r) => seen.push(r.matches));
+  await win.noterDesktop.findStart('x');
+  await win.noterDesktop.findStop();
+  un();
+  await win.noterDesktop.findStart('x');
+  assert.deepEqual(seen, [2], 'no delivery after unsubscribe');
+});
+
+test('multi-window: openNoteInWindow calls the Rust command with the id', async () => {
+  let call = null;
+  const win = loadBridge({ core: { invoke: async (c, a) => { call = { c, a }; return { ok: true }; } } });
+  const res = await win.noterDesktop.openNoteInWindow('abc123');
+  assert.deepEqual(res, { ok: true });
+  assert.deepEqual(call, { c: 'open_note_window', a: { id: 'abc123' } });
 });
 
 test('unported channels reject with a clear message', async () => {

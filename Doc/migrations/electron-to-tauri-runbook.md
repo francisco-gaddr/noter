@@ -154,9 +154,18 @@ would violate "no sloppy, must be tested"):**
   streaming) is deferred as its own phase — it needs the `mlc_llm` runtime + a GUI + real downloads to
   validate. mlc discovery *and* the registry (`mlc_get_models` / `mlc_delete_model`, Rust + tests)
   already work.
-- **find-in-page** — Tauri's webview has no `findInPage`; needs a JS-based implementation (frontend).
-- **print-to-pdf / multi-window** — need native PDF generation / a second window with shared session +
-  a GUI. (Cold-start file/link open is now DONE — see Phase 1f.)
+- **find-in-page — DONE (Phase 1i)**: pure-JS port on WebKit's `window.find()` + a text scan for the
+  match count; `findStart/findNext/findStop` + `onFindResult` mirror Electron's
+  `{ matches, activeMatchOrdinal }`. Results are produced locally (no Rust round-trip). 3 JS tests
+  (count/case-insensitive, ordinal wrap both directions, stop + unsubscribe).
+- **multi-window — DONE (Phase 1i)**: `open_note_window` (windows.rs) opens the note in a new window
+  with the same bridge; the id passes the SAME validator as deep-links (trust boundary), and the route
+  is delivered through the now **per-window-label** `PendingOpens` queue — so note windows never race
+  the main window, and nothing is emitted before the new window's UI subscribes. Failed window build
+  cleans up its queued entry. Capability extended to `note-*` labels. 1 JS test + zero-warning compile.
+- **print-to-pdf** — still needs native PDF generation Tauri lacks out-of-box (webview print dialog
+  can "save as PDF" on macOS as a user-level workaround).
+  (Cold-start file/link open is DONE — see Phase 1f.)
 - **Spike gate (§1) + security gate (§9)** — a GUI run: confirm the 3 webviews load, secure store
   round-trips in the real OS keychain, no plaintext leak, CSP holds.
 
@@ -478,13 +487,15 @@ cargo tauri build --runner cargo-xwin --target x86_64-pc-windows-msvc
 ```
 Windows-signering (Authenticode) görs separat före distribution; för updatern krävs den (§6).
 
-**Verifierat läge 2026-07-10:** Rust-cross-kompilen fungerar — `noter-tauri.exe` (PE32+ x86-64 GUI,
-12 MB) byggdes felfritt från denna Mac. Själva NSIS-*paketeringen* är däremot blockerad av en trasig
-Homebrew-bottle: `makensis` 3.12 kraschar med `std::bad_alloc` på macOS 26/ARM **även på ett trivialt
-3-raders .nsi** (alltså verktyget, inte vårt projekt; reinstall + zlib-komprimering hjälpte inte).
-Åtgärd när det behövs: `brew upgrade nsis` när bottlen är lagad, eller kör `cargo tauri build` på en
-riktig Windows-maskin (ger då både NSIS och MSI). `bundle.windows.nsis.compression: "zlib"` behålls —
-det är rätt inställning för cross-byggen oavsett.
+**Verifierat läge 2026-07-10 (rotorsak isolerad):** Rust-cross-kompilen fungerar — `noter-tauri.exe`
+(PE32+ x86-64 GUI, 12 MB) byggdes felfritt från denna Mac. Själva NSIS-*paketeringen* är blockerad av
+en makensis-bugg på macOS 26: `std::bad_alloc` vid **unicode**-output (`x86-unicode`) — ett trivialt
+`Unicode false`-script kompilerar felfritt, och Tauris installer-template kräver unicode (rätteligen).
+Testat: reinstall, zlib-komprimering, källbygge, och NSIS-Dev-tappens `makensis@3.11` — samma krasch,
+dvs. inte en versionsregression utan värd-toolchainens unicode-konvertering (känd bugg-klass,
+SourceForge #1165). Åtgärd när installern behövs: kör `cargo tauri build` på en Windows-maskin (ger
+NSIS **och** MSI), eller vänta på lagad Homebrew-bottle. `bundle.windows.nsis.compression: "zlib"`
+behålls — rätt för cross-byggen oavsett.
 
 ---
 

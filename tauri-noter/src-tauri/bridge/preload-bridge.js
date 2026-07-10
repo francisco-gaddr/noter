@@ -47,6 +47,22 @@
     return match ? match[1].toUpperCase() : undefined;
   };
 
+  // Find-in-page state (results are produced locally in this JS context — no Rust involved).
+  const _find = { text: '', matches: 0, ordinal: 0, handlers: new Set() };
+  const _countMatches = (query, matchCase) => {
+    const haystackRaw = (window.document && window.document.body && window.document.body.innerText) || '';
+    if (!query || !haystackRaw) return 0;
+    const haystack = matchCase ? haystackRaw : haystackRaw.toLowerCase();
+    const needle = matchCase ? query : query.toLowerCase();
+    let count = 0;
+    for (let i = haystack.indexOf(needle); i !== -1; i = haystack.indexOf(needle, i + needle.length)) count += 1;
+    return count;
+  };
+  const _emitFindResult = () => {
+    const result = { matches: _find.matches, activeMatchOrdinal: _find.ordinal, finalUpdate: true };
+    _find.handlers.forEach((h) => { try { h(result); } catch (_) { /* handler errors are the app's problem */ } });
+  };
+
   window.mlc = {
     isElectron: true, // "a native desktop bridge is present" — the UI's desktop-detection flag
     isTauri: true,
@@ -126,11 +142,39 @@
     onUpdaterEvent: () => noop,
     onUpdaterState: () => noop,
 
-    // Find-in-page — TODO(tauri): port (webview find API).
-    findStart: notPorted('findStart'),
-    findNext: notPorted('findNext'),
-    findStop: () => Promise.resolve(),
-    onFindResult: () => noop,
+    // Find-in-page — PORTED in pure JS on WebKit's window.find() (select-next-match) plus a text scan
+    // for the match count. Results are produced locally, so onFindResult handlers are called directly
+    // (no Rust round-trip). Mirrors Electron's { matches, activeMatchOrdinal } result payload.
+    findStart: async (text, opts) => {
+      const q = String(text || '');
+      _find.text = q;
+      _find.ordinal = 0;
+      _find.matches = q ? _countMatches(q, !!(opts && opts.matchCase)) : 0;
+      if (q && typeof window.find === 'function') {
+        // collapse any previous selection so search starts from the top on a fresh find
+        try { const s = window.getSelection(); if (s) s.removeAllRanges(); } catch (_) {}
+        if (window.find(q, !!(opts && opts.matchCase), false, true)) _find.ordinal = 1;
+      }
+      _emitFindResult();
+      return { requestId: 1 };
+    },
+    findNext: async (text, forward) => {
+      const q = String(text || _find.text || '');
+      if (!q || typeof window.find !== 'function') return { requestId: 1 };
+      const backwards = forward === false;
+      if (window.find(q, false, backwards, true) && _find.matches > 0) {
+        _find.ordinal = backwards
+          ? (_find.ordinal <= 1 ? _find.matches : _find.ordinal - 1)
+          : (_find.ordinal >= _find.matches ? 1 : _find.ordinal + 1);
+      }
+      _emitFindResult();
+      return { requestId: 1 };
+    },
+    findStop: async () => {
+      _find.text = ''; _find.matches = 0; _find.ordinal = 0;
+      try { const s = window.getSelection(); if (s) s.removeAllRanges(); } catch (_) {}
+    },
+    onFindResult: (handler) => { _find.handlers.add(handler); return () => _find.handlers.delete(handler); },
 
     // Notifications — PORTED (tauri-plugin-notification). Requests permission on first use.
     notify: async (payload) => {
@@ -171,8 +215,9 @@
     // Metrics — TODO(tauri): port.
     getAppMetrics: () => Promise.resolve(null),
 
-    // Multi-window — TODO(tauri): port (Tauri multi-window).
-    openNoteInWindow: notPorted('openNoteInWindow'),
+    // Multi-window — PORTED: Rust opens a new window with the same bridge and delivers the note route
+    // through that window's own pending-opens queue (no race with this window).
+    openNoteInWindow: (id) => invoke('open_note_window', { id }),
 
     // Spell-check user dictionary — TODO(tauri): port.
     addToUserDictionary: () => Promise.resolve(),

@@ -10,6 +10,7 @@ mod mlc;
 mod secure_store;
 mod settings;
 mod tray;
+mod windows;
 
 use settings::SettingsState;
 use std::sync::Mutex;
@@ -46,10 +47,16 @@ pub fn run() {
             let initial = settings::load(&handle);
             app.manage(SettingsState(Mutex::new(initial)));
 
-            // Stash any cold-start open (noter:// link / .noter file on the launch argv) for the
-            // frontend to drain once it registers its handlers.
+            // Stash any cold-start open (noter:// link / .noter file on the launch argv) for the main
+            // window's UI to drain once it registers its handlers. Keyed by window label — note
+            // windows (open_note_window) get their own entries.
             let argv: Vec<String> = std::env::args().collect();
-            app.manage(deeplink::PendingOpens(Mutex::new(deeplink::pending_from_argv(&argv))));
+            let mut pending = std::collections::HashMap::new();
+            let main_pending = deeplink::pending_from_argv(&argv);
+            if !main_pending.is_empty() {
+                pending.insert("main".to_string(), main_pending);
+            }
+            app.manage(deeplink::PendingOpens(Mutex::new(pending)));
 
             // Build the main window ourselves so we can inject the preload bridge before page load.
             let window = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
@@ -100,6 +107,7 @@ pub fn run() {
             deeplink::take_pending_opens,
             mlc::mlc_get_models,
             mlc::mlc_delete_model,
+            windows::open_note_window,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Noter (Tauri)");

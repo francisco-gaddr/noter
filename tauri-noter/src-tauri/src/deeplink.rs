@@ -17,13 +17,14 @@ use url::Url;
 
 const MAX_RAW: usize = 1024;
 
-/// Cold-start opens: a `noter://` link or `.noter` file passed on the launch command line, before the
-/// window exists. We stash them here and the frontend drains them via `take_pending_opens` the moment
-/// it registers its handlers — so the event is never emitted before the UI subscribes (the race the
-/// running-app paths don't have).
-pub struct PendingOpens(pub Mutex<Vec<serde_json::Value>>);
+/// Pending opens, keyed by **window label**: a `noter://` link or `.noter` file passed on the launch
+/// command line goes to `"main"`; a note opened in its own window (`open_note_window`) goes to that
+/// window's unique label. Each window drains only ITS entries via `take_pending_opens` the moment its
+/// UI registers a handler — so no event is emitted before the subscriber exists, and windows never
+/// race each other for the queue.
+pub struct PendingOpens(pub Mutex<std::collections::HashMap<String, Vec<serde_json::Value>>>);
 
-/// Build the pending-opens list from the launch argv (called once at startup).
+/// Build the main window's pending-opens list from the launch argv (called once at startup).
 pub fn pending_from_argv(argv: &[String]) -> Vec<serde_json::Value> {
     if let Some(route) = find_deeplink_in_argv(argv) {
         vec![serde_json::json!({ "event": "note:open", "payload": { "deeplink": route } })]
@@ -34,15 +35,15 @@ pub fn pending_from_argv(argv: &[String]) -> Vec<serde_json::Value> {
     }
 }
 
-/// Drain the cold-start opens exactly once (returns them and clears the queue).
+/// Drain the calling window's pending opens exactly once (returns them and clears its queue).
 #[tauri::command]
-pub fn take_pending_opens(state: State<PendingOpens>) -> Vec<serde_json::Value> {
+pub fn take_pending_opens(window: tauri::WebviewWindow, state: State<PendingOpens>) -> Vec<serde_json::Value> {
     let mut guard = state.0.lock().unwrap();
-    std::mem::take(&mut *guard)
+    guard.remove(window.label()).unwrap_or_default()
 }
 
-/// `^[A-Za-z0-9._:-]{1,128}$`
-fn is_valid_id(s: &str) -> bool {
+/// `^[A-Za-z0-9._:-]{1,128}$` — shared with `windows::open_note_window` (same trust boundary).
+pub(crate) fn is_valid_id(s: &str) -> bool {
     let len = s.chars().count();
     len >= 1
         && len <= 128
