@@ -21,6 +21,10 @@ const refreshTaskWidget = (notes: Note[], tasks: Task[]): void => {
 };
 
 let wasOffline = false;
+// Monotonic fetch sequence: reconnect, socket-connect and init can all trigger fetches near-
+// simultaneously; a SLOWER (older) response must never overwrite the state a newer one wrote.
+let notesFetchSeq = 0;
+let tasksFetchSeq = 0;
 
 interface AppState {
   notes: Note[];
@@ -619,15 +623,21 @@ export const useStore = create<AppState>((set, get) => ({
 
   init: async () => {
     if (get().isInitialized) return;
+    // Claim the guard immediately (prevents double-init from concurrent callers) but RELEASE it
+    // on failure below — otherwise one storage/DB hiccup during startup permanently bricks the
+    // app (blank + logged-out with no way to retry until reinstall).
     set({ isInitialized: true });
+    try {
 
     await initApiUrl();
     await Database.initDatabase();
 
-    const storedToken = await SecureStore.getItemAsync('token');
-    const storedNotifications = await AsyncStorage.getItem('notificationsEnabled');
-    const storedActiveProjectId = await AsyncStorage.getItem('activeProjectId');
-    const storedViewMode = await AsyncStorage.getItem('notesViewMode');
+    // Storage reads are individually best-effort: a locked keystore or a corrupt AsyncStorage
+    // value must degrade to defaults — not abort init.
+    const storedToken = await SecureStore.getItemAsync('token').catch(() => null);
+    const storedNotifications = await AsyncStorage.getItem('notificationsEnabled').catch(() => null);
+    const storedActiveProjectId = await AsyncStorage.getItem('activeProjectId').catch(() => null);
+    const storedViewMode = await AsyncStorage.getItem('notesViewMode').catch(() => null);
     if (storedNotifications !== null) {
       set({ notificationsEnabled: storedNotifications === 'true' });
     }
@@ -684,6 +694,13 @@ export const useStore = create<AppState>((set, get) => ({
     } else if (!get().securityLocked) {
       get().connectSocket();
     }
+
+    } catch (error) {
+      // Init failed before the app became usable: release the guard so a retry (next focus/
+      // mount) can run, and surface the failure instead of a silent blank app.
+      console.error('[Store] init failed:', error);
+      set({ isInitialized: false, error: 'Appen kunde inte starta klart. Försök igen.' });
+    }
   },
 
   // Fallback sync method when WebSocket fails
@@ -738,6 +755,7 @@ export const useStore = create<AppState>((set, get) => ({
     let cacheInvalidateTimer: ReturnType<typeof setTimeout> | null = null;
 
     socket.on('note:created', (note: Note) => {
+      if (!note || !(note as any)._id) return; // malformed event — never throw inside set()
       set(state => {
         const merged = [normalizeEncryptedNote(note), ...state.notes];
         const secured = materializeNotesFromEncrypted(merged as any, new Set(state.unlockedProtectedNoteIds));
@@ -769,6 +787,7 @@ export const useStore = create<AppState>((set, get) => ({
     });
 
     socket.on('note:updated', (note: Note) => {
+      if (!note || !(note as any)._id) return;
       set(state => {
         const merged = state.notes.map((n) => (n._id === note._id ? normalizeEncryptedNote(note) : n));
         const secured = materializeNotesFromEncrypted(merged as any, new Set(state.unlockedProtectedNoteIds));
@@ -782,6 +801,7 @@ export const useStore = create<AppState>((set, get) => ({
     });
 
     socket.on('note:deleted', (id: string) => {
+      if (typeof id !== 'string' || !id) return;
       set(state => {
         Database.deleteNoteLocal(id);
         return {
@@ -791,6 +811,7 @@ export const useStore = create<AppState>((set, get) => ({
     });
 
     socket.on('notes:reordered', (reorderedNotes: { _id: string; order: any }[]) => {
+      if (!Array.isArray(reorderedNotes)) return;
       set(state => {
         const newNotes = state.notes.map(n => {
           const update = reorderedNotes.find(rn => rn._id === n._id);
@@ -819,6 +840,7 @@ export const useStore = create<AppState>((set, get) => ({
     });
 
     socket.on('task:created', (task: Task) => {
+      if (!task || !(task as any)._id) return;
       const parsed = processApiTask(task);
       set(state => {
         if (state.tasks.find(t => t._id === parsed._id)) return state;
@@ -831,6 +853,7 @@ export const useStore = create<AppState>((set, get) => ({
     });
 
     socket.on('task:updated', (task: Task) => {
+      if (!task || !(task as any)._id) return;
       const parsed = processApiTask(task);
       set(state => {
         Database.saveTaskLocal(parsed, true);
@@ -844,6 +867,7 @@ export const useStore = create<AppState>((set, get) => ({
     });
 
     socket.on('task:deleted', (id: string) => {
+      if (typeof id !== 'string' || !id) return;
       set(state => {
         Database.deleteTaskLocal(id);
         return {
@@ -855,6 +879,7 @@ export const useStore = create<AppState>((set, get) => ({
     });
 
     socket.on('tasks:reordered', (reorderedTasks: { _id: string; position: any }[]) => {
+      if (!Array.isArray(reorderedTasks)) return;
       set(state => {
         const newTasks = state.tasks.map(t => {
           const update = reorderedTasks.find(rt => rt._id === t._id);
@@ -895,7 +920,9 @@ export const useStore = create<AppState>((set, get) => ({
       set({ isLoading: true, error: null });
       const response = await apiLogin(username, password);
       setAuthToken(response.token);
-      await SecureStore.setItemAsync('token', response.token);
+      // Best-effort persist: a keystore hiccup must not fail an otherwise-successful login —
+      // the in-memory token works this session; worst case the user logs in again next launch.
+      try { await SecureStore.setItemAsync('token', response.token); } catch (e) { console.warn('[Store] token persist failed:', e); }
       // Remember the username (used e.g. to pre-seed a user's private AI providers).
       try { await SecureStore.setItemAsync('auth_username', username); } catch {}
       get().setToken(response.token);
@@ -943,6 +970,7 @@ export const useStore = create<AppState>((set, get) => ({
       set({ isLoading: false });
       return;
     }
+    const fetchSeq = ++notesFetchSeq;
     const unlocked = () => new Set(get().unlockedProtectedNoteIds);
 
     // 1) Offline-first: paint local data immediately. Show the spinner only on a
@@ -966,6 +994,7 @@ export const useStore = create<AppState>((set, get) => ({
       const safeNotes = Array.isArray(notes) ? notes : [];
       // Chunked decrypt so a large sync doesn't freeze the UI thread.
       const securedNotes = await materializeNotesFromEncryptedChunked(safeNotes as any, unlocked());
+      if (fetchSeq !== notesFetchSeq) return; // a newer fetch finished first — this response is stale
       set({ notes: securedNotes, isLoading: false });
       // Persist the snapshot in a single transaction, off the render path.
       void Database.saveNotesLocalBulk(securedNotes).catch(() => {});
@@ -1042,9 +1071,8 @@ export const useStore = create<AppState>((set, get) => ({
             notes: state.notes.map(n => n._id === tempId ? realNote : n)
           }));
 
-          // Replace in DB
-          await Database.deleteNoteLocal(tempId);
-          await Database.saveNoteLocal(realNote, true);
+          // Replace in DB atomically — a kill between delete and save must not lose the note.
+          await Database.replaceNoteLocal(tempId, realNote);
 
           // If this note was created INSIDE an externally-synced folder (Nextcloud/MD) — e.g. by
           // the user or the AI — push it out so it appears on the server in (near) real time.
@@ -1074,13 +1102,14 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   updateNote: async (id, data) => {
-    // Optimistic Update
-    set({ isLoading: true, error: null });
-    
-    // 1. Get current note
+    // 1. Get current note — BEFORE flipping isLoading, so a missing note (just deleted on
+    // another device) doesn't leave the UI in a permanent spinner.
     const state = get();
     const currentNote = state.notes.find(n => n._id === id);
     if (!currentNote) throw new Error('Note not found');
+
+    // Optimistic Update
+    set({ isLoading: true, error: null });
 
     const optimisticNote: Note = {
         ...currentNote,
@@ -1243,6 +1272,15 @@ export const useStore = create<AppState>((set, get) => ({
       }
     } catch (error) {
       console.error('Reorder notes failed', error);
+      // Roll back the optimistic order from the local DB and tell the user — otherwise the list
+      // silently reverts on next launch with no explanation.
+      try {
+        const localNotes = await Database.getNotesLocal();
+        set({
+          notes: materializeNotesFromEncrypted(localNotes.map(processLocalNote) as any, new Set(get().unlockedProtectedNoteIds)),
+          error: 'Omsorteringen kunde inte sparas.',
+        });
+      } catch { set({ error: 'Omsorteringen kunde inte sparas.' }); }
     }
   },
 
@@ -1251,6 +1289,7 @@ export const useStore = create<AppState>((set, get) => ({
       set({ isLoading: false });
       return;
     }
+    const fetchSeq = ++tasksFetchSeq;
 
     // Reminder scheduling is fire-and-forget so it never sequence-blocks render.
     const scheduleReminders = (tasks: Task[]) => {
@@ -1289,6 +1328,7 @@ export const useStore = create<AppState>((set, get) => ({
       const tasks = await fetchWithAuth(url);
       // Chunked decrypt so a large sync doesn't freeze the UI thread.
       const decryptedTasks = await mapInChunks(Array.isArray(tasks) ? tasks : [], processApiTask);
+      if (fetchSeq !== tasksFetchSeq) return; // a newer fetch finished first — stale response
 
       const serverClientIds = new Set(decryptedTasks.map((t: any) => t.clientId).filter(Boolean));
       const existing = get().tasks;
@@ -1351,6 +1391,7 @@ export const useStore = create<AppState>((set, get) => ({
       }
     } catch (error) {
       console.error('Background refresh failed', error);
+      set({ error: 'Bakgrundsuppdateringen misslyckades — listan kan vara inaktuell.' });
     }
   },
 
@@ -1442,9 +1483,8 @@ export const useStore = create<AppState>((set, get) => ({
             };
           });
 
-          // Update DB
-          await Database.deleteTaskLocal(tempId);
-          await Database.saveTaskLocal(realTask, true);
+          // Update DB atomically — a kill between delete and save must not lose the task.
+          await Database.replaceTaskLocal(tempId, realTask);
           if (get().notificationsEnabled) {
             await cancelTaskReminder(tempId);
             await scheduleTaskReminder(realTask);
@@ -1475,15 +1515,16 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   updateTask: async (id, data) => {
-    // Optimistic Update
-    set({ isLoading: true, error: null });
-
-    // 1. Get current task to create optimistic version
+    // 1. Get current task BEFORE flipping isLoading — a missing task (deleted elsewhere) must
+    // not leave the UI in a permanent spinner.
     const state = get();
     const currentTask = state.tasks.find((t) => t._id === id);
     if (!currentTask) {
       throw new Error('Task not found');
     }
+
+    // Optimistic Update
+    set({ isLoading: true, error: null });
 
     const optimisticTask = { ...currentTask };
     if (data.title !== undefined) optimisticTask.title = data.title;
@@ -1746,7 +1787,12 @@ export const useStore = create<AppState>((set, get) => ({
       }
     } catch (error: any) {
       console.error('Reorder failed', error);
-      // set({ error: error.message });
+      // Roll back the optimistic order from the local DB and surface the failure — otherwise the
+      // list silently reverts on next launch with no explanation.
+      try {
+        const localTasks = await Database.getTasksLocal();
+        set({ tasks: localTasks.map(processLocalTask), error: 'Omsorteringen kunde inte sparas.' });
+      } catch { set({ error: 'Omsorteringen kunde inte sparas.' }); }
     }
   },
 
@@ -1806,8 +1852,7 @@ export const useStore = create<AppState>((set, get) => ({
                   // Update map
                   tempIdMap.set(tempId, decryptedCreated._id);
 
-                  await Database.deleteNoteLocal(tempId);
-                  await Database.saveNoteLocal(decryptedCreated, true);
+                  await Database.replaceNoteLocal(tempId, decryptedCreated);
                   set(state => {
                     const idx = state.notes.findIndex(n => n._id === tempId);
                     if (idx !== -1) {
@@ -1849,8 +1894,7 @@ export const useStore = create<AppState>((set, get) => ({
                   // Update map
                   tempIdMap.set(tempId, decryptedCreated._id);
 
-                  await Database.deleteTaskLocal(tempId);
-                  await Database.saveTaskLocal(decryptedCreated, true);
+                  await Database.replaceTaskLocal(tempId, decryptedCreated);
                   set(state => {
                     // Check if the real task is already in state (e.g. via socket)
                     const alreadyExists = state.tasks.some(t => t._id === decryptedCreated._id);
@@ -1897,8 +1941,11 @@ export const useStore = create<AppState>((set, get) => ({
           const status = typeof err?.status === 'number' ? err.status : undefined;
           if (status === 401) return; // auth problem — stop, keep the queue intact
           if (typeof status === 'number' && status >= 400 && status < 500 && status !== 429) {
-            // Permanent client error — drop so it can't block the queue forever.
+            // Permanent client error — drop so it can't block the queue forever, but TELL the
+            // user: this is a queued offline edit that will never reach the server, and the next
+            // fetch will overwrite the local copy. Silence here = the edit vanishes unexplained.
             await Database.removeFromSyncQueue(item.id);
+            set({ error: 'En offline-ändring kunde inte synkas och har tagits bort. Kontrollera att innehållet fortfarande stämmer.' });
           } else {
             // Transient (5xx / 429 / network): bump the retry counter and drop
             // only after MAX_SYNC_ATTEMPTS so a poison item can't retry forever.
@@ -1906,6 +1953,7 @@ export const useStore = create<AppState>((set, get) => ({
             if (attempts >= MAX_SYNC_ATTEMPTS) {
               await Database.removeFromSyncQueue(item.id);
               console.warn('[sync] dropping item after max attempts', { id: item.id, action: item.action, entity: item.entity });
+              set({ error: 'En offline-ändring gav upp efter flera försök och har tagits bort.' });
             }
           }
           console.error('Sync item failed', item, error);
@@ -1938,6 +1986,10 @@ export const useStore = create<AppState>((set, get) => ({
       
       if (response?.success === false) {
         throw new Error('Incorrect password');
+      }
+      if (!response || typeof response.content !== 'string') {
+        // A partial/changed payload must not surface as a cryptic decrypt error.
+        throw new Error('Upplåsningen gav ett oväntat svar från servern. Försök igen.');
       }
 
       const decryptedContent = decrypt(response.content);

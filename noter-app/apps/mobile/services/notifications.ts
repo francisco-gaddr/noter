@@ -30,7 +30,13 @@ const readMap = async (): Promise<Record<string, string[]>> => {
 
 const writeMap = async (map: Record<string, string[]>) => {
   if (isExpoGo) return;
-  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(map));
+  try {
+    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(map));
+  } catch (e) {
+    // Best-effort: a failed id-map write must not fail the scheduling call itself. Cancel-by-id
+    // then falls back to the data.taskId sweep, so no stale notification lingers uncancellable.
+    console.warn('[notifications] id-map persist failed:', e);
+  }
 };
 
 const getNotificationsModule = () => require('expo-notifications');

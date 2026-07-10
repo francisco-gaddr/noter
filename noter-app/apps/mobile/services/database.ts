@@ -576,6 +576,16 @@ export const deleteNoteLocal = async (id: string) => {
   await run('DELETE FROM notes WHERE _id = ?', [id]);
 };
 
+/** Atomic temp→real swap after a server create: delete the optimistic local row and save the
+ *  server row in ONE transaction, so an app kill in between can't lose the just-created note
+ *  from the local DB (it would only reappear after the next successful online fetch). */
+export const replaceNoteLocal = async (tempId: string, note: Note) => {
+  await dbExclusiveTransaction(async () => {
+    await run('DELETE FROM notes WHERE _id = ?', [tempId]);
+    await saveNoteLocal(note, true);
+  });
+};
+
 export const saveTaskLocal = async (task: Task, isSynced: boolean = true) => {
   const encryptedTitle = encrypt(task.title);
   const encryptedDescription = task.description ? encrypt(task.description) : '';
@@ -725,6 +735,14 @@ export const getTasksLocal = async (): Promise<Task[]> => {
 
 export const deleteTaskLocal = async (id: string) => {
   await run('DELETE FROM tasks WHERE _id = ?', [id]);
+};
+
+/** Atomic temp→real swap for tasks — see replaceNoteLocal. */
+export const replaceTaskLocal = async (tempId: string, task: Task) => {
+  await dbExclusiveTransaction(async () => {
+    await run('DELETE FROM tasks WHERE _id = ?', [tempId]);
+    await saveTaskLocal(task, true);
+  });
 };
 
 /**
@@ -974,8 +992,12 @@ export const getProjectsLocal = async (userId?: string): Promise<LocalAIProject[
 };
 
 export const deleteProjectLocal = async (id: string) => {
-  await run('DELETE FROM ai_projects WHERE id = ?', [id]);
-  await run('UPDATE conversations SET projectId = NULL WHERE projectId = ?', [id]);
+  // Atomic: a crash between the two statements must not leave conversations pointing at a
+  // deleted project (orphaned refs break project filtering).
+  await dbExclusiveTransaction(async () => {
+    await run('DELETE FROM ai_projects WHERE id = ?', [id]);
+    await run('UPDATE conversations SET projectId = NULL WHERE projectId = ?', [id]);
+  });
 };
 
 export const clearNotesLocal = async () => {
