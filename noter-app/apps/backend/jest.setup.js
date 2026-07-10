@@ -21,6 +21,13 @@
 // server it expects. Non-express `http.createServer(...)` calls pass through
 // untouched. Servers are `unref()`d (and the suites run with `--forceExit`) so they
 // never keep a worker alive.
+// mongodb-memory-server startup headroom. The 10s default flakes under full-suite load / slow disk
+// (the critical matrix runs ~25 backend suites, each spawning its own mongod) as
+// "Instance failed to start within 10000ms" — a pure infra timeout that fails validate-critical
+// (and blocks pushes) even though every suite passes in isolation. 60s removes the flake without
+// changing any test behaviour.
+process.env.MONGOMS_STARTUP_TIMEOUT = process.env.MONGOMS_STARTUP_TIMEOUT || '60000';
+
 const http = require('http');
 
 if (!http.createServer.__noterPersistentPatch) {
