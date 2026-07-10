@@ -95,10 +95,30 @@ const SENSITIVE = ['password', 'token', 'secret', 'apikey', 'api_key', 'authoriz
 const isSensitiveKey = (k: string): boolean => { const lk = k.toLowerCase(); return SENSITIVE.some((s) => lk.includes(s)); };
 const MAX_STRING = 2048;
 
+/**
+ * Redact secret-shaped substrings from a free-text string (error messages, stack frames, string
+ * context values). Key-name redaction (isSensitiveKey) can't catch a token embedded inside a message
+ * like `Error: fetch https://x?token=eyJ...`, so scrub the concrete high-signal patterns: JWTs,
+ * Authorization values, our E2E ciphertext envelopes, and `sk-`/`rk-`-style provider API keys.
+ * Targeted (low false-positive) rather than a blanket long-string redaction. Pure, never throws.
+ */
+export const scrubSecretsFromText = (text: string): string => {
+  if (typeof text !== 'string' || !text) return text;
+  return text
+    .replace(/eyJ[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{4,}/g, '[jwt]')
+    .replace(/\b(Bearer|Basic|vapid)\s+[A-Za-z0-9._~+/=-]{8,}/gi, '$1 [redacted]')
+    .replace(/v3w?:[A-Za-z0-9+/=]{8,}/g, '[ciphertext]')
+    .replace(/U2FsdGVkX1[A-Za-z0-9+/=]{8,}/g, '[ciphertext]')
+    .replace(/\b(sk|rk|pk)-[A-Za-z0-9]{16,}\b/g, '$1-[redacted]');
+};
+
 /** Recursively redact sensitive values + truncate long strings + cap depth/breadth. Pure. */
 export const scrubValue = (value: unknown, depth = 0): unknown => {
   if (depth > 5) return '[depth]';
-  if (typeof value === 'string') return value.length > MAX_STRING ? value.slice(0, MAX_STRING) + '…[truncated]' : value;
+  if (typeof value === 'string') {
+    const scrubbed = scrubSecretsFromText(value);
+    return scrubbed.length > MAX_STRING ? scrubbed.slice(0, MAX_STRING) + '…[truncated]' : scrubbed;
+  }
   if (value === null || typeof value !== 'object') return value;
   if (Array.isArray(value)) return value.slice(0, 50).map((v) => scrubValue(v, depth + 1));
   const out: Record<string, unknown> = {};
@@ -188,9 +208,9 @@ export const createErrorReporter = (config: ErrorReporterConfig): ErrorReporter 
       return send({
         level: 'error',
         message: undefined,
-        exception: { values: [{ type: e.name || 'Error', value: String(e.message || e), stacktrace: frames.length ? { frames } : undefined }] },
+        exception: { values: [{ type: e.name || 'Error', value: scrubSecretsFromText(String(e.message || e)), stacktrace: frames.length ? { frames } : undefined }] },
       }, ctx);
     },
-    captureMessage: (message, level = 'info', ctx) => send({ level, message: String(message).slice(0, MAX_STRING) }, ctx),
+    captureMessage: (message, level = 'info', ctx) => send({ level, message: scrubSecretsFromText(String(message)).slice(0, MAX_STRING) }, ctx),
   };
 };

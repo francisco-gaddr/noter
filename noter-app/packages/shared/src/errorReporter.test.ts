@@ -34,6 +34,14 @@ describe('scrubValue', () => {
     expect((scrubValue('x'.repeat(5000)) as string).endsWith('…[truncated]')).toBe(true);
     expect((scrubValue(new Array(200).fill(1)) as unknown[]).length).toBe(50);
   });
+  it('redacts secret-shaped substrings embedded in free text (not just by key name)', () => {
+    const jwt = 'eyJhbGciOiJodmFsdWUi.eyJ1c2VyIjoieCJ9.abcdEF12';
+    expect(scrubValue(`failed with token ${jwt} at end`)).toBe('failed with token [jwt] at end');
+    expect(scrubValue('Authorization: Bearer sometoken1234567890abcd')).toContain('Bearer [redacted]');
+    expect(scrubValue('stored v3w:QUJDREVGabcdef012345 in db')).toBe('stored [ciphertext] in db');
+    expect(scrubValue('key sk-ABCDEFGHIJ0123456789 leaked')).toContain('sk-[redacted]');
+    expect(scrubValue('benign message with no secrets')).toBe('benign message with no secrets');
+  });
 });
 
 describe('parseStackFrames', () => {
