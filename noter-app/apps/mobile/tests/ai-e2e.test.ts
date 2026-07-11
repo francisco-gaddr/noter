@@ -23,6 +23,8 @@ jest.mock('../services/ai/ModelDownloader', () => ({
   downloadGgufModel: jest.fn().mockResolvedValue('/docs/llama_models/user_model-Q4_K_M.gguf'),
   getModelPath: jest.fn().mockReturnValue('/docs/llama_models/user_model-Q4_K_M.gguf'),
   modelFileExists: jest.fn().mockResolvedValue(false),
+  // downloadModel now gates on integrity: absent BEFORE the download (→ downloads), intact AFTER.
+  verifyModelFile: jest.fn().mockResolvedValueOnce(false).mockResolvedValue(true),
   deleteModelFile: jest.fn(),
   stopModelDownload: jest.fn(),
 }));

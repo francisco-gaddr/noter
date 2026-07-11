@@ -71,7 +71,7 @@ describe('keyBootstrap', () => {
 
   it('rejects a wrong recovery code', async () => {
     const { deps } = makeHarness();
-    await enrollOrUnlock('pw', deps);
+    await enrollOrUnlock('pw-pw-pw', deps);
     setActiveDataKey(null);
     await expect(recoverWithCode('WRONG-CODE-0000-0000-0000', deps)).rejects.toThrow();
   });
@@ -86,7 +86,7 @@ describe('keyBootstrap', () => {
 
   it('restoreFromDevice re-activates from the Keychain backup with no password', async () => {
     const { deps } = makeHarness();
-    await enrollOrUnlock('pw-123', deps);
+    await enrollOrUnlock('pw-12345', deps);
     const cipher = encrypt('persisted note');
     setActiveDataKey(null);
 
@@ -104,7 +104,7 @@ describe('keyBootstrap', () => {
     const { deps } = makeHarness();
     // legacy data written before enrolment
     const legacy = encrypt('gammal note');
-    await enrollOrUnlock('pw', deps);
+    await enrollOrUnlock('pw-pw-pw', deps);
     const v3 = encrypt('ny note');
 
     lockCrypto();
