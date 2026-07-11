@@ -2620,7 +2620,7 @@ function AIScreenInner() {
         try {
           const st: any = useStore.getState();
           const block = await retrieveForChat(
-            input,
+            effectiveInput, // the actual sent text (handles the Summarize entry path, not just typed input)
             (st.notes || []) as any,
             (st.tasks || []) as any,
             // Index/RAG NEVER gets the UI unlock — locked-folder notes are never embedded or recalled.
