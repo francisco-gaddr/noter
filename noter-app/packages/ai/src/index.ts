@@ -54,3 +54,4 @@ export * from './tools';
 export * from './toolArgs';
 export * from './agentRunner';
 export * from './mcp';
+export * from './streamSink';
