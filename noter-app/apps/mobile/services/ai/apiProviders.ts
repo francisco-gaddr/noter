@@ -366,10 +366,16 @@ export const streamApiProviderResponse = async (params: {
     : format === 'openai'
       ? { 'Content-Type': 'application/json', ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}) }
       : { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey };
+  // `stream_options` is an OpenAI-specific field. Self-hosted OpenAI-compatible servers (Hermes,
+  // LM Studio, Ollama, llama.cpp) often reject UNKNOWN params with a 400 — which would force the
+  // fallback on EVERY self-hosted stream. Only send it to providers known to accept it.
+  const supportsStreamOptions = provider === 'openai' || provider === 'openrouter' || provider === 'groq' || provider === 'grok';
+  const openAiStreamBody: Record<string, unknown> = { model, messages: toOpenAiMessages(history, images), stream: true };
+  if (supportsStreamOptions) openAiStreamBody.stream_options = { include_usage: true };
   const body = format === 'anthropic'
     ? anthropicBody(model, history, images, true)
     : format === 'openai'
-      ? JSON.stringify({ model, messages: toOpenAiMessages(history, images), stream: true, stream_options: { include_usage: true } })
+      ? JSON.stringify(openAiStreamBody)
       : JSON.stringify({ contents: toGeminiContents(history, images) });
 
   // Combined cancellation: the caller's signal OR our own connect/idle-stall guard.
@@ -430,6 +436,9 @@ export const streamApiProviderResponse = async (params: {
       armIdle(STREAM_IDLE_TIMEOUT_MS); // a chunk arrived → reset the stall guard
       handlePayloads(sseDataPayloads(sse.push(decoder.decode(value, { stream: true }))));
     }
+    // Flush any bytes the decoder is holding for a multibyte char split across the final chunk,
+    // then flush the SSE buffer — so a reply ending mid-emoji/CJK isn't truncated.
+    handlePayloads(sseDataPayloads(sse.push(decoder.decode())));
     handlePayloads(sseDataPayloads(sse.flush()));
 
     return { text: full, totalTokens };

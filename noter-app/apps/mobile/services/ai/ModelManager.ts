@@ -8,7 +8,7 @@ import {
   loadedModelPath,
   type LlamaCompletionOptions,
 } from "./llama";
-import { modelFileExists } from "./ModelDownloader";
+import { modelFileExists, verifyModelFile } from "./ModelDownloader";
 
 /**
  * Owns the single resident on-device model. Real inference runs through llama.rn
@@ -16,9 +16,23 @@ import { modelFileExists } from "./ModelDownloader";
  * bridge is gone; this is the only local path now.
  */
 class ModelManager {
-  // Dedupe concurrent loads of the SAME model (e.g. a silent warm-preload racing the
-  // on-send load) so we never call initLlama twice in parallel — that wedges the native
-  // engine. Same-path callers share one in-flight promise; a different path waits its turn.
+  // ONE serial queue for EVERY native operation (load, unload, complete). llama.rn has a single
+  // resident context; a release (unloadLlamaModel → releaseAllLlama) that overlaps an in-flight
+  // completion frees the context mid-stream → native SIGSEGV (the "crashes while chatting with a
+  // local model" report). Serializing all three through this mutex makes overlap impossible: a
+  // model switch waits for the current generation to finish instead of crashing it.
+  private opChain: Promise<unknown> = Promise.resolve();
+
+  private enqueue<T>(op: () => Promise<T>): Promise<T> {
+    // Chain after whatever is running; a prior op's error belongs to ITS caller, not the next op.
+    const run = this.opChain.catch(() => { /* previous op's error is the previous caller's */ }).then(op);
+    // Keep the chain alive regardless of this op's outcome.
+    this.opChain = run.catch(() => { /* swallow for the chain; the real result is returned to caller */ });
+    return run;
+  }
+
+  // Dedupe concurrent loads of the SAME model (e.g. a silent warm-preload racing the on-send load)
+  // so callers share one in-flight promise instead of queueing a redundant second load.
   private loadingPath: string | null = null;
   private loadingPromise: Promise<void> | null = null;
 
@@ -43,37 +57,37 @@ class ModelManager {
 
   async load(path: string, onProgress?: (progress: number) => void) {
     if (this.isModelLoaded && this.currentModelPath === path) return;
-    // Join an in-flight load of the SAME model instead of starting a second one.
+    // Join an in-flight load of the SAME model instead of queueing a redundant second one.
     if (this.loadingPromise && this.loadingPath === path) return this.loadingPromise;
     if (!isLlamaLinked()) {
       throw new Error("Lokal AI-motor saknas i detta bygge. Installera EAS-bygget.");
     }
     if (!path) throw new Error("Ingen modell vald. Välj en nedladdad modell.");
-    // A DIFFERENT model is mid-load: initLlama must never run twice in parallel
-    // (it wedges the native engine). Wait the old load out — its outcome (including
-    // errors) belongs to its own caller — then continue with ours.
-    while (this.loadingPromise) {
-      await this.loadingPromise.catch(() => { /* handled by the original caller */ });
-    }
-    // The awaited load may have loaded exactly what we want.
-    if (this.isModelLoaded && this.currentModelPath === path) return;
 
     this.loadingPath = path;
-    this.loadingPromise = (async () => {
+    // The load runs through the shared mutex, so it waits for any in-flight COMPLETION to finish
+    // before it can (via loadLlamaModel) release/replace the native context — never mid-stream.
+    this.loadingPromise = this.enqueue(async () => {
+      if (this.isModelLoaded && this.currentModelPath === path) return; // a queued op already loaded it
       const exists = await modelFileExists(path);
       if (!exists) {
         throw new Error("Modellfilen hittades inte. Ladda ner modellen igen.");
       }
-      // loadLlamaModel owns the load timeout + CPU/small-context fallback + a clear error
-      // if even that fails, so an extra retry here would just double the (already slow)
-      // attempts. Reset a possibly-wedged native context, then surface its message.
+      // INTEGRITY GATE: never hand a truncated/corrupt/HTML-as-.gguf file to native initLlama — that
+      // aborts the whole process (SIGABRT) instead of throwing. Fail here with a clear re-download story.
+      const intact = await verifyModelFile(path);
+      if (!intact) {
+        throw new Error("Modellfilen är skadad eller ofullständig. Ta bort och ladda ner modellen igen.");
+      }
+      // loadLlamaModel owns the load timeout + CPU/small-context fallback + a clear error if even that
+      // fails. Reset a possibly-wedged native context on failure, then surface its message.
       try {
         await loadLlamaModel(path, {}, onProgress);
       } catch (e: any) {
         try { await unloadLlamaModel(); } catch { /* ignore */ }
         throw e instanceof Error ? e : new Error(String(e?.message || 'Kunde inte ladda modellen.'));
       }
-    })();
+    });
     try {
       await this.loadingPromise;
     } finally {
@@ -82,31 +96,24 @@ class ModelManager {
     }
   }
 
-  // Completions are serialized: llama.rn has ONE resident context, and two native
-  // completions on it at once corrupt each other. Late callers queue behind the
-  // current one instead of failing (each still has its own watchdog inside llama.ts).
-  private completionChain: Promise<unknown> = Promise.resolve();
-
   /**
-   * Run a chat completion on the resident model. Passing the `messages` array lets
-   * llama.rn apply the model's own chat template. Streams tokens via opts.onToken.
+   * Run a chat completion on the resident model. Passing the `messages` array lets llama.rn apply the
+   * model's own chat template. Streams tokens via opts.onToken. Serialized against load/unload through
+   * the shared mutex so the context can never be freed underneath it.
    */
   async complete(messages: ChatMessage[], opts?: LlamaCompletionOptions) {
     if (!this.isModelLoaded) {
       throw new Error("Model not loaded");
     }
-    const run = this.completionChain
-      .catch(() => { /* the previous completion's error belongs to its caller */ })
-      .then(() => {
-        if (!this.isModelLoaded) throw new Error("Model not loaded");
-        return completeLlama(messages, opts);
-      });
-    this.completionChain = run;
-    return run;
+    return this.enqueue(() => {
+      if (!this.isModelLoaded) throw new Error("Model not loaded");
+      return completeLlama(messages, opts);
+    });
   }
 
+  /** Release the resident model — serialized so it can never overlap an in-flight completion. */
   async unload() {
-    await unloadLlamaModel();
+    await this.enqueue(() => unloadLlamaModel());
   }
 }
 

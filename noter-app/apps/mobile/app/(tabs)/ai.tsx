@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { MobileLlamaProvider } from '@/services/ai/provider';
 import { resolveAiNoteParentId, resolveAiTaskParentId } from '@/services/ai/placement';
 import { useStore } from '@/stores/useStore';
-import { ChatMessage, Conversation, HFModel, HFFile, AIProject, normalizeToolArguments, sortModels, type HFModelSort } from '@repo/ai';
+import { ChatMessage, Conversation, HFModel, HFFile, AIProject, normalizeToolArguments, sortModels, createStreamSink, type HFModelSort } from '@repo/ai';
 import { searchHuggingFaceModels, getModelFiles } from '@/services/ai/huggingface';
 import { downloadModel as serviceDownloadModel, getBestQuantization, deleteModel as serviceDeleteModel, cancelDownload as cancelModelDownload } from '@/services/ai/modelService';
 import { isNativeFileSystemAvailable, subscribeDownloads, getDownloadSnapshot, getActiveDownloads, pauseModelDownload, resumeModelDownload, resumePersistedDownloads, getModelPath as getLocalModelPath, type DownloadState } from '@/services/ai/ModelDownloader';
@@ -1884,14 +1884,6 @@ function AIScreenInner() {
           // Throttled snapshot of the still-streaming reply into the local DB, so leaving
           // the thread (or the app) mid-generation never loses what's been produced — the
           // partial is already persisted under this (captured) conversationId.
-          let lastPersist = startTime;
-          const persistPartial = (force = false) => {
-              if (!fullContent) return;
-              if (!force && Date.now() - lastPersist < 1200) return;
-              lastPersist = Date.now();
-              saveMessageLocal(conversationId, { ...assistantMsg, content: fullContent }).catch(() => {});
-          };
-
           const updateTps = () => {
               const elapsed = (Date.now() - startTime) / 1000;
               if (elapsed <= 0) return;
@@ -1899,6 +1891,15 @@ function AIScreenInner() {
           };
 
           let generationError: any = null;
+          // Throttled sink: coalesce streamed tokens into a bounded number of FlatList re-renders +
+          // persistence writes (a full re-render per token was the Android ANR/crash). Shared with the
+          // desktop app via @repo/ai. onText/onPersist are internally guarded (never throw).
+          const streamSink = createStreamSink({
+              onText: (t) => setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: t } : m)),
+              onPersist: (t) => { saveMessageLocal(conversationId, { ...assistantMsg, content: t }).catch(() => {}); },
+              intervalMs: 80,
+              persistIntervalMs: 1200,
+          });
           if (aiUseApiProviders) {
               try {
                   // Real SSE streaming: append each delta as it arrives. A fresh
@@ -1914,27 +1915,29 @@ function AIScreenInner() {
                       images: iterations === 1 ? images : [],
                       signal: controller.signal,
                       onToken: (delta) => {
-                          if (stopRequestedRef.current) { try { controller.abort(); } catch {} return; }
-                          fullContent += delta;
+                          if (stopRequestedRef.current) { try { controller.abort(); } catch {} streamSink.cancel(); return; }
                           tokenCount += 1;
                           if (Date.now() - lastUpdate > 100) {
                               updateTps();
                               lastUpdate = Date.now();
                           }
-                          setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
-                          persistPartial();
+                          streamSink.push(delta); // throttled UI update + persistence
                       },
                   });
+                  streamSink.end();               // flush the final streamed text
+                  fullContent = streamSink.text;
                   // Reconcile with the final text (covers the non-streaming fallback path).
                   if (apiResult.text && apiResult.text.length >= fullContent.length) {
                       fullContent = apiResult.text;
+                      setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
                   }
                   tokenCount = Math.max(tokenCount, 1);
                   updateTps();
-                  setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
                   // Record usage for the limits/förbrukning display (best-effort).
-                  void recordUsage(apiProvider, activeApiModel, apiResult.totalTokens).then(refreshUsage);
+                  void recordUsage(apiProvider, activeApiModel, apiResult.totalTokens).then(refreshUsage).catch(() => {});
               } catch (apiError: any) {
+                  streamSink.end();               // flush whatever streamed before the error
+                  fullContent = streamSink.text;
                   generationError = apiError;
               }
           } else {
@@ -1943,19 +1946,21 @@ function AIScreenInner() {
                       currentHistory,
                       { streamDelayMs: 10, shouldStop: () => stopRequestedRef.current },
                       (token) => {
-                          if (stopRequestedRef.current) return;
+                          if (stopRequestedRef.current) { streamSink.cancel(); return; }
                           streamed = true;
-                          fullContent += token;
                           tokenCount += 1;
                           if (Date.now() - lastUpdate > 300) {
                               updateTps();
                               lastUpdate = Date.now();
                           }
-                          setMessages(prev => prev.map(m => m.id === assistantId ? { ...m, content: fullContent } : m));
-                          persistPartial();
+                          streamSink.push(token); // throttled UI update + persistence
                       }
                   );
+                  streamSink.end();
+                  fullContent = streamSink.text;
               } catch (streamError: any) {
+                  streamSink.end();
+                  fullContent = streamSink.text;
                   generationError = streamError;
               }
 

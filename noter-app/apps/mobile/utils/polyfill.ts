@@ -24,4 +24,9 @@ if (Platform.OS !== 'web') {
   }
 }
 
+// Streaming-safe TextDecoder — installed ONLY if the engine lacks one, so SSE token streaming
+// (which decodes byte chunks) never silently dies into the non-streamed fallback.
+import { installTextDecoderPolyfill } from './textDecoderPolyfill';
+if (Platform.OS !== 'web') installTextDecoderPolyfill();
+
 console.log('Crypto polyfill loaded');

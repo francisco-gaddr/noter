@@ -1,7 +1,7 @@
 import { HFFile, HFModel } from '@repo/ai';
 import { saveModelLocal, deleteModelLocal } from '@/services/database';
 import { v4 as uuidv4 } from 'uuid';
-import { downloadGgufModel, getModelPath, stopModelDownload, modelFileExists, deleteModelFile } from './ModelDownloader';
+import { downloadGgufModel, getModelPath, stopModelDownload, verifyModelFile, deleteModelFile } from './ModelDownloader';
 
 export const getBestQuantization = (files: HFFile[]): HFFile | undefined => {
     // Guard: callers pass the result of an async file fetch that may have failed → undefined/null.
@@ -48,12 +48,20 @@ export const downloadModel = async (
     if (!target) {
         throw new Error('Native filesystem not available');
     }
-    const exists = await modelFileExists(target);
-    if (!exists) {
+    // INTEGRITY, not mere existence: a partial/corrupt file at the target (app killed mid-download,
+    // an HTML error page saved as .gguf) must NOT be promoted to "downloaded" — it would then crash
+    // native initLlama at activation. Only skip the download when the file is a verified-intact GGUF
+    // of the expected size; otherwise (re)download.
+    const intact = await verifyModelFile(target, file.size);
+    if (!intact) {
         options?.onStageChange?.('queued');
         try {
             options?.onStageChange?.('downloading');
             await downloadGgufModel(file.url, model.id, file.quantization, onProgress, { name: model.name, totalBytes: file.size });
+            // Verify what actually landed before we register it as downloaded.
+            if (!(await verifyModelFile(target, file.size))) {
+                throw new Error('Nedladdningen blev ofullständig eller skadad. Försök igen.');
+            }
             options?.onStageChange?.('completed');
         } catch (e) {
             options?.onStageChange?.('failed');
