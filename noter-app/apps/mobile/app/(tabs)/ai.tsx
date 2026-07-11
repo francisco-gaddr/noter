@@ -13,7 +13,8 @@ import { downloadModel as serviceDownloadModel, getBestQuantization, deleteModel
 import { isNativeFileSystemAvailable, subscribeDownloads, getDownloadSnapshot, getActiveDownloads, pauseModelDownload, resumeModelDownload, resumePersistedDownloads, getModelPath as getLocalModelPath, type DownloadState } from '@/services/ai/ModelDownloader';
 import { recommendFileForDevice, assessModelFit, describeHardwareBudget, formatBytes } from '@/services/ai/hardware';
 import { saveConversationLocal, getConversationsLocal, deleteConversationLocal, saveMessageLocal, getMessagesLocal, getModelsLocal, saveModelLocal, saveProjectLocal, getProjectsLocal, deleteProjectLocal } from '@/services/database';
-import { combineSystemPrompts, buildToolUseNotice } from '@/services/ai/prompt';
+import { buildToolUseNotice } from '@/services/ai/prompt';
+import { buildChatSystemPrompt } from '@repo/shared';
 import { API_URL, fetchWithAuth } from '@/services/api';
 import { buildToolSystemPrompt, extractToolCalls } from '@/services/ai/tooling';
 import { extractThinking } from '@/services/ai/thinking';
@@ -2038,7 +2039,15 @@ function AIScreenInner() {
       const delegationNotice = effectiveToolUse
         ? 'Självdelegering: om användaren uttryckligen ber dig schemalägga/ta dig an en uppgift själv (som AI-agent), anropa create_task med delegateToAi=true (sätt dueDate som deadline, aiInstructions för extra styrning). Då körs uppgiften senare av AI-agenten med nuvarande modell/källa. Vanlig uppgift till användaren: create_task utan delegateToAi.'
         : '';
-      const combinedPrompt = combineSystemPrompts([systemPrompt, levelNotice, toolUseNotice, delegationNotice, toolPrompt].filter(Boolean).join('\n\n'), projectPrompt);
+      // Shared, layered system prompt (base identity + user prompt + project prompt + tool guidance +
+      // context) — the same builder the desktop app uses. A strong base role now always anchors the
+      // conversation instead of starting from the (possibly empty) user prompt.
+      const combinedPrompt = buildChatSystemPrompt({
+          userPrompt: systemPrompt,
+          projectPrompt,
+          toolGuidance: toolPrompt,
+          contextNotices: [levelNotice, toolUseNotice, delegationNotice],
+      });
       const systemMsg = combinedPrompt
         ? ({ id: 'system', role: 'system', content: combinedPrompt, createdAt: new Date().toISOString() } as ChatMessage)
         : null;

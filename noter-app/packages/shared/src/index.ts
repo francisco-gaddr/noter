@@ -52,3 +52,4 @@ export * from './featureSettings';
 export * from './flashcards';
 export * from './lruCache';
 export * from './videoEmbed';
+export * from './chatPrompt';
