@@ -144,3 +144,20 @@
 - Tester, lint, typecheck och relevanta builds är gröna.
 - Dokumentation är uppdaterad där ändringen påverkar drift, utvecklarflöde eller agentarbete.
 - Lokala Trae-/agentfiler förblir ospårade och exkluderade från Git, EAS och publika releaseartefakter.
+
+<!-- agent-operating-standard -->
+## Working alongside other agents
+
+More than one agent may change this repository. The rules for that are portable
+and identical across repositories:
+
+- [`docs/collaboration/AGENT-OPERATING-STANDARD.md`](docs/collaboration/AGENT-OPERATING-STANDARD.md)
+  roles including the standing orchestrator, how to pick a topology, claiming
+  paths, merge discipline, and the definition of done.
+- `bun scripts/test-preflight.ts` before believing a red suite. A timeout points
+  at the host, an assertion points at the code.
+
+Improve the standard where you find the lesson, then run
+`bun scripts/sync-agent-standard.ts --push` so every repository gets it. Never
+put anything repository-specific in it.
+
